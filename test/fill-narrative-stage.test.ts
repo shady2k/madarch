@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
@@ -42,6 +42,7 @@ import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapsho
 import { createFillStateSchema, createUnit, readRunUnits } from '../src/fill/state-store.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -151,7 +152,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
   const record = join(folder, 'agent-record.jsonl');
   const clock = options.clock ?? (() => NOW);
 
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

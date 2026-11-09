@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest }
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
@@ -21,6 +21,7 @@ import { CODE_FACTS_STAGE_ID } from '../src/fill/stages/code-facts.js';
 import { parseFileFacts } from '../src/fill/stages/file-facts.js';
 import { APP_FILE, CONFIG_FILE, GO_FILE, LOGGER_FILE, TS_FILE, writeProduct } from './fixtures/code-stages/repository.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
@@ -46,7 +47,7 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-code-facts-'));
   const { product, repository } = writeProduct(root);
   repositoryFolder = repository;
-  const owner = createPGliteDatabaseOwner({ btreeGist: true });
+  const owner = await createTestDatabaseOwner({ btreeGist: true });
   const fill = await createStagesFill({ product, database: owner });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({
@@ -193,7 +194,7 @@ describe('the code-facts stage', () => {
 describe('a source file a string escape with U+0000 in it', () => {
   test('publishes the escape as visible text instead of failing the draft insert', async () => {
     const escapeRoot = mkdtempSync(join(tmpdir(), 'madarch-code-facts-nul-'));
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const { product, repository } = writeProduct(escapeRoot, {
         'services/orders/src/escape.ts': 'export const separator = "left\\0right";\n',
@@ -238,7 +239,7 @@ describe('a source file a string escape with U+0000 in it', () => {
 describe('two callables of one name in two scopes', () => {
   test('are two nodes with their own keys, and the draft validates', async () => {
     const root = mkdtempSync(join(tmpdir(), 'madarch-code-facts-scopes-'));
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const { product } = writeProduct(root, {
         'services/orders/src/scopes.ts': 'export function row(): number {\n  return 1;\n}\n\n{\n  function row(): number {\n    return 2;\n  }\n}\n\nexport function useRow(): number {\n  return row();\n}\n',

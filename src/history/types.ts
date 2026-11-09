@@ -102,7 +102,7 @@ export interface StoreResult {
    * assertion, a shortened replacement (the same content, its `validTo` now
    * corrected) written in place of a row `closed` reports, and a row
    * restored to cover a span a late commit would otherwise have erased (see
-   * `pglite-history.ts`'s module doc). A caller can rebuild its own derived
+   * `sql-history.ts`'s module doc). A caller can rebuild its own derived
    * index from `opened` and `closed` alone: together they name every row
    * this store wrote or superseded, each exactly as the database holds it.
    */
@@ -182,7 +182,7 @@ export interface CommitRecord {
  * outer transaction, every statement the operation makes runs inside it:
  * the history neither commits it nor rolls it back, and reads through it
  * see this caller's own uncommitted writes beside the rest of the
- * database. A PGlite transaction and a PostgreSQL client both answer this
+ * database. A transaction of the owner's and its pool client both answer this
  * shape; this interface itself touches no database-specific API.
  */
 export interface OuterTransaction {
@@ -192,7 +192,7 @@ export interface OuterTransaction {
 /**
  * Keeps every version of every source's compiled model, with both time
  * axes, from the first write: nothing is ever overwritten or deleted (see
- * the model-history capability). `src/adapters/pglite-history.ts` is the
+ * the model-history capability). `src/adapters/sql-history.ts` is the
  * only implementation so far; this interface itself touches no Bun-specific
  * API.
  *

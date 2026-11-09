@@ -6,24 +6,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFERENCE_SYSTEM, REFERENCE_TIME } from '../scripts/render-views.js';
 import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4-check.js';
-import {
-  compileModel,
-  createPGliteDatabaseOwner,
-  createPGliteHistory,
-  createPGliteQueryDatabase,
-  loadAndCompileModel,
-  loadModel,
-  renderAsyncOneViewMermaid,
-  renderAsyncOneViewLikeC4,
-  startServer,
-  type LikeC4Result,
-  type CompiledElement,
-  type CompiledModel,
-  type DatabaseOwner,
-  type HistoryStore,
-  type AsyncQueryEngine,
-  type StartedServer,
-} from '../src/index.js';
+import { compileModel, loadAndCompileModel, loadModel, renderAsyncOneViewMermaid, renderAsyncOneViewLikeC4, startServer, type LikeC4Result, type CompiledElement, type CompiledModel, type DatabaseOwner, type HistoryStore, type AsyncQueryEngine, type StartedServer } from '../src/index.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
+import { createQueryDatabase } from '../src/adapters/query-database.js';
 
 /**
  * The server capability's view and explains requirements
@@ -45,8 +31,8 @@ const clockNow = { value: NOW };
 
 /**
  * The bound of a case that starts a server and sends it a model: the server
- * keeps each source as a file-backed PGlite of its own (`src/server/sources.ts`)
- * beside the query projection the case is lent, and one PGlite is 1.66 s to boot
+ * keeps each source as a file-backed history of its own (`src/server/sources.ts`)
+ * beside the query projection the case is lent, and one database boot was 1.66 s
  * on the 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), so a
  * case here takes 2.5-5 s where a database-backed one takes half a second.
  */
@@ -63,7 +49,7 @@ const VALIDATE_MS = 15_000;
  * The bound of a case that does more than one round of the case's own work: it
  * renders the reference system three times, or restarts the server on its data
  * folder, or holds two models at two times. The server stores a source as a
- * file-backed PGlite of its own (`src/server/sources.ts`), 1.66 s to boot on the
+ * file-backed history of its own (`src/server/sources.ts`), 1.66 s to boot on the
  * 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), and this case
  * pays that once per server start on top of what it compares.
  */
@@ -96,10 +82,9 @@ let lines: string[];
 let errors: string[];
 
 /**
- * The file's query database, one PGlite for every case: it holds the graphs'
+ * The file's query database, one database for every case: it holds the graphs'
  * projection, and each server the cases start is lent a database on it. One
- * PGlite is 1.66 s to boot on the 2-CPU pod the tests run on (measured
- * 2026-10-20, madarch-cznn: a bare instance 1.66 s, a schema 0.07 s more), and
+ * database is created in about 30 ms on the run's server (`test/test-database.ts`), and
  * the projection a case needs is replaced source by source at every rebuild
  * (`sql-query-database.ts`'s `rebuild` replaces its scoped sources), so a case
  * reading another case's leftover rows is not possible: no case ever asks a
@@ -109,13 +94,13 @@ let errors: string[];
 let sharedQueryOwner: DatabaseOwner | undefined;
 
 /** The file's query owner, opened on the first case that needs it (decision 0027: the caller that opened the owner closes it, never the adapters lent it). */
-function queryOwner(): DatabaseOwner {
-  sharedQueryOwner ??= createPGliteDatabaseOwner({ vector: true });
+async function queryOwner(): Promise<DatabaseOwner> {
+  sharedQueryOwner ??= await createTestDatabaseOwner();
   return sharedQueryOwner;
 }
 
 // The bound is named because hooks do not get the preload's default, and
-// closing the file's database is the hook's work: PGlite shutdown under a
+// closing the file's database is the hook's work: its shutdown under a
 // loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
 // five.
 afterAll(async () => {
@@ -137,9 +122,9 @@ const caseComparisons: { model: CompiledModel; at: number; history: HistoryStore
 async function comparisonHistory(model: CompiledModel, at: number): Promise<HistoryStore> {
   const known = caseComparisons.find((each) => each.model === model && each.at === at);
   if (known !== undefined) return known.history;
-  const owner = createPGliteDatabaseOwner({ vector: true });
+  const owner = await createTestDatabaseOwner();
   caseDatabases.push(owner);
-  const history = createPGliteHistory({ owner, clock: { now: () => at } });
+  const history = createHistoryStore({ owner, clock: { now: () => at } });
   expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
   caseComparisons.push({ model, at, history });
   return history;
@@ -160,9 +145,9 @@ afterEach(async () => {
   }
 }, 30_000);
 
-/** Test/local composition explicitly selects PGlite and injects the shared query owner. */
+/** Test/local composition opens the file's database owner and injects it. */
 async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {
-  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ owner: queryOwner(), clock: options.clock }) });
+  return startServer({ ...options, queryDatabase: await createQueryDatabase({ owner: await queryOwner(), clock: options.clock }) });
 }
 
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */

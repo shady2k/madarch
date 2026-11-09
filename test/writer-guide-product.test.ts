@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
@@ -21,6 +21,7 @@ import { renderGuideArtifact } from '../src/writer/guides/artifact.js';
 import type { UnitAgent } from '../src/writer/run.js';
 import type { PageModel } from '../src/knowledge/model.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const env = gitEnv({ GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' });
 const instruction = 'node -e "console.log(\'Ready\')"';
@@ -62,7 +63,7 @@ test('default product reader uses real published proof, survives generated-only 
     const storeRoot = join(work, 'stores');
     const graphPath = join(storeFolderOf(storeRoot, draft.id, workspace), 'graph');
     mkdirSync(graphPath, { recursive: true });
-    owner = createPGliteDatabaseOwner({ path: graphPath, btreeGist: true }); await owner.ready;
+    owner = await createTestDatabaseOwner({ store: graphPath, btreeGist: true }); await owner.ready;
     const store = createGraphStore(owner); await store.createSchema();
     const scope = await store.newNode();
     await store.openNode({ nodeId: scope, kind: 'code.repository', label: 'sample', properties: { path: repository }, validFrom: valid, owner: { producer: 'fixture', scope } });

@@ -17,10 +17,9 @@ import { ALL_STATES, checkSpan, checkValid, compareInstants, instantText, plusMi
 import { CLAIM_KIND, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 
 /**
- * The most rows one statement in a publication writes. PGlite runs a statement
- * on the thread that owns it, so a reader waits for the whole statement; a
- * 5,000-edge publication is written in bounded pieces instead of one long hold
- * (madarch-alzf, PR #197 latency).
+ * The most rows one statement in a publication writes: a 5,000-edge publication
+ * is written in bounded pieces instead of one long statement, so the statement's
+ * WAL, its buffers and its locks stay bounded (madarch-alzf, PR #197 latency).
  */
 export const EDGE_BATCH_SIZE = 100;
 
@@ -52,9 +51,10 @@ export function readerTurn(): ReaderTurn {
 }
 
 /**
- * Yields one macrotask so a wiki read queued behind PGlite is answered between
- * batches. The promises a memoized publication awaits resolve as microtasks;
- * without this the whole 5,221-edge loop is one continuous hold.
+ * Yields one macrotask so a wiki read waiting on the same server is answered
+ * between batches. The promises a memoized publication awaits resolve as
+ * microtasks; without this the whole 5,221-edge loop is one continuous hold of
+ * the publication's transaction.
  */
 export async function yieldToReaders(): Promise<void> {
   await new Promise<void>((resolve) => { setTimeout(() => resolve(), 0); });

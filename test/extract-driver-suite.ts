@@ -1,7 +1,7 @@
 /**
  * The extract driver's checks (decision 0028's idempotent-refill,
  * rename-keeps-identity, dates-on-main and the answer key's snapshots),
- * written once and run by two files: `extract-driver.test.ts` on PGlite and
+ * written once and run by two files: `extract-driver.test.ts` on a store's own server and
  * `extract-driver-postgres.test.ts` on a server PostgreSQL.
  *
  * Expected values come from the training repository's answer key and from

@@ -18,9 +18,10 @@
  * name is in the schema any more.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { ensureGraphSchema, staticUnitPublicationOf } from '../src/fill/stages/static-graph.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const REPOSITORY = 'shop';
 const FILE = 'src/duplicates.ts';
@@ -38,7 +39,7 @@ async function plan(sql: string, params: readonly unknown[]): Promise<string> {
 }
 
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await ensureGraphSchema(store);
   key = `code.callable:${REPOSITORY}:${FILE}@7:8:identifier`;

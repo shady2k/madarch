@@ -8,9 +8,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { daemonFills } from '../src/product/daemon.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-daemon-one-'));
 const HOME = join(ROOT, 'products');
@@ -51,7 +51,7 @@ describe('two simultaneous first runs of one product', () => {
       expect(finished.state).toBe('succeeded');
       // The one store holds the one run, and the refused run id stands nowhere: no second database took it.
       const store = productStoreFolder(PRODUCT, knowledgeRootOf(HOME));
-      const owner = createPGliteDatabaseOwner({ path: storeDatabasePath(store), btreeGist: true });
+      const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
       await owner.ready;
       try {
         const runs = await owner.run((tx) => tx.query<{ run_id: string }>('SELECT run_id FROM fill_run ORDER BY run_id'));

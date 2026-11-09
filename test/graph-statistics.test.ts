@@ -11,11 +11,12 @@
  * after a refresh.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { ANALYZE_STATISTICS_SQL, STATISTICS_ROWS, STATISTICS_TABLES } from '../src/graph/statistics.js';
 import { readMembership } from '../src/fill/orchestrator-store.js';
 import { ensureGraphSchema, staticUnitPublicationOf } from '../src/fill/stages/static-graph.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const REPOSITORY = 'shop';
 const FILE = 'src/stats.ts';
@@ -43,7 +44,7 @@ async function publish(target: GraphStore, nodes: number, edges: number, file = 
 }
 
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await ensureGraphSchema(store);
 }, 300_000);
@@ -55,7 +56,7 @@ afterAll(async () => {
 describe('the rule the fill keeps the statistics by', () => {
   test('a publication counts the versions it wrote, and a store that owns the transaction refreshes for a never-analyzed table', async () => {
     if (store === undefined) throw new Error('the store was not opened');
-    const created = createPGliteDatabaseOwner({ btreeGist: true });
+    const created = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const fresh = createGraphStore(created);
       await ensureGraphSchema(fresh);

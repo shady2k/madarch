@@ -2,9 +2,10 @@
  * The graph's table statistics (madarch-8bdc.2.5): the planner's estimates for
  * `node_version` and `edge_version`, kept current while a fill publishes.
  *
- * **Why a rule is needed.** PGlite runs no autovacuum, and nothing else in the
- * store ever ran `ANALYZE`, so a store that has grown to millions of versions
- * carried `reltuples = -1` on every table. Without statistics the planner
+ * **Why a rule is needed.** A server's autovacuum analyzes a table on its own
+ * schedule (a 60 s naptime and 10 % growth by default) and nothing else in the
+ * store runs `ANALYZE`, so a store that grew to millions of versions inside one
+ * fill carried `reltuples = -1` on every table for the fill's whole length. Without statistics the planner
  * cannot know that a property read asks for a handful of rows: measured on a
  * copy of a 2 499 106-version store, the same bounded read
  * (`byProperty('code.listener-port', 'service', …)`) planned as a bitmap heap

@@ -16,7 +16,7 @@
  * strong model writes and analyses, a weak model or jev classifies).
  */
 import { execFile } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { runFill } from '../fill/run.js';
@@ -33,7 +33,7 @@ const execFileAsync = promisify(execFile);
  */
 type StoreOwner = NonNullable<Parameters<typeof import('../fill/orchestrator-host.js').createFillOrchestratorService>[0]['owner']>;
 
-/** The least time between two snapshots a reader is given while a run is under way: a snapshot costs a store's copy. */
+/** The least time between two snapshots a reader is given while a run is under way: a snapshot costs a reader process's start. */
 const DEFAULT_SNAPSHOT_MS = 8_000;
 
 /** The numbers of the snapshots already in `readRoot`, so a new one never reuses one. */
@@ -45,14 +45,19 @@ export function snapshotNumbers(readRoot: string): number[] {
   }
 }
 
-/** Makes the folder of a snapshot of a store the owner holds: a checkpoint, then a copy that lands whole or not at all. */
+/**
+ * Records one numbered snapshot of a store for its reader. With one PostgreSQL
+ * server a snapshot is no copy: the reader's own repeatable-read transaction is
+ * the snapshot, begun when the reader opened, and what a reader needs from the
+ * fill is the *number* of the generation it stands at and the moment the fill
+ * published it — a line in `<read>/<n>`, written whole by a rename.
+ */
 export async function takeSnapshot(owner: StoreOwner, graphPath: string, readRoot: string): Promise<number> {
-  await owner.exec('CHECKPOINT');
+  void owner;
   mkdirSync(readRoot, { recursive: true });
   const seq = (snapshotNumbers(readRoot).pop() ?? 0) + 1;
   const temporary = join(readRoot, `${seq}.tmp`);
-  rmSync(temporary, { recursive: true, force: true });
-  cpSync(graphPath, temporary, { recursive: true });
+  writeFileSync(temporary, `${JSON.stringify({ store: graphPath, at: new Date().toISOString() })}\n`);
   renameSync(temporary, join(readRoot, String(seq)));
   return seq;
 }

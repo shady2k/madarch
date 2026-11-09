@@ -3,9 +3,9 @@
  * `read-worker.ts`): the same two shapes of work as a local owner, `transaction`
  * and `run`, with every statement sent over a pipe. The wiki's reads use only
  * `query`, so that is all a transaction hands to its work. One transaction is
- * open at a time, as in a PGlite owner, in the order they were asked for.
+ * open at a time, in the order they were asked for.
  */
-import type { DatabaseOwner, DatabaseBackend, OuterTransaction } from '../adapters/database-owner.js';
+import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import type { SqlTransactionKind } from '../query/sql-driver.js';
 import { linesOf } from './lines.js';
 import type { ReadReply, ReadRequest } from './read-worker.js';
@@ -58,7 +58,6 @@ const RECENT_STATEMENTS = 300;
 
 export class RemoteOwner implements DatabaseOwner {
   readonly allowConcurrentSnapshots = false;
-  readonly backend: DatabaseBackend = 'pglite';
   readonly hasVector = false;
   readonly ready: Promise<void>;
   private readonly process: ReadWorkerProcess;
@@ -74,7 +73,7 @@ export class RemoteOwner implements DatabaseOwner {
   constructor(readonly location: string, options: { create: boolean; factory?: ReadWorkerFactory }) {
     const proc = (options.factory ?? spawnReadWorker)();
     this.process = proc;
-    // A worker opening a store is the heaviest reader on its cores (a PGlite boots it there), and the reader it will
+    // A worker opening a store is the heaviest reader on its cores (opening it starts its server), and the reader it will
     // replace keeps answering the pages meanwhile: it therefore boots at a lower priority, and takes its share of the
     // machine only once it is ready to answer. This is what "the old reader answers until the new one is ready" means
     // where two cores are shared by four processes.
@@ -87,7 +86,9 @@ export class RemoteOwner implements DatabaseOwner {
       try {
         for await (const line of proc.lines) {
           const reply = decodeWire<ReadReply>(line);
-          if (reply.type === 'ready') { proc.priority(0); opened(); }
+          // It keeps the priority it booted at: the reader is background work, and the process that answers pages must
+          // never lose a core to it (madarch-8bdc.2.5, CI run 42505805264).
+          if (reply.type === 'ready') opened();
           else if (reply.type === 'failed') { this.failure = new Error(reply.message); refused(this.failure); }
           else if (reply.type === 'ended') this.ending.get(reply.tx)?.(reply);
           else {

@@ -1,8 +1,8 @@
 /**
  * The temporal graph store (decision 0028): one graph of stable identities
  * with versioned nodes and edges, two time axes and architecture states, in
- * the process's one database owner (PGlite opened with `btreeGist: true`, or
- * PostgreSQL). It lives beside today's stores and touches none of them.
+ * the process's one database owner (a store's own PostgreSQL server, opened
+ * with `btreeGist: true`). It lives beside today's stores and touches none of them.
  *
  * Every method takes an optional `OuterTransaction` of the owner: given, its
  * statements run inside it and the store neither commits nor rolls it back;
@@ -68,8 +68,8 @@ export class GraphStore {
   readonly statistics: GraphStatistics;
 
   /**
-   * The WAL checkpoint the same seam runs (`checkpoint.ts`): PGlite's single-user backend has no
-   * checkpointer, so without it `pg_wal` grows with the graph until the disk is full.
+   * The WAL checkpoint the same seam runs (`checkpoint.ts`): a `CHECKPOINT` after enough versions were written, so
+   * a fill's `pg_wal` never waits for `max_wal_size` to be filled before its segments are recycled.
    */
   readonly checkpoints: GraphCheckpoints;
 

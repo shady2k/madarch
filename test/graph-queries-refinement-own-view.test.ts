@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { createTestQueryEngine } from './query-test-engine.js';
 import { fileURLToPath } from 'node:url';
-import { compileModel, createPGliteHistory, loadModel, type AssertionRecord, type Clock, type HistoryStore, type AsyncQueryEngine } from '../src/index.js';
+import { compileModel, loadModel, type AssertionRecord, type Clock, type HistoryStore, type AsyncQueryEngine } from '../src/index.js';
+import { createTestHistory } from './test-database.js';
 
 /**
  * graph-queries/view, the `refinement-in-own-view` scenario and the sentence
@@ -26,7 +27,7 @@ const AT = { valid: DAY(2), known: DAY(2), state: 'as-is' };
 /** Loads and compiles each fixture in turn as one source's next commit, and builds a query engine from the history they produced. */
 async function engineFor(...versions: { name: string; committedAt: number; storedAt: number }[]): Promise<{ engine: AsyncQueryEngine; history: HistoryStore }> {
   const clock = fakeClock(versions[0]!.storedAt);
-  const history = createPGliteHistory({ clock });
+  const history = await createTestHistory({ clock });
   for (const version of versions) {
     const { model, errors } = loadModel(fixture(version.name));
     expect(errors).toEqual([]);

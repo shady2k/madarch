@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
@@ -29,17 +29,7 @@ import { createFillOrchestratorService, type ProductFillWiring } from '../src/fi
 import { createOrchestrator, planRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import {
-  UNDERSTANDING_KINDS,
-  UNDERSTANDING_STAGE_ID,
-  UNDERSTANDING_SUMMARY_PREDICATE,
-  UNDERSTANDING_SUMMARY_ROWS,
-  boundSummary,
-  createUnderstandingStage,
-  moduleUnits,
-  summaryCodePoints,
-  understandingDeclaration,
-} from '../src/fill/stages/understanding.js';
+import { UNDERSTANDING_KINDS, UNDERSTANDING_STAGE_ID, UNDERSTANDING_SUMMARY_PREDICATE, UNDERSTANDING_SUMMARY_ROWS, boundSummary, createUnderstandingStage, moduleUnits, summaryCodePoints, understandingDeclaration } from '../src/fill/stages/understanding.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { FACTS_SCHEMA_VERSION, FACT_KINDS } from '../src/fill/facts.js';
@@ -50,6 +40,7 @@ import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { graphReadsOver } from '../src/fill/graph-reads.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -193,7 +184,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
   writeFileSync(scriptPath, JSON.stringify(options.script));
   const record = join(folder, 'agent-record.jsonl');
 
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);
@@ -784,7 +775,7 @@ describe('stage 12\'s declaration', () => {
   });
 
   test('the plan names the leaves first and refuses a module whose children stand past the fan-in bound', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       await createFactStoreSchema(owner);
       const pins: readonly RepositoryPin[] = [{ id: REPOSITORY, form: 'code', root: join(root!, REPOSITORY), commit: COMMITS[REPOSITORY]! }];
@@ -799,7 +790,7 @@ describe('stage 12\'s declaration', () => {
       // A wide module: fifty-two children stand past the fan-in bound of fifty, and the plan says which
       // module and which bound, naming the grouping that holds the rule. One owner, one seed: the bound's
       // refusal reads the same store the tree's own order was read from.
-      const wideOwner = createPGliteDatabaseOwner();
+      const wideOwner = await createTestDatabaseOwner();
       try {
         const wide = moduleFact('wide', undefined, 'src/wide.ts', 52, 0.9);
         const children = Array.from({ length: 52 }, (_, at) => moduleFact(`fan-${String(at)}`, wide.id, `src/fan-${String(at)}.ts`, 1, 0.1));
@@ -850,7 +841,7 @@ describe('stage 12\'s declaration', () => {
           expect(cycleMessage).toContain('a cycle is a tree no unit order can name');
         }
         // A parent across repositories: the second module names a parent the first repository holds.
-        const crossOwner = createPGliteDatabaseOwner();
+        const crossOwner = await createTestDatabaseOwner();
         try {
             // The other repository's module facts stand in their own repository's provenance: one fact is
             // one repository, and the schema refuses a fact whose value names another.
@@ -877,7 +868,7 @@ describe('stage 12\'s declaration', () => {
             expect(crossMessage).toContain('of another-repo');
             expect(crossMessage).toContain("a module's parent stands in its own repository");
             // A parent that stands nowhere.
-            const missingOwner = createPGliteDatabaseOwner();
+            const missingOwner = await createTestDatabaseOwner();
             try {
               const missingId = 'module:' + 'd'.repeat(64);
               const orphan = moduleFact('orphan', missingId, 'src/shop.ts', 1, 0.5);

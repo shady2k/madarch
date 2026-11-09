@@ -1,22 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { PGlite } from '@electric-sql/pglite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalJsonDigest } from '../src/model/canonical.js';
-import {
-  createPGliteHistory,
-  loadAndCompileModel,
-  serializeCompiledModel,
-  type Clock,
-  type CompiledElement,
-  type CompiledEntity,
-  type CompiledModel,
-  type CompiledRelation,
-  type CompiledScenario,
-  type HistoryStore,
-} from '../src/index.js';
+import { loadAndCompileModel, serializeCompiledModel, type Clock, type CompiledElement, type CompiledEntity, type CompiledModel, type CompiledRelation, type CompiledScenario, type HistoryStore } from '../src/index.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
+import { createTestHistory, openRawStore } from './test-database.js';
 
 function fixture(name: string): string {
   return fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
@@ -35,8 +25,8 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 
 const openHistories = new Set<HistoryStore>();
 
-function newHistory(options: Parameters<typeof createPGliteHistory>[0]): HistoryStore {
-  const instance = createPGliteHistory(options);
+async function newHistory(options: Parameters<typeof createHistoryStore>[0]): Promise<HistoryStore> {
+  const instance = await createTestHistory({ clock: options.clock, ...(options.store === undefined ? {} : { store: options.store }) });
   openHistories.add(instance);
   const close = instance.close.bind(instance);
   instance.close = async () => {
@@ -50,8 +40,8 @@ afterEach(async () => {
   await Promise.all([...openHistories].map((instance) => instance.close()));
 });
 
-function history(clock: Clock): HistoryStore {
-  return newHistory({ clock });
+async function history(clock: Clock): Promise<HistoryStore> {
+  return await newHistory({ clock });
 }
 
 async function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): Promise<CompiledModel> {
@@ -101,7 +91,7 @@ function model(
 describe('store-version: storing a source at a commit', () => {
   test('reading as of the commit\'s valid time and the storing moment\'s known time returns what was stored', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
 
     const shopAtC1 = model([element('a'), element('b'), element('c')]);
     const result = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: shopAtC1 });
@@ -113,7 +103,7 @@ describe('store-version: storing a source at a commit', () => {
 
   test('nothing is returned before the commit\'s valid time', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
     expect((await readModel(h, { source: 'shop', valid: DAY(1) - 1, known: DAY(2) })).elements).toEqual([]);
@@ -135,7 +125,7 @@ describe('replace: a new version replaces what the source asserted', () => {
 
   test('element-removed: the removed element is there before the commit that removes it, and gone after, at the latest known time', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await storeTwoVersions(clock, h);
 
     const before = await readModel(h, { source: 'shop', valid: DAY(5), known: DAY(12) });
@@ -147,7 +137,7 @@ describe('replace: a new version replaces what the source asserted', () => {
 
   test('what-we-knew: read at a known time before the removal was recorded still shows the removed element', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await storeTwoVersions(clock, h);
 
     // As of 12 September (valid), the history knew, on 3 September, only
@@ -159,7 +149,7 @@ describe('replace: a new version replaces what the source asserted', () => {
 
   test('an element unchanged across the two versions is left exactly as it was, not closed and reopened', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await storeTwoVersions(clock, h);
 
     // checkout-web survives both versions: reading it as of any time from
@@ -171,7 +161,7 @@ describe('replace: a new version replaces what the source asserted', () => {
 
   test('an element whose content changes (same id, different fields) is closed and reopened with the new content', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('checkout-web', { technology: 'AAA' })]) });
     clock.set(DAY(11));
     await h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('checkout-web', { technology: 'ZZZ' })]) });
@@ -185,7 +175,7 @@ describe('replace: a new version replaces what the source asserted', () => {
 
   test('an element unchanged across a version does not linger as a stray assertion once a later version removes it', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     // c1: two elements. c2 (10 September): the same two, unchanged — this
     // must not open a redundant duplicate of the unchanged one. c3 (20
     // September): only one left.
@@ -203,7 +193,7 @@ describe('replace: a new version replaces what the source asserted', () => {
 describe('reading the union of an unsorted store: entities come back sorted by id, code point order', () => {
   test('elements are sorted regardless of the order they were stored in, whether read by source or across every source', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     // Stored out of order across two separate commits, so neither
     // insertion order nor a single commit's own array order could explain
     // a sorted result by accident.
@@ -218,23 +208,23 @@ describe('reading the union of an unsorted store: entities come back sorted by i
 describe('the database path option', () => {
   test('an in-memory history (the default) is not shared between two independent instances', async () => {
     const clock = fakeClock(DAY(2));
-    const h1 = newHistory({ clock });
+    const h1 = await newHistory({ clock });
     await h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
-    const h2 = newHistory({ clock });
+    const h2 = await newHistory({ clock });
     expect((await readModel(h2, { source: 'shop', valid: DAY(1), known: DAY(2) })).elements).toEqual([]);
   });
 
   test('a file path persists the history: a second instance opened on the same path reads what the first stored', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-history-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     const clock = fakeClock(DAY(2));
 
-    const h1 = newHistory({ path, clock });
+    const h1 = await newHistory({ store: path, clock });
     await h1.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
     await h1.close();
-    const h2 = newHistory({ path, clock });
+    const h2 = await newHistory({ store: path, clock });
     expect((await readModel(h2, { source: 'shop', valid: DAY(1), known: DAY(2) })).elements.map((e) => e.id)).toEqual(['a']);
     await h2.close();
   });
@@ -243,7 +233,7 @@ describe('the database path option', () => {
 describe('a store failure comes back as an error value, never thrown, and leaves the history as it was', () => {
   test('an unrecordable model (here, one whose content cannot be turned into JSON) is reported, not thrown', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
 
     // A circular reference is not something `parseModel`/`compileModel`
     // could ever produce, but `store` takes an already-compiled model, so
@@ -274,7 +264,7 @@ describe('a store failure comes back as an error value, never thrown, and leaves
 describe('idempotent: storing the same commit twice changes nothing', () => {
   test('repeat: the second store is a no-op and every read returns the same', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a'), element('b')]) });
 
     const before = await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) });
@@ -291,7 +281,7 @@ describe('idempotent: storing the same commit twice changes nothing', () => {
   });
   test('a repeated commit with another time and model reports both differences', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 
     const result = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(3), model: model([element('b')]) });
@@ -307,7 +297,7 @@ describe('idempotent: storing the same commit twice changes nothing', () => {
 describe('order-by-commit: commits are ordered by their time, not by arrival', () => {
   test('late-arrival: an older commit stored after a newer one does not replace it', async () => {
     const clock = fakeClock(DAY(11));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('billing-api')]) });
 
     clock.set(DAY(20));
@@ -319,7 +309,7 @@ describe('order-by-commit: commits are ordered by their time, not by arrival', (
 
   test('the late-arriving commit is recorded so reads between the two commits return it', async () => {
     const clock = fakeClock(DAY(11));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c2', committedAt: DAY(10), model: model([element('billing-api')]) });
 
     clock.set(DAY(20));
@@ -333,7 +323,7 @@ describe('order-by-commit: commits are ordered by their time, not by arrival', (
 describe('commits: every commit of one source, in the history\'s own commit order', () => {
   test('commits are listed with their times and storing moments, oldest first', async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c9', committedAt: DAY(2), model: model([element('a')]) });
 
     clock.set(DAY(11));
@@ -352,7 +342,7 @@ describe('commits: every commit of one source, in the history\'s own commit orde
   });
 
   test('PostgreSQL orders tied commit ids by code point, matching the former binary order', async () => {
-    const h = history(fakeClock(DAY(10)));
+    const h = await history(fakeClock(DAY(10)));
     const ids = ['ä', 'a', '😀', 'A'];
     for (const commit of ids) {
       await h.store({ source: 'shop', commit, committedAt: DAY(1), model: model([element('item', { technology: commit })]) });
@@ -367,7 +357,7 @@ describe('commits: every commit of one source, in the history\'s own commit orde
 
   test('commits at the same time are ordered by the commit id', async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'zzz', committedAt: DAY(1), model: model([element('a')]) });
     await h.store({ source: 'shop', commit: 'aaa', committedAt: DAY(1), model: model([element('b')]) });
 
@@ -377,7 +367,7 @@ describe('commits: every commit of one source, in the history\'s own commit orde
 
   test('commitRecord exposes the canonical digest stored beside each commit', async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     const storedModel = model([element('a')]);
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: storedModel });
 
@@ -386,12 +376,11 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     await h.close();
   });
 
-  test('opening a PGlite history with commits but no canonical digest refuses when the digest cannot be reconstructed faithfully', async () => {
+  test('opening a history with commits but no canonical digest refuses when the digest cannot be reconstructed faithfully', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-legacy-history-'));
-    const path = join(folder, 'history.pglite');
+    const path = join(folder, 'history');
     try {
-      const db = new PGlite(path);
-      await db.waitReady;
+      const db = await openRawStore(path);
       await db.exec(`CREATE TABLE source_commits (
         source TEXT NOT NULL,
         commit_id TEXT NOT NULL,
@@ -403,8 +392,8 @@ describe('commits: every commit of one source, in the history\'s own commit orde
       await db.query('INSERT INTO source_commits VALUES ($1, $2, $3, $4, $5)', ['shop', 'legacy-c1', DAY(1), 'old-content-digest', DAY(2)]);
       await db.close();
 
-      const history = newHistory({ path, clock: fakeClock(DAY(10)) });
-      await expect(history.sources()).rejects.toThrow(/history\.pglite.*legacy-c1.*shop.*cannot faithfully recover/i);
+      const history = await newHistory({ store: path, clock: fakeClock(DAY(10)) });
+      await expect(history.sources()).rejects.toThrow(/madarch-legacy-history.*legacy-c1.*shop.*cannot faithfully recover/i);
       await history.close();
     } finally {
       rmSync(folder, { recursive: true, force: true });
@@ -413,7 +402,7 @@ describe('commits: every commit of one source, in the history\'s own commit orde
 
   test("commitRecord reads one commit's own row, or says the source never stored it", async () => {
     const clock = fakeClock(DAY(10));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'shop', commit: 'c9', committedAt: DAY(2), model: model([element('a')]) });
 
     clock.set(DAY(11));
@@ -438,7 +427,7 @@ describe('lossless: what is stored reads back as compiled', () => {
     expect(compiled).toBeDefined();
 
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const result = await h.store({ source: 'reference', commit: 'c1', committedAt: DAY(1), model: compiled! });
     expect(result.errors).toEqual([]);
 
@@ -453,7 +442,7 @@ describe('lossless: what is stored reads back as compiled', () => {
     expect(compiled?.scenarios.map((s) => s.id)).toEqual(['order-fails', 'place-order']);
 
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const result = await h.store({ source: 'reference', commit: 'c1', committedAt: DAY(1), model: compiled! });
     expect(result.errors).toEqual([]);
 
@@ -470,7 +459,7 @@ describe('lossless: what is stored reads back as compiled', () => {
 
   test('the union read carries entities and scenarios beside the seven kinds, sorted by id', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({
       source: 'shop',
       commit: 'c1',
@@ -490,7 +479,7 @@ describe('lossless: what is stored reads back as compiled', () => {
 
   test('a newer commit replaces the entities and scenarios the source asserted, like every other kind', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const relations = [relation('r1', 'a', 'a')];
     await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')], relations, { entities: [entity('gone')], scenarios: [scenario('gone-too')] }) });
     clock.set(DAY(11));
@@ -518,7 +507,7 @@ describe('lossless: what is stored reads back as compiled', () => {
 
   test('entities and scenarios are each one source\'s exclusive claim: a second source redeclaring an id is refused, naming the id and the other source', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     await h.store({ source: 'payments', commit: 'p1', committedAt: DAY(1), model: model([element('x')], [], { entities: [entity('session-id')], scenarios: [scenario('place-order')] }) });
 
     const refusedEntity = await h.store({ source: 'shop', commit: 's1', committedAt: DAY(1), model: model([element('y')], [], { entities: [entity('session-id')] }) });
@@ -542,11 +531,10 @@ describe('lossless: what is stored reads back as compiled', () => {
 
   test('the exclusive-kind safety net reports an entity or scenario id two sources claim, like the other clashable kinds (data written outside store())', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'madarch-hnq14-'));
-    const path = join(dir, 'history.pglite');
+    const path = join(dir, 'history');
     try {
-      await newHistory({ clock: fakeClock(DAY(2)), path }).close();
-      const raw = new PGlite(path);
-      await raw.waitReady;
+      await (await newHistory({ clock: fakeClock(DAY(2)), store: path })).close();
+      const raw = await openRawStore(path);
       for (const kind of ['entity', 'scenario'] as const) {
         for (const [source, value] of [['a', 'A'], ['b', 'B']] as const) {
           await raw.query(
@@ -558,7 +546,7 @@ describe('lossless: what is stored reads back as compiled', () => {
       }
       await raw.close();
 
-      const h = newHistory({ clock: fakeClock(DAY(2)), path });
+      const h = await newHistory({ clock: fakeClock(DAY(2)), store: path });
       const result = await h.read({ valid: DAY(2), known: DAY(2) });
       expect(result.model).toBeUndefined();
       expect(result.errors).toEqual([
@@ -574,7 +562,7 @@ describe('lossless: what is stored reads back as compiled', () => {
 
   test('idempotent: storing the same model with entities and scenarios twice changes nothing, and its rows match assertions()', async () => {
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
     const withBoth = model([element('a')], [relation('r1', 'a', 'a')], {
       entities: [entity('session-id', { name: 'Session id' })],
       scenarios: [scenario('place-order', { steps: [{ id: 's1', relation: 'r1' }], requirements: ['ordering/place-order'] })],
@@ -603,7 +591,7 @@ describe('performance: storing a new version of a 10 000-element model', () => {
     const big = model(elements, relations);
 
     const clock = fakeClock(DAY(2));
-    const h = history(clock);
+    const h = await history(clock);
 
     const started = performance.now();
     const result = await h.store({ source: 'big', commit: 'c1', committedAt: DAY(1), model: big });
@@ -621,7 +609,7 @@ describe('performance: storing a new version of a 10 000-element model', () => {
 
 describe('renameSource: one source can be renamed whole', () => {
   test('concurrent renames validate and update atomically', async () => {
-    const h = history(fakeClock(DAY(2)));
+    const h = await history(fakeClock(DAY(2)));
     try {
       await h.store({ source: 'old', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
 

@@ -14,17 +14,16 @@ import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest }
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { readRunPlans } from '../src/fill/orchestrator-store.js';
 import { createGraphStore, type GraphStore, type NodeVersionRow } from '../src/graph/index.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { CODE_FACTS_STAGE_ID } from '../src/fill/stages/code-facts.js';
 import { parseFileFacts } from '../src/fill/stages/file-facts.js';
-import {
-  ORDERS_MAIN, TOOLS_FILE, UNITS_REPOSITORY, WEB_FILE, expectedPortsOf, writeUnitsProduct,
-} from './fixtures/code-stages/service-units.js';
+import { ORDERS_MAIN, TOOLS_FILE, UNITS_REPOSITORY, WEB_FILE, expectedPortsOf, writeUnitsProduct } from './fixtures/code-stages/service-units.js';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
@@ -44,7 +43,7 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-listener-ports-'));
   const written = writeUnitsProduct(root);
   writtenRoot = written.repository;
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   fill = await createStagesFill({ product: written.product, database: owner });
   let at = 1_700_000_000_000;
   service = createFillOrchestratorService({

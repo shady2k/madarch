@@ -1,6 +1,6 @@
 /**
  * The temporal graph store's checks (decision 0028, "Constraints"), written
- * once and run by two files: `graph-store.test.ts` on PGlite and
+ * once and run by two files: `graph-store.test.ts` on a store's own server and
  * `graph-store-postgres.test.ts` on a server. Every graph here is small and
  * written out; each expected answer is derived by hand from decision 0028,
  * never from the store's own code.
@@ -54,7 +54,6 @@ async function fresh(owner: DatabaseOwner, withRegistry = true): Promise<Env> {
     location: owner.location,
     ready: owner.ready,
     allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-    backend: owner.backend,
     hasVector: owner.hasVector,
     transaction: (kind, work) => owner.transaction(kind, (tx) => work(record(tx))),
     run: (work) => owner.run((tx) => work(record(tx))),
@@ -118,19 +117,12 @@ const settle = <T>(promise: Promise<T>): Promise<Settled<T>> => promise.then((va
 const reasonOf = (r: Settled<unknown>): string => (r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : '');
 
 /**
- * Runs two writes against the owner in a forced order. On a server the first
- * transaction does its work and then holds its locks until a second connection
- * is seen waiting on a lock, and only then commits; so the second really starts
- * while the first is open, and the case fails if it never has to wait. PGlite
- * has one connection and serialises transactions, so there they run one after
- * the other: the outcome the lock produces on a server is the one reached.
+ * Runs two writes against the owner in a forced order: the first transaction
+ * does its work and then holds its locks until a second connection is seen
+ * waiting on a lock, and only then commits; so the second really starts while
+ * the first is open, and the case fails if it never has to wait.
  */
 async function interleave<A, B>(env: Env, first: (tx: OuterTransaction) => Promise<A>, second: (tx: OuterTransaction) => Promise<B>, beforeRelease: () => void = () => {}): Promise<[Settled<A>, Settled<B>]> {
-  if (env.owner.backend === 'pglite') {
-    const one = await settle(env.owner.transaction('write', first));
-    beforeRelease();
-    return [one, await settle(env.owner.transaction('write', second))];
-  }
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;

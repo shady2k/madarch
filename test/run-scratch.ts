@@ -44,7 +44,7 @@
  * started in this package (`bun test`, `bun run test`, CI's `bun test test/`),
  * not one started inside `test/`.
  */
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -54,6 +54,8 @@ export const RUN_SCRATCH_PREFIX = 'madarch-test-run-';
 export const RUN_SCRATCH_VARIABLE = 'MADARCH_TEST_SCRATCH';
 /** The variable naming the system temporary folder the run started in, outside the scratch. */
 export const REAL_TEMP_VARIABLE = 'MADARCH_TEST_REAL_TMPDIR';
+/** The variable naming the account's own home, which the run's `<madarch home>/tools` points into: the installed server is the machine's. */
+export const HOME_ACCOUNT_VARIABLE = 'MADARCH_TEST_ACCOUNT_HOME';
 
 /** A run's own scratch: the one folder it may leave files in, and the folder it stands in. */
 export interface RunScratch {
@@ -118,9 +120,21 @@ function createRunScratch(): RunScratch {
   const temporary = join(folder, 'tmp');
   const cache = join(folder, 'wiki-cache');
   for (const made of [home, madarchHome, temporary]) mkdirSync(made, { mode: 0o700 });
+  const account = process.env.HOME;
+  if (account !== undefined && account !== '') process.env[HOME_ACCOUNT_VARIABLE] = account;
+  // The server madarch installs is the machine's, not the run's: `<madarch home>/tools`
+  // points at the account's install, so the first run installs PostgreSQL once (it is a
+  // 38-92 MB download) and every later run, and every `madarch` a run starts, finds it.
+  if (account !== undefined && account !== '') {
+    const tools = join(account, 'madarch', 'tools');
+    mkdirSync(tools, { recursive: true });
+    symlinkSync(tools, join(madarchHome, 'tools'), 'dir');
+    // And the same folder by name, for a child whose home and MADARCH_HOME are its own: it finds the install instead of
+    // downloading the server again (measured: a second download of 38 MB in a test that starts its own home).
+    process.env['MADARCH_TOOLS'] = tools;
+  }
   // The cache folder itself is not made here: `ensureWikiCacheRoot` creates it
   // private to the user, and refuses one already writable by group or others.
-  const account = process.env.HOME;
   process.env.HOME = home;
   process.env.MADARCH_HOME = madarchHome;
   process.env.TMPDIR = temporary;
@@ -174,11 +188,48 @@ async function installEndOfRun(): Promise<void> {
   }
 }
 
+/**
+ * Stops the PostgreSQL server a run folder holds, if one is still there: a
+ * server's files cannot be removed under it, and a run that was killed leaves
+ * its server running (`madarch-8bdc.2.5`, item 2). The pid `postmaster.pid`
+ * names is signalled — SIGTERM first, which a server stops on, then SIGKILL —
+ * and only when its command line names this data directory.
+ */
+function stopServerIn(folder: string): void {
+  const dataDir = join(folder, 'postgres', 'pgdata');
+  let pid: number;
+  try {
+    pid = Number(readFileSync(join(dataDir, 'postmaster.pid'), 'utf8').split('\n')[0]?.trim());
+  } catch {
+    return;
+  }
+  if (!Number.isInteger(pid) || pid <= 1) return;
+  let mine = true;
+  try {
+    mine = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').includes(dataDir);
+  } catch {
+    mine = true;
+  }
+  if (!mine) return;
+  for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
+    try { process.kill(pid, signal); } catch { return; }
+    const until = Date.now() + 5_000;
+    while (Date.now() < until && runningOrUnknown(pid)) Bun.sleep(10);
+    if (!runningOrUnknown(pid)) return;
+  }
+}
+
+/** Whether a process is still there: one this process may not signal counts as there. */
+function runningOrUnknown(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
+}
+
 /** Removes the scratch once, saying plainly when it could not be removed. */
 function removeRunScratchOnce(state: RunScratchState): void {
   if (state.removed) return;
   state.removed = true;
   try {
+    stopServerIn(state.scratch.folder);
     forceRemove(state.scratch.folder);
   } catch (error) {
     process.stderr.write(`madarch test run: the scratch folder ${state.scratch.folder} could not be removed: ${(error as Error).message}\n`);
@@ -222,6 +273,7 @@ function removeDeadRuns(scratch: RunScratch): void {
     if (folder === scratch.folder) continue;
     if (!abandoned(folder)) continue;
     try {
+      stopServerIn(folder);
       forceRemove(folder);
     } catch {
       // A folder another process still holds is left for a later run, never a failed run.
@@ -271,7 +323,8 @@ function running(pid: number): boolean {
   }
 }
 
-// The preload's work, at load: create the scratch, point the variables into
-// it, and leave the removal to the hooks above.
+// The preload's work, at load: create the scratch, point the variables into it, and leave the removal to the hooks
+// above. The run's server is started by the first case that opens a database (`ensureRunPostgres`), and the same hook
+// stops it with the scratch.
 runScratch();
 await installEndOfRun();

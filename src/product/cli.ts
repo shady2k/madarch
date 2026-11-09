@@ -40,7 +40,7 @@ import { runGit } from './git.js';
 import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
 import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
-import { createPGliteDatabaseOwner } from '../adapters/database-owner.js';
+import { createDatabaseOwner } from '../adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../fill/fact-store.js';
 import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
 import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
@@ -692,7 +692,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     // opened here, in the program that owns this process (decision 0033, item 3), and handed to the worker's loop.
     const { runFillWorker } = await import('../knowledge/fill-worker.js');
     const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runFillWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } }, (path) => createPGliteDatabaseOwner({ path, btreeGist: true }));
+    const code = await runFillWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } }, async (store) => await createDatabaseOwner({ store, btreeGist: true }));
     // The pipe from the server is still open for reading; the worker is over.
     await new Promise<void>((done) => { process.stdout.write('', () => done()); });
     process.exit(code);
@@ -801,12 +801,12 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // The milliseconds are kept: two runs asked for inside one second are two
   // runs, and a run id that already stands is one this command may not plan.
   const runId = parsed.run ?? `stages-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-  // PGlite opens a data directory, and the product's store may not stand yet (the host would make it;
-  // this command opens the owner itself).
+  // A store's cluster stands under its data directory, and the product's store may not stand yet (the host
+  // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
   await mkdir(dirname(databasePath), { recursive: true });
   const workers = parsed.workers ?? 16;
-  const owner = createPGliteDatabaseOwner({ path: databasePath, btreeGist: true });
+  const owner = await createDatabaseOwner({ store: databasePath, btreeGist: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {
@@ -945,7 +945,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   const runId = `fill-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
   let run;
   try {
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: createPGliteDatabaseOwner({ path: storeDatabasePath(storeFolder), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;

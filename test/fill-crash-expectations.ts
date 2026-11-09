@@ -1,6 +1,6 @@
 /**
  * What the crash suite holds every run to (madarch-tzte.19.6), shared by the
- * PGlite and the PostgreSQL legs so both judge a run the same way and neither
+ * the store's server and a server a connection string names, so both judge a run the same way and neither
  * judges it by the module under test.
  *
  * Every expectation here is the task's DONE WHEN or decision 0027's own words:

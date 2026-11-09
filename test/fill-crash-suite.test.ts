@@ -1,8 +1,8 @@
 /**
- * The crash-injection suite on persistent PGlite (madarch-tzte.19.6, decision
+ * The crash-injection suite on a store's own server (madarch-tzte.19.6, decision
  * 0027): the compiled binary of `test/fill-crash-driver.ts` drives the fill's
  * fixture chain — extractor → splitting unit → children → parent join → consumer
- * — on one PGlite data folder, and the test kills it around the claim, around the
+ * — on one store, and the test kills it around the claim, around the
  * split, inside the publication and around the acknowledgement, submits duplicate
  * and late results, turns an empty query non-empty, cancels a run while a unit
  * validates and disables a required producer.
@@ -17,7 +17,7 @@
  * Time is a seam the suite moves by hand — the clock is a file every phase reads,
  * and nothing sleeps — and the fixture's graph and inputs are files beside it, so
  * a test moves the pinned snapshot or a unit's named inputs while a phase is
- * frozen in the middle of a unit. PGlite serves one process at a time, so the
+ * frozen in the middle of a unit. The store's server serves every process that attaches, so the
  * phases run in sequence here; `test/fill-crash-postgres.test.ts` runs three
  * executors at once against a server, where the same scenarios are judged with
  * real concurrency beside them.
@@ -270,7 +270,7 @@ describe('what the run does with a graph that moves', () => {
     // publication: the same query answers a row now.
     world.setGraph('product-facts', [{ product: 'the fixture' }]);
     driver.send();
-    // The paused process is waited for before another one opens the same PGlite
+    // The paused process is waited for before another one opens the same store
     // folder: one database folder serves one process at a time.
     const pausedRun = await driver.wait();
     expect(pausedRun.code).toBe(0);

@@ -153,8 +153,12 @@ class LocalFetch {
   }
 }
 
+/** The platform this test runs on: the upgrade reads the release for the host it stands on, not for x64 Linux. */
+const HOST_OS = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'windows' : 'linux';
+const HOST_ARCH = process.arch === 'arm64' ? 'arm64' : 'x64';
+
 function fakeRelease(tag: string, actual: string): { fetch: typeof fetch; wanted: string; sumsBody: string; client: LocalFetch } {
-  const wanted = artifactName('linux', 'x64');
+  const wanted = artifactName(HOST_OS, HOST_ARCH);
   const client = new LocalFetch();
   client.set('releases', 200, JSON.stringify({ tag_name: tag, assets: [{ name: wanted, browser_download_url: 'local:/' + wanted }, { name: CHECKSUMS_FILE, browser_download_url: 'local:/' + CHECKSUMS_FILE }] }));
   client.set('local:/' + wanted, 200, actual);
@@ -186,7 +190,7 @@ describe('the whole upgrade run, on a local release', () => {
 
   function scratchBinary(): string {
     home = mkdtempSync(join(tmpdir(), 'madarch-upgrade-test-'));
-    const file = join(home, artifactName('linux', 'x64'));
+    const file = join(home, artifactName(HOST_OS, HOST_ARCH));
     writeFileSync(file, 'running binary contents');
     chmodSync(file, 0o755);
     return file;

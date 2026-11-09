@@ -10,7 +10,7 @@ through requirements, user journeys and customer-journey maps, architecture,
 data-flow and sequence diagrams, design (wireframes dictated in the chat, then
 React components from the product's UI kit in place of a separate design
 tool), testing, deployment, information-security requirements, the tracker
-(beads), milestones and plans, to the as-is and to-be of the architecture with
+(its own, as an area of entity kinds in the same graph), milestones and plans, to the as-is and to-be of the architecture with
 removals kept. The work itself is written there and launched from it:
 agents take work from the wiki and their status shows live, and the main chat
 is Lifemodel's (decisions 0017, 0018, 0021, 0022). It is
@@ -196,6 +196,32 @@ frontends.
 - Agents and the work taken from the wiki: a task leaves through the wiki, the
   agent's status shows live in it, and the record of what was done links back
   to the requirement it served.
+- The tracker is madarch's own and is not a separate part: work is an area of
+  entity kinds in the one catalog (milestone, epic, feature, stage, task, bug,
+  request, question, comment, link, time and cost, review finding, evidence,
+  merge), declared in the manifest and composed from shared parts, never
+  inherited. Every entity has a random 128-bit id shown as its shortest
+  unambiguous prefix; work data lives in PostgreSQL, kinds in the manifest; a
+  link and a comment are entities of their own.
+- Every change a person makes, by hand or in words to the agent, is a request
+  kept verbatim; the agent works out its consequences and the responsible
+  person approves them under «На согласовании» before anything applies.
+- A person is responsible for a feature and holds its reservation; agents are
+  executors bound to nobody. Taking work follows the queue: the product owner's
+  priority, blockers that inherit urgency, reservations, and a cap of features
+  per responsible person; nobody takes less urgent work past more urgent free
+  work. Each task names its executor, agent or person, and an agent takes only
+  its own, within the product's agent budget.
+- An agent's task runs a lifecycle the manifest can change: take, read,
+  clarify (a question to the responsible person when anything is unclear),
+  plan with a checkable done criterion, develop, test, blind review by another
+  model, acceptance where a user sees the result, merge by the product's lanes
+  (C an agent, B a person, A a person and a second responsible person). Time,
+  tokens and cost are recorded on every step as it ends.
+- Machines exchange operations, not state, with or without a server; Git, when
+  used, only delivers them (one shared ref, one file per operation) and decides
+  nothing; contradictions are shown in madarch as problems. Full snapshots and
+  the operation journal work as backups do, and nothing is ever lost.
 - Checks: dangling cross-repository references, contracts without providers,
   rule violations, drift between intent and code, broken scenarios, the corpus
   against its contract.
@@ -327,9 +353,13 @@ Next, as milestones:
 Later, as hypothesis milestones — named, not opened; each becomes a
 milestone only when the owner takes it up:
 
-- Tracker and agents: the beads tracker read and written through the wiki,
-  work taken by agents from it, their status live on the item, over one event
-  stream of every change (decision 0022).
+- Tracker and agents (milestone `tracker`, madarch-lk4r): madarch's own
+  tracker as the Outcome describes it, replacing beads; built in the order
+  agreement (M0), the local tracker with the tracker's kinds in the catalog
+  first (L1), the agent's lifecycle and lanes (I1), sync without a server (G1),
+  then scale, snapshots and the move from the old tracker (O1). The owner's
+  words: `docs/vision/tracker-and-graph-discussion-2026-11-07.md` and
+  `docs/vision/tracker-decisions-2026-11-08.md`.
 - The chat through Lifemodel: madarch's agent API as the published contract;
   Lifemodel joins as a channel plugin to carry the main chat, the work
   requests and the executions.

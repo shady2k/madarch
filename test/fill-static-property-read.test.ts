@@ -6,18 +6,19 @@
  * recorded as the JSON document the publication's recheck replays, and it
  * answers the same page when it is replayed.
  *
- * The store is the test's own: a PGlite owner, the graph schema, and nodes
+ * The store is the test's own: an owner, the graph schema, and nodes
  * published through the store's one unit publication.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore, outerTransactionOf, type GraphStore } from '../src/graph/index.js';
 import { staticGraphRead, STATIC_READ_ROW_LIMIT } from '../src/fill/stages/static-context.js';
 import { createStaticStageReadReader } from '../src/fill/stages/static-reads.js';
 import { CODE_GRAPH_VOCABULARY, ensureGraphSchema, staticUnitPublicationOf } from '../src/fill/stages/static-graph.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const REPOSITORY = 'shop';
 const FILE = 'src/many.ts';
@@ -28,7 +29,7 @@ let store: GraphStore | undefined;
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-property-read-'));
-  owner = createPGliteDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({ btreeGist: true });
   store = createGraphStore(owner);
   await ensureGraphSchema(store);
   // More nodes under one file than one page holds: the read is paged, never widened.

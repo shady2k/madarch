@@ -11,7 +11,7 @@
  * or the renderer does, never with the clock. The projection and query
  * engine are shared with the model check's problems and rendering.
  */
-import { createPGliteQueryDatabase } from '../adapters/pglite-query-database.js';
+import { createQueryDatabase } from '../adapters/query-database.js';
 import { assertionsOf } from '../history/assertions.js';
 import { loadAndCompileModel } from '../model/load-and-compile.js';
 import type { CompiledModel } from '../model/compile.js';
@@ -55,8 +55,8 @@ export interface PreparedModel {
 
 /**
  * Rebuilds the query engine from the compiled model's assertions at the
- * caller's fixed time. A HistoryStore would create a second temporary PGlite
- * database just to read those same assertions back; this projection is
+ * caller's fixed time. A HistoryStore would create a second temporary database
+ * just to read those same assertions back; this projection is
  * private to rendering and model-check, so rebuild them directly instead.
  */
 export async function prepareModel(model: CompiledModel, version: RenderedVersion): Promise<PreparedModel> {
@@ -70,7 +70,7 @@ export async function prepareModel(model: CompiledModel, version: RenderedVersio
     recordedFrom: version.at,
     recordedTo: null,
   }));
-  const database = await createPGliteQueryDatabase();
+  const database = await createQueryDatabase();
   const engine = database.forSources([version.source]);
   try {
     await engine.rebuild(assertions);
@@ -93,7 +93,7 @@ export async function prepareModel(model: CompiledModel, version: RenderedVersio
 /**
  * Renders an already prepared model without taking ownership of its engine.
  * The model check shares this step with its problem analysis, so one check
- * does not start a second pair of temporary PGlite databases just to write
+ * does not start a second pair of temporary databases just to write
  * the views it has already built.
  */
 export async function renderPreparedModel(prepared: PreparedModel, existingViewSet?: ViewSetResult): Promise<PreparedRendering> {

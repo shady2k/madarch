@@ -284,15 +284,25 @@ describe('the writer asks who the user is (decision 0031)', () => {
   test('a git without a user name refuses every write, naming the product and the command, and writes nothing', () => {
     const { product, input } = fixture();
     git(product, ['config', '--unset', 'user.name']);
-    const before = git(product, ['rev-parse', 'HEAD']);
-    const refused = writeProductDiscussion(product, input, new Date('2026-10-15T12:00:00.000Z'));
-    expect(refused).toMatchObject({ ok: false, status: 409 });
-    if (!refused.ok) {
-      expect(refused.message).toContain(product);
-      expect(refused.message).toContain('user.name');
+    // The machine's own system config may name a user; the write asks git in its process environment, so that config is
+    // sealed off for this case and put back afterwards.
+    const sealed = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_NOSYSTEM };
+    process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+    process.env.GIT_CONFIG_NOSYSTEM = '1';
+    try {
+      const before = git(product, ['rev-parse', 'HEAD']);
+      const refused = writeProductDiscussion(product, input, new Date('2026-10-15T12:00:00.000Z'));
+      expect(refused).toMatchObject({ ok: false, status: 409 });
+      if (!refused.ok) {
+        expect(refused.message).toContain(product);
+        expect(refused.message).toContain('user.name');
+      }
+      expect(git(product, ['rev-parse', 'HEAD'])).toBe(before);
+      expect(git(product, ['status', '--porcelain', '--untracked-files=all'])).toBe('');
+      expect(writeProductPageDiscussion(product, { document: 'docs/guide.md', body: 'A note.' })).toMatchObject({ ok: false, status: 409 });
+    } finally {
+      if (sealed.global === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = sealed.global;
+      if (sealed.system === undefined) delete process.env.GIT_CONFIG_NOSYSTEM; else process.env.GIT_CONFIG_NOSYSTEM = sealed.system;
     }
-    expect(git(product, ['rev-parse', 'HEAD'])).toBe(before);
-    expect(git(product, ['status', '--porcelain', '--untracked-files=all'])).toBe('');
-    expect(writeProductPageDiscussion(product, { document: 'docs/guide.md', body: 'A note.' })).toMatchObject({ ok: false, status: 409 });
   });
 });

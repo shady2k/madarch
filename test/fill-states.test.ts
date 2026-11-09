@@ -10,12 +10,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import type { FillProgressView } from '../src/knowledge/model.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -122,7 +122,7 @@ describe('the fill states', () => {
     // The connected checkout is replaced by a plain folder: it is no Git checkout any more.
     rmSync(join(folder, 'repos', 'lost-code'));
     mkdirSync(join(folder, 'repos', 'lost-code'), { recursive: true });
-    const owner = createPGliteDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true });
     try {
       const run = await startKnowledgeFill({ productFolder: folder, storeFolder: join(root, 'lost-store'), runId: 'lost', database: owner });
       const result = await run.done;

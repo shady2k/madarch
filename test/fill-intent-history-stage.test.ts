@@ -23,7 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, readUnitFacts, FACT_APPLICATION } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
@@ -32,25 +32,11 @@ import { byCodePoint } from '../src/model/order.js';
 import type { AgentSectionRequest } from '../src/fill/agent-packet.js';
 import { draftSetOf, writeScope } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
-import {
-  createOrchestrator,
-  planRun,
-  schedulerPass,
-  startRun,
-  workOnce,
-  type FillOrchestrator,
-} from '../src/fill/orchestrator.js';
+import { createOrchestrator, planRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitPlan, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { unitIdFor } from '../src/fill/orchestrator.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import {
-  INTENT_HISTORY_KINDS,
-  INTENT_HISTORY_STAGE_ID,
-  createIntentHistoryStage,
-  intentHistoryDeclaration,
-  intentHistorySections,
-  planIntentUnits,
-} from '../src/fill/stages/intent-history.js';
+import { INTENT_HISTORY_KINDS, INTENT_HISTORY_STAGE_ID, createIntentHistoryStage, intentHistoryDeclaration, intentHistorySections, planIntentUnits } from '../src/fill/stages/intent-history.js';
 import { deriveStageGraph, StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
@@ -61,6 +47,7 @@ import { createFillStateSchema, createUnit, readRunUnits } from '../src/fill/sta
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { QueueService } from '../src/fill/queue.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const PRODUCT = 'fixture-product';
@@ -210,7 +197,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
   const record = join(folder, 'agent-record.jsonl');
   const clock = options.clock ?? (() => NOW);
 
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);
@@ -727,7 +714,7 @@ describe('stage 11\'s declaration', () => {
 
 describe('stage 11\'s plan', () => {
   test('nothing found where the graph holds no module, and a module past 0026\'s planned size planned as its files', async () => {
-    const empty = createPGliteDatabaseOwner();
+    const empty = await createTestDatabaseOwner();
     try {
       await createFactStoreSchema(empty);
       const emptyReader = createFactGraphReader({ database: empty, snapshot: createGitSnapshotSource(() => []) });
@@ -740,7 +727,7 @@ describe('stage 11\'s plan', () => {
 
     // A module whose own count is past 0026's planned size (272K × 50% at about 2K a member) is planned as its
     // member files, each a unit of its own, whose scope is the file the plan names.
-    const big = createPGliteDatabaseOwner();
+    const big = await createTestDatabaseOwner();
     try {
       await createFillStateSchema(big);
       await createFactStoreSchema(big);
@@ -781,7 +768,7 @@ describe('stage 11\'s plan', () => {
 
 describe('stage 11\'s sections', () => {
   test('a commit that touched more of the module than its row holds says how many more', async () => {
-    const owner = createPGliteDatabaseOwner();
+    const owner = await createTestDatabaseOwner();
     try {
       await createFillStateSchema(owner);
       await createFactStoreSchema(owner);

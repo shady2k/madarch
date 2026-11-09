@@ -6,18 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LIKEC4_FILE, renderReferenceSystem } from '../scripts/render-views.js';
 import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
-import {
-  compileModel,
-  createPGliteHistory,
-  loadModel,
-  renderAsyncLikeC4Workspace,
-  type CompiledElement,
-  type CompiledModel,
-  type CompiledRelation,
-  type LikeC4Result,
-  type AsyncQueryEngine,
-  type HistoryStore,
-} from '../src/index.js';
+import { compileModel, loadModel, renderAsyncLikeC4Workspace, type CompiledElement, type CompiledModel, type CompiledRelation, type LikeC4Result, type AsyncQueryEngine, type HistoryStore } from '../src/index.js';
+import { createTestHistory } from './test-database.js';
 
 /**
  * The views capability's likec4 and deterministic requirements, and labels
@@ -59,14 +49,14 @@ const VALIDATE_MS = 15_000;
 
 /**
  * The bound of the hook that closes the file's databases: hooks do not get the
- * preload's default, and PGlite shutdown under a loaded runner took 5.9 s in CI
+ * preload's default, and Closing the file's databases under a loaded runner took 5.9 s in CI
  * (run 39415085797, test shard 4), over bun's five.
  */
 const HOOK_CLOSE_MS = 30_000;
 
 /**
  * One history per fixture, opened the first time a case renders it and kept for
- * the file: rendering is the case's own work, a PGlite boot need not be. Two
+ * the file: rendering is the case's own work, a database boot need not be. Two
  * fixtures cannot share one history: the store refuses two sources declaring
  * the same element id, and `views-drill-down` and `views-likec4-not-drawn` both
  * hold `shop`. A boot is 1.66 s on the 2-CPU pod (measured 2026-10-20,
@@ -76,7 +66,7 @@ const fileHistories = new Map<string, HistoryStore>();
 
 /**
  * How many fixture histories stay open: the pod the tests run on has 4 GB, and
- * eight open PGlite databases are enough to be killed for memory (measured
+ * eight open databases were enough to be killed for memory (measured
  * 2026-10-20, madarch-cznn, `bun test test/views.test.ts` exited 137 with all
  * its cases passed). Three hold this file's five fixtures without the churn of
  * evicting one a later case still needs, and still bound the memory to well
@@ -92,7 +82,7 @@ afterAll(async () => {
 async function historyFor(name: string): Promise<HistoryStore> {
   const held = fileHistories.get(name);
   if (held !== undefined) return held;
-  const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+  const history = await createTestHistory({ clock: { now: () => DAY(1) } });
   fileHistories.set(name, history);
   const oldest = fileHistories.keys().next().value;
   if (fileHistories.size > OPEN_FIXTURES && oldest !== undefined) {
@@ -262,7 +252,7 @@ describe('views/likec4', async () => {
   test('before the model existed the workspace is empty but still valid: no kinds, no elements, the landscape alone', async () => {
     const { model } = loadModel(fixture('views-drill-down'));
     const compiled = compileModel(model!);
-    const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+    const history = await createTestHistory({ clock: { now: () => DAY(1) } });
     const engine = await createTestQueryEngine();
     await history.store({ source: 's', commit: 'c', committedAt: DAY(1), model: compiled });
     await engine.rebuild(await history.assertions());

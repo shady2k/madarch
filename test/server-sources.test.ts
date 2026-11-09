@@ -1,20 +1,12 @@
-import { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CommitRecord } from '../src/history/types.js';
-import {
-  createPGliteHistory,
-  createSourceStores,
-  sourceNameProblem,
-  type Clock,
-  type CompiledElement,
-  type CompiledModel,
-  type CompiledRelation,
-  type HistoryStore,
-  type StoreInput,
-} from '../src/index.js';
+import { createSourceStores, sourceNameProblem, type Clock, type CompiledElement, type CompiledModel, type CompiledRelation, type HistoryStore, type StoreInput } from '../src/index.js';
+import { createTestDatabaseOwner, createTestHistory } from './test-database.js';
+import { createHistoryStore } from '../src/adapters/sql-history.js';
+import { historyDatabaseOf, openStoreHistories } from '../src/adapters/store-histories.js';
 
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
@@ -52,8 +44,33 @@ function storeInput(source: string, commit: string, committedAt: number, element
   return { source, commit, committedAt, model: model(elements) };
 }
 
+/**
+ * A history database of the folder, empty and with its schema: what a directory
+ * of files used to be before the history became a database of the folder's one
+ * server.
+ */
 async function emptyHistory(dir: string, stem: string): Promise<void> {
-  await createPGliteHistory({ path: join(dir, `${stem}.pglite`), clock: fakeClock(DAY(1)) }).close();
+  await (await createHistoryStore({ store: dir, database: historyDatabaseOf(stem), clock: fakeClock(DAY(1)) })).close();
+}
+
+/** Whether the folder holds the history of this stem: its server answers whether the database is there. */
+async function hasHistory(dir: string, stem: string): Promise<boolean> {
+  const seam = await openStoreHistories({ store: dir, clock: fakeClock(DAY(1)) });
+  try {
+    return seam.databases.includes(historyDatabaseOf(stem));
+  } finally {
+    await seam.close();
+  }
+}
+
+/** A history database of the folder opened for raw statements: the rows a sidecar or a repair case writes by hand. */
+async function rawHistory(dir: string, stem: string): Promise<{ query<Row extends Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[] }>; exec(sql: string): Promise<void>; close(): Promise<void> }> {
+  const owner = await createTestDatabaseOwner({ store: dir, database: historyDatabaseOf(stem) });
+  return {
+    query: async <Row extends Record<string, unknown>>(sql: string, values?: readonly unknown[]) => await owner.run(async (tx) => await tx.query<Row>(sql, values)),
+    exec: async (sql: string) => { await owner.exec(sql); },
+    close: () => owner.close(),
+  };
 }
 
 let folder: string;
@@ -79,7 +96,7 @@ describe('source names become file names', () => {
     await sources.store(storeInput('../../etc/passwd', 'c1', DAY(1), [element('a')]));
     await sources.close();
 
-    expect(existsSync(join(dir, '..%2F..%2Fetc%2Fpasswd.pglite'))).toBe(true);
+    expect(await hasHistory(dir, '..%2F..%2Fetc%2Fpasswd')).toBe(true);
     expect(existsSync(join(dir, '..%2F..%2Fetc%2Fpasswd.json'))).toBe(true);
   });
 
@@ -92,8 +109,8 @@ describe('source names become file names', () => {
     await sources.store(storeInput('a%2Fb', 'c1', DAY(1), [element('a')]));
     await sources.close();
 
-    expect(existsSync(join(dir, 'a%2Fb.pglite'))).toBe(true);
-    expect(existsSync(join(dir, 'a%252%46b.pglite'))).toBe(true);
+    expect(await hasHistory(dir, 'a%2Fb')).toBe(true);
+    expect(await hasHistory(dir, 'a%252%46b')).toBe(true);
   });
 
   test('two names that differ only in case get file names that differ lower-cased, so one file cannot shadow the other', async () => {
@@ -108,16 +125,16 @@ describe('source names become file names', () => {
     // The upper-case letters are percent-encoded, so both stems hold only
     // lower-case letters, digits and escapes: a case-insensitive file
     // system still sees two different names.
-    expect(existsSync(join(dir, '%41cme%2F%53hop.pglite'))).toBe(true);
+    expect(await hasHistory(dir, '%41cme%2F%53hop')).toBe(true);
     expect(existsSync(join(dir, '%41cme%2F%53hop.json'))).toBe(true);
-    expect(existsSync(join(dir, 'acme%2Fshop.pglite'))).toBe(true);
+    expect(await hasHistory(dir, 'acme%2Fshop')).toBe(true);
     expect(existsSync(join(dir, 'acme%2Fshop.json'))).toBe(true);
     expect('%41cme%2F%53hop'.toLowerCase()).not.toBe('acme%2Fshop');
   });
 
   test('a file name carrying a raw upper-case letter was not written by this server and is refused', async () => {
     const dir = scratchFolder();
-    writeFileSync(join(dir, 'Acme%2FShop.pglite'), '');
+    await emptyHistory(dir, 'Acme%2FShop');
     writeFileSync(join(dir, 'Acme%2FShop.json'), JSON.stringify({ source: 'Acme/Shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
     await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/Acme%2FShop\.json/);
   });
@@ -287,8 +304,7 @@ describe('heads', () => {
     const seeded = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
     await seeded.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await seeded.close();
-    const database = new PGlite(join(dir, 'shop.pglite'));
-    await database.waitReady;
+    const database = await rawHistory(dir, 'shop');
     // Remove the row so startup repairs it with INSERT; the failure should
     // occur only on the next store's UPDATE, not during startup repair.
     await database.query("DELETE FROM source_registry WHERE source = 'shop'");
@@ -689,9 +705,9 @@ describe('a rename claim on the stores', () => {
     // c2 closed c1's rows, so its own recorded moment sits 1 ms past the
     // frozen clock; the rename leaves it exactly as it was.
     expect(sources.heads()).toEqual([{ id, source: 'github.com/acme/shop', commit: 'c2', committedAt: DAY(2), storedAt: DAY(10) + 1 }]);
-    expect(existsSync(join(dir, 'github.com%2Facme%2Fshop.pglite'))).toBe(true);
+    expect(await hasHistory(dir, 'github.com%2Facme%2Fshop')).toBe(true);
     expect(existsSync(join(dir, 'github.com%2Facme%2Fshop.json'))).toBe(true);
-    expect(existsSync(join(dir, 'shop.pglite'))).toBe(false);
+    expect(await hasHistory(dir, 'shop')).toBe(false);
     expect(existsSync(join(dir, 'shop.json'))).toBe(false);
 
     const history = sources.historyOf('github.com/acme/shop');
@@ -723,7 +739,7 @@ describe('a rename claim on the stores', () => {
 
     await expect(sources.rename(shopId, 'other')).rejects.toThrow(/the name "other" is already the name of the source with id "[^"]*"/);
     expect(sources.heads()).toEqual(before);
-    expect(existsSync(join(dir, 'shop.pglite'))).toBe(true);
+    expect(await hasHistory(dir, 'shop')).toBe(true);
     await sources.close();
   });
 
@@ -780,8 +796,7 @@ describe('a rename claim on the stores', () => {
     const id = sources.heads()[0]!.id;
     const originalSidecar = readFileSync(join(dir, 'shop.json'));
     await sources.close();
-    const database = new PGlite(join(dir, 'shop.pglite'));
-    await database.waitReady;
+    const database = await rawHistory(dir, 'shop');
     await database.exec(`CREATE FUNCTION fail_source_rename() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'rename failed'; END $$;
       CREATE TRIGGER fail_source_rename BEFORE UPDATE OF source ON source_commits FOR EACH ROW EXECUTE FUNCTION fail_source_rename()`);
     await database.close();
@@ -790,8 +805,8 @@ describe('a rename claim on the stores', () => {
     await expect(restarted.rename(id, 'renamed')).rejects.toThrow(/rename failed/);
 
     expect(restarted.heads().map((head) => head.source)).toEqual(['shop']);
-    expect(existsSync(join(dir, 'shop.pglite'))).toBe(true);
-    expect(existsSync(join(dir, 'renamed.pglite'))).toBe(false);
+    expect(await hasHistory(dir, 'shop')).toBe(true);
+    expect(await hasHistory(dir, 'renamed')).toBe(false);
     expect(readFileSync(join(dir, 'shop.json'))).toEqual(originalSidecar);
     expect(await restarted.historyOf('shop').sources()).toEqual(['shop']);
     await restarted.close();
@@ -824,7 +839,7 @@ describe('a rename claim on the stores', () => {
     for (const formerNames of ['shop', [42], [''], ['shop', 'shop']]) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-former-'));
       try {
-        writeFileSync(join(dir, 'shop.pglite'), '');
+        await emptyHistory(dir, 'shop');
         writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2, formerNames }));
         await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), JSON.stringify(formerNames)).rejects.toThrow(
           new RegExp(`shop\\.json[\\s\\S]*"formerNames"`),
@@ -837,19 +852,16 @@ describe('a rename claim on the stores', () => {
 
   test('a sidecar naming its own current name among its former names is refused naming the file', async () => {
     const dir = scratchFolder();
-    writeFileSync(join(dir, 'shop.pglite'), '');
+    await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2, formerNames: ['shop'] }));
     await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/shop\.json[\s\S]*"formerNames"[\s\S]*"shop"/);
   });
 
   /** A real one-source history planted in the folder under a stem, as only this server writes them. */
   async function plantedHistory(dir: string, stem: string, source: string): Promise<void> {
-    const elsewhere = mkdtempSync(join(tmpdir(), 'madarch-server-sources-plant-'));
-    const built = createPGliteHistory({ path: join(elsewhere, `${stem}.pglite`), clock: fakeClock(DAY(10)) });
+    const built = await createHistoryStore({ store: dir, database: historyDatabaseOf(stem), clock: fakeClock(DAY(10)) });
     await built.store(storeInput(source, 'c1', DAY(1), [element('a')]));
     await built.close();
-    renameSync(join(elsewhere, `${stem}.pglite`), join(dir, `${stem}.pglite`));
-    rmSync(elsewhere, { recursive: true, force: true });
   }
 
   test('a restart refuses a folder where one source\'s former name is another source\'s name, naming both', async () => {
@@ -892,14 +904,13 @@ describe('a rename claim on the stores', () => {
 });
 
 describe('a corrupt data folder refuses to open, naming the file', () => {
-  test('a registry id with a non-string PGlite value refuses before rewriting the sidecar', async () => {
+  test('a registry id with a non-string value refuses before rewriting the sidecar', async () => {
     const dir = scratchFolder();
     const first = await createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(10)) });
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
     const sidecar = readFileSync(join(dir, 'shop.json'));
-    const database = new PGlite(join(dir, 'shop.pglite'));
-    await database.waitReady;
+    const database = await rawHistory(dir, 'shop');
     await database.query("UPDATE source_registry SET id = '' WHERE source = 'shop'");
     await database.close();
 
@@ -910,7 +921,8 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toContain(join(dir, 'shop.pglite'));
+    expect(message).toContain(historyDatabaseOf('shop'));
+    expect(message).toContain(dir);
     expect(message).toContain('source_registry.id');
     expect(message).toContain('value');
     expect(readFileSync(join(dir, 'shop.json'))).toEqual(sidecar);
@@ -922,8 +934,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     await first.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await first.close();
     const sidecar = readFileSync(join(dir, 'shop.json'));
-    const database = new PGlite(join(dir, 'shop.pglite'));
-    await database.waitReady;
+    const database = await rawHistory(dir, 'shop');
     await database.query('UPDATE source_registry SET former_names = $1 WHERE source = $2', [JSON.stringify(['shop']), 'shop']);
     await database.close();
 
@@ -934,7 +945,8 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toContain(join(dir, 'shop.pglite'));
+    expect(message).toContain(historyDatabaseOf('shop'));
+    expect(message).toContain(dir);
     expect(message).toContain('source_registry.former_names');
     expect(message).toContain('"shop"');
     expect(readFileSync(join(dir, 'shop.json'))).toEqual(sidecar);
@@ -950,32 +962,26 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toContain('"lonely.json" but no "lonely.pglite" beside it');
-    expect(message).toContain('"aardvark.json" but no "aardvark.pglite" beside it');
+    expect(message).toContain('"lonely.json" but no history database for it');
+    expect(message).toContain('"aardvark.json" but no history database for it');
     expect(message).toContain('; '); // collected, not stopped at the first
   });
 
   test('a history holding more than one source cannot be named by one file and is refused naming it', async () => {
     const dir = scratchFolder();
-    const elsewhere = mkdtempSync(join(tmpdir(), 'madarch-server-sources-multi-'));
-    const built = createPGliteHistory({ path: join(elsewhere, 'built.pglite'), clock: fakeClock(DAY(10)) });
+    const built = await createHistoryStore({ store: dir, database: historyDatabaseOf('multi'), clock: fakeClock(DAY(10)) });
     await built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
     await built.close();
-    renameSync(join(elsewhere, 'built.pglite'), join(dir, 'multi.pglite'));
-    rmSync(elsewhere, { recursive: true, force: true });
 
     await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/holds the sources (shop, other|other, shop): a history one sidecar is to name must hold exactly that one source/);
   });
 
   test('a sidecar naming a source its history does not hold is refused naming both files', async () => {
     const dir = scratchFolder();
-    const elsewhere = mkdtempSync(join(tmpdir(), 'madarch-server-sources-foreign-'));
-    const built = createPGliteHistory({ path: join(elsewhere, 'built.pglite'), clock: fakeClock(DAY(10)) });
+    const built = await createHistoryStore({ store: dir, database: historyDatabaseOf('shop'), clock: fakeClock(DAY(10)) });
     await built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
     await built.close();
-    renameSync(join(elsewhere, 'built.pglite'), join(dir, 'shop.pglite'));
-    rmSync(elsewhere, { recursive: true, force: true });
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
 
     await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/holds the sources other, but its sidecar ".*shop\.json" names "shop"/);
@@ -997,7 +1003,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
   test('the refusal about a sidecar that is not JSON carries the parse error as its cause', async () => {
     const dir = scratchFolder();
-    writeFileSync(join(dir, 'shop.pglite'), '');
+    await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), '{not json');
     let thrown: unknown;
     try {
@@ -1008,9 +1014,15 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(SyntaxError);
   });
 
-  test('a history directory PGlite cannot open is refused naming the file and carrying the cause', async () => {
+  test('a history database the server cannot open is refused naming it and carrying the cause', async () => {
     const dir = scratchFolder();
-    writeFileSync(join(dir, 'shop.pglite'), 'this is not a PGlite database, only bytes with no header');
+    // A table of the wrong shape is a history the adapter cannot read: the
+    // statements that ask it fail, and the refusal names the database and
+    // keeps the server's own words as its cause. (`assertions` is where a
+    // history's sources are read from.)
+    const database = await rawHistory(dir, 'shop');
+    await database.exec('CREATE TABLE assertions (nothing INTEGER)');
+    await database.close();
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', committedAt: 1, storedAt: 2 }));
     let thrown: unknown;
     try {
@@ -1018,8 +1030,8 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     } catch (error) {
       thrown = error;
     }
-    expect((thrown as Error).message).toContain(join(dir, 'shop.pglite'));
-    expect((thrown as Error).message).toContain('cannot be opened');
+    expect((thrown as Error).message).toContain(historyDatabaseOf('shop'));
+    expect((thrown as Error).message).toContain(dir);
     expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
   });
 
@@ -1031,7 +1043,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
   test('a sidecar that is not valid JSON', async () => {
     const dir = scratchFolder();
-    writeFileSync(join(dir, 'shop.pglite'), '');
+    await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), '{not json');
     await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/shop\.json/);
   });
@@ -1045,7 +1057,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
 
   test('a sidecar missing a field', async () => {
     const dir = scratchFolder();
-    writeFileSync(join(dir, 'shop.pglite'), '');
+    await emptyHistory(dir, 'shop');
     writeFileSync(join(dir, 'shop.json'), JSON.stringify({ source: 'shop', commit: 'c1', storedAt: 2 }));
     await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/shop\.json/);
   });
@@ -1064,14 +1076,14 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     for (const { name, sidecar, problem } of broken) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
       try {
-        writeFileSync(join(dir, 'shop.pglite'), '');
+        await emptyHistory(dir, 'shop');
         writeFileSync(join(dir, 'shop.json'), JSON.stringify(sidecar));
         await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), name).rejects.toThrow(problem);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     }
-  });
+  }, 60_000);
 
   test('a file name this server never writes is refused, even when the sidecar matches what it would decode to', async () => {
     // A raw `~` is always encoded, a `%zz` escape is not hexadecimal, and
@@ -1085,7 +1097,7 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     for (const [stem, source] of stems) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
       try {
-        writeFileSync(join(dir, `${stem}.pglite`), '');
+        await emptyHistory(dir, stem);
         writeFileSync(join(dir, `${stem}.json`), JSON.stringify({ source, commit: 'c1', committedAt: 1, storedAt: 2 }));
         await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).rejects.toThrow(/does not decode to a source name/);
       } finally {
@@ -1108,13 +1120,10 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     for (const named of ['shop', 'other']) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-two-'));
       try {
-        const elsewhere = mkdtempSync(join(tmpdir(), 'madarch-server-sources-two-built-'));
-        const built = createPGliteHistory({ path: join(elsewhere, 'built.pglite'), clock: fakeClock(DAY(10)) });
+        const built = await createHistoryStore({ store: dir, database: historyDatabaseOf(named), clock: fakeClock(DAY(10)) });
         await built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
         await built.store(storeInput('other', 'c1', DAY(1), [element('b')]));
         await built.close();
-        renameSync(join(elsewhere, 'built.pglite'), join(dir, `${named}.pglite`));
-        rmSync(elsewhere, { recursive: true, force: true });
         writeFileSync(join(dir, `${named}.json`), JSON.stringify({ source: named, commit: 'c1', committedAt: 1, storedAt: 2 }));
 
         await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), named).rejects.toThrow(/holds the sources (shop, other|other, shop), but its sidecar/);
@@ -1128,13 +1137,13 @@ describe('a corrupt data folder refuses to open, naming the file', () => {
     // A stem with a raw upper-case letter decodes to nothing; a stem that
     // decodes to another source than the history holds is just as alien.
     // Either way the folder was not written by this server.
-    for (const stem of ['Shop.pglite', 'other.pglite']) {
+    for (const stem of ['Shop', 'other']) {
       const dir = mkdtempSync(join(tmpdir(), 'madarch-server-sources-'));
       try {
-        const built = createPGliteHistory({ path: join(dir, stem), clock: fakeClock(DAY(10)) });
+        const built = await createHistoryStore({ store: dir, database: historyDatabaseOf('other'), clock: fakeClock(DAY(10)) });
         await built.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
         await built.close();
-        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).rejects.toThrow(/does not decode to the history's source "shop"/);
+        await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) }), stem).rejects.toThrow(/the folder was not written by this server/);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -1158,7 +1167,7 @@ describe('the data folder itself', () => {
   test('a legacy SQLite history is refused instead of being silently ignored', async () => {
     const dir = scratchFolder();
     writeFileSync(join(dir, 'shop.sqlite'), 'legacy history');
-    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/SQLite histories are not migrated to PGlite.*sending its source models again/);
+    await expect(createSourceStores({ dataFolder: dir, clock: fakeClock(DAY(1)) })).rejects.toThrow(/SQLite histories are not migrated.*sending its source models again/);
   });
 
   test('stray files that are not histories or sidecars are ignored', async () => {
@@ -1229,7 +1238,7 @@ describe('the history behind a source', () => {
 
 describe('renaming a source inside a history', () => {
   test('renameSource moves every row to the new name and leaves the times as they are', async () => {
-    const history = createPGliteHistory({ clock: fakeClock(DAY(2)) });
+    const history = await createTestHistory({ clock: fakeClock(DAY(2)) });
     await history.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await history.store(storeInput('shop', 'c2', DAY(2), [element('b')]));
     const commitsBefore = await history.commits('shop');
@@ -1246,7 +1255,7 @@ describe('renaming a source inside a history', () => {
   });
 
   test('renameSource refuses a history that holds anything but the one source being renamed, and leaves it as it was', async () => {
-    const history = createPGliteHistory({ clock: fakeClock(DAY(2)) });
+    const history = await createTestHistory({ clock: fakeClock(DAY(2)) });
     await history.store(storeInput('shop', 'c1', DAY(1), [element('a')]));
     await history.store(storeInput('other', 'c1', DAY(1), [element('b')]));
 
@@ -1257,8 +1266,8 @@ describe('renaming a source inside a history', () => {
 });
 
 describe('an in-memory history still works beside the file-backed ones', () => {
-  test('createPGliteHistory without a path is unaffected', async () => {
-    const history = createPGliteHistory({ clock: fakeClock(DAY(2)) });
+  test('createHistoryStore without a store is unaffected', async () => {
+    const history = await createTestHistory({ clock: fakeClock(DAY(2)) });
     await history.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: model([element('a')]) });
     expect(await history.sources()).toEqual(['shop']);
     await history.close();

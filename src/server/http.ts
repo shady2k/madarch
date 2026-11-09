@@ -71,9 +71,9 @@ const DEPTH_ACCEPTED = 'a whole number from 1';
 const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
-  /** The machine-local state folder for per-source PGlite histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
+  /** The machine-local state folder for the per-source histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
   dataFolder?: string;
-  /** Shared owner of the server's graph-query database. Required with `dataFolder`; the caller chooses PostgreSQL for server mode or explicitly constructs PGlite for local mode. `startServer` owns and closes it. */
+  /** Shared owner of the server's graph-query database. Required with `dataFolder`; the caller opens it — a store's own server, or a server a connection string names. `startServer` owns and closes it. */
   queryDatabase?: AsyncQueryDatabase;
   /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
   productFolder?: string;
@@ -250,7 +250,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     throw new Error("the server is started with neither a data folder nor a product folder: give --data <folder> for the sources' histories, --product <folder> for a product's wiki, or both");
   }
   if (options.dataFolder !== undefined && options.queryDatabase === undefined) {
-    throw new Error('the server model routes need a shared graph-query database owner: pass queryDatabase explicitly (PostgreSQL in server mode, or PGlite in local mode); dataFolder selects only the source-history folder');
+    throw new Error('the server model routes need a shared graph-query database owner: pass queryDatabase explicitly (a store\'s own server, or a server a connection string names); dataFolder selects only the source-history folder');
   }
   if (options.dataFolder === undefined && options.queryDatabase !== undefined) {
     await queryDatabase?.close().catch(() => {});

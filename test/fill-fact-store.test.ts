@@ -16,7 +16,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { FACT_APPLICATION, createFactStoreSchema, readFact, readUnitFacts } from '../src/fill/fact-store.js';
 import { makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import type { UnitPlanRecord } from '../src/fill/orchestrator-store.js';
@@ -27,12 +27,13 @@ import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { factStoreChecks } from './fill-fact-store-expectations.js';
 import { runFactStoreScenario, scenarioFacts, writeOf, type FactStoreScenarioReport } from './fill-fact-store-scenario.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 let owner: DatabaseOwner | undefined;
 let report: FactStoreScenarioReport | undefined;
 
 beforeAll(async () => {
-  owner = createPGliteDatabaseOwner();
+  owner = await createTestDatabaseOwner();
   report = await runFactStoreScenario(owner);
 }, 60_000);
 
@@ -151,7 +152,7 @@ async function hostRun(options: { readonly facts?: FactApplication }): Promise<{
   close(): Promise<void>;
 }> {
   const home = await mkdtemp(join(tmpdir(), 'madarch-fact-store-host-'));
-  const database = createPGliteDatabaseOwner();
+  const database = await createTestDatabaseOwner();
   const fact = scenarioFacts().moduleA;
   const service = createFillOrchestratorService({
     owner: database,

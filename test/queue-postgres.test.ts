@@ -1,8 +1,8 @@
 /**
  * The queue on PostgreSQL (madarch-tzte.19.2): the same scenario and the same
- * expectations the PGlite suite runs, against the owner a server needs — a `pg`
- * pool instead of PGlite's single connection, pg-boss's `postgres` backend
- * profile instead of `pglite`, and a schema this file drops before and after so
+ * expectations the store suite runs, against the owner a server needs — a `pg`
+ * pool over a server, pg-boss's `postgres` backend
+ * profile, and a schema this file drops before and after so
  * a shared server does not accumulate runs.
  *
  * The server is the one `MADARCH_TEST_POSTGRES_URL` names, which CI's checks job

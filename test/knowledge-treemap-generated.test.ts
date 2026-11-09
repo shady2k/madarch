@@ -16,7 +16,7 @@ import { Resolver } from '../src/knowledge/resolve.js';
 
 const unusedOwner: DatabaseOwner = {
   location: 'unused treemap fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false,
-  backend: 'pglite', hasVector: false,
+  hasVector: false,
   transaction: async () => { throw new Error('the treemap fixture must not query SQL'); },
   run: async () => { throw new Error('the treemap fixture must not query SQL'); },
   exec: async () => { throw new Error('the treemap fixture must not query SQL'); }, close: async () => {},

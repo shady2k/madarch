@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml, parseDocument } from 'yaml';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
@@ -32,13 +32,11 @@ import { renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { ViewPayload } from '../src/knowledge/views.js';
-import {
-  GraphView, UnitTools, enrichmentPageId, enrichmentPath, fsSink, memorySink, parseFields, renderStructuredBody, runWriter,
-  structuredKindOf, type UnitAgent, type UnitRequest, type WriterReport,
-} from '../src/writer/index.js';
+import { GraphView, UnitTools, enrichmentPageId, enrichmentPath, fsSink, memorySink, parseFields, renderStructuredBody, runWriter, structuredKindOf, type UnitAgent, type UnitRequest, type WriterReport } from '../src/writer/index.js';
 import type { GraphReads } from '../src/writer/answers.js';
 import { DEFAULT_UNIT_BOUNDS, type PageSink } from '../src/writer/tools.js';
 import { ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const KEY = JSON.parse(readFileSync(join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as { snapshots: Record<string, string> };
 
@@ -117,7 +115,7 @@ beforeAll(async () => {
   writeFileSync(join(product, 'docs/domains/payments.md'), domainPage('payments', 'Payments', 'code.service:payments', 'Payments are taken through a provider chosen by configuration.'));
   // The person's documents are the repository's own: they are read as entities, and nothing the writer does may change a byte.
   documentsBefore = new Map(markdownUnder(repository).map((path) => [path, readFileSync(join(repository, path), 'utf8')]));
-  owner = createPGliteDatabaseOwner({ btreeGist: true, path: join(scratch, 'store') });
+  owner = await createTestDatabaseOwner({ btreeGist: true, store: join(scratch, 'store') });
   store = createGraphStore(owner);
   await owner.ready;
   await store.createSchema();

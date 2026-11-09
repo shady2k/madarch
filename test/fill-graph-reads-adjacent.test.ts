@@ -12,12 +12,13 @@
  * every other edge and silently drop this one.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { FACT_EDGE_KINDS, makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
 import { answerGraphRead } from '../src/fill/graph-reads.js';
 import { createOrchestratorSchema, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
 import { createFillStateSchema, createUnit, readUnit } from '../src/fill/state-store.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const PRODUCT = 'adjacent-product';
 const UNIT = 'adjacent/base';
@@ -37,7 +38,7 @@ const other = (): Fact => makeNodeFact({ kind: 'symbol', value: { repository: RE
 const variable = (): Fact => makeNodeFact({ kind: 'environment-variable', value: { name: 'ORDERS_TOPIC' }, provenance: provenance('src/a.ts'), layer: 'extracted' });
 
 beforeAll(async () => {
-  const database = createPGliteDatabaseOwner();
+  const database = await createTestDatabaseOwner();
   await createFillStateSchema(database);
   await createOrchestratorSchema(database);
   await createFactStoreSchema(database);

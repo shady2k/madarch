@@ -4,19 +4,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MERMAID_FOLDER, REFERENCE_SYSTEM, renderReferenceSystem } from '../scripts/render-views.js';
-import {
-  buildAsyncViewSet,
-  compileModel,
-  createPGliteHistory,
-  loadAndCompileModel,
-  loadModel,
-  renderMermaidPages,
-  type Clock,
-  type CompiledModel,
-  type HistoryStore,
-  type AsyncQueryEngine,
-  type View,
-} from '../src/index.js';
+import { buildAsyncViewSet, compileModel, loadAndCompileModel, loadModel, renderMermaidPages, type Clock, type CompiledModel, type HistoryStore, type AsyncQueryEngine, type View } from '../src/index.js';
+import { createTestHistory } from './test-database.js';
 
 /**
  * The views capability's view-set, labels, mermaid and deterministic
@@ -42,7 +31,7 @@ interface Built {
 
 /**
  * The bound of the hook that closes the file's databases: hooks do not get the
- * preload's default, and PGlite shutdown under a loaded runner took 5.9 s in CI
+ * preload's default, and Closing the file's databases under a loaded runner took 5.9 s in CI
  * (run 39415085797, test shard 4), over bun's five.
  */
 const HOOK_CLOSE_MS = 30_000;
@@ -51,7 +40,7 @@ const HOOK_CLOSE_MS = 30_000;
  * One history per fixture, opened the first time a case builds that fixture and
  * kept for the file: a case still stores its own fixture and rebuilds the query
  * engine from that history alone, so the cases stay independent, and what goes
- * away is a PGlite boot per case (1.66 s on the 2-CPU pod the tests run on,
+ * away is a database boot per case (1.66 s on the 2-CPU pod the tests run on,
  * measured 2026-10-20, madarch-cznn). Two fixtures cannot share one history:
  * the store refuses two sources declaring the same element id, and these
  * fixtures all hold the reference system's `shop`.
@@ -60,7 +49,7 @@ const fileHistories = new Map<string, HistoryStore>();
 
 /**
  * How many fixture histories stay open. The pod the tests run on has 4 GB, and
- * eight open PGlite databases are enough to be killed for memory (measured
+ * eight open databases were enough to be killed for memory (measured
  * 2026-10-20, madarch-cznn: `bun test test/views.test.ts` exited 137 with all
  * its cases passed). Two keep the cases of one fixture cheap, which is how they
  * are grouped, and bound the memory.
@@ -75,7 +64,7 @@ afterAll(async () => {
 async function historyFor(name: string): Promise<HistoryStore> {
   const held = fileHistories.get(name);
   if (held !== undefined) return held;
-  const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
+  const history = await createTestHistory({ clock: fakeClock(DAY(1)) });
   fileHistories.set(name, history);
   const oldest = fileHistories.keys().next().value;
   if (fileHistories.size > OPEN_FIXTURES && oldest !== undefined) {

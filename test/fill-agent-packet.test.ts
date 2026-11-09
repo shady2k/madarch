@@ -20,25 +20,17 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFactStoreSchema, applyPublishedFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader } from '../src/fill/graph-reads.js';
-import {
-  buildUnitPacket,
-  unitFixedPart,
-  estimateOfMembers,
-  MEMBER_ESTIMATE_TOKENS,
-  pathOfNode,
-  placeText,
-  plannedTokens,
-  PLANNED_FRACTION,
-} from '../src/fill/agent-packet.js';
+import { buildUnitPacket, unitFixedPart, estimateOfMembers, MEMBER_ESTIMATE_TOKENS, pathOfNode, placeText, plannedTokens, PLANNED_FRACTION } from '../src/fill/agent-packet.js';
 import { createOrchestratorSchema } from '../src/fill/orchestrator-store.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../src/fill/snapshot.js';
 import { createFillStateSchema, createUnit, readUnit } from '../src/fill/state-store.js';
 import { DEFAULT_STAGE_LIMITS, type StageGraphReader } from '../src/fill/stage.js';
 import { UNIT_TOOL_NAMES } from '../src/fill/unit-tools.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const REPOSITORY = 'acme-shop';
@@ -167,7 +159,7 @@ interface World {
 }
 
 async function openWorld(): Promise<World> {
-  const owner = createPGliteDatabaseOwner();
+  const owner = await createTestDatabaseOwner();
   await createFillStateSchema(owner);
   await createOrchestratorSchema(owner);
   await createFactStoreSchema(owner);

@@ -3,28 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillStateDatabase } from '../src/fill/state-store.js';
-import {
-  FILL_STATE_TABLES,
-  FILL_STORE_STEPS,
-  advanceChain,
-  advanceRun,
-  advanceUnit,
-  advanceUnitIn,
-  createFillStateSchema,
-  createRun,
-  createUnit,
-  leaseUnit,
-  openChain,
-  readChain,
-  readRun,
-  readTransitions,
-  readUnit,
-  readUnitGenerations,
-  replaceStaleGeneration,
-} from '../src/fill/state-store.js';
+import { FILL_STATE_TABLES, FILL_STORE_STEPS, advanceChain, advanceRun, advanceUnit, advanceUnitIn, createFillStateSchema, createRun, createUnit, leaseUnit, openChain, readChain, readRun, readTransitions, readUnit, readUnitGenerations, replaceStaleGeneration } from '../src/fill/state-store.js';
 import type { RunEvidence, UnitAdvanceEvent } from '../src/fill/fsm.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const settled: RunEvidence = { runnable: 0, inFlight: 0, waiting: 0, coverageMet: true, pendingPublications: 0 };
@@ -34,7 +17,7 @@ let database: DatabaseOwner;
 beforeAll(async () => {
   // The process's one database owner, as the background server lends it: the store borrows the
   // owner's transactions and opens nothing of its own (madarch-tzte.19.1, madarch-tzte.19.5).
-  database = createPGliteDatabaseOwner();
+  database = await createTestDatabaseOwner();
   await createFillStateSchema(database);
 });
 
@@ -508,7 +491,7 @@ describe('the store keeps its state on disk', () => {
   test('answers every generation and lease after the database is closed and opened again', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'madarch-fill-fsm-'));
     const write = async (): Promise<{ unit: unknown; journal: unknown }> => {
-      const first = createPGliteDatabaseOwner({ path: directory });
+      const first = await createTestDatabaseOwner({ store: directory });
       try {
         await createFillStateSchema(first);
         await createUnit(first, { unitId: 'unit-disk', product: 'product-disk', runId: 'run-disk', stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-disk', retries: 1, at: NOW });
@@ -525,7 +508,7 @@ describe('the store keeps its state on disk', () => {
     };
     try {
       const written = await write();
-      const second = createPGliteDatabaseOwner({ path: directory });
+      const second = await createTestDatabaseOwner({ store: directory });
       try {
         await createFillStateSchema(second);
         const reopened = await readUnit(second, 'unit-disk');

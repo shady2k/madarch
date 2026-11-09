@@ -16,7 +16,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { createGraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexCounts, indexProductMarkdown } from '../src/knowledge/index/index.js';
 import { readProduct } from '../src/product/manifest.js';
@@ -33,7 +33,7 @@ const identity = (read as Extract<typeof read, { ok: true }>).product;
 const head = execFileSync('git', ['rev-parse', values.ref ?? 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
 const git = gitReader(repository);
 
-const owner = createPGliteDatabaseOwner({ btreeGist: true, path: path.resolve(values.store!) });
+const owner = await createDatabaseOwner({ btreeGist: true, store: path.resolve(values.store!) });
 const store = createGraphStore(owner);
 await owner.ready;
 await store.createSchema();

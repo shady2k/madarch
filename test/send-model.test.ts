@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sourceNameFromRemote } from '../src/send/send-model.js';
 import { startServer, type StartedServer } from '../src/index.js';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { Repo, completeRepo } from './model-check-repo.js';
+import { createTestQueryDatabase } from './test-database.js';
 
 /** The send command's script, run the way a person runs it. */
 const SEND_SCRIPT = fileURLToPath(new URL('../scripts/send-model.ts', import.meta.url));
@@ -96,7 +96,7 @@ describe('the send command', () => {
     lines = [];
     server = await startServer({
       dataFolder: folder,
-      queryDatabase: await createPGliteQueryDatabase({ clock: { now: () => NOW } }),
+      queryDatabase: await createTestQueryDatabase({ clock: { now: () => NOW } }),
       port: 0,
       clock: { now: () => NOW },
       log: (line) => lines.push(line),
