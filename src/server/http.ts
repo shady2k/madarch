@@ -509,7 +509,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
     url: server.url.origin,
     async stop(): Promise<void> {
-      fillChild?.stop();
+      await fillChild?.stop();
       server.stop(true);
       await handle.drain();
       let failure: unknown;
@@ -528,15 +528,18 @@ const notServed = (message: string): Response => Response.json({ message }, { st
  * Starts the fill role as a child of this process (madarch-8bdc.9): `madarch --role fill --home <home>`, at nice 10, with
  * its output on this process's error stream. It ends when the api process ends, and `stop()` ends it first.
  */
-function startFillRole(options: { readonly home: string; readonly root: string }): { stop: () => void } | undefined {
+function startFillRole(options: { readonly home: string; readonly root: string }): { stop: () => Promise<void> } | undefined {
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
     const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
-      stop: () => {
+      stop: async () => {
+        // The role is asked to stop and waited for: it gives its stores up while stopping them (madarch-8bdc.12), so the
+        // stores this server read are not left with a PostgreSQL server running once the role is gone.
         try { child.kill(); } catch { /* already gone */ }
+        await Promise.race([child.exited.catch(() => undefined), Bun.sleep(2_000)]);
       },
     };
   } catch {

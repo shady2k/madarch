@@ -73,9 +73,10 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const watched = new Map<string, Watched>();
   const state: RoleState = { owners: new Set(), databaseFolders: new Set(), ending: false };
   /** Ends the role now: what it opened is given up, so the last close of a store stops its server. */
-  const end = async (): Promise<void> => {
+  const end = async (exitCode = 0): Promise<void> => {
     if (state.ending) return;
     state.ending = true;
+    withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
     const deadline = Date.now() + ENDING_MS;
     // The fill under way and every store this role opened are closed, with the end's own bound: a close that waits for a
@@ -95,12 +96,18 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
       })(),
       Bun.sleep(Math.max(0, deadline - Date.now())),
     ]);
-    process.exit(0);
+    process.exit(exitCode);
   };
   const watcher = options.parentPid === undefined ? undefined : setInterval(() => {
     if (!alive(options.parentPid!)) void end();
   }, PARENT_CHECK_MS);
   watcher?.unref?.();
+  // A role asked to stop (the server that started it stops it with SIGTERM, the way `madarch serve` does) gives its stores
+  // up as it does when its parent is gone: a killed role must not leave a store's PostgreSQL server running either.
+  const signals: readonly NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
+  const onSignal = (signal: NodeJS.Signals): void => { void end(signal === 'SIGINT' ? 130 : 143); };
+  for (const signal of signals) process.on(signal, onSignal);
+  const withoutSignals = (): void => { for (const signal of signals) process.off(signal, onSignal); };
   /**
    * Gives the stores up when the role ends by saying so (`idle`, or a signal of the caller's): a role that ends must not
    * leave a store's PostgreSQL server running with nothing to serve it, which is what the parent's death must not either
@@ -108,6 +115,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
    */
   const giveUp = async (): Promise<void> => {
     if (watcher !== undefined) clearInterval(watcher);
+    withoutSignals();
     for (const owner of [...state.owners]) {
       await Promise.race([owner.close().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
       state.owners.delete(owner);
