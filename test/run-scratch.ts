@@ -44,6 +44,7 @@
  * started in this package (`bun test`, `bun run test`, CI's `bun test test/`),
  * not one started inside `test/`.
  */
+import { spawnSync } from 'node:child_process';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -241,11 +242,38 @@ function runningOrUnknown(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
+/**
+ * Stops every fill role and every PostgreSQL server whose command line names the run's folder, and waits for each: the end of
+ * a run is this function's, whether it ends by itself or by a signal, and a run leaves no process behind (madarch-8bdc.12 —
+ * a role and a store's server a test left, and the daemons of the run folder that restart one).
+ */
+function stopStraysIn(folder: string): void {
+  const listed = spawnSync('ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' });
+  const pids: number[] = [];
+  for (const line of (listed.stdout ?? '').split('\n')) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match === null) continue;
+    const pid = Number(match[1]);
+    const command = match[2] ?? '';
+    if (!Number.isInteger(pid) || pid <= 1 || !command.includes(folder)) continue;
+    if (!command.includes('--role') && !command.includes('postgres -D') && !command.includes('daemon-serve') && !command.includes(' serve')) continue;
+    pids.push(pid);
+  }
+  for (const pid of pids) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
+  const until = Date.now() + 2_000;
+  while (Date.now() < until && pids.some((pid) => runningOrUnknown(pid))) Bun.sleepSync(20);
+  for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+}
+
 /** Removes the scratch once, saying plainly when it could not be removed. */
 function removeRunScratchOnce(state: RunScratchState): void {
   if (state.removed) return;
   state.removed = true;
   try {
+    // Twice: a daemon signalled may start its product's cluster once more on its way out, and the second pass stops that
+    // server too (madarch-8bdc.12 — a shard run left two this way).
+    stopStraysIn(state.scratch.folder);
+    stopStraysIn(state.scratch.folder);
     stopServerIn(state.scratch.folder);
     forceRemove(state.scratch.folder);
   } catch (error) {
