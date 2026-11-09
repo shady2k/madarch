@@ -43,6 +43,20 @@ export const ORCHESTRATOR_TABLES = [
   'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', 'fill_control', 'fill_end',
 ] as const;
 
+/**
+ * What a run ended with, where the api role reads it (madarch-8bdc.9): the process that ran the fill writes the answer
+ * its own result carried, and the process that pressed it states that answer. Written by `writeFillEnd` too, under the
+ * store's schema lock, because a run that fails before the orchestrator starts its schema still ended, and the process
+ * that pressed it waits for this row.
+ */
+const FILL_END_TABLE = `CREATE TABLE IF NOT EXISTS fill_end (
+    run_id text PRIMARY KEY,
+    state text NOT NULL,
+    message text,
+    unread jsonb,
+    finished_at timestamptz NOT NULL DEFAULT now()
+  )`;
+
 const SCHEMA: readonly string[] = [
   // A person's pause or stop of a run whose fill process is another one (madarch-8bdc.9): the process that runs the fill
   // reads this row and takes the action on the run it owns.
@@ -51,15 +65,7 @@ const SCHEMA: readonly string[] = [
     action text NOT NULL,
     at bigint NOT NULL
   )`,
-  // What a run ended with, where the api role reads it (madarch-8bdc.9): the process that ran the fill writes the answer
-  // its own result carried, and the process that pressed it states that answer.
-  `CREATE TABLE IF NOT EXISTS fill_end (
-    run_id text PRIMARY KEY,
-    state text NOT NULL,
-    message text,
-    unread jsonb,
-    finished_at timestamptz NOT NULL DEFAULT now()
-  )`,
+  FILL_END_TABLE,
   `CREATE TABLE IF NOT EXISTS fill_run_configuration (
     run_id text PRIMARY KEY,
     digest text NOT NULL,
@@ -886,6 +892,11 @@ export interface FillEnd {
 export async function writeFillEnd(database: OrchestratorDatabase, end: FillEnd): Promise<void> {
   const at = here();
   await run(at, database, `writeFillEnd(${end.runId})`, ['fill_end'], async (executor) => {
+    // A run that failed before the orchestrator made its schema — a product with no manifest, a store that could not be
+    // read — still ended, and the process that pressed it waits for this row: the table is made here, under the store's
+    // schema lock, which is the same lock the orchestrator's own creation takes.
+    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+    await executor.query(FILL_END_TABLE);
     await executor.query(
       `INSERT INTO fill_end (run_id, state, message, unread) VALUES ($1, $2, $3, $4::jsonb)
        ON CONFLICT (run_id) DO UPDATE SET state = $2, message = $3, unread = $4::jsonb, finished_at = now()`,
