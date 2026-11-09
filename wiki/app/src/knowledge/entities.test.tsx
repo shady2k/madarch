@@ -12,11 +12,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { setWikiLanguage } from '../i18n.js';
+import i18n, { setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
 import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
 import { resetPreferences } from './preferences.js';
+import { Root as AppRoot } from './root.js';
 import { addressOfStatement, kRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
 import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, resetTabs, setTabTitle, frontTab, syncFrontTabAddress, useTabTitle } from './tabs.js';
@@ -764,5 +765,92 @@ describe('the sources', () => {
     expect(filterSources(listing.documents, 'VISION').map((entry) => entry.path)).toEqual(['docs/vision.md']);
     expect(filterSources(listing.documents, ' notes/ ').map((entry) => entry.title)).toEqual(['ideas']);
     expect(filterSources(listing.documents, '')).toHaveLength(2);
+  });
+});
+
+describe('every route names its tab', () => {
+  const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 };
+  const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
+  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
+    product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0,
+    kinds: [{ kind: 'code.symbol', source: 'graph', count: 1, single: false, origins: ['code'] }], groups: [], repositories: [{ name: 'shop', filled: true }],
+    filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS,
+    chosenAgent: null, home: null, starterOffers: 0, ...over,
+  });
+  const pageModel = (id: string, title: string): unknown => ({ id, kind: 'domain', title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [] });
+  const loading = (): string => i18n.t('knowledge.loading');
+  /** The shapes the shell asks for on every page, and the one page a route reads when `page` is given. */
+  const serve = (state: WikiStatus, page: unknown | null = null, pending: Promise<Response> | null = null): void => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/k/status')) return json(state);
+      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.includes('/api/k/page')) return pending ?? (page === null ? json({ message: 'no page' }, 404) : json(page));
+      if (url.includes('/api/k/view')) return json({ renderer: 'mermaid', views: [] });
+      return json({ message: 'not here' }, 404);
+    };
+  };
+  const activeTab = (container: HTMLElement): string => container.querySelector('[data-testid=tab][data-active=true] [role=tab]')?.textContent ?? '';
+
+  const routes: { address: string; selector: string; expected?: string; state?: WikiStatus; page?: unknown }[] = [
+    // The home of an empty product (the owner's case): the introduction, and the product's name on the tab.
+    { address: '/k', selector: '[data-testid=overview]', expected: 'shop', state: status({ filled: false, home: null, repositories: [{ name: 'shop', filled: false }] }) },
+    // A filled home whose page the server names.
+    { address: '/k', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
+    // A filled home that is its repository's page (the demo's shape).
+    { address: '/k', selector: '[data-testid=repository-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }) },
+    { address: '/k/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
+    { address: '/k/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
+    { address: '/k/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
+    { address: '/k/src?repo=shop&path=a.ts&line=2', selector: '[data-testid=source-error]', expected: 'a.ts' },
+    { address: '/k/folder?path=docs', selector: '[data-testid=repository-refused]', expected: 'docs' },
+    { address: '/k/file?path=docs/x.md', selector: '[data-testid=repository-refused]', expected: 'docs/x.md' },
+    { address: '/k/commit?hash=abc123', selector: '[data-testid=repository-refused]', expected: 'abc123' },
+    { address: '/k/run', selector: '[data-testid=repository-refused]', expected: 'The run' },
+    { address: '/k/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },
+    { address: '/k/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
+    { address: '/k/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },
+    { address: '/k/glossary', selector: '[data-testid=glossary-page]', expected: 'Glossary' },
+    { address: '/k/questions', selector: '[data-testid=questions-error]', expected: 'Questions' },
+    { address: '/k/questions/missing', selector: '[data-testid=question-error]', expected: 'There is no such question' },
+    { address: '/k/problems', selector: '[data-testid=problems-error]', expected: 'Problems' },
+    { address: '/k/settings', selector: '[data-testid=settings-error]', expected: 'Product settings' },
+    { address: '/k/journal?id=product%3Ashop', selector: '[data-testid=journal-error]', expected: 'How the agent wrote this page' },
+    { address: '/k/fill', selector: '[data-testid=fill-page]', expected: 'Fill' },
+    { address: '/k/tasks', selector: '[data-testid=tasks-error]', expected: 'Tasks' },
+    { address: '/k/task?id=t1', selector: '[data-testid=task-page-error]', expected: 'The tasks could not be read' },
+    { address: '/k/statement?id=product%3Ashop&sentence=The%20shop%20takes%20orders', selector: '[data-testid=statement-error]', expected: 'The shop takes orders' },
+  ];
+
+  for (const route of routes) {
+    test(`${route.address} names its tab once the page stands${route.expected === undefined ? '' : `: ${route.expected}`}`, async () => {
+      serve(route.state ?? status(), route.page ?? null);
+      window.history.replaceState({}, '', route.address);
+      const container = into(createElement(AppRoot));
+      await until(() => container.querySelector(route.selector) !== null, `the page of ${route.address}`);
+      await until(() => frontTab().title !== null && frontTab().title !== loading(), `the tab's name after ${route.address}`);
+      expect(frontTab().title).not.toBe(loading());
+      if (route.expected !== undefined) expect(frontTab().title).toBe(route.expected);
+      expect(activeTab(container)).not.toBe(loading());
+      for (const tab of JSON.parse(window.sessionStorage.getItem('madarch-tabs:/') ?? '{"tabs":[]}').tabs as { title: string | null }[]) {
+        expect(tab.title).not.toBe(loading());
+      }
+    });
+  }
+
+  test('«Loading…» still stands while the page it names is really being read, and gives way to the page\'s name', async () => {
+    let answer!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { answer = resolve; });
+    serve(status({ home: 'product:shop', filled: true }), null, held);
+    window.history.replaceState({}, '', '/k');
+    const container = into(createElement(AppRoot));
+    await until(() => container.querySelector('[data-testid=tab][data-active=true]') !== null, 'the tab bar');
+    await until(() => activeTab(container) === loading(), 'the loading name');
+    expect(frontTab().title).toBeNull();
+    answer(json(pageModel('product:shop', 'Shop home')));
+    await until(() => frontTab().title === 'Shop home', 'the page\'s name');
+    expect(activeTab(container)).toBe('Shop home');
   });
 });

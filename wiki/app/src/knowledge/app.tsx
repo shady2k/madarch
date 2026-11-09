@@ -247,16 +247,16 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.home')}</span>
         </a>
+        <a href={appPath(K_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(K_CATALOGUE)}>
+          <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
+        </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
           {waitingLink('nav-questions', K_QUESTIONS, HelpCircleIcon, t('loop.questionsTitle'), questionsOpen, route.name === 'questions' || route.name === 'question')}
           {waitingLink('nav-tasks', K_TASKS, CheckIcon, t('loop.tasksTitle'), tasksOpen, route.name === 'tasks' || route.name === 'task')}
           {waitingLink('nav-problems', K_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </div>
-        <a href={appPath(K_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(K_CATALOGUE)}>
-          <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
-        </a>
         {terms.length > 0 && (
           <a href={appPath(K_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(K_GLOSSARY)}>
             <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />

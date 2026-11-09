@@ -323,6 +323,23 @@ main :not(pre) > code {
   color: var(--code-ink);
 }
 
+/* Inline code inside a link. The chip's ground covers the middle of the link's border underline and leaves its
+   two ends standing under the chip's padding — two stray dashes at the corners. Such a link draws its line as a
+   text decoration instead: the link's under its words, the chip's own across the code over the chip's ground, and
+   no border that could show under the padding alone. A plain link keeps its border, and unlinked code its chip. */
+main a:has(> code) {
+  border-block-end: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+  text-underline-offset: 0.18em;
+}
+
+main a > code {
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+  text-underline-offset: 0.18em;
+}
+
 /* 4.3 Code blocks: plain ink on the code ground, no syntax colours, and a
    block that scrolls on its own rather than widening the page. */
 main pre {
@@ -857,6 +874,18 @@ main .footnotes {
   outline: 2px solid var(--text-secondary);
   outline-offset: 2px;
   border-radius: var(--radius-row);
+}
+
+/* The current page's row in the sidebar carries its line inside its own box: the list clips what reaches past it, so an
+   outline drawn outside the row loses its left edge at the column's padding. Inactive rows keep no line, and a keyboard
+   focus inside the list is drawn inside its row for the same reason. */
+.nav-current {
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.app-nav a:focus-visible {
+  outline-offset: -2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
