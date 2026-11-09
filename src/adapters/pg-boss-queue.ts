@@ -44,7 +44,7 @@ import { PgBoss } from 'pg-boss';
 import type { CommandResponse, Db, Job, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
 import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
-import type { OuterTransaction } from '../history/types.js';
+import type { OuterTransaction } from '../history-types.js';
 import type {
   ClaimedJob,
   ClaimRequest,

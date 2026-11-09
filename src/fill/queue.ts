@@ -22,7 +22,7 @@
  * what a unit waits for, when it is stale and when it is published exactly once
  * are the orchestrator's, and a job's data is the orchestrator's own.
  */
-import type { OuterTransaction } from '../history/types.js';
+import type { OuterTransaction } from '../history-types.js';
 
 /**
  * One job's identity and data, as the queue hands it out. Its `attempt` and

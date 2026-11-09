@@ -8,9 +8,9 @@ import { parseDocument } from 'yaml';
 import type { QuestionForm } from '../product/schema.js';
 
 /** The states a question stands in: the set's own three, nothing invented. */
-export type QuestionState = 'open' | 'answered' | 'not-applicable';
-export const QUESTION_TYPES = ['meaning', 'contradiction', 'undocumented-behaviour', 'assumption-check', 'term', 'unverifiable', 'decision-rationale', 'access-or-document-needed'] as const;
-export type QuestionType = typeof QUESTION_TYPES[number];
+type QuestionState = 'open' | 'answered' | 'not-applicable';
+const QUESTION_TYPES = ['meaning', 'contradiction', 'undocumented-behaviour', 'assumption-check', 'term', 'unverifiable', 'decision-rationale', 'access-or-document-needed'] as const;
+type QuestionType = typeof QUESTION_TYPES[number];
 
 /** One open question as the wiki's API carries it. */
 export interface OpenQuestion {
@@ -47,7 +47,7 @@ export interface OpenQuestion {
 }
 
 /** One file read as a question document, or nothing: the file is not one. */
-export type ReadQuestion = { ok: true; question: OpenQuestion; changedAt?: string } | { ok: false; why: 'not-a-question' } | { ok: false; why: 'unreadable'; message: string };
+type ReadQuestion = { ok: true; question: OpenQuestion; changedAt?: string } | { ok: false; why: 'not-a-question' } | { ok: false; why: 'unreadable'; message: string };
 
 /**
  * One question document's text, parsed into the entry the wiki serves. A
@@ -239,7 +239,7 @@ export function audienceOf(markdown: string, sectionName: string): string | unde
 }
 
 /** Deterministic ranking: dependency count descending, then stable document id in code-point order. */
-export function rankQuestions<T extends { id: string; dependsOn: readonly string[] }>(questions: readonly T[]): Array<T & { rank: number }> {
+function rankQuestions<T extends { id: string; dependsOn: readonly string[] }>(questions: readonly T[]): Array<T & { rank: number }> {
   return questions.map((question) => ({ ...question, rank: new Set(question.dependsOn.filter((dependency) => !dependency.startsWith('claim-') && !dependency.startsWith('clm-'))).size }))
     .sort((a, b) => b.rank - a.rank || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }

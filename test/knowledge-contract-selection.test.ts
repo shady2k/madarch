@@ -1,8 +1,8 @@
-import {expect, test} from 'bun:test';
-import {definitionBlock} from '../src/knowledge/definition.js';
-import type {RenderContext} from '../src/knowledge/blocks.js';
-import type {GraphEntity} from '../src/knowledge/graph-read.js';
-import {fixtureManifest} from './knowledge-manifest-fixture.js';
+import { expect, test } from 'bun:test';
+import { definitionBlock } from '../src/knowledge/definition.js';
+import type { RenderContext } from '../src/knowledge/blocks.js';
+import type { GraphEntity } from '../src/knowledge/graph-read.js';
+import { fixtureManifest } from './knowledge-manifest-fixture.js';
 const contract: GraphEntity = {key: 'code.contract:contracts/api.yaml', kind: 'code.contract', label: 'Catalogue', properties: {format: 'openapi'}, scope: 'scope', nodeIds: ['1']};
 const operation: GraphEntity = {key: 'code.operation:contracts/api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', properties: {method: 'GET', path: '/items'}, scope: 'scope', nodeIds: ['2']};
 function context(text: string, owners = 1): RenderContext {

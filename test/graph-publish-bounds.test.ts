@@ -5,16 +5,7 @@
  * for the whole row set (madarch-alzf, PR #197 latency).
  */
 import { describe, expect, test } from 'bun:test';
-import {
-  currentEdgeVersions,
-  edgeIdentities,
-  lockNodes,
-  newNodeIdentities,
-  prefetchNodeSlices,
-  prefetchNodes,
-  writeMemo,
-  type WriteContext,
-} from '../src/graph/versions.js';
+import { currentEdgeVersions, edgeIdentities, lockNodes, newNodeIdentities, prefetchNodeSlices, prefetchNodes, writeMemo, type WriteContext } from '../src/graph/versions.js';
 
 function rowsIn(values: readonly unknown[] | undefined): number {
   const text = String(values?.[0] ?? '{}');

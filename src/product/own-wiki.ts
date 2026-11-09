@@ -18,9 +18,9 @@ import { GIT_LEAKS, ownRepository, runGit } from './git.js';
 import { readProduct } from './manifest.js';
 
 /** The repository madarch's own wiki is. */
-export const OWN_WIKI_REPOSITORY = 'https://github.com/shady2k/madarch-product.git';
+const OWN_WIKI_REPOSITORY = 'https://github.com/shady2k/madarch-product.git';
 /** The branch of that repository the wiki follows. */
-export const OWN_WIKI_BRANCH = 'main';
+const OWN_WIKI_BRANCH = 'main';
 /** The folder name under the madarch home. */
 export const OWN_WIKI_FOLDER = 'madarch-wiki';
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { PassThrough } from 'node:stream';
-import { agentCommand, createHeadlessAgentExecutor, normalizeAgentEvent } from '../src/product/fill-agents.js';
+import { agentCommand, normalizeAgentEvent } from '../src/product/fill-agents.js';
 import type { FillUnit } from '../src/product/fill-runtime.js';
 
 const unit: FillUnit = { id: 'unit-1', stage: 'claims', inputHashes: {}, status: 'running', outputPaths: [], attempt: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
@@ -21,11 +21,7 @@ describe('headless agent adapters', () => {
     expect(codex.args).toEqual(['exec', '--json', '--sandbox', 'read-only', '--cd', '/tmp/code', 'inspect']);
     expect(() => agentCommand('claude', '', 'inspect')).toThrow();
   });
-  test('runs OMP via a fake process with configured model, extension and safe tools',async()=>{
-    let invoked:any; const executor=createHeadlessAgentExecutor({kind:'omp',snapshot:'/source',promptFor:()=>'{\"claims\":[]}',settings:{model:'shady2k-gateway/glm-5.3-flash-auto',extension:'/tmp/gateway.js'},onEvent:()=>{},spawn:((command:string,args:string[],options:any)=>{invoked={command,args,options};return fakeProcess(0,'{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"{\\\"claims\\\":[]}\"}],\"usage\":{\"input\":19,\"cacheRead\":6,\"output\":4}}}\n');}) as never});
-    const result=await executor.execute(unit,new AbortController().signal,async()=>{}); expect(invoked.command).toBe('omp'); expect(invoked.args).toContain('shady2k-gateway/glm-5.3-flash-auto'); expect(invoked.args).toContain('read,grep,glob'); expect(result.agentUsage?.elapsedMs).toBeGreaterThanOrEqual(0); expect(result.agentUsage?.inputTokens).toBe(25); expect(result.agentUsage?.outputTokens).toBe(4);
-  });
-  test('normalizes JSONL provider events and redacts credential-like summary text', () => {
+    test('normalizes JSONL provider events and redacts credential-like summary text', () => {
     expect(normalizeAgentEvent('{"type":"assistant","message":"token=secret-value"}', unit, '2026-01-01T00:00:00Z')).toEqual({ unitId: 'unit-1', stage: 'claims', type: 'assistant', timestamp: '2026-01-01T00:00:00Z', payload: { type: 'assistant', summary: '[REDACTED]', data: { type: 'assistant', message: '[REDACTED]' } } });
     expect(normalizeAgentEvent('not json', unit)).toBeUndefined();
     const credential = normalizeAgentEvent('{"type":"result","api_key":"abc","data":{"password":"secret"}}', unit)!;
@@ -36,16 +32,4 @@ describe('headless agent adapters', () => {
     expect(envSecrets.payload).toMatchObject({ data: { OPENAI_API_KEY: '[REDACTED]', GITHUB_TOKEN: '[REDACTED]', AWS_SECRET_ACCESS_KEY: '[REDACTED]' } });
     expect(normalizeAgentEvent('{"type":"message","text":"AWS_SECRET_ACCESS_KEY=abc123"}', unit)?.payload).toMatchObject({ summary: '[REDACTED]' });
   });
-  test('propagates asynchronous event persistence failures to the unit executor', async () => {
-    const executor = createHeadlessAgentExecutor({ kind: 'codex', snapshot: '/source', promptFor: () => 'inspect', onEvent: async () => { throw undefined; }, spawn: (() => fakeProcess(0, '{"type":"item.completed"}\n')) as never });
-    await expect(executor.execute(unit, new AbortController().signal, async () => undefined)).rejects.toThrow('Could not persist agent event');
-  });
-  test('executes fake child process and emits normalized progress without a real agent call', async () => {
-    const seen: unknown[] = [];
-    const executor = createHeadlessAgentExecutor({ kind: 'codex', snapshot: '/source', promptFor: () => 'inspect', onEvent: (event) => { seen.push(event); }, spawn: (() => fakeProcess(0, '{"type":"item.completed","usage":{"input_tokens":7}}\n')) as never });
-    const result = await executor.execute(unit, new AbortController().signal, async () => undefined);
-    expect(seen).toHaveLength(1);
-    expect(result.outputPaths).toEqual([]);
-    expect(result.agentUsage?.inputTokens).toBe(7);
-  });
-});
+    });

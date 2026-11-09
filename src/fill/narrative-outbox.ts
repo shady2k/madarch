@@ -31,7 +31,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import type { FactStoreDatabase } from './fact-store.js';
 import { FACT_ID_PATTERN, type NarrativeValue } from './facts.js';
 import { raise } from './fsm-core.js';
@@ -98,7 +98,7 @@ async function publishedPages(database: FactStoreDatabase, product: string): Pro
  * caller's clock where it names one (a test's), so a run's commits read the same on
  * every machine that holds the same pages.
  */
-export async function commitNarrativePages(options: {
+async function commitNarrativePages(options: {
   readonly database: FactStoreDatabase;
   /** The product repository's checkout: where a page's file stands and the commit is made. */
   readonly folder: string;

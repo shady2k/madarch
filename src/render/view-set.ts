@@ -9,10 +9,10 @@
 import type { CompiledModel, CompiledRelation } from '../model/compile.js';
 import { byCodePoint } from '../model/order.js';
 import { messagingOf } from '../model/contracts.js';
-import type { ElementAnswer, QueryError, QuerySnapshot, QueryTime, ViewRelation } from '../query/types.js';
+import type { ElementAnswer, QueryError, QuerySnapshot, QueryTime, ViewRelation } from '../query-types.js';
 
 /** Where a shown element sits in its view. */
-export type Place = 'scope' | 'inside' | 'neighbour';
+type Place = 'scope' | 'inside' | 'neighbour';
 
 /** One element a view shows. */
 export interface ShownElement {
@@ -34,7 +34,7 @@ export interface ShownElement {
  * go; `dashed` when every relation behind it marks its action, left out
  * otherwise.
  */
-export interface Arrow {
+interface Arrow {
   from: string;
   to: string;
   relationIds: string[];
@@ -209,7 +209,7 @@ function shownElement(element: ElementAnswer, place: Place, withChildren: Readon
 type Fail = (relationId: string, problem: string) => void;
 
 /** What one relation is called (views/labels): its name for the table, its label on an arrow, and whether it marks its action on a topic or queue. */
-export interface RelationWords {
+interface RelationWords {
   name: string;
   label: string;
   marked: boolean;

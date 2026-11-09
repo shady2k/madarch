@@ -46,7 +46,7 @@ const FIRST_FILL_WORKFLOW = 'first-fill';
 const WORKFLOW_STATUSES = ['implemented', 'planned'] as const;
 
 /** One workflow's status, one of `WORKFLOW_STATUSES`. */
-export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
 
 /** One problem the workflows reader finds: the file, the line, and the words a person reads. */
 export interface WorkflowFinding {

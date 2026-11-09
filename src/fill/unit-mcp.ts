@@ -46,7 +46,7 @@ export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] 
 export const MCP_FALLBACK_VERSION = MCP_PROTOCOL_VERSIONS[0];
 
 /** What this server says it is, in `initialize`'s answer. */
-export interface McpServerInfo {
+interface McpServerInfo {
   readonly name: string;
   readonly version: string;
 }
@@ -55,7 +55,7 @@ export interface McpServerInfo {
 export const UNIT_MCP_INFO: McpServerInfo = { name: 'madarch-unit', version: runningVersion() };
 
 /** What a message answers a tool call with: the host this server proxies to (`createUnitToolsHost`). */
-export type UnitToolCallForwarder = (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer>;
+type UnitToolCallForwarder = (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer>;
 
 /** A tool as `tools/list` answers it; the fill's unit tools are these, and so are another stage's own (the knowledge writer's). */
 export interface McpToolDefinition {
@@ -75,7 +75,7 @@ export interface UnitMcpOptions {
 }
 
 /** One JSON-RPC message as this server reads it. */
-export interface JsonRpcMessage {
+interface JsonRpcMessage {
   readonly jsonrpc?: unknown;
   readonly id?: unknown;
   readonly method?: unknown;
@@ -102,7 +102,7 @@ function error(id: unknown, code: number, message: string): McpAnswer {
 }
 
 /** The protocol version this server answers one client's requested version with. */
-export function answeredVersion(requested: unknown): string {
+function answeredVersion(requested: unknown): string {
   return (MCP_PROTOCOL_VERSIONS as readonly unknown[]).includes(requested) ? requested as string : MCP_FALLBACK_VERSION;
 }
 

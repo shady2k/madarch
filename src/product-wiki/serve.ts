@@ -76,7 +76,7 @@ export interface ServeOptions extends AppBuildOptions {
 }
 
 /** How the default opener resolves the browser it runs. */
-export function browserCommand(env: ServeEnv = process.env): string | { message: string } {
+function browserCommand(env: ServeEnv = process.env): string | { message: string } {
   const named = env.MADARCH_BROWSER?.trim() || env.BROWSER?.trim();
   if (named !== undefined && named !== '') return named;
   if (process.platform === 'linux') return 'xdg-open';

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { loadAndCompileModel, parseModel, compileModel, serializeCompiledModel, type ValidatedModel } from '../src/index.js';
+import { loadAndCompileModel, parseModel, compileModel, serializeCompiledModel, type ValidatedModel } from './api.js';
 
 function fixture(name: string): string {
   return fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));

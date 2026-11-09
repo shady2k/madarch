@@ -17,8 +17,9 @@ import { parseKinds } from '../src/knowledge/kinds.js';
 import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
-import { Resolver, findAnchor } from '../src/knowledge/resolve.js';
+import { Resolver } from '../src/knowledge/resolve.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { findAnchor } from '../src/knowledge/anchors.js';
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;

@@ -31,13 +31,13 @@ import { emptyProductGapMarker } from './empty-product-gap.js';
 export type HomeSectionId = 'what-it-is' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'not-connected';
 
 /** The field of `HomeFields` a section is written from. */
-export type HomeField = 'whatItIs' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'notConnected';
+type HomeField = 'whatItIs' | 'scenarios' | 'system' | 'domains' | 'rules' | 'technology' | 'coverage' | 'notConnected';
 
 /** How a section is written: the unit's sentences, or the places it names and the sentence it says about each. */
-export type HomeShape = 'statements' | 'linked';
+type HomeShape = 'statements' | 'linked';
 
 /** One section of the home page: its id, the field it is written from, its heading in each language, and its gap. */
-export interface HomeSectionDecl {
+interface HomeSectionDecl {
   readonly id: HomeSectionId;
   readonly field: HomeField;
   readonly shape: HomeShape;

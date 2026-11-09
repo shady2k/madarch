@@ -13,7 +13,7 @@ import { homeKind, parseKinds, readKinds } from '../src/knowledge/kinds.js';
 import { parseTarget, readBody, readMarkdownEntities, splitFrontMatter } from '../src/knowledge/markdown.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { parseTemplate, substitute } from '../src/knowledge/template.js';
-import { closeRenderWorkers, renderLiquidPage, templateSetOf } from '../src/knowledge/liquid.js';
+import { renderLiquidPage, templateSetOf } from '../src/knowledge/liquid.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
 
@@ -24,7 +24,6 @@ function scratch(): string {
   return folder;
 }
 afterEach(() => {
-  closeRenderWorkers();
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 

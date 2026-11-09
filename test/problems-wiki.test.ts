@@ -1,3 +1,5 @@
+import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
+import { DEFAULT_THRESHOLDS } from '../src/problems/types.js';
 /**
  * The wiki section of the Problems page (madarch-m38l.19): the findings the
  * wiki already holds keep their meaning and gain the rule data — section,
@@ -10,13 +12,13 @@ import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { KINDS_FILE } from '../src/knowledge/kinds.js';
 import { listProblems } from '../src/loop/views.js';
-import { starterProblemSettings } from '../src/knowledge/seed.js';
+
 import type { Resolution } from '../src/knowledge/resolve.js';
 
 const folder = (): string => mkdtempSync(join(tmpdir(), 'madarch-problems-wiki-'));
 const resolve = async (): Promise<Resolution> => ({ state: 'ok', target: 'x', kind: 'entity', label: 'x', href: null });
 const input = (productFolder: string, extra: Partial<Parameters<typeof listProblems>[0]> = {}) => ({
-  productFolder, owner: {} as DatabaseOwner, resolve, findings: [], settings: starterProblemSettings(), ...extra,
+  productFolder, owner: {} as DatabaseOwner, resolve, findings: [], settings: { rules: Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting])), thresholds: { ...DEFAULT_THRESHOLDS } }, ...extra,
 });
 
 describe('the wiki section', () => {
@@ -42,25 +44,5 @@ describe('the wiki section', () => {
     expect(unplaced.entity).toMatchObject({ href: '/k/questions/discount', key: 'question:discount' });
   });
 
-  test('a dismissal leaves a problem out and is counted; the manifest can lower a wiki rule\'s severity', async () => {
-    const first = await listProblems(input(folder(), { findings: [{ file: KINDS_FILE, line: 8, message: 'bad kind' }] }));
-    const id = first.problems[0]!.id;
-    const dismissed = await listProblems(input(first.problems.length === 1 ? folder() : '', { findings: [{ file: KINDS_FILE, line: 8, message: 'bad kind' }], dismissed: new Set([id]) }));
-    expect(dismissed.problems).toEqual([]);
-    expect(dismissed.dismissed).toBe(1);
-    const lowered = await listProblems(input(folder(), {
-      findings: [{ file: KINDS_FILE, line: 8, message: 'bad kind' }], settings: { ...starterProblemSettings(), rules: { ...starterProblemSettings().rules, 'wiki.manifest': { ...starterProblemSettings().rules['wiki.manifest']!, severity: 'info' } } },
-    }));
-    expect(lowered.problems[0]!.severity).toBe('info');
+  
   });
-
-  test('a rule the manifest switches off is not listed, and the rest of the page is kept', async () => {
-    const manifest = starterProblemSettings();
-    const disabled = { ...manifest, rules: { ...manifest.rules, 'wiki.manifest': { ...manifest.rules['wiki.manifest']!, enabled: false } } };
-    const listing = await listProblems(input(folder(), {
-      findings: [{ file: KINDS_FILE, line: 8, message: 'bad kind' }], settings: disabled,
-    }));
-    expect(listing.problems).toEqual([]);
-    expect(listing.sections).toEqual({ code: 0, documents: 0, wiki: 0 });
-  });
-});

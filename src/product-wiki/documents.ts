@@ -53,13 +53,13 @@ export function blankFieldLines(markdown: string, fields: readonly DocumentField
 }
 
 /** One link-field target: an id, or the file-stem address a whole document's kind is read by, and the field that named it. */
-export interface GrownFromId {
+interface GrownFromId {
   id: string;
   via: string;
 }
 
 /** One section of the form's own, at the line its heading stands on. */
-export interface DocumentSection {
+interface DocumentSection {
   name: string;
   line: number;
   /** The section's own content lines, joined, fences and HTML comments out. */

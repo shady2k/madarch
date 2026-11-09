@@ -1,5 +1,6 @@
 import type { ProtoDocumentation } from './proto-document.js';
 import type { ContractDiagnostic } from './contract-document.js';
+import type { GuidePageData } from '../writer/guides/read.js';
 /**
  * The page model the server answers and the app draws (decision 0029): a page
  * is a list of blocks, each already read from the graph or the Markdown, so the
@@ -221,7 +222,7 @@ export interface TreemapFile {
 }
 
 type BlockShape =
-  | { type: 'guide'; data: import('../writer/guides/read.js').GuidePageData }
+  | { type: 'guide'; data: GuidePageData }
   | { type: 'markdown'; markdown: string }
   | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
@@ -292,7 +293,7 @@ export interface HistoryNote {
  * Where the rest of a history lives, when the block was asked for a part of it (`more-kind`): the page that lists
  * every entity of a kind, and the words the link says it in. The block names no kind of its own; the template does.
  */
-export interface HistoryMore {
+interface HistoryMore {
   /** The wiki address of the kind's listing, `/k/kind/<kind>`. */
   href: string;
   /** The link's words, in the reader's language: the template's `more`, else the manifest's name for the kind. */

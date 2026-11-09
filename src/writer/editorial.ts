@@ -31,7 +31,7 @@ export const MAX_EDITORIAL_REQUESTS = 12;
 /** The setting's default: the most revision requests one page may receive in a pass (madarch-ztyq.9). */
 export const DEFAULT_EDITORIAL_REQUESTS_PER_PAGE = 2;
 
-export type EditorialFindingKind = 'conflicting-fact' | 'glossary-alias' | 'internal-identifier';
+type EditorialFindingKind = 'conflicting-fact' | 'glossary-alias' | 'internal-identifier';
 
 /** One thing the deterministic checks found. `page` and `passage` name where a revision is asked for. */
 export interface EditorialFinding {
@@ -62,27 +62,27 @@ export interface RevisionRequest {
 }
 
 /** One page as the judge sees it: only the statements whose ids it may name. */
-export interface EditorialJudgePage {
+interface EditorialJudgePage {
   readonly path: string;
   readonly title: string;
   readonly statements: readonly { readonly id: string; readonly line: number; readonly text: string }[];
 }
 
 /** What the editing model is handed. `pages` is bounded here, never by the model. */
-export interface EditorialJudgePack {
+interface EditorialJudgePack {
   readonly pages: readonly EditorialJudgePage[];
   readonly findings: readonly EditorialFinding[];
   readonly maxPerPage: number;
 }
 
-export interface EditorialJudgeRequest {
+interface EditorialJudgeRequest {
   readonly page: string;
   readonly passage: string;
   readonly change: string;
   readonly why: string;
 }
 
-export interface EditorialJudgeAnswer {
+interface EditorialJudgeAnswer {
   readonly requests: readonly EditorialJudgeRequest[];
   /**
    * The pages this judge could not read, so a later judge is asked only about them. Absent means

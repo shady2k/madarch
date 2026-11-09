@@ -37,14 +37,14 @@ import { pageAddress } from './page-changes.js';
 import { byQuestionRank } from './question-types.js';
 
 /** The page address a step opens, as the server hands it out (`pageAddress`). */
-export type PageAddress = string;
+type PageAddress = string;
 
 /** Which rule decided a step; a reader shows the step's words, a test names the rule. */
-export const NEXT_STEP_RULES = ['answer-question', 'cover-node', 'review-assumption', 'nothing-to-do'] as const;
-export type GraphNextStepRule = (typeof NEXT_STEP_RULES)[number];
+const NEXT_STEP_RULES = ['answer-question', 'cover-node', 'review-assumption', 'nothing-to-do'] as const;
+type GraphNextStepRule = (typeof NEXT_STEP_RULES)[number];
 
 /** One open question as a step names it: enough for a reader to know what to answer. */
-export interface NextStepQuestion {
+interface NextStepQuestion {
   readonly id: string;
   /** The charter's own type of the question (`meaning`, `contradiction`, …). */
   readonly type: string;
@@ -99,7 +99,7 @@ export function mostAskedQuestion<Q extends RankedQuestion & { readonly page: Pa
 }
 
 /** The question step: the question, its page, and why answering it is the next thing. */
-export function answerQuestionStep(question: RankedQuestion & { readonly page: PageAddress; readonly node: StepNode }): GraphNextStep {
+function answerQuestionStep(question: RankedQuestion & { readonly page: PageAddress; readonly node: StepNode }): GraphNextStep {
   const changed = question.rank === 1 ? 'One page' : String(question.rank);
   return {
     rule: 'answer-question',
@@ -111,12 +111,12 @@ export function answerQuestionStep(question: RankedQuestion & { readonly page: P
 }
 
 /** The uncovered-scope step: an important node whose scope no complete coverage reached. */
-export function coverNodeStep(node: StepNode, why: string): GraphNextStep {
+function coverNodeStep(node: StepNode, why: string): GraphNextStep {
   return { rule: 'cover-node', target: node.page, node, reason: why };
 }
 
 /** The assumption step: a page whose proposed content waits for a person's word (0005). */
-export function reviewAssumptionStep(node: StepNode, assumptions: number): GraphNextStep {
+function reviewAssumptionStep(node: StepNode, assumptions: number): GraphNextStep {
   return {
     rule: 'review-assumption',
     target: node.page,
@@ -126,7 +126,7 @@ export function reviewAssumptionStep(node: StepNode, assumptions: number): Graph
 }
 
 /** The step a page with nothing waiting recommends: a step, and an honest one. */
-export function nothingToDo(node: StepNode): GraphNextStep {
+function nothingToDo(node: StepNode): GraphNextStep {
   return { rule: 'nothing-to-do', target: node.page, node, reason: 'no question on this page is open, its scope is covered and what it proposes is settled: nothing waits for a person here' };
 }
 

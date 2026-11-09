@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from '../src/index.js';
+import { startServer, type StartedServer } from '../src/server/http.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 /**

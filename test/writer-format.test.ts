@@ -7,8 +7,10 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { checkPage, parseTarget, type GroundResolver, type PageExpectation } from '../src/writer/format.js';
-import { documentAnchors, slugOf } from '../src/writer/view.js';
+
 import { emptyProductGapMarker } from '../src/writer/empty-product-gap.js';
+import { documentAnchors } from '../src/knowledge/anchors.js';
+import { slugOf } from '../src/knowledge/anchors.js';
 
 const KEYS = new Set(['code.service:payments', 'code.service:orders', 'code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory']);
 const SECTIONS = new Set(['docs/requirements.md#uc-2', 'docs/requirements.md#br-4', 'docs/vision.md#journeys']);

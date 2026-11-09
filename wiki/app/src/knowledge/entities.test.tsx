@@ -12,15 +12,15 @@ import { createRoot, type Root } from 'react-dom/client';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import i18n, { setWikiLanguage } from '../i18n.js';
+import { i18n, setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
 import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
-import { resetPreferences } from './preferences.js';
+import { resetPreferences, resetSettings, resetTabs } from '../../test/reset.js';
 import { Root as AppRoot } from './root.js';
 import { addressOfStatement, kRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
-import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, resetTabs, setTabTitle, frontTab, syncFrontTabAddress, useTabTitle } from './tabs.js';
+import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, setTabTitle, frontTab, syncFrontTabAddress, useTabTitle } from './tabs.js';
 import type { Block, CatalogKindView, CatalogView, DocumentListing, KindSummary, Resolution, StatementModel, WikiStatus } from './types.js';
 
 beforeAll(async () => {
@@ -35,6 +35,7 @@ afterAll(async () => {
 
 let rendered: Root | undefined;
 function into(element: ReturnType<typeof createElement>): HTMLElement {
+  syncFrontTabAddress();
   const container = document.createElement('div');
   document.body.appendChild(container);
   rendered = createRoot(container);

@@ -1,15 +1,15 @@
 /** Repository-owned historical landmarks. No product snapshot configuration exists. */
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { walkDefaultBranch, type CommitFact } from '../extract/driver/git.js';
+import { walkDefaultBranch, type CommitFact } from './git-walk.js';
 import { byCodePoint } from '../model/order.js';
 
 const execute = promisify(execFile);
 /** Implementation safety bound for earlier trees; the tip is separate. */
-export const MAX_HISTORY_LANDMARK_TREES = 64;
+const MAX_HISTORY_LANDMARK_TREES = 64;
 /** Bounds tag parsing, peel work and unsupported diagnostics independently of tree reads. */
 export const MAX_HISTORY_LANDMARK_TAGS = 512;
-export interface LandmarkDiagnostic { ref: string; object: string; reason: string }
+interface LandmarkDiagnostic { ref: string; object: string; reason: string }
 /** This plan is stored in the same database snapshot as its graph, never a sidecar. */
 export interface LandmarkPlan {
   head: string;
@@ -54,7 +54,7 @@ export function planLandmarks(walk: readonly CommitFact[], tags: readonly { ref:
 }
 
 /** Every Git tag is considered; no guessed release prefix or fixture identity is read. */
-export async function repositoryLandmarks(repository: string, ref: string): Promise<LandmarkPlan> {
+async function repositoryLandmarks(repository: string, ref: string): Promise<LandmarkPlan> {
   const walk = walkDefaultBranch(repository, ref);
   const git = async (args: string[]): Promise<string> => {
     try {

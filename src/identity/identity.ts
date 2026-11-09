@@ -13,12 +13,12 @@
 import { runGit } from '../product/git.js';
 
 /** How an identity was verified. `local-git` is git's own configuration, which proves nothing. */
-export type Verification = 'local-git';
+type Verification = 'local-git';
 
 /** The mark every local identity is written with. */
 export const LOCAL_MARK = 'local, not verified';
 
-export interface Identity {
+interface Identity {
   name: string;
   email: string;
   verification: Verification;
@@ -79,7 +79,7 @@ export const authorOf = (identity: Identity): string => `${identity.name} <${ide
 
 /** The trailer lines a commit message ends with so the history says who wrote and how that was checked. */
 /** The arguments of `git commit` for a write by the user: the subject, the trailer, and `-S` when the user's own signing key is configured. */
-export function commitArguments(subject: string, identity: Identity): string[] {
+function commitArguments(subject: string, identity: Identity): string[] {
   return ['commit', '--quiet', ...(identity.signing ? ['-S'] : []), '-m', subject, '-m', identityTrailer(identity)];
 }
 
@@ -88,6 +88,6 @@ export function identityTrailer(identity: Identity): string {
 }
 
 /** The environment that makes git author the commit as the identity, whatever the process environment holds. */
-export function authorEnv(identity: Identity): Record<string, string> {
+function authorEnv(identity: Identity): Record<string, string> {
   return { GIT_AUTHOR_NAME: identity.name, GIT_AUTHOR_EMAIL: identity.email };
 }

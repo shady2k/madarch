@@ -46,7 +46,7 @@
  * facts.
  */
 import { byCodePoint } from '../model/order.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import type { FactGraphReaderOptions } from './graph-reads.js';
 import { factsOfWrites, type FactStoreDatabase } from './fact-store.js';
 import {
@@ -103,7 +103,7 @@ import type { StageDraftWrite } from './stage.js';
  * publication's facts touch. They are re-exported here because a reader of pages
  * names them, and this module is where pages are read.
  */
-export { PAGE_ADDRESS_PREFIX, PAGE_CHANGE_TABLE, PAGE_KINDS, isPageId, isPageKind, pageAddress, pagesTouchedBy } from './page-changes.js';
+export {      pageAddress,  } from './page-changes.js';
 import { PAGE_KINDS, isPageId, isPageKind, namesFactId, pageAddress } from './page-changes.js';
 
 /**
@@ -112,16 +112,16 @@ import { PAGE_KINDS, isPageId, isPageKind, namesFactId, pageAddress } from './pa
  * budget, the relations, the questions, the drafts, and the coverage union. A page's whole size is its `tokens`,
  * the sum of its bounded lists, and a list a cap cut says so in `marker` and `truncated`.
  */
-export const PAGE_LIST_TOKENS = 32_000;
+const PAGE_LIST_TOKENS = 32_000;
 
 /**
  * The address the graph's index stands at, as the wiki app routes it (`GRAPH_INDEX_ADDRESS`,
  * `wiki/app/src/routes.ts`): the product's own page, where its next step is shown.
  */
-export const GRAPH_INDEX_ADDRESS = '/p/graph';
+const GRAPH_INDEX_ADDRESS = '/p/graph';
 
 /** The most page changes one notification's answer holds; a reader past it is told so (see `readPageChanges`). */
-export const PAGE_CHANGES_PER_ANSWER = 500;
+const PAGE_CHANGES_PER_ANSWER = 500;
 
 /**
  * The snapshot a page never reads: a page's code link is the fact's own
@@ -164,7 +164,7 @@ async function pageTransaction<R>(
 // ---------------------------------------------------------------------------------------------
 
 /** Where a fact stands in code at the commit it was read: the code link a page opens. */
-export interface GraphCodeLink {
+interface GraphCodeLink {
   /** The product's own name for the repository (decision 0021: never a machine path). */
   readonly repository: string;
   /** The commit the fact was read at, so the link opens the lines the fact is about. */
@@ -177,7 +177,7 @@ export interface GraphCodeLink {
 }
 
 /** One fact as a page shows it: what it says, how it was obtained, the status it stands at, and where it is in code. */
-export interface GraphPageFact {
+interface GraphPageFact {
   readonly id: string;
   readonly kind: FactKind;
   /** The name a reader knows the fact by (`labelOf`): a claim's own words, a rule's statement, a symbol's name. */
@@ -195,7 +195,7 @@ export interface GraphPageFact {
 }
 
 /** One fact as a page shows it, from the fact itself: its code link is its own provenance. */
-export function pageFactOf(fact: Fact): GraphPageFact {
+function pageFactOf(fact: Fact): GraphPageFact {
   const place = fact.provenance.place;
   return {
     id: fact.id,
@@ -221,13 +221,13 @@ export function pageFactOf(fact: Fact): GraphPageFact {
  * so a relation to a file is text and a link to a page is never a 404 by its own
  * construction.
  */
-export interface GraphPageNodeRef extends GraphNodeRef {
+interface GraphPageNodeRef extends GraphNodeRef {
   /** The address the node's page is served at, when the node's kind has a page (`isPageId`). */
   readonly page?: string;
 }
 
 /** One node as a page names it: with its page's address when it has one. */
-export function pageRefOf(ref: GraphNodeRef): GraphPageNodeRef {
+function pageRefOf(ref: GraphNodeRef): GraphPageNodeRef {
   return isPageId(ref.id) ? { ...ref, page: pageAddress(ref.id) } : { ...ref };
 }
 
@@ -266,7 +266,7 @@ export function pageEntryOf(fact: Fact): GraphPageEntry {
 }
 
 /** One edge as a page shows it: which way it stands, the place it stands at, and what is at its other end. */
-export interface GraphRelation {
+interface GraphRelation {
   /** `out` when this page's node is the edge's from end, `in` when it is its to end, `both` when it is both. */
   readonly direction: 'in' | 'out' | 'both';
   readonly edge: GraphPageFact;
@@ -281,7 +281,7 @@ export interface GraphRelation {
 }
 
 /** One answer the graph records: what closed a question, or what a person decided about a page. */
-export interface GraphAnswerRecord {
+interface GraphAnswerRecord {
   readonly id: string;
   /** What it does: closes the question it names (`answers`), or settles what a page proposes. */
   readonly decision: AnswerDecision;
@@ -309,7 +309,7 @@ export interface GraphAnswerRecord {
  * size, so the question about a node ten modules depend on stands above the one about a
  * leaf.
  */
-export interface GraphQuestion {
+interface GraphQuestion {
   readonly id: string;
   /** The kind of question: the charter's own token (`meaning`, `contradiction`, `unverifiable`), or the one an agent invented. */
   readonly type: string;
@@ -335,7 +335,7 @@ export interface GraphQuestion {
 // ---------------------------------------------------------------------------------------------
 
 /** One kind's share of a page set, so a reader sees the whole set's size without counting the list. */
-export interface GraphPageCount {
+interface GraphPageCount {
   readonly kind: FactKind;
   readonly count: number;
 }
@@ -370,7 +370,7 @@ export interface GraphPageSetAnswer {
  * One group of the product's questions: the charter's own type, or the one an agent
  * invented, and the questions of it in rank order.
  */
-export interface GraphQuestionGroup {
+interface GraphQuestionGroup {
   readonly type: string;
   readonly questions: readonly GraphQuestion[];
 }
@@ -392,7 +392,7 @@ export interface GraphQuestionSetAnswer {
 }
 
 /** The most distinct nodes a question set ranks in one read: each rank is a read of that node's edges. */
-export const QUESTIONS_RANKED = 200;
+const QUESTIONS_RANKED = 200;
 
 /** The facts of one kind a product holds, in code point order of the id: the read a question set is built from. */
 async function factsOfKindIn(executor: SqlExecutor, product: string, kind: FactKind): Promise<readonly Fact[]> {
@@ -414,7 +414,7 @@ async function factsOfKindIn(executor: SqlExecutor, product: string, kind: FactK
  * unranked and the answer says so — a question is never dropped, and a rank is never
  * invented for one the read did not measure.
  */
-export async function readProductQuestions(options: {
+async function readProductQuestions(options: {
   readonly executor: SqlExecutor;
   readonly product: string;
   readonly limits?: Partial<GraphReadLimits>;
@@ -494,7 +494,7 @@ export function emptyNextStep(product: string): GraphNextStep {
 }
 
 /** The message a server that holds no fill's graph gives instead of an empty set. */
-export const NO_GRAPH_SOURCE_MESSAGE = 'this server holds no fill\'s graph: the pages are read from the fact store the background server owns — start it with "madarch start" and open the product there';
+const NO_GRAPH_SOURCE_MESSAGE = 'this server holds no fill\'s graph: the pages are read from the fact store the background server owns — start it with "madarch start" and open the product there';
 
 /** One page's row of the set, from the store's own columns. */
 interface PageRow extends Record<string, unknown> {
@@ -527,13 +527,13 @@ function pageFactsOfRows(rows: readonly unknown[], read: GraphRead): readonly Fa
  * bounded batches (`PAGE_SET_FETCH`) — so no statement repeats a join per row, and only
  * the facts a page is made of are ever read whole.
  */
-export const PAGE_SET_KINDS_SQL = `SELECT f.id, f.kind FROM fill_fact f WHERE f.kind = ANY($1::text[])`;
+const PAGE_SET_KINDS_SQL = `SELECT f.id, f.kind FROM fill_fact f WHERE f.kind = ANY($1::text[])`;
 
 /** The ids every fact one product's units hold: the join of the holding onto the publishing unit, read once. */
-export const PAGE_SET_HELD_SQL = `SELECT h.id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE u.product = $1`;
+const PAGE_SET_HELD_SQL = `SELECT h.id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE u.product = $1`;
 
 /** How many facts one fetch of a page set's own facts reads: a batch of ids is one statement, and its rows are the pages. */
-export const PAGE_SET_FETCH = 1_000;
+const PAGE_SET_FETCH = 1_000;
 
 /**
  * One product's page set, read now: every fact of a page-worthy kind that a unit of
@@ -672,7 +672,7 @@ export interface GraphPageModelAnswer {
 }
 
 /** One sentence of a page's narrative text, and whether the facts it stands on still stand. */
-export interface GraphNarrativeSentence {
+interface GraphNarrativeSentence {
   /** The sentence, as a reader reads it. */
   readonly text: string;
   /** The fact ids the sentence stands on, in code point order. */
@@ -682,7 +682,7 @@ export interface GraphNarrativeSentence {
 }
 
 /** A page's narrative layer, as the fact of the kind `narrative` holds it. */
-export interface GraphNarrative {
+interface GraphNarrative {
   /** The narrative fact's own id. */
   readonly fact: string;
   /** The file the page's Markdown stands at in the product repository. */
@@ -935,7 +935,7 @@ function withProduct(request: GraphRead, product: string): GraphRead {
 }
 
 /** The most fact ids one page's narrative is checked against before the page's own bound cuts the list: a page is read by a person. */
-export const PAGE_NARRATIVE_IDS = 64;
+const PAGE_NARRATIVE_IDS = 64;
 
 /**
  * A page's narrative layer, read for the page model (madarch-tzte.25.1): the fact's
@@ -1124,7 +1124,7 @@ function questionOf(fact: Fact): Omit<GraphQuestion, 'answer' | 'dependsOn' | 'o
  * kind's own shape: an answer names the node it decides about, says what it does, and
  * carries the words a person reads.
  */
-export function answerOf(fact: Fact): GraphAnswerRecord {
+function answerOf(fact: Fact): GraphAnswerRecord {
   const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
   const decision = value['decision'];
   const text = value['text'];
@@ -1229,7 +1229,7 @@ function questionsShown(questionFacts: readonly Fact[], subject: GraphNodeRef, e
  */
 /** The most snapshot facts of one commit a page's coverage section reads: a commit carries one per reader, and a
  * page reads that many rather than every reader the repository ever had; a longer list is named in the marker. */
-export const PAGE_SNAPSHOT_SCOPES = 8;
+const PAGE_SNAPSHOT_SCOPES = 8;
 
 /** The coverage scope tokens of one page, and the marker that says which of them a bound left out. */
 interface PageCoverageScopes {
@@ -1417,7 +1417,7 @@ export async function readDecisionSubject(options: { readonly database: FactStor
 }
 
 /** One page change as a client receives it: the publication, and the pages it touched. */
-export interface GraphPageChange {
+interface GraphPageChange {
   /** The store's own sequence number of the publication's last change row: what a client resumes from. */
   readonly seq: number;
   /** The pages the publication touched, in code point order. */

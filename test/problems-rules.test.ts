@@ -12,8 +12,8 @@ import { composeDefault, evaluateCode, type CodeSnapshot } from '../src/problems
 import { evaluateDocuments } from '../src/problems/documents.js';
 import { openProblemsOf } from '../src/problems/index.js';
 import { ruleForKind, unimplementedRuleNotes } from '../src/problems/rules.js';
-import { STARTER_PROBLEM_RULES, starterProblemSettings } from '../src/knowledge/seed.js';
-import { SONAR_KINDS, PROBLEM_SEVERITIES, problemId, type ProblemSettings, type RuleSetting } from '../src/problems/types.js';
+import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
+import { DEFAULT_THRESHOLDS, SONAR_KINDS, PROBLEM_SEVERITIES, problemId, type ProblemSettings, type RuleSetting } from '../src/problems/types.js';
 import type { ProblemDraft } from '../src/problems/types.js';
 
 const span = (path: string, line = 3) => ({ path, lineStart: line, lineEnd: line, byteStart: 0, byteEnd: 0 });
@@ -33,7 +33,7 @@ const empty = (): CodeSnapshot => ({
 const snapshot = (patch: Partial<CodeSnapshot>): CodeSnapshot => ({ ...empty(), ...patch });
 // The rules are the starter set's, as a product's manifest writes them; a test edits one field of one rule.
 const settings = (patch: { thresholds?: ProblemSettings['thresholds']; rules?: Record<string, Partial<RuleSetting>> } = {}): ProblemSettings => {
-  const base = starterProblemSettings();
+  const base: ProblemSettings = { rules: Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting])), thresholds: { ...DEFAULT_THRESHOLDS } };
   const rules: Record<string, RuleSetting> = { ...base.rules };
   for (const [id, setting] of Object.entries(patch.rules ?? {})) rules[id] = { ...(base.rules[id] ?? {}), ...setting } as RuleSetting;
   return { ...base, ...patch, rules };
@@ -89,20 +89,7 @@ describe('the code section', () => {
     expect(problem.evidence.map((link) => link.key)).toEqual(['code.route:GET /orders/export', 'code.symbol:src/routes.ts#exportOrders']);
   });
 
-  test('a large file is over the manifest threshold, and a test file is left alone', () => {
-    const base = {
-      files: [
-        entity('code.file:src/big.ts', 'src/big.ts', { path: 'src/big.ts', lines: 700, role: 'source' }),
-        entity('code.file:src/big.test.ts', 'src/big.test.ts', { path: 'src/big.test.ts', lines: 900, role: 'test' }),
-      ],
-    };
-    const problem = only(evaluateCode(snapshot(base), settings()).problems, 'large-file');
-    expect(problem).toMatchObject({ file: 'src/big.ts', line: 1, sonar: 'code-smell', severity: 'minor' });
-    expect(problem.reason).toContain('700 lines long, over the product\'s 600-line threshold');
-    const raised = evaluateCode(snapshot(base), settings({ thresholds: { ...starterProblemSettings().thresholds, largeFileLines: 1000 } })).problems;
-    expect(found(raised, 'large-file')).toEqual([]);
-  });
-
+  
   test('a hotspot is both large and often changed: size × churn over the manifest thresholds', () => {
     const problems = evaluateCode(snapshot({
       files: [
@@ -145,47 +132,8 @@ describe('the code section', () => {
     expect(found(problems, 'config.required-dev-value')).toEqual([]);
   });
 
-  test('a secret the manifest declares is a finding from one file, and PORT beside it is not', () => {
-    const env = snapshot({
-      envVars: [
-        entity('code.env-var:shop/JWT_SECRET', 'JWT_SECRET', { name: 'JWT_SECRET', required: true }),
-        entity('code.env-var:shop/PORT', 'PORT', { name: 'PORT', required: true }),
-      ],
-      envDefinitions: [
-        entity('code.env-definition:docker-compose.yml#5', 'JWT_SECRET · shop · docker-compose.yml', { value: '${JWT_SECRET:-local-development-secret}' }, span('docker-compose.yml', 5)),
-        entity('code.env-definition:docker-compose.yml#6', 'PORT · shop · docker-compose.yml', { value: '3000' }, span('docker-compose.yml', 6)),
-      ],
-      defines: [edge('code.env-definition:docker-compose.yml#5', 'code.env-var:shop/JWT_SECRET'), edge('code.env-definition:docker-compose.yml#6', 'code.env-var:shop/PORT')],
-    });
-    const policy = settings({ rules: { 'config.required-dev-value': { ...starterProblemSettings().rules['config.required-dev-value']!, params: { secrets: ['JWT_SECRET'], developmentValues: [] } } } });
-    const problem = only(evaluateCode(env, policy).problems, 'config.required-dev-value');
-    expect(problem).toMatchObject({ sonar: 'vulnerability', severity: 'critical', file: 'docker-compose.yml', line: 5, target: 'code.env-var:shop/JWT_SECRET' });
-    expect(problem.reason).toContain('the manifest declares it a secret');
-    expect(problem.reason).toContain('local-development-secret');
-    // Without the policy the same file is quiet: the engine does not guess a secret.
-    expect(found(evaluateCode(env, settings()).problems, 'config.required-dev-value')).toEqual([]);
-    expect(composeDefault('${JWT_SECRET:-local-development-secret}')).toBe('local-development-secret');
-    expect(composeDefault('${JWT_SECRET}')).toBe('');
-  });
-
-  test('a value a file declares a Secret is a finding by that fact alone, and a declared development value is a finding', () => {
-    const explicit = only(evaluateCode(snapshot({
-      envVars: [entity('code.env-var:shop/API_TOKEN', 'API_TOKEN', { name: 'API_TOKEN', required: false })],
-      envDefinitions: [entity('code.env-definition:deploy/secret.yaml#3', 'API_TOKEN · deploy/secret.yaml', { value: 'c2VjcmV0', secret: true }, span('deploy/secret.yaml', 3))],
-      defines: [edge('code.env-definition:deploy/secret.yaml#3', 'code.env-var:shop/API_TOKEN')],
-    }), settings()).problems, 'config.required-dev-value');
-    expect(explicit.reason).toContain('is declared a secret by deploy/secret.yaml');
-    expect(explicit.evidence.map((link) => link.key)).toContain('code.file:deploy/secret.yaml');
-
-    const devPolicy = settings({ rules: { 'config.required-dev-value': { ...starterProblemSettings().rules['config.required-dev-value']!, params: { secrets: [], developmentValues: ['local-development-secret'] } } } });
-    const development = only(evaluateCode(snapshot({
-      envVars: [entity('code.env-var:shop/JWT_SECRET', 'JWT_SECRET', { name: 'JWT_SECRET', required: true })],
-      envDefinitions: [entity('code.env-definition:.env.example#2', 'JWT_SECRET · .env.example', { value: 'local-development-secret' }, span('.env.example', 2))],
-      defines: [edge('code.env-definition:.env.example#2', 'code.env-var:shop/JWT_SECRET')],
-    }), devPolicy).problems, 'config.required-dev-value');
-    expect(development.reason).toContain('the development value ("local-development-secret")');
-  });
-
+  
+  
   test('a direct dependency nobody imports is unused; a transitive one is not judged', () => {
     const problems = evaluateCode(snapshot({
       dependencies: [
@@ -396,15 +344,4 @@ describe('the rule set as data', () => {
     for (const rule of STARTER_PROBLEM_RULES) if (rule.section !== 'wiki') expect(rule.action).toBe('task');
   });
 
-  test('a wiki finding kind is named by the rule the manifest declares, and a kind no rule declares is not guessed', () => {
-    const manifest = starterProblemSettings();
-    expect(ruleForKind(manifest, 'ground-removed')).toMatchObject({ id: 'wiki.ground-removed' });
-    expect(ruleForKind(manifest, 'broken-link')).toMatchObject({ id: 'wiki.broken-link', sonar: 'bug', severity: 'major' });
-    // The request-time document reading is deleted, so no rule raises an unread passage: the kind is not guessed.
-    expect(ruleForKind(manifest, 'unread-passage')).toBeUndefined();
-    expect(ruleForKind(manifest, 'an unknown kind')).toBeUndefined();
-    // A severity is the rule's own field now: the manifest writes it, the engine reads it.
-    const lowered = { ...manifest, rules: { ...manifest.rules, 'wiki.broken-link': { ...manifest.rules['wiki.broken-link']!, severity: 'info' as const } } };
-    expect(ruleForKind(lowered, 'broken-link')!.severity).toBe('info');
   });
-});

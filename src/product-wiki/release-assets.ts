@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** The root the compiled binary's assets are laid under; `scripts/` in a checkout. */
-export function releaseRoot(): string {
+function releaseRoot(): string {
   return dirname(Bun.main);
 }
 

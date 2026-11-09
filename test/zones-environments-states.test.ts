@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { loadAndCompileModel } from '../src/index.js';
+import { loadAndCompileModel } from './api.js';
 import { CompiledModel } from '../src/model/compiled-schema.js';
 
 function fixture(name: string): string {

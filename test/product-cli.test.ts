@@ -21,7 +21,7 @@ import { main, repoModeFromAnswer, COMMANDS } from '../src/product/cli.js';
 import { createDraft } from '../src/product/draft.js';
 import { listProducts } from '../src/product/list.js';
 import { gitEnv } from './git-env.js';
-import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
+import { GIT_IDENTITY, GIT_ENV } from './repo-fixture.js';
 import { homeOfCommand, noStrayDrafts, ISOLATED_HOME, sealedHome } from './scratch-home.js';
 import { stopDaemon } from '../src/product/daemon.js';
 

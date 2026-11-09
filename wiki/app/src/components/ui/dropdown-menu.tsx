@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils.js';
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
-export const DropdownMenuGroup = DropdownMenuPrimitive.Group;
+const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 
 export const DropdownMenuContent = forwardRef<HTMLDivElement, ComponentProps<typeof DropdownMenuPrimitive.Content>>(function DropdownMenuContent({ className, sideOffset = 6, ...props }, ref) {
   return (
@@ -49,7 +49,7 @@ export const DropdownMenuItem = forwardRef<HTMLDivElement, ComponentProps<typeof
   );
 });
 
-export const DropdownMenuCheckItem = forwardRef<HTMLDivElement, ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>>(function DropdownMenuCheckItem({ className, children, ...props }, ref) {
+const DropdownMenuCheckItem = forwardRef<HTMLDivElement, ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>>(function DropdownMenuCheckItem({ className, children, ...props }, ref) {
   return (
     <DropdownMenuPrimitive.CheckboxItem
       ref={ref}

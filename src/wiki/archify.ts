@@ -69,7 +69,7 @@ export function componentId(fqn: string): string {
 }
 
 /** One node of the layouted view, exactly what the builder reads off it. */
-export interface ArchifyLayoutNode {
+interface ArchifyLayoutNode {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
@@ -89,7 +89,7 @@ export type LayoutPoint = readonly [number, number];
  * the place LikeC4 put the label at — the one geometry the connection
  * carries over (see the route note in archifyDocument).
  */
-export interface ArchifyLayoutEdge {
+interface ArchifyLayoutEdge {
   readonly source: string;
   readonly target: string;
   readonly label?: string;

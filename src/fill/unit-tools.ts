@@ -86,7 +86,7 @@ export const UNIT_TOOL_NAMES = [
   'raise_question',
 ] as const;
 
-export type UnitToolName = (typeof UNIT_TOOL_NAMES)[number];
+type UnitToolName = (typeof UNIT_TOOL_NAMES)[number];
 
 /** One tool as `tools/list` answers it: its name, what it is for, and its arguments' JSON schema. */
 export interface UnitToolDefinition {
@@ -251,7 +251,7 @@ export const UNIT_TOOLS: readonly UnitToolDefinition[] = [
 ];
 
 /** One tool of the catalogue by name, or `undefined` where the name is no tool. */
-export function unitTool(name: string): UnitToolDefinition | undefined {
+function unitTool(name: string): UnitToolDefinition | undefined {
   return UNIT_TOOLS.find((tool) => tool.name === name);
 }
 
@@ -432,7 +432,7 @@ export interface UnitToolCall {
 }
 
 /** What opening one unit's tools is given. */
-export interface OpenUnitTools {
+interface OpenUnitTools {
   /** The unit's sessions, bound to it: the unit a call is made for. */
   readonly session: UnitToolSession;
   /** The address this host answers a call at, as the started server is told it. */

@@ -102,12 +102,12 @@ export class SnapshotError extends Error {
 // ---- the tree the commit holds --------------------------------------------
 
 /** The modes git writes for a tree entry: a plain file, an executable, a symbolic link, a submodule. */
-export const SNAPSHOT_MODES = ['100644', '100755', '120000', '160000'] as const;
-export type SnapshotMode = (typeof SNAPSHOT_MODES)[number];
+const SNAPSHOT_MODES = ['100644', '100755', '120000', '160000'] as const;
+type SnapshotMode = (typeof SNAPSHOT_MODES)[number];
 
 /** What git holds at an entry's path: this repository's bytes, a link's target, or a submodule's commit. */
-export const SNAPSHOT_ENTRY_FORMS = ['blob', 'commit', 'link'] as const;
-export type SnapshotEntryForm = (typeof SNAPSHOT_ENTRY_FORMS)[number];
+const SNAPSHOT_ENTRY_FORMS = ['blob', 'commit', 'link'] as const;
+type SnapshotEntryForm = (typeof SNAPSHOT_ENTRY_FORMS)[number];
 
 /** The form a mode carries: a mode this reader does not know is refused, never guessed. */
 const FORM_OF_MODE: Readonly<Record<SnapshotMode, SnapshotEntryForm>> = {

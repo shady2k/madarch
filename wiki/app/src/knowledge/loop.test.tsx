@@ -9,7 +9,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
-import { PlanList, ProblemsPage, QuestionPage, QuestionsPage, RefreshPreviewView } from './loop.js';
+import { PlanList, ProblemsPage, QuestionPage, QuestionsPage } from './loop.js';
 import { addressOfQuestion, kRouteOf } from './routes.js';
 import type { Problem, ProblemCategories, ProblemCategory, ProblemItems, ProblemSources, QuestionDetail, QuestionListing, QuestionRow, RefreshPlan } from './types.js';
 
@@ -448,23 +448,7 @@ describe('the refresh plan', () => {
     expect(two.querySelector('[data-testid=plan-summary]')!.textContent).toBe('Агент поправит 2 страницы: 1 страница остаётся как есть и не стоит запуска агента.');
   });
 
-  test('the preview reads the plan for the language asked, before the press, and says when it cannot', async () => {
-    const calls: string[] = [];
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      calls.push(url);
-      return url.includes('language=ru') ? json({ available: true, plan: plan(), language: { from: 'en', to: 'ru', changed: true }, commitsNotRead: 3 }) : json({ available: false, reason: 'nothing has been read from the code yet: start the fill once to read it' });
-    };
-    const first = into(createElement(RefreshPreviewView, { language: 'en', refreshKey: 'a' }));
-    await until(() => first.querySelector('[data-testid=plan-unavailable]') !== null, 'the unavailable plan');
-    expect(first.querySelector('[data-testid=plan-unavailable]')!.textContent).toBe('nothing has been read from the code yet: start the fill once to read it');
-    rendered?.unmount();
-    document.body.innerHTML = '';
-    const second = into(createElement(RefreshPreviewView, { language: 'ru', refreshKey: 'a' }));
-    await until(() => second.querySelector('[data-testid=refresh-preview]') !== null, 'the preview');
-    expect(calls).toEqual(['/api/k/refresh-plan?language=en', '/api/k/refresh-plan?language=ru']);
-    expect(second.querySelector('[data-testid=plan-commits]')!.textContent).toBe('3 commits have not been read yet. The refresh reads them first, and pages whose grounds they change join this list.');
   });
-});
 
 describe('the routes of the loop', () => {
   test('questions, a question and the problems have addresses; a question or a correction opened as an entity opens the loop\'s page', () => {

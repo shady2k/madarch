@@ -55,7 +55,7 @@ export interface AcpAgentSpec {
 }
 
 /** How madarch names an update the agent streamed. */
-export type AcpUpdateKind = 'message' | 'thought' | 'tool-call' | 'tool-call-update' | 'plan' | 'usage' | 'mode' | 'commands' | 'config' | 'user-message' | 'other';
+type AcpUpdateKind = 'message' | 'thought' | 'tool-call' | 'tool-call-update' | 'plan' | 'usage' | 'mode' | 'commands' | 'config' | 'user-message' | 'other';
 
 /** One `session/update`, normalized; the protocol's own object is kept as received. */
 export interface AcpUpdate {
@@ -82,7 +82,7 @@ export interface AcpUpdate {
 }
 
 /** A usage report, as the agent gave it. */
-export interface AcpUsageReport {
+interface AcpUsageReport {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
@@ -96,7 +96,7 @@ export interface AcpUsageReport {
  * reported none. The figures are the last report's own — madarch never adds
  * reports together, because the protocol does not say whether they cumulate.
  */
-export interface AcpSessionUsage extends AcpUsageReport {
+interface AcpSessionUsage extends AcpUsageReport {
   /** Whether the agent reported token usage at all for this session. */
   reported: boolean;
   /** How many prompt turns this session has run. */
@@ -108,7 +108,7 @@ export interface AcpSessionUsage extends AcpUsageReport {
 }
 
 /** What one prompt turn ended with. */
-export interface AcpPromptResult {
+interface AcpPromptResult {
   /** The protocol's stop reason: `end_turn`, `cancelled`, `max_tokens` and the rest. */
   stopReason: string;
   /** The assistant's message text, in the order its chunks arrived. */
@@ -149,7 +149,7 @@ export interface AcpSession {
 }
 
 /** One option of a session that has values to choose from, as the agent reported it. */
-export interface AcpConfigOption {
+interface AcpConfigOption {
   readonly id: string;
   readonly name: string;
   /** The agent's own category: `model`, `thought_level`, `mode`, or a custom one. */
@@ -190,7 +190,7 @@ function readModels(raw: unknown): AcpSession['models'] {
 }
 
 /** What the agent answered to `initialize`. */
-export interface AcpInitializeResult {
+interface AcpInitializeResult {
   protocolVersion: number;
   agentInfo?: { name?: string; title?: string; version?: string };
   agentCapabilities: Record<string, unknown>;
@@ -292,7 +292,7 @@ export function resolveExecutable(command: string, pathValue = process.env.PATH 
 }
 
 /** What madarch prints for a session's tokens: the agent's own figures, or that it named none. */
-export function describeUsage(usage: AcpSessionUsage): string {
+function describeUsage(usage: AcpSessionUsage): string {
   if (!usage.reported) {
     return usage.turns === 0
       ? 'token usage not reported: no turn ran in this session'

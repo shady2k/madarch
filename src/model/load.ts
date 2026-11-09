@@ -409,7 +409,7 @@ export function parseModel(files: ModelSourceFile[]): LoadResult {
  * folder entry that cannot be read as a file) — lives here; `parseModel`
  * itself does no I/O.
  */
-export function loadModel(repoRoot: string): LoadResult {
+function loadModel(repoRoot: string): LoadResult {
   const madarchDir = join(repoRoot, 'madarch');
 
   let entries: string[];

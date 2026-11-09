@@ -90,7 +90,7 @@ export const CATALOG_SCHEMA = {
  * container model, Backstage's well-known relations, and the SPDX 3 relationship vocabulary (`generatedFrom` is
  * SPDX 2.3's name for the same edge, in the other direction than SPDX 3's `generates`).
  */
-export const CATALOG_STANDARDS = {
+const CATALOG_STANDARDS = {
   backstage: { sources: ['https://backstage.io/docs/features/software-catalog/well-known-relations'] },
   c4: { sources: ['https://c4model.com/abstractions'] },
   spdx: { sources: ['https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/'] },

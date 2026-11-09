@@ -3,7 +3,7 @@ import type { GuideContext, GuideDocument, GuideStep } from './model.js';
 import { byCodePoint } from '../../model/order.js';
 
 /** Canonical plain data; object keys never depend on insertion order or locale. */
-export function guideCanonical(value: unknown): string {
+function guideCanonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(guideCanonical).join(',')}]`;
   const object = value as Record<string, unknown>;

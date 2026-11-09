@@ -7,7 +7,7 @@
  * posture (see `.tok-*` in styles/index.css).
  */
 
-export type TokenKind = 'plain' | 'keyword' | 'string' | 'comment' | 'number';
+type TokenKind = 'plain' | 'keyword' | 'string' | 'comment' | 'number';
 export type Token = { text: string; kind: TokenKind };
 
 const C_LIKE = ['if', 'else', 'for', 'while', 'switch', 'case', 'default', 'break', 'continue', 'return', 'new', 'null', 'true', 'false', 'this', 'try', 'catch', 'finally', 'throw', 'in', 'of', 'typeof', 'instanceof', 'void'];

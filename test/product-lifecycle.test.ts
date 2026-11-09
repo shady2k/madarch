@@ -24,7 +24,7 @@ import { readProduct } from '../src/product/manifest.js';
 import { createDraft } from '../src/product/draft.js';
 import { type DraftEnv } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
-import { GIT_ENV } from './model-check-repo.js';
+import { GIT_ENV } from './repo-fixture.js';
 import { ISOLATED_HOME, noStrayDrafts } from './scratch-home.js';
 
 process.env.MADARCH_HOME = ISOLATED_HOME;

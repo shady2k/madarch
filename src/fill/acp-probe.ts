@@ -36,12 +36,12 @@ import { primeRuntime } from './prime-runtime.js';
  * the file is ever checked: madarch neither reads nor stores an agent's
  * credentials, and the wizard says so beside the agent's name.
  */
-export type AcpAdapterLoginStore =
+type AcpAdapterLoginStore =
   | { kind: 'files'; paths: readonly string[]; detail: string }
   | { kind: 'none'; detail: string };
 
 /** How an agent is installed: an npm package, or a program that carries ACP itself. */
-export type AcpAdapterInstall =
+type AcpAdapterInstall =
   | {
     kind: 'npm';
     package: string;
@@ -264,7 +264,7 @@ export function madarchAgentsFolder(env: DraftEnv = process.env, home = homeFrom
  * drives (`claude`, `codex`, `omp` — the name the owner's decision uses), or
  * the catalogue's own id for an agent the fill cannot drive yet.
  */
-export function acpAgentFolderName(entry: Pick<AcpAdapterCatalogueEntry, 'id' | 'fillAgent'>): string {
+function acpAgentFolderName(entry: Pick<AcpAdapterCatalogueEntry, 'id' | 'fillAgent'>): string {
   return entry.fillAgent ?? entry.id;
 }
 
@@ -286,7 +286,7 @@ export function acpAdapterBinFolder(folder: string): string {
  * letters, digits and the punctuation a path is made of stays as it is, so the
  * common command reads as a person would have typed it.
  */
-export function shellWord(value: string): string {
+function shellWord(value: string): string {
   if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
   return `'${value.replaceAll("'", "'\\''")}'`;
 }

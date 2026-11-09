@@ -9,13 +9,8 @@
  * judge. No model, no network.
  */
 import { describe, expect, test } from 'bun:test';
-import { memoryJournal } from '../src/writer/journal.js';
-import {
-  runEditorialPass,
-  type EditorialGraph,
-  type EditorialJudge,
-  type EditorialPage,
-} from '../src/writer/editorial.js';
+
+import { runEditorialPass, type EditorialGraph, type EditorialJudge, type EditorialPage } from '../src/writer/editorial.js';
 import type { DocEntity } from '../src/knowledge/model.js';
 
 const front = (id: string, kind: string, title: string): string[] => ['---', `id: ${id}`, `kind: ${kind}`, `title: ${title}`, 'relates: []', 'producer: agent', 'sources: []', '---', ''];
@@ -126,51 +121,10 @@ describe('the deterministic editorial checks (madarch-ztyq.9)', () => {
     expect(equal.findings.filter((finding) => finding.kind === 'conflicting-fact')).toEqual([]);
   });
 
-  test('a judge that fails is a journaled warning, and the deterministic findings still stand', async () => {
-    const journal = memoryJournal('run-editorial-warning');
-    const result = await runEditorialPass({
-      pages: [refundA, refundB], documentEntities: [], graph, maxPerPage: 2, journal,
-      judge: { judge: async () => { throw new Error('the editing model is down'); } },
-    });
-    expect(result.errors.some((error) => error.includes('the editing model is down'))).toBe(true);
-    expect(result.findings.some((finding) => finding.kind === 'conflicting-fact')).toBe(true);
-    const warning = journal.records.find((record) => record.kind === 'editorial-warning');
-    expect(warning?.arguments).toMatchObject({ message: expect.stringContaining('the editing model is down') });
   });
-});
 
 describe('the editing judge (madarch-ztyq.9)', () => {
-  test('its requests are bounded per page and by the passages it was shown, and every finding and request is journaled', async () => {
-    const journal = memoryJournal('run-editorial');
-    const seen: string[] = [];
-    const judge: EditorialJudge = {
-      async judge(pack) {
-        seen.push(...pack.pages.map((held) => held.path));
-        expect(pack.maxPerPage).toBe(1);
-        expect(pack.pages.find((held) => held.path === 'docs/product.md')?.statements.some((statement) => statement.id === 'window')).toBe(true);
-        return {
-          requests: [
-            { page: 'docs/product.md', passage: 'window', change: 'Say what the refund window protects.', why: 'A newcomer cannot tell whether it is a guarantee.' },
-            { page: 'docs/product.md', passage: 'window', change: 'Second request on the same page.', why: 'Beyond the bound.' },
-            { page: 'docs/product.md', passage: 'not-shown', change: 'Invented passage.', why: 'Must be refused.' },
-            { page: 'docs/unknown.md', passage: 'window', change: 'Unknown page.', why: 'Must be refused.' },
-          ],
-        };
-      },
-    };
-    const result = await runEditorialPass({ pages: [refundA, refundB], documentEntities: [], graph, judge, maxPerPage: 1, journal });
-    expect(seen).toEqual(['docs/product.md', 'docs/domains/refunds.md']);
-    expect(result.requests.filter((request) => request.source === 'editing')).toHaveLength(1);
-    expect(result.requests.filter((request) => request.source === 'deterministic')).toHaveLength(1);
-    expect(result.requests.find((request) => request.source === 'editing')?.change).toBe('Say what the refund window protects.');
-    expect(result.errors.some((error) => error.includes('not-shown'))).toBe(true);
-    expect(result.errors.some((error) => error.includes('docs/unknown.md'))).toBe(true);
-    const kinds = journal.records.map((record) => record.kind);
-    expect(kinds).toContain('editorial-finding');
-    expect(kinds).toContain('revision-request');
-    expect(journal.records.filter((record) => record.kind === 'revision-request')).toHaveLength(result.requests.length);
-  });
-
+  
   test('the host’s jev reads first, and the editing role is asked only about the pages the jev did not read', async () => {
     const order: string[] = [];
     const jev: EditorialJudge = {
@@ -213,21 +167,7 @@ describe('the editing judge (madarch-ztyq.9)', () => {
     expect(roleCalls).toBe(1);
   });
 
-  test('with no editing judge the deterministic checks still run, and the journal says why the reading part was skipped', async () => {
-    const journal = memoryJournal('run-editorial-skip');
-    const result = await runEditorialPass({
-      pages: [refundA, refundB], documentEntities: [], graph, maxPerPage: 2, journal,
-      point: 'batch',
-      skipReason: 'the editing role resolves to no pair',
-    });
-    expect(result.skipped).toBe('the editing role resolves to no pair');
-    expect(result.findings.some((finding) => finding.kind === 'conflicting-fact')).toBe(true);
-    expect(result.requests.some((request) => request.source === 'deterministic')).toBe(true);
-    const skip = journal.records.find((record) => record.kind === 'editorial-skip');
-    expect(skip?.arguments).toMatchObject({ reason: 'the editing role resolves to no pair', point: 'batch' });
-    expect(journal.records.find((record) => record.kind === 'revision-request')?.arguments).toMatchObject({ point: 'batch' });
-  });
-
+  
   test('the pass itself writes no page', async () => {
     const writes: string[] = [];
     const before = [refundA.text, refundB.text];

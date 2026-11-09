@@ -51,11 +51,11 @@ import { guidePrompt } from './prompts.js';
 export const PRODUCT_PATH = 'docs/product.md';
 export const DOMAINS_FOLDER = 'docs/domains';
 /** The graph-validation unit's page (decision 0032, section 3). */
-export const VALIDATION_PATH = 'docs/validation.md';
+const VALIDATION_PATH = 'docs/validation.md';
 /** The home page the overview unit writes last (0032, section 11; its content is madarch-ztyq.7's). */
-export const OVERVIEW_PATH = 'docs/overview.md';
+const OVERVIEW_PATH = 'docs/overview.md';
 /** The editorial pass's page (0032, section 6; its requests are madarch-ztyq.9's). */
-export const EDITORIAL_PATH = 'docs/editorial.md';
+const EDITORIAL_PATH = 'docs/editorial.md';
 
 /** What an agent is handed for one unit. */
 export interface UnitRequest {
@@ -99,7 +99,7 @@ class WriterHalted extends Error {
   }
 }
 
-export interface WriterOptions {
+interface WriterOptions {
   /** Checked guide preparation/publication supplied by the production owner; absent preserves legacy callers. */
   readonly guides?: GuideWriterHost;
   readonly owner: DatabaseOwner;
@@ -175,7 +175,7 @@ export interface WriterOptions {
   };
 }
 
-export interface WriterReport {
+interface WriterReport {
   readonly content: ContentReport;
   /** The product unit's outcome; when every page was there and no unit ran, the page as kept: written, with no attempt and no call. */
   readonly product: UnitOutcome;
@@ -227,7 +227,7 @@ export interface WriterReport {
 }
 
 /** How one unit of the graph ended: it wrote, it was kept from an earlier run, or it ended without its page. */
-export interface WriterUnitRun {
+interface WriterUnitRun {
   readonly unit: string;
   readonly kind: WriterUnitKindName;
   readonly path: string;
@@ -237,7 +237,7 @@ export interface WriterUnitRun {
 }
 
 /** How one kind of the graph ran: the units it knew how to run and what became of them. */
-export interface WriterKindRun {
+interface WriterKindRun {
   readonly kind: WriterUnitKindName;
   /** The kind's place in the run's order, from 0. */
   readonly position: number;
@@ -252,7 +252,7 @@ export interface WriterKindRun {
 }
 
 /** One artifact this run produced: the kind that wrote it, the page it stands in, and the title a later unit reads it by. */
-export interface ProducedArtifact {
+interface ProducedArtifact {
   readonly artifact: WriterArtifact;
   readonly kind: WriterUnitKindName;
   readonly unit: string;
@@ -281,7 +281,7 @@ export interface UnitsNeeded {
 }
 
 /** An answer or a correction a rewrite used: the pages (ids) it touched, all written. */
-export interface ResolvedEntity {
+interface ResolvedEntity {
   readonly kind: 'question' | 'correction';
   readonly slug: string;
   readonly pages: readonly string[];
@@ -314,13 +314,13 @@ export function productSlug(name: string): string {
  * outright — a person's document (`docs/requirements.md`, `docs/architecture/…`) is no family here, which
  * is the first half of "never overwrites the person's text" (decision 0032, section 1).
  */
-export type WriterPageFamily = 'product' | 'domain' | 'question' | 'localized-source' | 'enrichment' | 'validation' | 'overview' | 'editorial';
+type WriterPageFamily = 'product' | 'domain' | 'question' | 'localized-source' | 'enrichment' | 'validation' | 'overview' | 'editorial';
 
 /** The slug a page file may be named by, as everywhere else in the writer. */
 const familySlug = (part: string): boolean => SLUG.test(part) && part.length <= MAX_SLUG_LENGTH;
 
 /** The family a product-relative path belongs to, or undefined when the writer may not write there. */
-export function writerPageFamily(relativePath: string): WriterPageFamily | undefined {
+function writerPageFamily(relativePath: string): WriterPageFamily | undefined {
   const parts = relativePath.split('/');
   if (parts.some((part) => part === '' || part === '.' || part === '..' || part.includes('\\'))) return undefined;
   if (relativePath === PRODUCT_PATH) return 'product';
@@ -355,7 +355,7 @@ const ENRICHMENT_FOLDER = 'docs/enrichment';
 const OWNED_BY_THE_WRITER: readonly WriterPageFamily[] = ['product', 'domain', 'validation', 'overview', 'editorial'];
 
 /** The family of an enrichment path: `docs/enrichment/<entity kind>/<digest>.md`, three parts inside a folder. */
-export function enrichmentFamilyOf(relativePath: string): boolean {
+function enrichmentFamilyOf(relativePath: string): boolean {
   const parts = relativePath.split('/');
   if (parts.length !== 4 || parts[0] !== 'docs' || parts[1] !== 'enrichment') return false;
   const kind = parts[2]!;
@@ -366,7 +366,7 @@ export function enrichmentFamilyOf(relativePath: string): boolean {
 /** Writes pages under a folder; a page lands whole or not at all. */
 let counter = 0;
 
-export function fsSink(root: string): PageSink {
+function fsSink(root: string): PageSink {
   return {
     async write(relativePath: string, content: string): Promise<void> {
       const absoluteRoot = path.resolve(root);
@@ -424,7 +424,7 @@ export function fsSink(root: string): PageSink {
 }
 
 /** A sink that keeps the pages in a map. */
-export function memorySink(): PageSink & { readonly pages: Map<string, string> } {
+function memorySink(): PageSink & { readonly pages: Map<string, string> } {
   const pages = new Map<string, string>();
   return {
     pages,
@@ -459,7 +459,7 @@ async function existingDomainPages(output: string): Promise<string[]> {
 }
 
 /** A domain's declaration as its page gives it now: the title, a summary from its first statement, the keys it relates to. */
-export function declarationOf(path: string, text: string, language?: string): DomainDeclaration {
+function declarationOf(path: string, text: string, language?: string): DomainDeclaration {
   const slug = path.replace(/^.*\//, '').replace(/\.md$/, '');
   const { front, body, bodyLine } = splitFrontMatter(text.replaceAll('\r\n', '\n'));
   let record: Record<string, unknown> = {};
@@ -484,7 +484,7 @@ async function pageKept(sink: PageSink, path: string): Promise<boolean> {
 }
 
 /** The reason a unit that wrote nothing carries into the report and the state. */
-export function unitEndedOn(outcome: UnitOutcome): string {
+function unitEndedOn(outcome: UnitOutcome): string {
   const refusal = outcome.refusals[0];
   return refusal === undefined ? 'the unit ended without writing its page and said nothing about why' : `${outcome.path}:${refusal.line}: ${refusal.rule}: ${refusal.message}`;
 }
@@ -495,7 +495,7 @@ export function unitEndedOn(outcome: UnitOutcome): string {
  * unit is opened in the fill's own unit state, runs, and is published or left blocked with the reason
  * it ended on, so the run after this one takes up exactly what is left.
  */
-export async function runGraphUnit(input: {
+async function runGraphUnit(input: {
   readonly id: string;
   readonly kind: WriterUnitKindName;
   readonly scope: string;
@@ -596,14 +596,14 @@ export async function runGraphUnit(input: {
 }
 
 /** The unit id of the one unit a kind runs for the whole product. */
-export function productUnitId(kind: WriterUnitKindName, slug: string): string {
+function productUnitId(kind: WriterUnitKindName, slug: string): string {
   return `${kind}:${slug}`;
 }
 
 
 
 
-export async function runWriter(options: WriterOptions): Promise<WriterReport> {
+async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const bounds = options.bounds ?? DEFAULT_UNIT_BOUNDS;
   const view = await GraphView.open(options.owner, options.store);
   const content = await ingestContent(options.owner, options.store, view, options.repository, options.ref);

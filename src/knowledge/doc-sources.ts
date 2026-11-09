@@ -21,9 +21,9 @@ export const DOCUMENT_PATH = /\.(md|markdown)$/i;
 /** The most documents listed of one code repository; a repository with more says how many it has. */
 export const DOCUMENT_LIMIT = 2000;
 /** The largest document an entity is read from. */
-export const DOCUMENT_BYTES = 1024 * 1024;
+const DOCUMENT_BYTES = 1024 * 1024;
 /** The most bytes of one code repository's documents read at once; the rest is named in a finding, not read. */
-export const DOCUMENT_BUDGET_BYTES = 64 * 1024 * 1024;
+const DOCUMENT_BUDGET_BYTES = 64 * 1024 * 1024;
 
 /** The harness files of a coding agent: never listed as a source of the product, wherever they stand. */
 export const HARNESS_FILES = new Set(['AGENTS.md', 'CLAUDE.md']);

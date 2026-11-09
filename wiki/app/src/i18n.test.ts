@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
-import i18n, { languageStorageKey, normalizeLanguage, relativeTime, setWikiLanguage } from './i18n.js';
+import { i18n, languageStorageKey, normalizeLanguage, setWikiLanguage } from './i18n.js';
+import { relativeTime } from '../test/relative-time.js';
 import { pluralForm } from '../../../src/knowledge/plural.js';
 import { COUNTED_FIGURES, historyFigureText } from '../../../src/knowledge/history-figures.js';
 import { historyNoteText } from './knowledge/history-note.js';

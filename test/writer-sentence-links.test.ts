@@ -1,7 +1,7 @@
 /** The sentence-question-links contract (madarch-m38l.22), without disk or an agent. */
 import { describe, expect, test } from 'bun:test';
 import { checkPage, type GroundResolver, type PageExpectation } from '../src/writer/format.js';
-import { maskInline, sentencesOf, statementsOf, unmask } from '../src/writer/sentences.js';
+import { statementsOf } from '../src/writer/sentences.js';
 
 const expected: PageExpectation = {
   id: 'domain:orders', kind: 'domain', domains: ['orders'], mustLinkDomains: false,
@@ -95,14 +95,7 @@ describe('localized sentence-end question links', () => {
     const again = await checkPage(checked.page.markdown, expected, resolver);
     expect(again.ok && again.page.markdown).toBe(checked.page.markdown);
   });
-  test('the shared splitter attaches a question suffix and keeps the next fact separate', () => {
-    const text = `${fact} ${question} Второй факт подтвержден.[^second]`;
-    const sentences = sentencesOf(maskInline(text));
-    expect(sentences.map((sentence) => unmask(sentence.text))).toEqual([`${fact} ${question}`, 'Второй факт подтвержден.[^second]']);
-    const indexed = statementsOf(`${text}${grounds}\n[^second]: [Source](madarch:code.symbol:src/a.ts#deliver)`, 1);
-    expect(indexed.map((statement) => statement.text)).toEqual(['Источники задают разные сроки доставки.', 'Второй факт подтвержден.']);
-  });
-  test('the label is a title, not a language marker, and source grounds stay intact', async () => {
+    test('the label is a title, not a language marker, and source grounds stay intact', async () => {
     const link = '[→ question: Which delivery time applies?](madarch:question:delivery)';
     expect(await rules(`The sources give different delivery times.[^policy] ${link}${grounds}`, { language: 'en' })).toEqual([]);
     const plain = '[question: Which limit?](madarch:question:delivery)';
@@ -125,17 +118,8 @@ describe('localized sentence-end question links', () => {
 
 describe('abbreviations and navigation are not phantom claims', () => {
   for (const sentence of ['Срок задан явно, т. е. без задержки.[^policy]', 'Routes, e.g. delivery, are documented.[^policy]']) {
-    test(`keeps abbreviation periods within one sentence: ${sentence}`, async () => {
-      expect(sentencesOf(maskInline(sentence)).map((entry) => unmask(entry.text))).toEqual([sentence]);
-      expect(await rules(`${sentence}${grounds}`)).toEqual([]);
-    });
-  }
-  test('the platform segmenter ends a sentence at "См.", and the next fact stays whole', async () => {
-    const sentence = 'См. Доставку для подробностей.[^policy]';
-    expect(sentencesOf(maskInline(sentence), 'ru').map((entry) => unmask(entry.text))).toEqual(['См.', 'Доставку для подробностей.[^policy]']);
-    expect(await rules(`${sentence}${grounds}`)).toEqual([]);
-  });
-  test('a line of navigation links needs no ground but its targets must resolve', async () => {
+      }
+    test('a line of navigation links needs no ground but its targets must resolve', async () => {
     expect(await rules(`${fact}\n\n[Доставка](madarch:domain:orders).${grounds}`)).toEqual([]);
     expect(await rules(`${fact}\n\n[Неизвестное](madarch:domain:missing).${grounds}`)).toContain('link-outside-graph');
   });

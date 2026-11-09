@@ -131,7 +131,7 @@ export function parseLocalizedSource(path: string, text: string, entity: DocEnti
 }
 
 
-export const LOCALIZED_SOURCE_TOOL: McpToolDefinition = {
+const LOCALIZED_SOURCE_TOOL: McpToolDefinition = {
   name: 'write_localized_source',
   description: 'Write the source-grounded localized statement for the one document entity in this unit. The core adds fixed identity and exact original-source metadata. The statement must be in the wiki language and supported by the source excerpt.',
   inputSchema: { type: 'object', additionalProperties: false, required: ['statement'], properties: { statement: { type: 'string', description: 'A concise grounded Markdown statement in the requested wiki language, without front matter or source quote.' } } },

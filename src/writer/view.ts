@@ -11,8 +11,6 @@
  */
 import { execFileSync } from 'node:child_process';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { FILES_PRODUCER } from '../extract/driver/files.js';
-import { DRIVER_PRODUCER } from '../extract/driver/index.js';
 import type { GraphId, GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
 import { GraphReader, presentedKey, presentedKeySql } from '../knowledge/graph-read.js';
@@ -42,10 +40,10 @@ export interface NeighborInfo {
 
 const TEXT_INSTANT = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 /** A file the writer stores and an agent may read: text under this many bytes. */
-export const MAX_CONTENT_BYTES = 512 * 1024;
+const MAX_CONTENT_BYTES = 512 * 1024;
 const DOCUMENT_EXTENSIONS = /\.(md|markdown)$/i;
 
-export { documentAnchors, slugOf };
+;
 
 /** A section identifier such as `uc-2`, written without a regular expression. */
 function isSectionIdentifier(anchor: string): boolean {
@@ -355,7 +353,7 @@ export interface ContentReport {
   readonly unchanged: boolean;
 }
 
-export const CONTENT_PRODUCER = 'writer.content';
+const CONTENT_PRODUCER = 'writer.content';
 
 /**
  * Puts the text files of the last filled commit into the graph as content
@@ -368,7 +366,7 @@ export async function ingestContent(owner: DatabaseOwner, store: GraphStore, vie
   const files = await view.fileNodes();
   const repositoryRows = (await owner.run((tx) => tx.query<{ id: string }>(
     `SELECT v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE k.key = 'code.repository' AND v.producer = $1 AND v.properties->>'path' = $2 AND v.recorded_to = 'infinity' ORDER BY v.node_id`,
-    [DRIVER_PRODUCER, repository],
+    ['code.extract.driver', repository],
   ))).rows;
   if (repositoryRows.length !== 1) throw new Error(`src/writer/view.ts:ingestContent: the graph holds ${repositoryRows.length} repository nodes for ${repository}; the fill of this repository must have run first`);
   const scope = repositoryRows[0]!.id;

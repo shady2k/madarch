@@ -35,7 +35,7 @@ export type ProductCheckRun =
   | { ran: false; message: string };
 
 /** How long one check run may take before the wiki calls it failed. */
-export const CHECK_TIMEOUT_MS = 30_000;
+const CHECK_TIMEOUT_MS = 30_000;
 
 /** The repo the madarch checkout is, resolved from this module's own place. */
 const REPO_ROOT = dirOf(dirOf(dirOf(fileURLToPath(import.meta.url))));

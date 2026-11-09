@@ -24,7 +24,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
-import { ownRepository, runGit, sameFolder, type GitEnv } from './git.js';
+import { ownRepository, porcelainStatus, runGit, sameFolder, type GitEnv } from './git.js';
 import {
   lineOf,
   lineOfIndex,
@@ -75,7 +75,7 @@ function putRenameBack(from: string, to: string, manifest: string, gitEnv?: GitE
 }
 
 /** How renaming a product in place ended; `refused` is the command's exit 2, `failed` its exit 1. A refusal from the reader names its file and line. */
-export type RenameResult =
+type RenameResult =
   | { outcome: 'renamed'; folder: string; id: string; name: string }
   | { outcome: 'refused'; message: string; file?: string; line?: number }
   | { outcome: 'failed'; message: string };
@@ -107,7 +107,7 @@ export function renameProduct(options: { folder?: string; name?: string; gitEnv?
   if (!ownRepository(folder, options.gitEnv))
     return { outcome: 'refused', message: `the folder ${folder} is not a git repository of its own: naming a product in place is one commit of the product's history, and a commit made here would land in the repository around it` };
 
-  const status = runGit(folder, ['status', '--porcelain'], options.gitEnv);
+  const status = porcelainStatus(folder, options.gitEnv);
   if (!status.ok) return { outcome: 'failed', message: `git status failed in ${folder}: ${status.output}` };
   if (status.output !== '')
     return { outcome: 'refused', message: `the folder ${folder} holds changes that are not committed: commit them first, since naming the product is a commit of its own and would take them with it` };
@@ -133,7 +133,7 @@ export function renameProduct(options: { folder?: string; name?: string; gitEnv?
 }
 
 /** How adding a product's remote ended; `origin` is added and never pushed. */
-export type RemoteResult =
+type RemoteResult =
   | { outcome: 'added'; folder: string; remote: 'origin'; url: string }
   | { outcome: 'refused'; message: string; file?: string; line?: number }
   | { outcome: 'failed'; message: string };
@@ -170,7 +170,7 @@ export function addRemote(options: { folder?: string; url?: string; gitEnv?: Git
 }
 
 /** One code repository's bootstrap report: cloned now, present and left as it is, or failed with its message. */
-export interface RepoReport {
+interface RepoReport {
   /** The repository the report is about, as the manifest declares it. */
   name: string;
   /** The url it is cloned from. */
@@ -184,7 +184,7 @@ export interface RepoReport {
 }
 
 /** How cloning what the manifest declares ended; each declared repository carries its own report. */
-export type BootstrapResult =
+type BootstrapResult =
   | { outcome: 'bootstrapped'; folder: string; repos: RepoReport[] }
   | { outcome: 'refused'; message: string; file?: string; line?: number };
 
@@ -224,7 +224,7 @@ export function bootstrapProduct(options: { folder?: string; gitEnv?: GitEnv } =
         reports.push({ name: repo.name, url, state: 'failed', dirty: false, message: `${target} is not a git checkout of its own: something else of that name is there, and this program leaves it alone` });
         continue;
       }
-      const status = runGit(target, ['status', '--porcelain'], options.gitEnv);
+      const status = porcelainStatus(target, options.gitEnv);
       reports.push({
         name: repo.name,
         url,
@@ -266,7 +266,7 @@ function whyNotARepositoryName(name: unknown): string | null {
 /** How entering one code repository in the manifest ended; the entry is one commit and clones nothing. */
 export type RepoConnectMode = 'link' | 'move' | 'clone';
 
-export type RepoEntryResult =
+type RepoEntryResult =
   | { outcome: 'entered'; folder: string; name: string; url?: string; branch?: string }
   | { outcome: 'refused'; message: string; file?: string; line?: number }
   | { outcome: 'failed'; message: string; keepConnection?: boolean };
@@ -343,7 +343,7 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
   if (!ownRepository(folder, options.gitEnv))
     return { outcome: 'refused', message: `the folder ${folder} is not a git repository of its own: entering a code repository is one commit of the product's history, and a commit made here would land in the repository around it` };
 
-  const status = runGit(folder, ['status', '--porcelain'], options.gitEnv);
+  const status = porcelainStatus(folder, options.gitEnv);
   if (!status.ok) return { outcome: 'failed', message: `git status failed in ${folder}: ${status.output}` };
   if (status.output !== '')
     return { outcome: 'refused', message: `the folder ${folder} holds changes that are not committed: commit them first, since entering a code repository is a commit of its own and would take them with it` };
@@ -476,7 +476,7 @@ const done = (prints: string[]): LifecycleOutcome => ({ prints, errors: [], exit
  * in, their checkout's parent product when they stand in a checkout under
  * its `repos/`, nothing and a refusal otherwise.
  */
-export function productFolder(
+function productFolder(
   given: string | undefined,
   cwd: string,
 ): { folder: string } | { refused: string } {
@@ -496,7 +496,7 @@ export function productFolder(
 }
 
 /** The state lines one bootstrap's reports print: what was cloned, what stood and was left as it is, what failed. */
-export function reportLines(
+function reportLines(
   folder: string,
   repos: readonly RepoReport[],
   kind: 'clone' | 'bootstrap',
@@ -708,7 +708,7 @@ export function repoAddLife(options: {
     return refused2([], duplicate.outcome === 'refused' ? refusalText(duplicate) : `the manifest already declares the code repository "${name}"`);
   }
   if (!ownRepository(place.folder)) return refused2([], `the folder ${place.folder} is not a git repository of its own: entering a code repository is one commit of the product's history, and a commit made here would land in the repository around it`);
-  const productStatus = runGit(place.folder, ['status', '--porcelain']);
+  const productStatus = porcelainStatus(place.folder);
   if (!productStatus.ok) return failed1([`folder: ${place.folder}`], `git status failed in ${place.folder}: ${productStatus.output}`);
   if (productStatus.output !== '') return refused2([`folder: ${place.folder}`], `the folder ${place.folder} holds changes that are not committed: commit them first, since entering a code repository is a commit of its own and would take them with it`);
 
@@ -800,7 +800,7 @@ export function bootstrapLife(options: { folder?: string; cwd: string }): Lifecy
 }
 
 /** 0 while nobody failed; a failed report is the step's failure, and its name was still given. */
-export function withFailures(prints: string[], failures: readonly string[]): LifecycleOutcome {
+function withFailures(prints: string[], failures: readonly string[]): LifecycleOutcome {
   if (failures.length === 0) return done(prints);
   return { prints, errors: [...failures], exit: 1 };
 }
@@ -898,7 +898,7 @@ export function cloneLife(options: { url?: string; home?: string; env: DraftEnv 
 }
 
 /** The folder name a url stands for: its last segment, a trailing `.git` off, slashes trimmed. */
-export function folderNameOf(url: string): string {
+function folderNameOf(url: string): string {
   const withoutFileScheme = url.replace(/\/+$/, '');
   const last = withoutFileScheme.slice(withoutFileScheme.lastIndexOf('/') + 1);
   return last.endsWith('.git') ? last.slice(0, -'.git'.length) : last;

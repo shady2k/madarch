@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { architectureCheck, architectureProblemLines, VIOLATION_LIST } from '../src/check/architecture/check.js';
-import { orderedViolations, type ArchitectureRule } from '../src/check/architecture/violation.js';
-import { repositoryRoot } from '../src/check/architecture/sources.js';
+import { architectureCheck, architectureProblemLines, VIOLATION_LIST } from '../scripts/check/architecture/check.js';
+import { orderedViolations, type ArchitectureRule } from '../scripts/check/architecture/violation.js';
+import { repositoryRoot } from '../scripts/check/architecture/sources.js';
 
 /**
  * The architecture check against the repository itself (decision 0033, item 4): the

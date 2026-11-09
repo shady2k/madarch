@@ -87,7 +87,7 @@ export function repositoryStoreFolder(repository: string, env: Readonly<Record<s
 }
 
 /** A lock a live process holds on a store folder: one fill writes it at a time. */
-export interface FolderLock {
+interface FolderLock {
   readonly folder: string;
   readonly pid: number;
 }

@@ -50,7 +50,7 @@ export function defaultBranch(repository: string): string {
 }
 
 /** Whether a commit's message names the task: its id, or a `Task:` line listing the task's name. */
-export function namesTask(message: string, slug: string): boolean {
+function namesTask(message: string, slug: string): boolean {
   // Whole ids only: `task:discount` must not be named by a commit that names `task:discount-rate`.
   const whole = new RegExp(`(^|[^\\w:.-])task:${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w:.-]|$)`);
   if (whole.test(message)) return true;

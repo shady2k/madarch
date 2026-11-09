@@ -31,7 +31,7 @@ const GRAMMARS: Record<string, { id: string; load: Grammar }> = {
 };
 
 /** Texts longer than this keep the plain scanner: coloring a huge file would hold the page. */
-export const COLOR_LIMIT_CHARACTERS = 300_000;
+const COLOR_LIMIT_CHARACTERS = 300_000;
 
 let loading: Promise<HighlighterCore> | undefined;
 const loaded = new Set<string>();
@@ -50,7 +50,7 @@ async function core(): Promise<HighlighterCore> {
 }
 
 /** Whether a language has a grammar. */
-export const canColor = (language: string): boolean => GRAMMARS[language] !== undefined;
+const canColor = (language: string): boolean => GRAMMARS[language] !== undefined;
 
 /**
  * The lines of a text as colored tokens, or `null` when the language has no grammar, the text is too long or the

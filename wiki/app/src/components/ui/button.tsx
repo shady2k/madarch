@@ -7,8 +7,8 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
-export type ButtonVariant = 'default' | 'ghost';
-export type ButtonSize = 'default' | 'icon' | 'icon-sm';
+type ButtonVariant = 'default' | 'ghost';
+type ButtonSize = 'default' | 'icon' | 'icon-sm';
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;

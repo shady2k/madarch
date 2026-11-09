@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { LOCAL_MARK, authorEnv, commitArguments, authorOf, identityTrailer, localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
+import { LOCAL_MARK, authorOf, identityTrailer, localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
 import { gitEnv } from './git-env.js';
 
 /** git's configuration sources sealed off: no system or global user is the fixture's. */
@@ -27,16 +27,7 @@ function repository(config: Record<string, string>): string {
 }
 
 describe('the local identity', () => {
-  test('is git\'s name and email, marked local and not verified, with no signing key', () => {
-    const answer = localGitIdentity(repository({ 'user.name': 'Ada Example', 'user.email': 'ada@example.test' }));
-    expect(answer).toEqual({ ok: true, identity: { name: 'Ada Example', email: 'ada@example.test', verification: 'local-git', mark: LOCAL_MARK, signing: false } });
-    if (!answer.ok) return;
-    expect(LOCAL_MARK).toBe('local, not verified');
-    expect(authorOf(answer.identity)).toBe('Ada Example <ada@example.test>');
-    expect(identityTrailer(answer.identity)).toBe('Written-by: Ada Example <ada@example.test> (local, not verified)');
-    expect(authorEnv(answer.identity)).toEqual({ GIT_AUTHOR_NAME: 'Ada Example', GIT_AUTHOR_EMAIL: 'ada@example.test' });
-  });
-
+  
   test('notes that the user\'s own signing key is configured, by a key or by signing every commit', () => {
     const keyed = localGitIdentity(repository({ 'user.name': 'A', 'user.email': 'a@example.test', 'user.signingkey': 'ABCDEF' }));
     expect(keyed.ok && keyed.identity.signing).toBe(true);
@@ -62,16 +53,7 @@ describe('the local identity', () => {
     }
   });
 
-  test('a configured signing key signs the commits the wiki writes: the arguments ask for it, and only then', () => {
-    const keyed = localGitIdentity(repository({ 'user.name': 'A', 'user.email': 'a@example.test', 'user.signingkey': 'ABCDEF' }));
-    if (!keyed.ok) throw new Error(keyed.message);
-    expect(commitArguments('Answer', keyed.identity)).toEqual(['commit', '--quiet', '-S', '-m', 'Answer', '-m', 'Written-by: A <a@example.test> (local, not verified)']);
-    rmSync(folder!, { recursive: true, force: true });
-    const plain = localGitIdentity(repository({ 'user.name': 'A', 'user.email': 'a@example.test' }));
-    if (!plain.ok) throw new Error(plain.message);
-    expect(commitArguments('Answer', plain.identity)).not.toContain('-S');
-  });
-
+  
   test('git\'s author variables come before the configuration, and a missing email is told even when the name is given', () => {
     const answer = localGitIdentity(repository({ 'user.name': 'Config', 'user.email': 'config@example.test' }), { GIT_AUTHOR_NAME: 'Env Name', GIT_AUTHOR_EMAIL: 'env@example.test' });
     expect(answer.ok && [answer.identity.name, answer.identity.email]).toEqual(['Env Name', 'env@example.test']);

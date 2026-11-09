@@ -83,7 +83,7 @@ export async function indexCounts(owner: DatabaseOwner): Promise<KindCount[]> {
   return rows.map((row) => ({ kind: String(row['kind']), pages: Number(row['pages']), statements: Number(row['statements']) })).sort((a, b) => byCodePoint(a.kind, b.kind));
 }
 
-export type GroundStatus = 'changed' | 'unchanged' | 'removed' | 'unknown';
+type GroundStatus = 'changed' | 'unchanged' | 'removed' | 'unknown';
 
 export interface GroundChange {
   readonly page: string;
@@ -183,4 +183,4 @@ function pathFromKey(key: string): string | undefined {
   return undefined;
 }
 
-export { PAGE_KIND, STATEMENT_KIND };
+;

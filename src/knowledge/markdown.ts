@@ -19,7 +19,7 @@ import { byCodePoint } from '../model/order.js';
 import type { Finding, KindDecl, KindsManifest } from './kinds.js';
 
 /** The scheme of an entity link. */
-export const SCHEME = 'madarch:';
+const SCHEME = 'madarch:';
 
 export interface MarkdownEntity {
   /** `kind:slug`. */
@@ -81,7 +81,7 @@ export function markdownFilesBelow(root: string, folder: string): string[] {
 }
 
 /** Reads one Markdown file as an entity of the kind; null with findings when it is not one. */
-export function readMarkdownEntity(productFolder: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
+function readMarkdownEntity(productFolder: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
   const full = join(productFolder, path);
   let text: string;
   try {
@@ -363,7 +363,7 @@ export function parseTarget(url: string): { kind: 'key'; key: string } | { kind:
 // ---- statements -------------------------------------------------------------------------------
 
 /** One statement of a body: its sentence, the paragraph it stands in, and the notes that ground it. */
-export interface Statement {
+interface Statement {
   text: string;
   /** The file's line the paragraph starts at. */
   line: number;

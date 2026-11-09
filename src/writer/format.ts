@@ -53,7 +53,7 @@ export interface GroundResolver {
  * pass's report. A kind is what the page's front matter must say it is; the rules of the format are
  * the same for all of them.
  */
-export type PageKind = 'product' | 'domain' | 'validation' | 'enrichment' | 'overview' | 'editorial';
+type PageKind = 'product' | 'domain' | 'validation' | 'enrichment' | 'overview' | 'editorial';
 
 /** What the caller knows about the page being checked. */
 export interface PageExpectation {
@@ -94,7 +94,7 @@ export interface PageExpectation {
   readonly extraFrontKeys?: readonly string[];
 }
 
-export interface FrontMatter {
+interface FrontMatter {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
@@ -111,7 +111,7 @@ export interface FrontMatter {
 }
 
 /** A page that passed, in canonical form (what is written to disk). */
-export interface CheckedPage {
+interface CheckedPage {
   readonly frontMatter: FrontMatter;
   readonly markdown: string;
   /** Every ground of every footnote, in order of appearance. */

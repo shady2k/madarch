@@ -129,7 +129,7 @@ export function ProductSelector({ name, products, current }: { name: string; pro
 const hasOwnPlace = (kind: KindSummary): boolean => kind.nav === 'own-page';
 
 /** A sub-area of a group, as the navigation and the catalogue draw it. */
-export interface NavSubgroup {
+interface NavSubgroup {
   group: string;
   labels: Record<string, string>;
   /** The navigation's short label per language; the full name when it is absent. */
@@ -143,7 +143,7 @@ export interface NavSubgroup {
  * sub-areas in the manifest's order. `kinds` holds every kind the group shows,
  * sub-areas included, so a role that leads a group keeps its whole branch.
  */
-export interface NavGroup {
+interface NavGroup {
   group: string | null;
   labels: Record<string, string> | null;
   /** The navigation's one-or-two-word label per language; the full name when it is absent. */
@@ -593,7 +593,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
  * menu. When the run it started ends, the pages it changed open by themselves, each one a link to its page; a run that
  * changed no page says so in one line, and one that failed says why. The button is spent while a run is under way.
  */
-export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t } = useTranslation();
   const [starting, setStarting] = useState(false);
   const [pressed, setPressed] = useState<string | null>(null);
@@ -689,7 +689,7 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
 }
 
 /** The route an in-wiki address is; the home page for one the wiki does not know. */
-export function routeOfAddress(address: string): KRoute {
+function routeOfAddress(address: string): KRoute {
   const url = new URL(address, 'http://wiki.invalid');
   return kRouteOf(url.pathname, url.search) ?? { name: 'home' };
 }

@@ -161,10 +161,10 @@ export const eventsAddress = (): string => appPath('/api/events');
 /** What starting the product over would remove and keep. */
 export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[] };
 
-export const getResetPlan = (signal?: AbortSignal): Promise<ResetPlan> => readJson<ResetPlan>('read what starting over removes', '/api/k/reset', signal);
+const getResetPlan = (signal?: AbortSignal): Promise<ResetPlan> => readJson<ResetPlan>('read what starting over removes', '/api/k/reset', signal);
 
 /** Starts the product over; the answer is the server's refusal in words when it cannot. */
-export async function resetProduct(): Promise<void> {
+async function resetProduct(): Promise<void> {
   let response: Response;
   try {
     response = await fetch(appPath('/api/k/reset'), { method: 'POST' });

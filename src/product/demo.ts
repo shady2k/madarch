@@ -6,7 +6,7 @@ import { productsHome, type DraftEnv } from './draft.js';
 import { ownRepository, runGit } from './git.js';
 
 /** The product repository shown by `madarch demo`; no product content ships in madarch. */
-export const DEMO_REPOSITORY = 'https://github.com/shady2k/madarch-product.git';
+const DEMO_REPOSITORY = 'https://github.com/shady2k/madarch-product.git';
 export interface DemoOptions {
   url?: string;
   home?: string;

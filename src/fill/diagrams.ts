@@ -42,7 +42,7 @@
  * madarch-tzte.23.1's: nothing here draws a line or answers a request.
  */
 import { byCodePoint } from '../model/order.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { FACT_EDGE_KINDS, isFactId, type Fact, type FactEdgeKind, type FactNodeKind } from './facts.js';
 import { FACT_STORE_TABLES, type FactStoreDatabase } from './fact-store.js';
 import { here, raise, withLocation } from './fsm-core.js';
@@ -60,10 +60,10 @@ import { pageAddress } from './page-changes.js';
  * (madarch-tzte.23.2's record says so).
  */
 export const DIAGRAM_TYPES = ['c4-component', 'c4-container', 'c4-context', 'er', 'module-dependency', 'sequence', 'state'] as const;
-export type DiagramType = (typeof DIAGRAM_TYPES)[number];
+type DiagramType = (typeof DIAGRAM_TYPES)[number];
 
 /** How a fact stands behind what a diagram shows (0005): a fact, an assumption, or an end the graph does not hold. */
-export type DiagramEvidence = 'assumption' | 'fact' | 'unresolved';
+type DiagramEvidence = 'assumption' | 'fact' | 'unresolved';
 
 /**
  * The view specification 0026 gives an agent: what to show, and nothing about
@@ -109,7 +109,7 @@ export interface DiagramPlace {
 }
 
 /** The page an element opens: the graph node's own address, made by `graphPageHref`. */
-export interface DiagramPage {
+interface DiagramPage {
   readonly id: string;
   readonly href: string;
 }
@@ -135,13 +135,13 @@ export interface DiagramColumn {
  * level is named only where the type takes one: C4 component, C4 container and ER
  * stand at levels of their own, and a spec that named another would be refused.
  */
-export interface DiagramDrillDown {
+interface DiagramDrillDown {
   readonly view: DiagramViewSpec;
   readonly href: string;
 }
 
 /** One element a diagram shows: a graph node, or an end the graph does not hold. */
-export interface DiagramElement {
+interface DiagramElement {
   /** The graph node's fact id; for an end the graph does not hold, an id prefixed `unresolved:` that no fact can carry. */
   readonly id: string;
   /** The fact's kind, or null for an end the graph does not hold. */
@@ -162,7 +162,7 @@ export interface DiagramElement {
 }
 
 /** One arrow a diagram draws: two elements, what it is called, and the facts behind it. */
-export interface DiagramEdge {
+interface DiagramEdge {
   readonly from: string;
   readonly to: string;
   readonly label: string;
@@ -233,7 +233,7 @@ interface DiagramTypeDeclaration {
  * inside them, and a context view draws every relation but the two that place a
  * node (`NEIGHBOR_EDGE_KINDS`) rolled up to the repositories that hold its ends.
  */
-export const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTypeDeclaration } = {
+const DIAGRAM_TYPE_DECLARATIONS: { readonly [K in DiagramType]: DiagramTypeDeclaration } = {
   'c4-context': {
     level: 1,
     depth: false,
@@ -356,7 +356,7 @@ export function diagramHref(spec: DiagramViewSpec): string {
 // ---------------------------------------------------------------------------------------------
 
 /** One node an element sits in, as the graph places it: its kind, so a view can tell a module from a repository. */
-export interface DiagramAncestor {
+interface DiagramAncestor {
   readonly id: string;
   readonly kind: FactNodeKind;
 }

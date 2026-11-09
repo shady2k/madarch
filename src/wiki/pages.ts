@@ -15,7 +15,7 @@
 import type { CompiledCategory, CompiledElement, CompiledInterface, CompiledModel, CompiledRelation, CompiledZone } from '../model/compile.js';
 
 /** A link to another page of the same wiki, named by that page's id. */
-export interface WikiLinkCell {
+interface WikiLinkCell {
   readonly page: string;
   /** The exact text of the heading on that page the link lands on; absent when it targets the page itself. */
   readonly anchor?: string;
@@ -27,26 +27,26 @@ export interface WikiLinkCell {
  * several links (a zone list, an ancestor chain, an interface's callers)
  * shown together — the writer joins them with ", ".
  */
-export type WikiCell = string | WikiLinkCell | readonly WikiLinkCell[];
+type WikiCell = string | WikiLinkCell | readonly WikiLinkCell[];
 
-export interface WikiHeadingBlock {
+interface WikiHeadingBlock {
   readonly kind: 'heading';
   readonly level: 2 | 3;
   readonly text: string;
 }
 
-export interface WikiParagraphBlock {
+interface WikiParagraphBlock {
   readonly kind: 'paragraph';
   readonly text: string;
 }
 
-export interface WikiTableBlock {
+interface WikiTableBlock {
   readonly kind: 'table';
   readonly columns: readonly string[];
   readonly rows: readonly (readonly WikiCell[])[];
 }
 
-export type WikiBlock = WikiHeadingBlock | WikiParagraphBlock | WikiTableBlock | WikiDiagramBlock;
+type WikiBlock = WikiHeadingBlock | WikiParagraphBlock | WikiTableBlock | WikiDiagramBlock;
 
 /**
  * The diagram a home, domain or element page carries: the view the page
@@ -55,13 +55,13 @@ export type WikiBlock = WikiHeadingBlock | WikiParagraphBlock | WikiTableBlock |
  * into the formats the reader switches between; the page data only says
  * which view it is.
  */
-export interface WikiDiagramBlock {
+interface WikiDiagramBlock {
   readonly kind: 'diagram';
   /** The element whose view the page shows; absent for the landscape. */
   readonly scope?: string;
 }
 
-export interface WikiPage {
+interface WikiPage {
   /** The page's stable id: `home`, `domain/<id>`, `element/<id>`, `interfaces`, `zones`, `zone/<id>`, `data-categories`, `data-category/<id>`. */
   readonly id: string;
   readonly title: string;
@@ -132,10 +132,10 @@ export interface WikiDocumentPage {
 }
 
 /** Every page a wiki holds: the model's pages and the repository's documents. */
-export type AnyWikiPage = WikiPage | WikiDocumentPage;
+type AnyWikiPage = WikiPage | WikiDocumentPage;
 
 /** Whether a page is a document (its Markdown whole) rather than a model page. */
-export function isDocumentPage(page: AnyWikiPage): page is WikiDocumentPage {
+function isDocumentPage(page: AnyWikiPage): page is WikiDocumentPage {
   return 'body' in page;
 }
 
@@ -511,7 +511,7 @@ function categoryPage(parts: ModelParts, category: CompiledCategory): WikiPage {
  * home, domain and element page carries the diagram of the view it belongs
  * to (requirement `diagrams`).
  */
-export function wikiPages(model: CompiledModel, views: readonly string[]): WikiPage[] {
+function wikiPages(model: CompiledModel, views: readonly string[]): WikiPage[] {
   const parts: ModelParts = {
     model,
     elementById: new Map(model.elements.map((element) => [element.id, element])),

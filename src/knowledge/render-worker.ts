@@ -17,7 +17,7 @@
 import { createTemplateEngine, withoutPosition, type BlockRequest, type RenderLimits, type RenderPart, type TemplateEngine } from './liquid-engine.js';
 import { decodeWire, encodeWire } from './wire.js';
 
-export { TEMPLATE_FILTERS, TEMPLATE_TAGS, type BlockRequest, type RenderLimits, type RenderPart } from './liquid-engine.js';
+;
 
 export type RenderRequest =
   | { type: 'open'; templates: Readonly<Record<string, string>>; blocks: readonly string[]; limits: RenderLimits }

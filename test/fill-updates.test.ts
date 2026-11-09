@@ -19,18 +19,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runGit } from '../src/product/git.js';
-import {
-  createUpdateWatch,
-  headCommitOf,
-  headOf,
-  readSeenHeads,
-  repositoriesOf,
-  seenHeadsNote,
-  seenKey,
-  UPDATE_STATE_FILE,
-  type UpdateRunAnswer,
-  type UpdateRunRequest,
-} from '../src/product/fill-updates.js';
+import { createUpdateWatch, headCommitOf, headOf, readSeenHeads, repositoriesOf, seenHeadsNote, seenKey, UPDATE_STATE_FILE, type UpdateRunAnswer, type UpdateRunRequest } from '../src/product/fill-updates.js';
 
 const IDENTITY = ['-c', 'user.name=Updates', '-c', 'user.email=updates@example.com', '-c', 'commit.gpgsign=false'];
 

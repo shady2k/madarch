@@ -28,9 +28,9 @@ import { KINDS_FILE, LABEL_LANGUAGES } from './kinds.js';
 import { DETAILS, DOCUMENT_EXCLUDES, GROUPS, ROLES, STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, TEMPLATES, kindLines, propertyDeclaration, starterManifest, type StarterKind } from './seed.js';
 
 /** The subjects of the commits madarch itself makes in a product's manifest and templates. */
-export const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
+const MADARCH_COMMIT_SUBJECTS: readonly string[] = ['Create the draft product'];
 
-export type Provenance = 'absent' | 'current' | 'madarch' | 'person';
+type Provenance = 'absent' | 'current' | 'madarch' | 'person';
 
 /** One thing the starter set holds and the product's manifest lacks, offered for the Problems page to add. */
 export interface StarterOffer {
@@ -405,7 +405,7 @@ function languageOf(text: string): string | undefined {
  * Brings the product's manifest and templates to the current starter set where no person edited them, writes the
  * templates that are absent, and answers what the set holds that an edited manifest lacks. Idempotent.
  */
-export function rememberMadarchStarterFile(recordFile: string, path: string, text: string): void {
+function rememberMadarchStarterFile(recordFile: string, path: string, text: string): void {
   remember(recordFile, { [path]: text });
 }
 

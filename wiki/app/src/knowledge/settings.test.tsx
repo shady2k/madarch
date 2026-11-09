@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import i18n, { setWikiLanguage } from '../i18n.js';
+import { i18n, setWikiLanguage } from '../i18n.js';
 import { FailureNote } from './errors.js';
 import { ProblemsPage } from './loop.js';
 import { SettingsPage } from './settings.js';

@@ -33,13 +33,21 @@ export default {
       to: { path: '^src/graph/publish\\.ts$' },
     },
     {
+      name: 'no-retired-surfaces',
+      severity: 'error',
+      comment:
+        'Decision 0033, item 6: the extract driver (src/extract), the fill_fact store\'s history and query surfaces (src/history, src/query) are replaced and deleted, never left for later. No module imports them: the fill reads git through the record passes (src/fill/stages/repository-facts.ts) and publishes through the record store (src/graph/records.ts).',
+      from: { pathNot: '^$' },
+      to: { path: '^(src/extract|src/history|src/query)(/|$)' },
+    },
+    {
       name: 'sql-only-in-storage-layer',
       severity: 'error',
       comment:
-        'Only the storage layer holds a connection or runs a query (decision 0033, item 3). Read from src/adapters/database-owner.ts and its users, what runs a query is: the database connection itself (the owner), the query interface an executor answers (src/query/sql-driver.ts, whose SqlExecutor.query is the statement a module runs), and the database clients (the PostgreSQL driver and the queue). Only src/graph (the graph store) and src/adapters (the storage layer) may import any of them; every other module asks a store.',
+        'Only the storage layer holds a connection or runs a query (decision 0033, item 3). Read from src/adapters/database-owner.ts and its users, what runs a query is: the database connection itself (the owner), the query interface an executor answers (src/sql-driver.ts, whose SqlExecutor.query is the statement a module runs), and the database clients (the PostgreSQL driver and the queue). Only src/graph (the graph store) and src/adapters (the storage layer) may import any of them; every other module asks a store.',
       from: { pathNot: '^(src/graph|src/adapters)/' },
       to: {
-        path: '^(src/adapters/database-owner\.ts|src/query/sql-driver\.ts|pg|pg-boss)(/|$)',
+        path: '^(src/adapters/database-owner\.ts|src/sql-driver\.ts|pg|pg-boss)(/|$)',
       },
     },
   ],

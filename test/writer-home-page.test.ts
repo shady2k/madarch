@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { EMPTY_PRODUCT_GAPS, HOME_SECTIONS, homeGrounds, homeRelates, homeSources, homeStatements, parseHomeFields, renderEmptyHomePage, renderHomePage, type HomeFields } from '../src/writer/home-page.js';
-import { readEmptyProductGapMarker } from '../src/writer/empty-product-gap.js';
+import { readEmptyProductGapMarker } from '../src/writer/gap-marker.js';
 
 const labels: Record<string, string> = {
   'code.service:shop': 'Shop service',

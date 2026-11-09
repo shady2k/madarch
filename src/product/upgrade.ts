@@ -29,10 +29,10 @@ import { runningVersion } from './version.js';
 import { daemonIsRunning } from './daemon.js';
 
 /** The GitHub repository this binary upgrades itself from (the project's own). */
-export const GITHUB_REPO = 'shady2k/madarch';
+const GITHUB_REPO = 'shady2k/madarch';
 
 /** The releases' API address: `releases/latest` answers the newest release's JSON. */
-export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 /** The artifact name of one platform: the release build lays every binary under this name. */
 export function artifactName(platform: string, arch: string): string {
@@ -45,7 +45,7 @@ export function artifactName(platform: string, arch: string): string {
 export const CHECKSUMS_FILE = 'SHA256SUMS.txt';
 
 /** One release the API answered: its tag and a full download address per asset name. */
-export interface ReleaseAnswer {
+interface ReleaseAnswer {
   /** The release's own name: the tag the release build was made from, like `v1.2.3`. */
   tag: string;
   /** A full download address per asset name, as the releases API names them. */

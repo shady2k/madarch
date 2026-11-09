@@ -26,7 +26,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 
 export type SpanPolicy = 'required' | 'optional' | 'if-present';
 
-export type GraphDirection = 'in' | 'out' | 'both';
+type GraphDirection = 'in' | 'out' | 'both';
 
 /** A query over the edges incident to one item; `atLeast` is the count that satisfies it. */
 export interface GraphNeighbourQuery {
@@ -59,7 +59,7 @@ export interface GraphEscalation {
 }
 
 /** An escalation that applies to the kinds its selector names, before the rule's own list. */
-export interface GraphKindEscalation extends GraphEscalation {
+interface GraphKindEscalation extends GraphEscalation {
   readonly kind?: string;
   readonly kindPrefix?: string;
 }
@@ -110,7 +110,7 @@ export interface GraphRuleSet {
 }
 
 /** The edge kinds whose meaning is the relation itself: both endpoints, no source text. */
-export const SPANLESS_EDGE_KINDS: readonly string[] = [
+const SPANLESS_EDGE_KINDS: readonly string[] = [
   'code.authored',
   'code.backed-by',
   'code.carries',
@@ -140,7 +140,7 @@ const noEdge = (direction: GraphDirection, kinds: readonly string[], otherKinds?
 });
 
 /** Policies that apply to every node kind. A node with no edge is asked about, not silently valid. */
-export const GRAPH_NODE_ESCALATIONS: readonly GraphKindEscalation[] = [
+const GRAPH_NODE_ESCALATIONS: readonly GraphKindEscalation[] = [
   { id: 'node-without-edge', kindPrefix: '', reason: 'a node with no edge', when: NO_EDGE },
 ];
 

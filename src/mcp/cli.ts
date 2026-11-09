@@ -21,14 +21,14 @@ import { summarize, summaryLines } from './journal.js';
 import { serveRepositoryMcp } from './server.js';
 
 /** What `madarch mcp` was asked to do. */
-export interface McpArguments {
+interface McpArguments {
   readonly repository: string;
   readonly journal: boolean;
   readonly help: boolean;
 }
 
 /** How the command is read: two flags with a value, two without, and the rule for anything else. */
-export function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(), env: Readonly<Record<string, string | undefined>> = process.env): McpArguments | string {
+function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(), env: Readonly<Record<string, string | undefined>> = process.env): McpArguments | string {
   let repository: string | undefined;
   let journal = false;
   let help = false;
@@ -57,7 +57,7 @@ export function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(
 }
 
 /** The command's own help, printed for `--help` and for a flag it does not know. */
-export const MCP_USAGE = [
+const MCP_USAGE = [
   'usage: madarch mcp [--repo <path>]',
   '       madarch mcp --journal [--repo <path>]',
   '',

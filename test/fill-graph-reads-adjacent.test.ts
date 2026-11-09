@@ -14,7 +14,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
-import { FACT_EDGE_KINDS, makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
+import { FACT_EDGE_KINDS, makeNodeFact, repositoryPath, type Fact , makeFact } from '../src/fill/facts.js';
 import { answerGraphRead } from '../src/fill/graph-reads.js';
 import { createOrchestratorSchema, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
 import { createFillStateSchema, createUnit, readUnit } from '../src/fill/state-store.js';
@@ -53,12 +53,12 @@ beforeAll(async () => {
     one,
     two,
     topic,
-    makeEdgeFact({ kind: 'import', value: { from: one.id, to: two.id, specifier: './b.js' }, provenance: provenance('src/a.ts'), layer: 'extracted' }),
-    makeEdgeFact({ kind: 'consumes', value: { from: one.id, variable: topic.id }, provenance: provenance('src/a.ts'), layer: 'extracted' }),
+    makeFact({ kind: 'import', value: { from: one.id, to: two.id, specifier: './b.js' }, provenance: provenance('src/a.ts'), layer: 'extracted' }),
+    makeFact({ kind: 'consumes', value: { from: one.id, variable: topic.id }, provenance: provenance('src/a.ts'), layer: 'extracted' }),
     // A document link's end is a term: `{form: 'node', id}`, never the id alone.
-    makeEdgeFact({ kind: 'document-link', value: { from: one.id, to: { form: 'node', id: two.id } }, provenance: provenance('docs/design.md'), layer: 'extracted' }),
+    makeFact({ kind: 'document-link', value: { from: one.id, to: { form: 'node', id: two.id } }, provenance: provenance('docs/design.md'), layer: 'extracted' }),
     // An interaction keeps its ends in `caller` and `callee`.
-    makeEdgeFact({ kind: 'interaction', value: { caller: two.id, callee: one.id, form: 'call' }, provenance: provenance('src/b.ts'), layer: 'inferred' }),
+    makeFact({ kind: 'interaction', value: { caller: two.id, callee: one.id, form: 'call' }, provenance: provenance('src/b.ts'), layer: 'inferred' }),
   ];
   await database.transaction('write', async (executor) => await applyPublishedFacts({
     executor,

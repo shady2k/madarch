@@ -6,14 +6,14 @@
 import type { AcpSession } from './acp.js';
 
 /** One value an agent offers for an option. */
-export interface ChoiceValue {
+interface ChoiceValue {
   readonly value: string;
   readonly name: string;
   readonly description?: string;
 }
 
 /** One option the reader can choose from: where it is set, what it is now, what it can be. */
-export interface Choice {
+interface Choice {
   /** The agent's id for the option (`session/set_config_option`'s `configId`); null for the earlier model form. */
   readonly configId: string | null;
   readonly name: string;

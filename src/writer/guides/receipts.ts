@@ -8,7 +8,7 @@ const verifiedWalks = new WeakMap<object, GuideDocument>();
 export function isGuideWalkResult(result: GuideWalkResult, guide: GuideDocument): boolean { return verifiedWalks.get(result) === guide; }
 
 /** Authentication and observed-result matching are different facts. */
-export type GuideExecutionVerification =
+type GuideExecutionVerification =
   | { readonly kind: 'unverified'; readonly reason: string }
   | { readonly kind: 'verified'; readonly observationMatches: boolean };
 

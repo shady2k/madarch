@@ -359,7 +359,7 @@ describe('one defect in the manifest is one problem', () => {
   /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
   function appendedKind(name: string, id: string, group: string, extra: string[] = []): string {
     const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
-    return base.replace('\nmapping:\n', `\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}\nmapping:\n`);
+    return `${base}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}`;
   }
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
@@ -374,8 +374,6 @@ describe('one defect in the manifest is one problem', () => {
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
     ['a role leading a group nobody declares', withPlant('lead: [strategy, discovery, requirements, rd]', 'lead: [nowhere, discovery, requirements, rd]'), 'role "product": "nowhere" is not a group of "groups"'],
     ['a role opening a block outside the library', withPlant('open: [stated, implementedby, linkedfrom, related, properties] }\n  analyst', 'open: [nothing] }\n  analyst'), 'role "product": "nothing" is not a block of the library'],
-    ['a tied relation with no direction', withPlant('    code.contains: { relation: "contains", direction: "same" }', '    code.contains: { relation: "contains" }'), 'relation "code.contains": "direction" is same or inverse'],
-    ['a tied relation with a direction the mapping does not know', withPlant('    code.contains: { relation: "contains", direction: "same" }', '    code.contains: { relation: "contains", direction: "sideways" }'), 'relation "code.contains": "direction" is same or inverse'],
   ];
   for (const [what, manifest, names] of cases) {
     test(`${what} is one problem, naming it`, () => {

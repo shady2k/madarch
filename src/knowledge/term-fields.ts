@@ -7,7 +7,7 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 
-export type TermField = 'synonyms' | 'code' | 'usedIn' | 'ambiguous';
+type TermField = 'synonyms' | 'code' | 'usedIn' | 'ambiguous';
 
 /** The label words of the sub-items, lower case, per field. */
 const LABELS: Readonly<Record<string, TermField>> = {

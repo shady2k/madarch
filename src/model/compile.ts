@@ -33,10 +33,10 @@ export type {
   CompiledModel,
   CompiledRelation,
   CompiledScenario,
-  CompiledScenarioAlternative,
-  CompiledScenarioStep,
+  
+  
   CompiledState,
-  CompiledTransfer,
+  
   CompiledZone,
 };
 
@@ -92,7 +92,7 @@ export function compileModel(model: ValidatedModel): CompiledModel {
  * from the same content split differently across files — produces this same
  * text byte for byte.
  */
-export function serializeCompiledModel(model: CompiledModel): string {
+function serializeCompiledModel(model: CompiledModel): string {
   return `${JSON.stringify(model, null, 2)}\n`;
 }
 

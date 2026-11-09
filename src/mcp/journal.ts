@@ -35,7 +35,7 @@ export interface JournalEntry {
 }
 
 /** How one tool's calls added up. */
-export interface JournalToolSummary {
+interface JournalToolSummary {
   readonly tool: string;
   readonly calls: number;
   readonly answerBytes: number;
@@ -60,7 +60,7 @@ export interface JournalSummary {
 }
 
 /** The journal file of one graph folder. */
-export const journalFile = (folder: string): string => join(folder, 'journal.jsonl');
+const journalFile = (folder: string): string => join(folder, 'journal.jsonl');
 
 /** Appends one call. */
 export function recordCall(folder: string, entry: JournalEntry): void {

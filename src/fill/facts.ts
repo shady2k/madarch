@@ -145,7 +145,7 @@ export function isRepositoryPath(value: string): value is RepositoryPath {
  * both, because a fact about another repository's file is not this
  * repository's fact.
  */
-export function repositoryPathIn(root: string, location: string): RepositoryPath {
+function repositoryPathIn(root: string, location: string): RepositoryPath {
   const normalize = (value: string): string[] => value.replace(/\\/g, '/').replace(/\/+$/, '').split('/').filter((leg) => leg !== '' && leg !== '.');
   const rootLegs = normalize(root);
   const locationLegs = normalize(location);
@@ -171,7 +171,7 @@ export interface FactSource {
 }
 
 /** The repository a fact is about, and the commit it was read at (0004: "repository@ref"). */
-export interface RepositoryRef {
+interface RepositoryRef {
   /**
    * The product's own name for the repository (the folder under its `repos/`,
    * decision 0021), never a machine path, a URL or a branch name.
@@ -280,7 +280,7 @@ export const FACT_STAGES = [
   '13-recovery',
   '14-narrative',
 ] as const;
-export type FactStage = (typeof FACT_STAGES)[number];
+type FactStage = (typeof FACT_STAGES)[number];
 
 /** The agent stages, 8 to 13: every fact they write is `inferred` (0005). */
 export const AGENT_STAGES: readonly FactStage[] = ['8-overview', '9-boundaries', '10-intent-documents', '11-intent-history', '12-understanding', '13-recovery'];
@@ -382,52 +382,52 @@ export const FACT_KIND_NAME_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
  * union: the type is derived from it and `checkFact` reads a value against it,
  * so a role the schema stops knowing is refused rather than digested.
  */
-export const FILE_ROLES = ['asset', 'build', 'config', 'document', 'fixture', 'generated', 'migration', 'schema', 'source', 'test', 'vendor'] as const;
-export type FileRole = (typeof FILE_ROLES)[number];
+const FILE_ROLES = ['asset', 'build', 'config', 'document', 'fixture', 'generated', 'migration', 'schema', 'source', 'test', 'vendor'] as const;
+type FileRole = (typeof FILE_ROLES)[number];
 
 /** The form a package node is (stage 2): a package, a build target, or a workspace holding both. */
-export const PACKAGE_FORMS = ['build-target', 'package', 'workspace'] as const;
-export type PackageForm = (typeof PACKAGE_FORMS)[number];
+const PACKAGE_FORMS = ['build-target', 'package', 'workspace'] as const;
+type PackageForm = (typeof PACKAGE_FORMS)[number];
 
 /** The form a deploy unit is (stage 2). */
-export const DEPLOY_FORMS = ['chart', 'container', 'function', 'job', 'service', 'stack'] as const;
-export type DeployForm = (typeof DEPLOY_FORMS)[number];
+const DEPLOY_FORMS = ['chart', 'container', 'function', 'job', 'service', 'stack'] as const;
+type DeployForm = (typeof DEPLOY_FORMS)[number];
 
 /** What kind of way into the code an entry point is (stage 3). */
-export const ENTRY_POINT_FORMS = ['cli-command', 'http-route', 'job', 'library-export', 'main'] as const;
+const ENTRY_POINT_FORMS = ['cli-command', 'http-route', 'job', 'library-export', 'main'] as const;
 export type EntryPointForm = (typeof ENTRY_POINT_FORMS)[number];
 
 /** How a module or cluster came to be (stage 5): seeded from a package or build target, or a cluster of one. */
-export const MODULE_SEEDS = ['build-target', 'cluster', 'package'] as const;
-export type ModuleSeed = (typeof MODULE_SEEDS)[number];
+const MODULE_SEEDS = ['build-target', 'cluster', 'package'] as const;
+type ModuleSeed = (typeof MODULE_SEEDS)[number];
 
 /** The shapes a business rule takes (agent stages). */
-export const RULE_FORMS = ['constraint', 'invariant', 'policy', 'validation'] as const;
-export type RuleForm = (typeof RULE_FORMS)[number];
+const RULE_FORMS = ['constraint', 'invariant', 'policy', 'validation'] as const;
+type RuleForm = (typeof RULE_FORMS)[number];
 
 /** What a dependency edge stands on (stage 2). */
-export const DEPENDENCY_BASES = ['build', 'import', 'manifest'] as const;
-export type DependencyBasis = (typeof DEPENDENCY_BASES)[number];
+const DEPENDENCY_BASES = ['build', 'import', 'manifest'] as const;
+type DependencyBasis = (typeof DEPENDENCY_BASES)[number];
 
 /** How one element interacts with another (agent stages). */
-export const INTERACTION_FORMS = ['call', 'event', 'http', 'message', 'sql'] as const;
-export type InteractionForm = (typeof INTERACTION_FORMS)[number];
+const INTERACTION_FORMS = ['call', 'event', 'http', 'message', 'sql'] as const;
+type InteractionForm = (typeof INTERACTION_FORMS)[number];
 
 /** The form a repository fact is: a code repository, or the product repository itself (0021). */
 export const REPOSITORY_FORMS = ['code', 'product'] as const;
 export type RepositoryForm = (typeof REPOSITORY_FORMS)[number];
 
 /** The form a comment is written in. */
-export const COMMENT_FORMS = ['block', 'doc', 'line'] as const;
+const COMMENT_FORMS = ['block', 'doc', 'line'] as const;
 export type CommentForm = (typeof COMMENT_FORMS)[number];
 
 /** The form of a proposal: a concept of the domain, or an entity a document of the product may be about. */
-export const ENTITY_PROPOSAL_FORMS = ['concept', 'entity'] as const;
+const ENTITY_PROPOSAL_FORMS = ['concept', 'entity'] as const;
 export type EntityProposalForm = (typeof ENTITY_PROPOSAL_FORMS)[number];
 
 /** The relation a type inherits another by, as SCIP reports both and RepoDoc keeps them apart. */
-export const INHERITS_FORMS = ['extends', 'implements'] as const;
-export type InheritsForm = (typeof INHERITS_FORMS)[number];
+const INHERITS_FORMS = ['extends', 'implements'] as const;
+type InheritsForm = (typeof INHERITS_FORMS)[number];
 
 /**
  * How a resolution edge of stage 4 came to name its two symbols (madarch-tzte.21.6):
@@ -437,16 +437,16 @@ export type InheritsForm = (typeof INHERITS_FORMS)[number];
  * name-based link below one a compiler made, and a later stage never has to
  * guess which it holds.
  */
-export const RESOLUTION_PRECISIONS = ['compiler', 'syntactic'] as const;
-export type ResolutionPrecision = (typeof RESOLUTION_PRECISIONS)[number];
+const RESOLUTION_PRECISIONS = ['compiler', 'syntactic'] as const;
+type ResolutionPrecision = (typeof RESOLUTION_PRECISIONS)[number];
 
 /**
  * What a name in the code does at its position: SCIP's `SymbolRole` bitset as
  * a list (a position may both define and write), so the roles a reader sees
  * are named instead of numbered.
  */
-export const OCCURRENCE_ROLES = ['definition', 'forward-definition', 'generated', 'import', 'read-access', 'test', 'write-access'] as const;
-export type OccurrenceRole = (typeof OCCURRENCE_ROLES)[number];
+const OCCURRENCE_ROLES = ['definition', 'forward-definition', 'generated', 'import', 'read-access', 'test', 'write-access'] as const;
+type OccurrenceRole = (typeof OCCURRENCE_ROLES)[number];
 
 /**
  * A symbol's coarse kind. Stage 4's resolver reports SCIP's fine-grained
@@ -456,7 +456,7 @@ export type OccurrenceRole = (typeof OCCURRENCE_ROLES)[number];
  * the producer's own name is kept in `SymbolValue.scipKind` so nothing is
  * lost.
  */
-export const SYMBOL_KINDS = [
+const SYMBOL_KINDS = [
   'class',
   'constant',
   'constructor',
@@ -502,7 +502,7 @@ export interface CoverageGap {
  * claim states). A claim's subject and object and a document link's target
  * are these, so a fact always says which of the three it names.
  */
-export type FactTerm =
+type FactTerm =
   | { readonly form: 'node'; readonly id: string }
   | { readonly form: 'external'; readonly url: string }
   | { readonly form: 'literal'; readonly text: string };
@@ -514,7 +514,7 @@ export type FactTerm =
  * it read (`digest`) — the extents of that judgement are the stage's own, and
  * a later policy may narrow it without changing this shape.
  */
-export type BindingValue =
+type BindingValue =
   | { readonly form: 'literal'; readonly text: string }
   | { readonly form: 'digest'; readonly sha256: string };
 
@@ -526,7 +526,7 @@ export type BindingValue =
 // the identity does not name never reach the id.
 
 /** Stage 0: one repository pinned at one commit, with the tree it read. */
-export interface SnapshotValue {
+interface SnapshotValue {
   /** The repository's own name, as `RepositoryRef.id` carries it. */
   readonly repository: string;
   /** The commit that was pinned: 40 lower-case hexadecimal digits. */
@@ -538,7 +538,7 @@ export interface SnapshotValue {
 }
 
 /** Stage 0: a repository the product holds, one node per repository across commits. */
-export interface RepositoryValue {
+interface RepositoryValue {
   readonly repository: string;
   /** A code repository, or the product repository itself (decision 0021). */
   readonly form: RepositoryForm;
@@ -547,13 +547,13 @@ export interface RepositoryValue {
 }
 
 /** Stage 1: a folder of a repository. */
-export interface DirectoryValue {
+interface DirectoryValue {
   readonly repository: string;
   readonly path: RepositoryPath;
 }
 
 /** Stage 1: one file, with the roles read for it and the language its bytes are in. */
-export interface FileValue {
+interface FileValue {
   readonly repository: string;
   readonly path: RepositoryPath;
   /**
@@ -589,7 +589,7 @@ export interface FileValue {
 }
 
 /** Stage 2: a package, a build target or a workspace (0026's clustering seeds). */
-export interface PackageValue {
+interface PackageValue {
   readonly repository: string;
   /** The ecosystem's own name (`@acme/orders`, `orders-service`, `//src/app:app`), never a path. */
   readonly name: string;
@@ -602,7 +602,7 @@ export interface PackageValue {
 }
 
 /** Stage 2: something that is deployed — a container, a chart, a job, a function. */
-export interface DeployUnitValue {
+interface DeployUnitValue {
   readonly repository: string;
   readonly name: string;
   readonly form: DeployForm;
@@ -617,7 +617,7 @@ export interface DeployUnitValue {
  * `data::orders`). The contract id is the identity, so the endpoint one
  * repository provides and another calls is one node.
  */
-export interface ApiEndpointValue {
+interface ApiEndpointValue {
   /** The normalized contract id, in 0003's form: `<protocol>::<rest>`. */
   readonly contract: string;
   /** The framework that declares or calls it (`express`, `grpc-go`), when a stage read one. */
@@ -625,7 +625,7 @@ export interface ApiEndpointValue {
 }
 
 /** Stage 2: a table of a store, by the name the store knows it by. */
-export interface TableValue {
+interface TableValue {
   readonly repository: string;
   /** The table's name as the store knows it, schema-qualified where the store is (`public.orders`). */
   readonly name: string;
@@ -633,7 +633,7 @@ export interface TableValue {
 }
 
 /** Stage 2: a column of a table. */
-export interface ColumnValue {
+interface ColumnValue {
   readonly repository: string;
   /** The table's name, as `TableValue.name` carries it. */
   readonly table: string;
@@ -646,13 +646,13 @@ export interface ColumnValue {
  * the rendezvous point, so the name alone is the identity and a variable one
  * repository provides is the variable another consumes.
  */
-export interface EnvironmentVariableValue {
+interface EnvironmentVariableValue {
   /** The variable's name, exactly as the code and the manifests spell it (`ORDERS_TOPIC`). */
   readonly name: string;
 }
 
 /** Stages 3 and 4: one symbol a resolver named, at its definition. */
-export interface SymbolValue {
+interface SymbolValue {
   readonly repository: string;
   /** The file the symbol is defined in. */
   readonly file: RepositoryPath;
@@ -692,7 +692,7 @@ export interface SymbolValue {
  * names. The occurrence's identity is its place (and the symbol it names): a
  * symbol keeps its id when the file around it moves, a mention does not.
  */
-export interface OccurrenceValue {
+interface OccurrenceValue {
   /** The symbol fact's id, `factId` of a `symbol` fact; empty never. */
   readonly symbol: string;
   /** What the name does here, in code point order, each once (SCIP's roles). */
@@ -700,7 +700,7 @@ export interface OccurrenceValue {
 }
 
 /** Stage 3: a way into the code — a command, a route, a job, an export, a main. */
-export interface EntryPointValue {
+interface EntryPointValue {
   readonly repository: string;
   readonly file: RepositoryPath;
   /** The name a caller knows it by (`madarch serve`, `GET /products`); the form says which. */
@@ -709,14 +709,14 @@ export interface EntryPointValue {
 }
 
 /** Stage 3: a comment, with the text a later agent stage reads intent from. */
-export interface CommentValue {
+interface CommentValue {
   /** The comment's text without its markers, as written. */
   readonly text: string;
   readonly form: CommentForm;
 }
 
 /** Stage 3: a test, by the name the test runner knows: one test case, not its file. */
-export interface TestValue {
+interface TestValue {
   readonly repository: string;
   readonly file: RepositoryPath;
   /** The test's own name (`places an order`), as its framework reports it. */
@@ -727,8 +727,8 @@ export interface TestValue {
 }
 
 /** The boundary change a stage-9 proposal asks for (decision 0026, "9 module-boundary refinement"). */
-export const MODULE_PROPOSAL_CHANGES = ['merge', 'split', 'rename'] as const;
-export type ModuleProposalChange = (typeof MODULE_PROPOSAL_CHANGES)[number];
+const MODULE_PROPOSAL_CHANGES = ['merge', 'split', 'rename'] as const;
+type ModuleProposalChange = (typeof MODULE_PROPOSAL_CHANGES)[number];
 
 /**
  * The boundary change a proposed module stands for (stage 9, madarch-tzte.24.2):
@@ -738,7 +738,7 @@ export type ModuleProposalChange = (typeof MODULE_PROPOSAL_CHANGES)[number];
  * facts, never a rewrite of them — so the replaced modules stand beside it until
  * a person decides.
  */
-export interface ModuleProposal {
+interface ModuleProposal {
   /** The change asked for: the replaced modules become one, one becomes several, or one is renamed. */
   readonly change: ModuleProposalChange;
   /** The module facts this proposal would replace, by id, in code point order, each once. */
@@ -750,7 +750,7 @@ export interface ModuleProposal {
  * or build target and split until each fits a unit (0026's scale rule), or
  * refined by an agent at stage 9.
  */
-export interface ModuleValue {
+interface ModuleValue {
   readonly repository: string;
   /** The module's name inside its parent (`checkout-payment`), or the seed's own name at the top. */
   readonly name: string;
@@ -777,7 +777,7 @@ export interface ModuleValue {
  * for the reason `FileValue.blob` gives: stage 6 reads a document again exactly
  * when it moved, and the graph's own last reading is what the comparison reads.
  */
-export interface DocumentValue {
+interface DocumentValue {
   readonly repository: string;
   readonly path: RepositoryPath;
   readonly mediaType: string;
@@ -795,7 +795,7 @@ export interface DocumentValue {
  * fact's own place (the document's path and the range inside it) and its byte
  * span is `startByte` up to `endByte`.
  */
-export interface SectionValue {
+interface SectionValue {
   readonly repository: string;
   /** The document the section lives in, by its path. */
   readonly document: RepositoryPath;
@@ -812,7 +812,7 @@ export interface SectionValue {
 }
 
 /** Stage 7: one commit of a repository, with what a reader sees of it. */
-export interface CommitValue {
+interface CommitValue {
   readonly repository: string;
   /** The commit: 40 lower-case hexadecimal digits. */
   readonly commit: string;
@@ -865,7 +865,7 @@ interface CommitTrailer {
  * accepted it, and the evidence is the place: an agent's claim cites bytes
  * that madarch read itself at the pinned commit.
  */
-export interface ClaimValue {
+interface ClaimValue {
   /** What the claim is about: a node of the graph. */
   readonly subject: FactTerm;
   /** What it says about the subject, one lower-case kebab token (`is-implemented-by`, `contradicts`, `states`). */
@@ -884,7 +884,7 @@ export interface ClaimValue {
  * madarch's `propose_entity` answers with is the similar existing ones, and a
  * person decides whether a document of the product's own kind follows.
  */
-export interface EntityProposalValue {
+interface EntityProposalValue {
   readonly repository: string;
   /** A concept of the domain, or an entity a document of the product could be about. */
   readonly proposed: EntityProposalForm;
@@ -896,7 +896,7 @@ export interface EntityProposalValue {
 }
 
 /** Agent stages: a rule of the domain, recovered from code or comments (a business rule, a validation invariant). */
-export interface RuleValue {
+interface RuleValue {
   /** The rule's statement, as one sentence. */
   readonly statement: string;
   /** The node the rule is about, by fact id, when the agent named one. */
@@ -905,7 +905,7 @@ export interface RuleValue {
 }
 
 /** Agent stages: one state of a state machine the code carries or an agent recovered. */
-export interface StateValue {
+interface StateValue {
   /** The repository whose code carries the machine: the same name in two repositories is two machines. */
   readonly repository: string;
   /** The machine's name as the code spells it (`OrderStatus`, `checkout`), the identity's other half. */
@@ -920,7 +920,7 @@ export interface StateValue {
  * read and why (0004's `coverage`). A scope with no gap is complete; a scope
  * with a gap is "not enough data", never absence (0005).
  */
-export interface CoverageValue {
+interface CoverageValue {
   readonly repository: string;
   /**
    * The scope read, in the graph's own terms: `product`, a repository, snapshot or
@@ -939,7 +939,7 @@ export interface CoverageValue {
 }
 
 /** Agent stages: a question the fill raises for a person — the open question a page shows and a person answers. */
-export interface QuestionValue {
+interface QuestionValue {
   readonly repository: string;
   /** The kind of question, one lower-case kebab token (`assumption-check`, `contradiction`, `unverifiable`). */
   readonly type: string;
@@ -964,7 +964,7 @@ export interface QuestionValue {
  * and proposed, with the place it read as its evidence, and closes a question
  * only when it carries that evidence.
  */
-export interface AnswerValue {
+interface AnswerValue {
   /** The repository whose bytes the answer rests on, or the product's name for a person's answer. */
   readonly repository: string;
   /** What the decision is about: the fact id of the question it answers, or of the page it accepts or rejects. */
@@ -991,7 +991,7 @@ export interface AnswerValue {
  * What an answer does (0005's one act of deciding): it closes the question it
  * names, or it settles what a page proposes.
  */
-export const ANSWER_DECISIONS = ['answers', 'accepts', 'rejects'] as const;
+const ANSWER_DECISIONS = ['answers', 'accepts', 'rejects'] as const;
 export type AnswerDecision = (typeof ANSWER_DECISIONS)[number];
 /** The pages stage: one sentence of a page's narrative text, tied to the facts it stands on. */
 export interface NarrativeSentence {
@@ -1028,13 +1028,13 @@ export interface NarrativeValue {
 // ---- the value of each edge ----------------------------------------------
 
 /** Stage 1: a folder, a repository or a module holds a file, a folder or a symbol. */
-export interface ContainsEdgeValue {
+interface ContainsEdgeValue {
   readonly from: string;
   readonly to: string;
 }
 
 /** Stages 3 and 4: a file defines a symbol. */
-export interface DefinesEdgeValue {
+interface DefinesEdgeValue {
   readonly from: string;
   readonly to: string;
 }
@@ -1046,7 +1046,7 @@ export interface DefinesEdgeValue {
  * scope's coverage gap, so the graph's edges are always between nodes that
  * exist (0026's checked writes).
  */
-export interface ImportEdgeValue {
+interface ImportEdgeValue {
   readonly from: string;
   readonly to: string;
   /** The specifier as written (`../model/order.js`), for a reader of the page. */
@@ -1054,7 +1054,7 @@ export interface ImportEdgeValue {
 }
 
 /** Stage 2: one package, build target or module depends on another, on the named basis. */
-export interface DependencyEdgeValue {
+interface DependencyEdgeValue {
   readonly from: string;
   readonly to: string;
   readonly basis: DependencyBasis;
@@ -1066,7 +1066,7 @@ export interface DependencyEdgeValue {
  * same answer many times), and the aggregation's provenance is the smallest
  * call site in the file's own order, so the edge's evidence is deterministic.
  */
-export interface CallEdgeValue {
+interface CallEdgeValue {
   readonly from: string;
   readonly to: string;
   /** How many call sites were folded into the edge. */
@@ -1076,7 +1076,7 @@ export interface CallEdgeValue {
 }
 
 /** Stage 3: one symbol mentions another without calling it (a type, a value, a constant). */
-export interface ReferenceEdgeValue {
+interface ReferenceEdgeValue {
   readonly from: string;
   readonly to: string;
   /** How many mentions were folded into the edge. */
@@ -1091,7 +1091,7 @@ export interface ReferenceEdgeValue {
  * RepoDoc's RepoKG keeps them as two relations; the schema keeps one edge kind
  * with the form that tells them apart, so a reader asks for either.
  */
-export interface InheritsEdgeValue {
+interface InheritsEdgeValue {
   /** The symbol that extends or implements, by fact id. */
   readonly from: string;
   /** The symbol it extends or implements, by fact id. */
@@ -1102,7 +1102,7 @@ export interface InheritsEdgeValue {
 }
 
 /** Stage 2: an element provides a contract id (0004's `provides`). */
-export interface ProvidesEdgeValue {
+interface ProvidesEdgeValue {
   /** The providing element's fact id: a deploy unit, a package or a module. */
   readonly from: string;
   /** The normalized contract id, as `ApiEndpointValue.contract` carries it. */
@@ -1110,14 +1110,14 @@ export interface ProvidesEdgeValue {
 }
 
 /** Stage 2: a symbol, file or package uses an interface through an environment variable (0004's `consumes`). */
-export interface ConsumesEdgeValue {
+interface ConsumesEdgeValue {
   readonly from: string;
   /** The environment variable node's fact id. */
   readonly variable: string;
 }
 
 /** Stage 2: in an environment, a variable has a value (0004's `binds`). */
-export interface BindsEdgeValue {
+interface BindsEdgeValue {
   /** The environment variable node's fact id. */
   readonly variable: string;
   /** The environment's name as the product spells it (`production`, `local`). */
@@ -1126,7 +1126,7 @@ export interface BindsEdgeValue {
 }
 
 /** Stage 2: an endpoint belongs to a deploy unit instance (0004's `resolves`). */
-export interface ResolvesEdgeValue {
+interface ResolvesEdgeValue {
   /** The API endpoint's fact id. */
   readonly from: string;
   /** The deploy unit's fact id. */
@@ -1134,14 +1134,14 @@ export interface ResolvesEdgeValue {
 }
 
 /** Stage 6: a document or a section names something — another node, or an address outside the repositories. */
-export interface DocumentLinkEdgeValue {
+interface DocumentLinkEdgeValue {
   /** The document or section the link stands in, by fact id. */
   readonly from: string;
   readonly to: FactTerm;
 }
 
 /** Stage 7: a commit names a task of the tracker (`Task: madarch-tzte.20.1`). */
-export interface TaskKeyEdgeValue {
+interface TaskKeyEdgeValue {
   /** The commit's fact id. */
   readonly from: string;
   /** The task key as the commit wrote it, case kept. */
@@ -1149,7 +1149,7 @@ export interface TaskKeyEdgeValue {
 }
 
 /** Agent stages: one state machine goes from a state to another on an event. */
-export interface TransitionEdgeValue {
+interface TransitionEdgeValue {
   /** The state's fact id. */
   readonly from: string;
   readonly to: string;
@@ -1158,7 +1158,7 @@ export interface TransitionEdgeValue {
 }
 
 /** Agent stages: one element uses another through an interface — a call, a message, an HTTP request, an SQL statement. */
-export interface InteractionEdgeValue {
+interface InteractionEdgeValue {
   /** The caller's fact id. */
   readonly caller: string;
   /** The callee's fact id. */
@@ -1238,7 +1238,7 @@ export interface FactNodeValues {
 }
 
 /** The value type of one edge kind, by the kind's own name. */
-export interface FactEdgeValues {
+interface FactEdgeValues {
   'contains': ContainsEdgeValue;
   'defines': DefinesEdgeValue;
   'import': ImportEdgeValue;
@@ -1262,7 +1262,7 @@ export type FactValueOf<K extends FactKind> = K extends FactNodeKind ? FactNodeV
 // ---- identity ------------------------------------------------------------
 
 /** One part of a fact's identity: the name it carries in the digest and its value. */
-export type IdentityPart = readonly [field: string, value: unknown];
+type IdentityPart = readonly [field: string, value: unknown];
 
 /**
  * How a fact's place stands toward its identity:
@@ -1274,7 +1274,7 @@ export type IdentityPart = readonly [field: string, value: unknown];
  * - `identity`: the fact is one assertion at one position (a comment, an
  *   occurrence, a claim, an interaction), so the place is part of what it is.
  */
-export type FactPlaceRule = 'identity' | 'optional' | 'required';
+type FactPlaceRule = 'identity' | 'optional' | 'required';
 
 /** One kind as the schema declares it. */
 export interface FactKindDefinition<K extends FactKind = FactKind> {
@@ -1913,10 +1913,10 @@ export interface FactEnvelope<K extends FactKind, V> {
 }
 
 /** Any node fact, discriminated by `kind`, so a reader narrows the value by the kind it read. */
-export type NodeFact = { [K in FactNodeKind]: FactEnvelope<K, FactNodeValues[K]> }[FactNodeKind];
+type NodeFact = { [K in FactNodeKind]: FactEnvelope<K, FactNodeValues[K]> }[FactNodeKind];
 
 /** Any edge fact, discriminated by `kind`. */
-export type EdgeFact = { [K in FactEdgeKind]: FactEnvelope<K, FactEdgeValues[K]> }[FactEdgeKind];
+type EdgeFact = { [K in FactEdgeKind]: FactEnvelope<K, FactEdgeValues[K]> }[FactEdgeKind];
 
 /** Any fact of the schema. */
 export type Fact = NodeFact | EdgeFact;
@@ -1937,7 +1937,7 @@ export function makeNodeFact<K extends FactNodeKind>(input: FactInput<K>): FactE
 }
 
 /** Builds one edge fact of a kind, computing its id and refusing a fact the schema does not read. */
-export function makeEdgeFact<K extends FactEdgeKind>(input: FactInput<K>): FactEnvelope<K, FactEdgeValues[K]> {
+function makeEdgeFact<K extends FactEdgeKind>(input: FactInput<K>): FactEnvelope<K, FactEdgeValues[K]> {
   return makeFact(input);
 }
 
@@ -1946,7 +1946,7 @@ export function makeEdgeFact<K extends FactEdgeKind>(input: FactInput<K>): FactE
  * kind's, the status defaults to `proposed`, and the result is checked with
  * `checkFact` — a fact this function returns is one the schema reads.
  */
-function makeFact<K extends FactKind>(input: FactInput<K>): FactEnvelope<K, FactValueOf<K>> {
+export function makeFact<K extends FactKind>(input: FactInput<K>): FactEnvelope<K, FactValueOf<K>> {
   const definition = FACT_KINDS[input.kind] as FactKindDefinition<K>;
   const fact: FactEnvelope<K, FactValueOf<K>> = {
     kind: input.kind,
@@ -2971,7 +2971,7 @@ export function checkFact(fact: unknown): FactProblem[] {
  * them, imported rather than restated, so a form this engine adds reaches the
  * mapping instead of leaving it behind.
  */
-export type RegistryStorageForm = StorageForm;
+type RegistryStorageForm = StorageForm;
 
 /** The storage forms, in code point order; `test/fill-facts.test.ts` checks the list against the schema's union. */
 export const REGISTRY_STORAGE_FORMS: readonly RegistryStorageForm[] = ['component', 'document', 'fact', 'model-element', 'task'];
@@ -2981,7 +2981,7 @@ export const REGISTRY_STORAGE_FORMS: readonly RegistryStorageForm[] = ['componen
  * joins the two vocabularies: a fact kind is never renamed into a registry
  * kind, and a registry kind is never read out of a fact kind's name.
  */
-export type FactRegistryRelation =
+type FactRegistryRelation =
   /**
    * The fact is where a document of the kind lives: the file, the section. A
    * document kind's own place in the repository, found by stage 1 and 6.
@@ -3054,6 +3054,6 @@ export const REGISTRY_KIND_MAPPINGS: { readonly [K in FactKind]: RegistryKindMap
  * The fact kinds that serve a registry kind kept in the named storage form,
  * in code point order: what the fill may cite behind a document of that kind.
  */
-export function factKindsForRegistryForm(form: RegistryStorageForm): readonly FactKind[] {
+function factKindsForRegistryForm(form: RegistryStorageForm): readonly FactKind[] {
   return FACT_KINDS_IN_ORDER.filter((kind) => REGISTRY_KIND_MAPPINGS[kind].registryForms.includes(form)).sort(byCodePoint);
 }

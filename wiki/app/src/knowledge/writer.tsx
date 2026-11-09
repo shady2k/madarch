@@ -20,7 +20,7 @@ import { unitLimitWords } from './unit-bounds.js';
 import type { AgentOffer, WikiStatus, WriterUnit } from './types.js';
 
 /** The reader's pick: an agent's id, or `null` for no agent. `undefined` until the reader touches it. */
-export type Pick = string | null | undefined;
+type Pick = string | null | undefined;
 
 /** The agents offered and the pick; `commit` saves the pick (installing an adapter on the reader's yes) and answers the agent chosen. */
 export function useAgentChoice(status: WikiStatus): {

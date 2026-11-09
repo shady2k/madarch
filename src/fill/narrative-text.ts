@@ -30,7 +30,7 @@ export const NARRATIVE_PAGE_WRITER = 'madarch-fill-agent';
 export const NARRATIVE_PAGE_STATUS = 'proposed';
 
 /** How many code points one sentence may hold: the schema's own bound (`src/fill/facts.ts`). */
-export const NARRATIVE_SENTENCE_CODE_POINTS = NARRATIVE_SENTENCE_BOUND;
+const NARRATIVE_SENTENCE_CODE_POINTS = NARRATIVE_SENTENCE_BOUND;
 
 /**
  * The path a page's file stands at in the product repository, from the node the
@@ -71,7 +71,7 @@ export function renderNarrativePage(value: NarrativeValue): string {
 }
 
 /** The digest of one page's bytes, as the fact's reader compares a file against the page it proposes: lower-case SHA-256. */
-export function narrativeDigest(text: string): string {
+function narrativeDigest(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 

@@ -19,10 +19,10 @@ import type { Finding } from './kinds.js';
 
 /** The blocks the engine ships. */
 export const BLOCK_NAMES = ['body', 'graph', 'related', 'callers', 'callees', 'source', 'er', 'sequence', 'system', 'modules', 'treemap', 'history', 'definition', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children', 'term', 'members'] as const;
-export type BlockName = (typeof BLOCK_NAMES)[number];
+type BlockName = (typeof BLOCK_NAMES)[number];
 
 /** The languages a template may write a parameter in (`title-ru`): the wiki's interface languages. */
-export const TEMPLATE_LANGUAGES: readonly string[] = ['en', 'ru'];
+const TEMPLATE_LANGUAGES: readonly string[] = ['en', 'ru'];
 
 /**
  * A block's parameters as the page reads them: a parameter the template wrote in the reader's language (`title-ru`,
@@ -123,7 +123,7 @@ export function blockIdentity(name: string, params: Readonly<Record<string, stri
 const PLACEHOLDER = /\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}/g;
 
 /** The names a text asks for with `{{name}}`, with their offsets' line within the text. */
-export function placeholders(text: string): { name: string; line: number }[] {
+function placeholders(text: string): { name: string; line: number }[] {
   const found: { name: string; line: number }[] = [];
   text.split('\n').forEach((raw, index) => {
     for (const match of raw.matchAll(PLACEHOLDER)) found.push({ name: match[1]!, line: index + 1 });

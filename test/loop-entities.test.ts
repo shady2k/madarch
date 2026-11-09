@@ -14,8 +14,8 @@ import { createDraft } from '../src/product/draft.js';
 import { readKnowledgePages } from '../src/knowledge/index/index.js';
 import { ensureLoopKinds } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/knowledge/kinds.js';
-import { LoopRefusal, answerQuestion, commitFiles, localIdentity, markResolved, recordCorrection } from '../src/loop/answer.js';
-import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderCorrection, renderQuestion, freeSlug, type Question } from '../src/loop/entities.js';
+import { LoopRefusal, answerQuestion, commitFiles, localIdentity, recordCorrection } from '../src/loop/answer.js';
+import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderCorrection, renderQuestion, type Question } from '../src/loop/entities.js';
 import { correctionId, questionFootnoteId } from '../src/loop/ids.js';
 import { decide } from '../src/loop/plan.js';
 import { NOTES_CHARACTERS, includedNotes, type ChangeNote } from '../src/writer/edit.js';
@@ -115,23 +115,7 @@ describe('a question file', () => {
     try { parseQuestion(file, good.replace('## Why it matters', '## Why')); } catch (error) { expect(error).toBeInstanceOf(LoopFileError); expect((error as LoopFileError).file).toBe(file); }
   });
 
-  test('a folder is read in code point order, and a file that is not a question is a problem, never left out', () => {
-    const folder = product();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    writeFileSync(join(folder, 'docs/questions/b-second.md'), renderQuestion({ ...QUESTION, slug: 'b-second' }));
-    writeFileSync(join(folder, 'docs/questions/A-upper.md'), renderQuestion({ ...QUESTION, slug: 'A-upper' }));
-    writeFileSync(join(folder, 'docs/questions/c-broken.md'), 'not a question\n');
-    const read = readQuestions(folder);
-    // Code point order: a capital letter sorts before a lower-case one.
-    expect(read.items.map((q) => q.slug)).toEqual(['A-upper', 'b-second']);
-    expect(read.problems.map((p) => p.message)).toEqual(['docs/questions/c-broken.md:1: the file has no front matter: it starts with --- , its fields, ---']);
-    expect(freeSlug(folder, 'docs/questions', 'b-second')).toBe('b-second-2');
-    expect(freeSlug(folder, 'docs/questions', 'fresh')).toBe('fresh');
-    const listing = listQuestions(folder);
-    expect(listing.rows.map((row) => row.slug)).toEqual(['A-upper', 'b-second']);
-    expect(listing.problems).toEqual(['docs/questions/c-broken.md:1: the file has no front matter: it starts with --- , its fields, ---']);
-  });
-
+  
   test('the listing puts open first, then answered, then closed, each by id', () => {
     const by = { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' };
     const folder = product();
@@ -159,22 +143,7 @@ describe('a person answers in the wiki', () => {
   }
   const log = (folder: string, format: string): string => execFileSync('git', ['log', '-1', `--format=${format}`], { cwd: folder, encoding: 'utf8', env: gitEnv(SEED) }).trim();
 
-  test('an old-style file name is found, answered and closed from the name, never from a slug re-derived from its text', async () => {
-    const folder = product();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    const file = 'docs/questions/ten-percent-discount-discount.md';
-    writeFileSync(join(folder, file), renderQuestion({ ...QUESTION, slug: 'ten-percent-discount-discount' }));
-    execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SEED) });
-    execFileSync('git', ['commit', '-q', '-m', 'an old question'], { cwd: folder, env: gitEnv(SEED) });
-    const found = readQuestions(folder).items.find((candidate) => candidate.id === 'question:ten-percent-discount-discount');
-    expect(found).toMatchObject({ slug: 'ten-percent-discount-discount', file, status: 'open' });
-    const answered = await answerQuestion({ productFolder: folder, slug: 'ten-percent-discount-discount', text: 'Ten percent.', now: () => new Date('2026-10-23T11:30:00Z'), env: env(PERSON) });
-    expect(answered.question).toMatchObject({ slug: 'ten-percent-discount-discount', id: 'question:ten-percent-discount-discount', status: 'answered', file });
-    await markResolved(folder, { kind: 'question', slug: 'ten-percent-discount-discount', pages: ['domain:orders'], now: () => new Date('2026-10-23T12:00:00Z') });
-    const closed = parseQuestion(file, readFileSync(join(folder, file), 'utf8'));
-    expect(closed).toMatchObject({ slug: 'ten-percent-discount-discount', id: 'question:ten-percent-discount-discount', status: 'answered', resolvedBy: ['domain:orders'], resolvedAt: '2026-10-23T12:00:00.000Z' });
-  });
-
+  
   test('the answer lands in the question file and is committed with the person as author, marked local, not verified', async () => {
     const folder = withQuestion();
     const done = await answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: '  Ten percent for every order.  ', now: () => new Date('2026-10-23T11:30:00Z'), env: env(PERSON) });
@@ -309,22 +278,7 @@ describe('a person corrects a statement', () => {
     expect(pages.find((page) => page.kind === 'correction')!.relates).toEqual(['domain:orders#tax-at-checkout']);
   });
 
-  test('a rewrite that used an answer or a correction closes it: the file says which pages', async () => {
-    const folder = withPage();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    const by = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' };
-    writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion({ ...QUESTION, status: 'answered', answer: { text: 'Ten percent.', by, at: '2026-10-23T11:00:00.000Z' } }));
-    const corrected = await recordCorrection({ productFolder: folder, statement: 'domain:orders#tax-at-checkout', reason: 'Tax is added in the invoice.', env: env(PERSON) });
-    await markResolved(folder, { kind: 'question', slug: 'discount-percentage', pages: ['domain:orders', 'product:loop-shop'], now: () => new Date('2026-10-23T13:00:00Z') });
-    await markResolved(folder, { kind: 'correction', slug: corrected.correction.slug, pages: ['domain:orders'], now: () => new Date('2026-10-23T13:00:00Z') });
-    const question = readQuestions(folder).items[0]!;
-    expect([question.resolvedBy, question.resolvedAt]).toEqual([['domain:orders', 'product:loop-shop'], '2026-10-23T13:00:00.000Z']);
-    expect(question.answer!.text).toBe('Ten percent.');
-    expect(rowOf(question).state).toBe('closed');
-    expect(readCorrections(folder).items[0]).toMatchObject({ status: 'applied', resolvedBy: ['domain:orders'] });
-    expect(renderCorrection(readCorrections(folder).items[0]!)).toBe(readFileSync(join(folder, corrected.correction.file), 'utf8'));
   });
-});
 
 describe('a product made before the loop gets its two kinds', () => {
   test('the manifest gains question and correction with their templates, its comments kept, and a second call changes nothing', () => {

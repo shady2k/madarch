@@ -194,7 +194,7 @@ export function anchorsOfTree(tree: DocTree): AnchorReading {
 }
 
 /** The anchors of a document's text; the text is parsed once, and the same tree answers every reading below. */
-export function anchorsOf(text: string): AnchorReading {
+function anchorsOf(text: string): AnchorReading {
   return anchorsOfTree(readDocTree({ repo: null, path: '', text }));
 }
 
@@ -204,12 +204,12 @@ export function anchorLines(text: string): Map<string, number> {
 }
 
 /** The lines a document's headings stand on, by the name `anchorLines()` gives a heading. */
-export function headingLines(text: string): Map<string, number> {
+function headingLines(text: string): Map<string, number> {
   return new Map(anchorsOf(text).headings);
 }
 
 /** The anchors of the blocks no name covers, by the line each starts at. */
-export function blockAnchors(text: string): Map<number, string> {
+function blockAnchors(text: string): Map<number, string> {
   return new Map(anchorsOf(text).blocks);
 }
 
@@ -288,7 +288,7 @@ export function titleOfAnchor(text: string, anchor: string): string | undefined 
 }
 
 /** The section a heading opens, for a reader that holds a tree. */
-export function sectionOfHeading(tree: DocTree, heading: DocNode): DocSection | undefined {
+function sectionOfHeading(tree: DocTree, heading: DocNode): DocSection | undefined {
   return tree.sections.find((section) => section.heading === heading);
 }
 

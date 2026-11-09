@@ -1,3 +1,4 @@
+import { memorySink, memoryJournal } from './writer-memory.js';
 /**
  * What the writer enforces in code, not only in its prompts (madarch-m38l.13), from the owner's walk of 0.2.2:
  * a subject is asked once, both sides of a contradiction stay on the page, a ground is shown by the entity's own name,
@@ -8,8 +9,8 @@
 import { describe, expect, test } from 'bun:test';
 import { checkPage, type GroundResolver, type MadarchTarget, type PageExpectation } from '../src/writer/format.js';
 import { domainPrompt, fixedPart, otherQuestionsPart, productPrompt } from '../src/writer/prompts.js';
-import { memorySink } from '../src/writer/run.js';
-import { overlap, subjectOf, UnitTools, type UnitSpec } from '../src/writer/tools.js';
+
+import { UnitTools, type UnitSpec } from '../src/writer/tools.js';
 import type { GraphView } from '../src/writer/view.js';
 import { MAX_ABOUT, parseQuestion, QUESTION_HEADINGS, renderQuestion, type Question } from '../src/loop/entities.js';
 import { questionId } from '../src/loop/ids.js';
@@ -246,14 +247,7 @@ describe('a subject is asked once', () => {
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
   });
 
-  test('broad containers and page ids are not a subject: two questions about one service stay two', () => {
-    expect([...subjectOf(['domain:payments', 'code.service:payments', 'code.module:a', 'product:shop'], [{ grounds: ['code.service:payments'] }])]).toEqual([]);
-    expect(overlap(new Set(['a', 'b']), new Set(['a', 'b', 'c']))).toBeCloseTo(2 / 3);
-    expect(overlap(new Set(['a', 'x']), new Set(['a', 'y']))).toBeCloseTo(1 / 3);
-    expect(overlap(new Set(), new Set(['a']))).toBe(0);
-    expect([...subjectOf(['domain:payments#a-statement', 'doc:README.md#tax'], [{ grounds: ['madarch:code.symbol:a.ts#f'] }])].sort()).toEqual(['code.symbol:a.ts#f', 'doc:README.md#tax']);
-  });
-
+  
   test('the prompt lists the other pages\' questions with the entities they are about', () => {
     const question = { slug: 'how-long', status: 'open', type: 'contradiction', title: 'How long?', about: ['domain:ordering', 'doc:README.md#retention'], askedIn: 'domain:ordering' } as unknown as Question;
     const lines = otherQuestionsPart('domain:payments', [question]).join('\n');

@@ -51,9 +51,9 @@ const pathOfKey = (key: string): string => {
 const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 const fileKeyOf = (path: string): string => `code.file:${path}`;
 
-export const entityLink = (key: string, label: string): ProblemLink => ({ label, href: entityAddress(key), key });
+const entityLink = (key: string, label: string): ProblemLink => ({ label, href: entityAddress(key), key });
 
-export const fileLink = (path: string, line?: number): ProblemLink => ({
+const fileLink = (path: string, line?: number): ProblemLink => ({
   label: line === undefined ? path : `${path}:${line}`,
   href: entityAddress(fileKeyOf(path)),
   key: fileKeyOf(path),
@@ -157,7 +157,7 @@ function draft(rule: Rule, severity: ProblemSeverity, fields: Omit<ProblemDraft,
 // ---- dependency cycles -----------------------------------------------------------------------
 
 /** Files and modules that import one another in a ring; the graph's own `code.cycle` nodes. */
-export function dependencyCycles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function dependencyCycles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   return [...snapshot.cycles].sort((a, b) => byCodePoint(a.key, b.key)).map((cycle) => {
     const level = text(cycle.properties['level']) ?? 'file';
     const members = strings(cycle.properties['members']);
@@ -185,7 +185,7 @@ export function dependencyCycles(snapshot: CodeSnapshot, rule: Rule, severity: P
 // ---- untrusted input reaching SQL ------------------------------------------------------------
 
 /** An input whose value flows into a SQL string builder and from there into an execution sink. */
-export function sqlInputs(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function sqlInputs(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const byKey = new Map([...snapshot.inputs, ...snapshot.builds, ...snapshot.sinks].map((entity) => [entity.key, entity] as const));
   const intoBuild = new Map<string, string[]>();
   const intoSink = new Map<string, string[]>();
@@ -234,7 +234,7 @@ const routeRoot = (path: string): string => {
  * and the same path root are inside it. A service with no auth route at all
  * is not judged: there is no group to stand outside of.
  */
-export function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const operationOfRoute = new Map<string, GraphEntity>();
   for (const edge of snapshot.serves) {
     const operation = snapshot.operations.find((candidate) => candidate.key === edge.to.key);
@@ -285,7 +285,7 @@ export function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: 
 // ---- large files and change hotspots ---------------------------------------------------------
 
 /** A file over the product's line threshold. */
-export function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, threshold: number): ProblemDraft[] {
+function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, threshold: number): ProblemDraft[] {
   return snapshot.files
     .filter((file) => file.properties['role'] !== 'test' && (number(file.properties['lines']) ?? 0) >= threshold)
     .map((file) => {
@@ -306,7 +306,7 @@ export function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: Problem
 }
 
 /** A file that is both large and often changed: size × churn over the thresholds. */
-export function hotspots(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, thresholds: ProblemSettings['thresholds']): ProblemDraft[] {
+function hotspots(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, thresholds: ProblemSettings['thresholds']): ProblemDraft[] {
   return snapshot.files
     .filter((file) => file.properties['role'] !== 'test')
     .map((file) => ({ file, lines: number(file.properties['lines']) ?? 0, commits: number(file.properties['commitCount']) ?? 0 }))
@@ -330,7 +330,7 @@ export function hotspots(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSe
 // ---- dead exports ----------------------------------------------------------------------------
 
 /** An exported symbol no code of the repository refers to. */
-export function deadExports(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function deadExports(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   return snapshot.symbols
     .filter((symbol) => symbol.properties['deadExport'] === true)
     .map((symbol) => {
@@ -356,7 +356,7 @@ export function deadExports(snapshot: CodeSnapshot, rule: Rule, severity: Proble
  * read from the syntax tree's comment node, never from a search over the
  * file's text. The marker is a word of the comment's own first token.
  */
-export function debtMarkers(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, marker: string): ProblemDraft[] {
+function debtMarkers(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, marker: string): ProblemDraft[] {
   return snapshot.debts
     .filter((debt) => debt.properties['marker'] === marker)
     .map((debt) => {
@@ -387,7 +387,7 @@ export function composeDefault(value: string): string {
 }
 
 /** What a product's manifest declares a secret or a development value; the engine infers neither. */
-export interface ConfigPolicy {
+interface ConfigPolicy {
   /** Variable names the product declares secret: a checked-in literal for one is a finding, in one file or many. */
   readonly secrets: readonly string[];
   /** Literal values the product declares development placeholders. */
@@ -401,7 +401,7 @@ export interface ConfigPolicy {
  * already classified; it never scans a file's text, and it never guesses a secret from how often a value
  * repeats (the review's fourth finding: `PORT=3000` in two files is not a vulnerability).
  */
-export function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, policy: ConfigPolicy): ProblemDraft[] {
+function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, policy: ConfigPolicy): ProblemDraft[] {
   const byKey = new Map(snapshot.envDefinitions.map((definition) => [definition.key, definition] as const));
   const byVariable = new Map<string, GraphEntity[]>();
   for (const edge of snapshot.defines) {
@@ -471,7 +471,7 @@ export function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: 
 const usedTargets = (snapshot: CodeSnapshot): Set<string> => new Set(snapshot.usesDependency.map((edge) => edge.to.key));
 
 /** A direct dependency its own service never imports. */
-export function declaredUnused(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function declaredUnused(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const used = usedTargets(snapshot);
   return snapshot.dependencies
     .filter((dependency) => dependency.properties['scope'] === 'direct' && !used.has(dependency.key))
@@ -494,7 +494,7 @@ export function declaredUnused(snapshot: CodeSnapshot, rule: Rule, severity: Pro
 }
 
 /** An import of a third-party package that no manifest of its service declares. */
-export function usedUndeclared(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function usedUndeclared(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   return snapshot.packages
     .filter((pkg) => pkg.properties['external'] === true && pkg.properties['standardLibrary'] !== true && pkg.properties['versionStatus'] === 'not-declared')
     .map((pkg) => {
@@ -517,7 +517,7 @@ export function usedUndeclared(snapshot: CodeSnapshot, rule: Rule, severity: Pro
 // ---- contracts and routes --------------------------------------------------------------------
 
 /** A contract operation no route implements. */
-export function operationsWithoutRoutes(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function operationsWithoutRoutes(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const served = new Set(snapshot.serves.map((edge) => edge.to.key));
   return snapshot.operations
     .filter((operation) => !served.has(operation.key))
@@ -538,7 +538,7 @@ export function operationsWithoutRoutes(snapshot: CodeSnapshot, rule: Rule, seve
 }
 
 /** A route of a service the contract covers that the contract does not declare. */
-export function routesWithoutOperations(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
+function routesWithoutOperations(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity): ProblemDraft[] {
   const servedRoutes = new Set(snapshot.serves.map((edge) => edge.from.key));
   // A service the contract owns is covered whether or not any of its routes matched (the review's sixth finding):
   // ownership is the operation's own `service`, written at extraction from the server authority it resolves to, and

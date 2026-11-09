@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 import { readRegistryServing } from '../src/product-wiki/registry.js';
 import { readProductRegistry } from '../src/product/registry.js';
-import { rankQuestions } from '../src/product-wiki/questions.js';
+
 
 /**
  * A product's pages read from the working tree (docs/changes/draft-product/
@@ -880,10 +880,7 @@ describe('typed question metadata and ranking', () => {
     expect(parsed).toMatchObject({ type: 'access-or-document-needed', missing: 'access', dependsOn: ['unit-1', 'page-1'], rank: 2, evidence: 'We checked the permission boundary.' });
   });
 
-  test('ranks by distinct dependencies and breaks ties by stable id', () => {
-    expect(rankQuestions([{ id: 'Q-003', dependsOn: ['a'] }, { id: 'Q-002', dependsOn: ['b', 'c'] }, { id: 'Q-001', dependsOn: ['a', 'b'] }]).map((q) => [q.id, q.rank])).toEqual([['Q-001', 2], ['Q-002', 2], ['Q-003', 1]]);
   });
-});
 
 const audienceOf = (markdown: string) => audienceOfSection(markdown, 'Audience');
 

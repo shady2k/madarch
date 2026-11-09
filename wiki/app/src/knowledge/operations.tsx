@@ -1,10 +1,10 @@
-import type {ReactElement} from 'react';
-import {useTranslation} from 'react-i18next';
-import {Badge} from '@/components/ui/badge.js';
-import {Table, TableHeader, TableRow, TableHead, TableBody, TableCell} from '@/components/ui/table.js';
-import {EntityName, CodePlace} from './blocks.js';
-import type {EntityRef, OperationMetadata} from './types.js';
-import {contractRelationText} from './contract-diagnostic.js';
+import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge.js';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table.js';
+import { EntityName, CodePlace } from './blocks.js';
+import type { EntityRef, OperationMetadata } from './types.js';
+import { contractRelationText } from './contract-diagnostic.js';
 
 export function Operations({rows, metadata}: {rows: EntityRef[]; metadata: Record<string, OperationMetadata>}): ReactElement {
   const {t} = useTranslation();

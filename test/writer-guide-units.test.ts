@@ -1,6 +1,7 @@
+import { memorySink, memoryJournal } from './writer-memory.js';
 import { describe, expect, test } from 'bun:test';
 import { UnitTools, type UnitSpec } from '../src/writer/tools.js';
-import { memorySink } from '../src/writer/run.js';
+
 import type { GraphView } from '../src/writer/view.js';
 import { GUIDE_OUTPUTS, type GuidePreparedUnit } from '../src/writer/guides/host-contract.js';
 import { GUIDE_SCHEMA } from '../src/writer/guides/model.js';

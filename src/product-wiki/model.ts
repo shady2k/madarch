@@ -32,23 +32,23 @@ import { compileModel } from '../model/compile.js';
 import type { ProductIdentity } from '../product/manifest.js';
 
 /** The product's own model folder, at the product repository's root. */
-export const PRODUCT_MODEL_FOLDER = 'model';
+const PRODUCT_MODEL_FOLDER = 'model';
 
 /** The folder of a code repository's own model, within the repository. */
-export const REPO_MODEL_FOLDER = 'madarch';
+const REPO_MODEL_FOLDER = 'madarch';
 
 /** The fixed moment a merged model renders at (src/wiki/build.ts's rule). */
-export const NO_REPO_TIME = Date.UTC(2026, 0, 1);
+const NO_REPO_TIME = Date.UTC(2026, 0, 1);
 
 /** One problem, named where it was found. */
-export interface ModelProblem {
+interface ModelProblem {
   readonly file: string;
   readonly line: number;
   readonly path: string;
   readonly message: string;
 }
 
-export interface ProductModelResult {
+interface ProductModelResult {
   /** The merged compiled model; present only when every file parsed and compiled. */
   readonly model?: ReturnType<typeof compileModel>;
   /** The compile's own errors; empty when the model compiled. */
@@ -135,7 +135,7 @@ function readFolder(prefix: string, folder: string, into: ModelSourceFile[], not
  * a repository with no `madarch/` folder contributes nothing — the set's
  * skill writes one, and until then the product's model stands alone.
  */
-export function readProductModel(product: Pick<ProductIdentity, 'folder' | 'repos'>): ProductModelResult {
+function readProductModel(product: Pick<ProductIdentity, 'folder' | 'repos'>): ProductModelResult {
   const errors: ModelProblem[] = [];
   const notes: ModelProblem[] = [];
   const warnings: ModelProblem[] = [];

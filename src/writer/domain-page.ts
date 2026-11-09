@@ -22,10 +22,10 @@ import { byCodePoint } from '../model/order.js';
 import { PageWriter, labelOf, targetOf, type GroundedStatement, type NamedPlace, type StructuredLanguage } from './structured.js';
 
 /** The sections of a domain page: the business first, the developer's last. */
-export type DomainSectionId = 'participants' | 'main-scenario' | 'rules' | 'what-can-go-wrong' | 'open-points' | 'for-the-developer';
+type DomainSectionId = 'participants' | 'main-scenario' | 'rules' | 'what-can-go-wrong' | 'open-points' | 'for-the-developer';
 
 /** One section of a domain page: its id, its heading in each language, and what it says where the unit gave nothing. */
-export interface DomainSectionDecl {
+interface DomainSectionDecl {
   readonly id: DomainSectionId;
   readonly heading: Readonly<Record<StructuredLanguage, string>>;
   /** What the page states where the documents or the graph settle nothing for this section: said of them, never of the world. */
@@ -37,7 +37,7 @@ export interface DomainSectionDecl {
  * nothing. Every gap is a sentence about the documents or the graph, because a missing edge is never proof of
  * absence (decision 0032, section 3).
  */
-export const DOMAIN_SECTIONS: readonly DomainSectionDecl[] = [
+const DOMAIN_SECTIONS: readonly DomainSectionDecl[] = [
   { id: 'participants', heading: { en: 'Participants', ru: 'Участники' }, gap: { en: 'The documents name no participant of this domain.', ru: 'Документы не называют участников этого домена.' } },
   { id: 'main-scenario', heading: { en: 'The main scenario, step by step', ru: 'Основной сценарий по шагам' }, gap: { en: 'The documents tell no main scenario for this domain.', ru: 'Документы не описывают основного сценария этого домена.' } },
   { id: 'rules', heading: { en: 'Rules that govern it', ru: 'Правила, которые действуют' }, gap: { en: 'The documents name no rule that governs this domain.', ru: 'Документы не называют правил, которые действуют в этом домене.' } },
@@ -65,7 +65,7 @@ export interface DomainFields {
 }
 
 /** The places a domain's code is carried out by, each a key of the graph, and the statements about them. */
-export interface DeveloperFields {
+interface DeveloperFields {
   readonly routes?: readonly NamedPlace[];
   readonly functions?: readonly NamedPlace[];
   readonly tables?: readonly NamedPlace[];
@@ -75,10 +75,10 @@ export interface DeveloperFields {
 }
 
 /** The business fields of a domain page: what stands on documents and services, never on the places of the code. */
-export const BUSINESS_FIELDS = ['participants', 'mainScenario', 'rules', 'whatCanGoWrong', 'openPoints'] as const;
+const BUSINESS_FIELDS = ['participants', 'mainScenario', 'rules', 'whatCanGoWrong', 'openPoints'] as const;
 
 /** The developer's place fields, the graph kind each holds and the words a reader sees under it. */
-export const DEVELOPER_PLACE_FIELDS: readonly { readonly field: 'routes' | 'functions' | 'tables' | 'events'; readonly nodeKind: string; readonly heading: Readonly<Record<StructuredLanguage, string>> }[] = [
+const DEVELOPER_PLACE_FIELDS: readonly { readonly field: 'routes' | 'functions' | 'tables' | 'events'; readonly nodeKind: string; readonly heading: Readonly<Record<StructuredLanguage, string>> }[] = [
   { field: 'routes', nodeKind: 'code.route', heading: { en: 'Routes', ru: 'Маршруты' } },
   { field: 'functions', nodeKind: 'code.symbol', heading: { en: 'Functions', ru: 'Функции' } },
   { field: 'tables', nodeKind: 'code.table', heading: { en: 'Tables', ru: 'Таблицы' } },
@@ -90,7 +90,7 @@ export const DEVELOPER_PLACE_FIELDS: readonly { readonly field: 'routes' | 'func
  * decided, or a container the product is made of — a service, a module, a file. What a reader needs code to follow
  * is not one: a route, a function, a table and a channel are the developer section's.
  */
-export function isBusinessGround(target: string): boolean {
+function isBusinessGround(target: string): boolean {
   return target.startsWith('doc:') || target.startsWith('question:') || target.startsWith('correction:')
     || target.startsWith('code.service:') || target.startsWith('code.module:') || target.startsWith('code.file:');
 }
@@ -99,7 +99,7 @@ export function isBusinessGround(target: string): boolean {
  * The grounds of the business fields that are not business grounds, each with the field it stands in: the code
  * detail a unit put in the business part, which belongs to the section for the developer.
  */
-export function businessDetail(fields: DomainFields): readonly { readonly field: string; readonly target: string }[] {
+function businessDetail(fields: DomainFields): readonly { readonly field: string; readonly target: string }[] {
   const out: { field: string; target: string }[] = [];
   const lists: readonly [string, readonly GroundedStatement[]][] = [
     ['participants', fields.participants], ['mainScenario', fields.mainScenario], ['rules', fields.rules],
@@ -121,14 +121,14 @@ export function developerPlaces(fields: DomainFields): readonly (NamedPlace & { 
 }
 
 /** The keys the page's `relates` says: the places of the developer section, the code its notes stand on, and the services the business part names. */
-export function domainRelates(fields: DomainFields): readonly string[] {
+function domainRelates(fields: DomainFields): readonly string[] {
   const business = BUSINESS_FIELDS.flatMap((field) => fields[field].flatMap((statement) => statement.grounds)).filter((target) => target.startsWith('code.service:'));
   const noted = fields.developer.notes.flatMap((statement) => statement.grounds).filter((target) => target.startsWith('code.') && !target.startsWith('code.file:') && !target.startsWith('code.module:'));
   return [...new Set([...developerPlaces(fields).map((place) => place.target), ...noted, ...business])].sort(byCodePoint);
 }
 
 /** The document a page stands on, in code point order: the sources its front matter names. */
-export function domainSources(fields: DomainFields): readonly string[] {
+function domainSources(fields: DomainFields): readonly string[] {
   const targets = [
     ...BUSINESS_FIELDS.flatMap((field) => fields[field].flatMap((statement) => statement.grounds)),
     ...fields.developer.notes.flatMap((statement) => statement.grounds),

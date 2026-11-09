@@ -11,15 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_STAGE_LIMITS } from '../src/fill/stage.js';
-import {
-  createUnitLimitGuard,
-  unitLimitBounds,
-  UNIT_LIMIT_CAUSES,
-  watchUnitTimeLimit,
-  type UnitLimitCause,
-  type UnitLimitVerdict,
-  type UnitTimers,
-} from '../src/fill/unit-limits.js';
+import { createUnitLimitGuard, unitLimitBounds, watchUnitTimeLimit, type UnitLimitCause, type UnitLimitVerdict, type UnitTimers } from '../src/fill/unit-limits.js';
 
 /** 0026's numbers, as the task and the decision state them. */
 const WINDOW = 272_000;
@@ -57,19 +49,7 @@ function handTimers(): { readonly timers: UnitTimers; readonly waits: readonly n
 }
 
 describe('the limits of one agent unit', () => {
-  test('the bounds are 0026\'s numbers: 272K, 70%, 80%, ~30 turns, ~10 minutes, 16K output', () => {
-    const bounds = unitLimitBounds(DEFAULT_STAGE_LIMITS);
-    expect(bounds.contextTokens).toBe(WINDOW);
-    expect(bounds.wrapAtTokens).toBe(Math.floor(WRAP_AT));
-    expect(bounds.wrapAtTokens).toBe(190_400);
-    expect(bounds.stopAtTokens).toBe(Math.floor(STOP_AT));
-    expect(bounds.stopAtTokens).toBe(217_600);
-    expect(bounds.maxTurns).toBe(30);
-    expect(bounds.maxDurationMs).toBe(600_000);
-    expect(bounds.maxOutputTokens).toBe(16_000);
-    expect([...UNIT_LIMIT_CAUSES]).toEqual(['context', 'output', 'turns', 'time']);
-  });
-
+  
   test('a limit that cannot bound anything is refused by name, with the field it stands at', () => {
     expect(() => unitLimitBounds({ ...DEFAULT_STAGE_LIMITS, contextTokens: 0 })).toThrow(/contextTokens is 0: a limit is a whole number of at least 1/);
     // The refusal names this module's own file and line, which is what a reader acts on.

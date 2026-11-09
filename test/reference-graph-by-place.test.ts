@@ -6,10 +6,7 @@
  * false`, an edge out of the direct counts by its scope, and a `SCORING.md`.
  */
 import { describe, expect, test } from 'bun:test';
-import {
-  edgeKey, IDENTITY_KINDS, identityOfEntry, matchEdges, matchNodes, placeOfProperties, placesOf, readScoring, statedName,
-  type GraphEdge, type NodeRecord, type ReferenceEdge, type ReferenceEntry,
-} from '../scripts/reference-graph-by-place.js';
+import { edgeKey, IDENTITY_KINDS, identityOfEntry, matchEdges, matchNodes, placeOfProperties, placesOf, readScoring, statedName, type GraphEdge, type NodeRecord, type ReferenceEdge, type ReferenceEntry } from '../scripts/reference-graph-by-place.js';
 
 function entry(id: string, kind: string, lines: readonly [string, number, number][], scored?: boolean): ReferenceEntry {
   return {

@@ -12,7 +12,7 @@
  * chose one, the model and reasoning level that agent reported over ACP.
  */
 
-export const MODEL_ROLES = ['writing', 'classification', 'analysis', 'editing'] as const;
+const MODEL_ROLES = ['writing', 'classification', 'analysis', 'editing'] as const;
 
 export type ModelRole = typeof MODEL_ROLES[number];
 
@@ -96,7 +96,7 @@ export function roleOf(view: ModelRoleView, role: ModelRole): ResolvedModelRole 
 }
 
 /** The assignments a view was made from, for a writer that re-reads the file. */
-export function assignmentsOf(view: ModelRoleView): ModelAssignments {
+function assignmentsOf(view: ModelRoleView): ModelAssignments {
   const pair = (role: ModelRole): ModelPair | null => {
     const found = roleOf(view, role);
     return found.source === 'assigned' ? found.pair : null;

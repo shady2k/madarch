@@ -15,7 +15,7 @@
  * one instant. Tests inject the clock.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import type { OuterTransaction } from '../history/types.js';
+import type { OuterTransaction } from '../history-types.js';
 import type { GraphId } from './digest.js';
 import {
   leaseWorkItem, openWorkItem, publish, publishUnit,
@@ -36,21 +36,21 @@ import {
 } from './versions.js';
 import type { GraphRegistry } from './vocabulary.js';
 
-export { GraphClockBehind, GraphError } from './errors.js';
+;
 import { GraphClockBehind } from './errors.js';
-export type { GraphOrigin } from './errors.js';
-export { GRAPH_TABLES } from './schema.js';
+;
+;
 export {
-  RECORD_EDGE_KINDS, RECORD_NODE_KINDS, RECORD_TABLES, RecordGap, authorKeyOf, commitFacts, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles, folderOfPath, gitDateOf, instantOf, listDirectories, listFiles, listRepositories, publishHistory, publishTree, recordSizes, repositoryFacts,
-  type CommitRecord, type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts, type TouchedRecord, type TreeFile, type TreeGitlink, type TreePublish,
+     RecordGap,   commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles,    listDirectories, listFiles, listRepositories, publishHistory, publishTree,  repositoryFacts,
+   type FileDate,  type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,  type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';
-export { ALL_STATES, plusMicrosecond, type Instant, type StateSpan } from './time.js';
-export { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS, CALLS, CONTAINS, STATE_KIND, CONTENT_KIND, CLAIM_KIND, ACCEPTANCE_KIND, type GraphRegistry, type RelationDeclaration } from './vocabulary.js';
-export { claimCanonicalForm, claimDigest, sha256Hex, type ByteSpan, type ClaimContent, type EvidenceSpan, type GraphId } from './digest.js';
+export {  plusMicrosecond,   } from './time.js';
+export {             type GraphRegistry,  } from './vocabulary.js';
+export {       type GraphId } from './digest.js';
 export type { EdgeEntry, GraphLens, OutgoingDiff, Page, PageOptions, ClaimEntry, StateEntry } from './reads.js';
-export type { PublishInput, PublishNode, PublishEdge, PublishEnd, PublishResult, PublishUnitInput, PublishUnitResult, UnitEdgeDraft, UnitEnd, UnitNodeDraft, WorkItemInput, LeaseInput, NodeRef } from './publish.js';
-export { outerTransactionOf, type QueryExecutor } from './transaction.js';
-export type { NewNodeVersion, NewEdgeVersion, NodePatch, EdgePatch, NodeVersionRow, EdgeVersionRow, EndResult } from './versions.js';
+export type { PublishInput, PublishNode, PublishEdge,  PublishResult, PublishUnitInput, PublishUnitResult,    WorkItemInput, LeaseInput,  } from './publish.js';
+;
+export type { NewNodeVersion, NewEdgeVersion, NodePatch, EdgePatch, NodeVersionRow,  EndResult } from './versions.js';
 
 export interface GraphStoreOptions {
   /** The wall clock; defaults to `new Date()`. */

@@ -37,7 +37,7 @@ export interface ImpactedStatement {
 }
 
 /** One page a change reaches: every page a reached statement stands on, then every page linking one. */
-export interface ImpactedPage {
+interface ImpactedPage {
   readonly id: string;
   readonly title: string;
   readonly file: string;
@@ -60,7 +60,7 @@ export interface TaskImpact {
 }
 
 /** A read of the product's pages that cannot be made: it names each file and line, and answers no list. */
-export class ImpactReadError extends Error {}
+class ImpactReadError extends Error {}
 
 /** The graph keys a page names: its own relations and every entity its statements stand on. */
 function keysOf(page: IndexedPage): string[] {

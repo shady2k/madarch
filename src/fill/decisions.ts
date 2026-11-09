@@ -36,13 +36,13 @@ export const ANSWERS_FOLDER = 'answers';
 export const ACCEPTANCES_FOLDER = 'acceptances';
 
 /** The product's own word for a decision it accepted a page with. */
-export const ACCEPTED = 'accepted';
+const ACCEPTED = 'accepted';
 
 /** The product's own word for a decision it rejected a page with. */
-export const REJECTED = 'rejected';
+const REJECTED = 'rejected';
 
 /** What a person decided about a page: they accepted it, or rejected it. */
-export const VERDICTS = [ACCEPTED, REJECTED] as const;
+const VERDICTS = [ACCEPTED, REJECTED] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
 /** The answer a person wrote to a question, as the product's git holds it. */
@@ -77,7 +77,7 @@ export interface AcceptanceRecord {
 export type DecisionRecord = AnswerRecord | AcceptanceRecord;
 
 /** One problem found in a decision document, named where it stands. */
-export interface DecisionProblem {
+interface DecisionProblem {
   /** The full path of the file, as the reader was given it. */
   readonly file: string;
   /** The 1-based line the problem stands at. */
@@ -86,28 +86,28 @@ export interface DecisionProblem {
 }
 
 /** What reading the product's decision documents gave. */
-export interface DecisionsRead {
+interface DecisionsRead {
   readonly records: readonly DecisionRecord[];
   readonly problems: readonly DecisionProblem[];
 }
 
 /** The heading an answer document opens with. */
-export const ANSWER_HEADING = '# Answer';
+const ANSWER_HEADING = '# Answer';
 
 /** The heading an acceptance document opens with. */
-export const ACCEPTANCE_HEADING = '# Acceptance';
+const ACCEPTANCE_HEADING = '# Acceptance';
 
 /** The fields an answer document names, in the order it writes them. */
-export const ANSWER_FIELDS = ['Question', 'Decided', 'By'] as const;
+const ANSWER_FIELDS = ['Question', 'Decided', 'By'] as const;
 
 /** The fields an acceptance document names, in the order it writes them. */
-export const ACCEPTANCE_FIELDS = ['Page', 'Verdict', 'Decided', 'By'] as const;
+const ACCEPTANCE_FIELDS = ['Page', 'Verdict', 'Decided', 'By'] as const;
 
 /** The heading the question stands under in an answer, for a reader of the decision. */
 const QUESTION_HEADING = '## Question';
 
 /** The headings the person's words stand under, one per document. */
-export const WORDS_HEADING = { answer: '## Answer', acceptance: '## Note' } as const;
+const WORDS_HEADING = { answer: '## Answer', acceptance: '## Note' } as const;
 
 /** The heading an acceptance's words stand under. */
 const NOTE_HEADING = WORDS_HEADING.acceptance;
@@ -167,7 +167,7 @@ function oneLine(text: string): string {
 }
 
 /** One document read: the record it holds, or the problems that stop it being one. */
-export type DecisionRead =
+type DecisionRead =
   | { readonly ok: true; readonly record: DecisionRecord }
   | { readonly ok: false; readonly problems: readonly DecisionProblem[] };
 
@@ -265,7 +265,7 @@ function section(lines: readonly string[], heading: string, declared: readonly s
  * a product whose questions nobody answered yet. A file that is no decision document is
  * a problem with its own path and line and never a record: the caller reports it.
  */
-export function readDecisions(productFolder: string): DecisionsRead {
+function readDecisions(productFolder: string): DecisionsRead {
   const root = resolve(productFolder);
   const records: DecisionRecord[] = [];
   const problems: DecisionProblem[] = [];
@@ -338,6 +338,6 @@ export function discardDecision(staged: StagedDecision): void {
 }
 
 /** Writes one decision document whole, in one step, for a caller that has nothing else to keep in step with it. */
-export function writeDecision(productFolder: string, folder: string, subject: string, text: string): string {
+function writeDecision(productFolder: string, folder: string, subject: string, text: string): string {
   return commitDecision(productFolder, stageDecision(productFolder, folder, subject, text));
 }

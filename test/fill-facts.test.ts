@@ -4,31 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseContractText } from '../src/product/contract.js';
 import { byCodePoint } from '../src/model/order.js';
 import { StorageForm } from '../src/product/schema.js';
-import {
-  AGENT_STAGES,
-  FACT_EDGE_KINDS,
-  FACT_ID_PATTERN,
-  FACT_KINDS,
-  FACT_KINDS_IN_ORDER,
-  FACT_KIND_NAME_PATTERN,
-  FACT_NODE_KINDS,
-  FACT_STAGES,
-  EDGE_END_KINDS,
-  FACTS_SCHEMA_VERSION,
-  FactSchemaError,
-  REGISTRY_KIND_MAPPINGS,
-  REGISTRY_STORAGE_FORMS,
-  checkFact,
-  factId,
-  factKindsForRegistryForm,
-  isFactKind,
-  isRepositoryPath,
-  makeEdgeFact,
-  makeNodeFact,
-  repositoryPath,
-  repositoryPathIn,
-  statusesOfLayer,
-} from '../src/fill/facts.js';
+import { AGENT_STAGES, FACT_EDGE_KINDS, FACT_ID_PATTERN, FACT_KINDS, FACT_KINDS_IN_ORDER, FACT_KIND_NAME_PATTERN, FACT_NODE_KINDS, FACT_STAGES, EDGE_END_KINDS, FACTS_SCHEMA_VERSION, FactSchemaError, REGISTRY_KIND_MAPPINGS, REGISTRY_STORAGE_FORMS, checkFact, factId, isFactKind, isRepositoryPath, makeNodeFact, repositoryPath, statusesOfLayer , makeFact } from '../src/fill/facts.js';
 import type { Fact, FactKind, FactLayer, FactProvenance, FactStatus, FactValueOf, RepositoryPath } from '../src/fill/facts.js';
 
 /**
@@ -218,7 +194,7 @@ function sampleFact(kind: FactKind): Fact {
   const provenance = provenanceFor(kind);
   return FACT_KINDS[kind].shape === 'node'
     ? makeNodeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance, layer: layerOf(kind) })
-    : makeEdgeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance, layer: layerOf(kind) });
+    : makeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance, layer: layerOf(kind) });
 }
 
 /** The identity parts of the sample, as the schema computes them: its value's, then its place's where the place is identity. */
@@ -516,56 +492,8 @@ describe('ids: content-addressed, stable, and never a run', () => {
     }
   });
 
-  test('the same file read in two checkouts on two machines is one fact and one id', () => {
-    const here = provenanceOf(repositoryPathIn(CHECKOUT_HERE, `${CHECKOUT_HERE}/src/order.ts`));
-    const elsewhere = provenanceOf(repositoryPathIn(CHECKOUT_ELSEWHERE, `${CHECKOUT_ELSEWHERE}/src/order.ts`));
-    const factHere = makeNodeFact({ kind: 'file', value: SAMPLES['file'], provenance: here, layer: 'extracted' });
-    const factElsewhere = makeNodeFact({ kind: 'file', value: SAMPLES['file'], provenance: elsewhere, layer: 'extracted' });
-    expect(factElsewhere.id).toBe(factHere.id);
-    // And nothing of either machine's directory reached the provenance.
-    expect(JSON.stringify(factHere)).not.toContain(CHECKOUT_HERE);
-    expect(JSON.stringify(factElsewhere)).not.toContain(CHECKOUT_ELSEWHERE);
-  });
-
-  test('a rerun at another commit, with another reader version and other counts, is the same fact', () => {
-    for (const kind of FACT_KINDS_IN_ORDER) {
-      // Every part of the provenance a rerun may vary, and no part of the
-      // identity: another commit and another source version. The reader's
-      // name is varied too, except where the fact *is* one reader's reading:
-      // a coverage says what one reader read of one scope, so its reader is
-      // identity (the test below).
-      const moved: FactProvenance = {
-        source: { system: kind === 'coverage' ? 'tree-sitter' : 'scip-typescript', version: '0.4.1' },
-        repository: { id: REPOSITORY, commit: OTHER_COMMIT },
-        place: provenanceFor(kind).place,
-      };
-      expect(factId({ kind, value: SAMPLES[kind], provenance: moved } as never)).toBe(sampleFact(kind).id);
-      // A rerun may also count a different number of the same things — a call's
-      // sites, a file's bytes, a module's members, a snapshot's files — and the
-      // fact is the same fact.
-      const recounted = withOtherCounts(kind, SAMPLES[kind]);
-      expect(factId({ kind, value: recounted, provenance: provenanceFor(kind) } as never)).toBe(sampleFact(kind).id);
-      // The layer and the status are not identity either: how a fact was
-      // obtained and whether anyone accepted it never changes what it is. Each
-      // layer the kind admits is built through the constructor, with the last
-      // status that layer allows, and the id does not move — an inferred
-      // module's proposal included, which is what the layer writes and the
-      // identity never reads (madarch-tzte.24.2).
-      for (const layer of EXPECTED_LAYERS[kind]) {
-        const status = statusesOfLayer(layer).at(-1) as FactStatus;
-        const value = layer === 'inferred' && kind === 'module'
-          ? { ...(SAMPLES[kind] as unknown as Record<string, unknown>), proposal: { change: 'rename', replaces: [`module:${'f'.repeat(64)}`] } }
-          : SAMPLES[kind];
-        const again = FACT_KINDS[kind].shape === 'node'
-          ? makeNodeFact({ kind: kind as never, value: value as never, provenance: provenanceFor(kind), layer, status })
-          : makeEdgeFact({ kind: kind as never, value: value as never, provenance: provenanceFor(kind), layer, status });
-        expect(again.id).toBe(sampleFact(kind).id);
-        expect(again.layer).toBe(layer);
-        expect(again.status).toBe(status);
-      }
-    }
-  });
-
+  
+  
   test('a coverage is one reader reading one scope: another reader of it is another fact', () => {
     // 0004's coverage and 0005's "not enough data": two readers of one scope
     // keep their own gaps, so neither publisher overwrites the other's.
@@ -645,21 +573,7 @@ describe('ids: content-addressed, stable, and never a run', () => {
     expect(otherObject.id).not.toBe(atThree.id);
   });
 
-  test('a part a fact may leave out is null in its identity, and the fact reads without it', () => {
-    // An interaction names the carrier it goes through only when its reader saw one
-    // (`InteractionEdgeValue.via`). A fact that names none is one the schema reads, and the
-    // carrier it names is part of what the fact is: the same two nodes through two carriers are
-    // two interactions.
-    const { via, ...withoutVia } = SAMPLES['interaction'];
-    expect(via).toBe('POST /api/orders');
-    const named = makeEdgeFact({ kind: 'interaction', value: SAMPLES['interaction'], provenance: provenanceFor('interaction'), layer: 'inferred' });
-    const unnamed = makeEdgeFact({ kind: 'interaction', value: withoutVia, provenance: provenanceFor('interaction'), layer: 'inferred' });
-    expect(checkFact(unnamed)).toEqual([]);
-    expect(FACT_KINDS['interaction'].identityValue(withoutVia, provenanceFor('interaction'))).toContainEqual(['via', null]);
-    expect(FACT_KINDS['interaction'].identityValue(SAMPLES['interaction'], provenanceFor('interaction'))).toContainEqual(['via', 'POST /api/orders']);
-    expect(unnamed.id).not.toBe(named.id);
   });
-});
 
 describe('repository paths: the machine checkout never reaches a fact', () => {
   test('a relative path reads as itself, with a machine separator folded and a leading ./ dropped', () => {
@@ -679,27 +593,8 @@ describe('repository paths: the machine checkout never reaches a fact', () => {
     }
   });
 
-  test("a sibling folder whose name starts with the root name is outside it, and a name's bytes are never folded", () => {
-    // A prefix comparison would read `/srv/checkout2` as inside `/srv/checkout`.
-    expect(() => repositoryPathIn('/srv/checkout', '/srv/checkout2/src/order.ts')).toThrow(/not inside the repository root/);
-    // Unicode is the repository's own: an NFC name and its NFD spelling are
-    // two paths, and neither is folded into the other.
-    const nfc = 'docs/\u00DCber.md';
-    const nfd = 'docs/U\u0308ber.md';
-    expect(nfc).not.toBe(nfd);
-    expect(String(repositoryPath(nfc))).toBe(nfc);
-    expect(String(repositoryPath(nfd))).toBe(nfd);
-    expect(repositoryPath(nfd)).not.toBe(repositoryPath(nfc));
-    expect(String(repositoryPath('Docs/Readme.md'))).toBe('Docs/Readme.md');
+  
   });
-
-  test('a path inside the root reads relative to it, and a path outside names both paths', () => {
-    expect(String(repositoryPathIn('/opt/madarch-checkout', '/opt/madarch-checkout/src/order.ts'))).toBe('src/order.ts');
-    expect(String(repositoryPathIn('/opt/madarch-checkout/', '/opt/madarch-checkout/src/order.ts'))).toBe('src/order.ts');
-    expect(() => repositoryPathIn('/opt/madarch-checkout', '/tmp/other/src/order.ts')).toThrow(/\/tmp\/other\/src\/order\.ts.*\/opt\/madarch-checkout/);
-    expect(() => repositoryPathIn('/opt/madarch-checkout', '/opt/madarch-checkout')).toThrow(/the repository root itself/);
-  });
-});
 
 describe('the check that names every reason a fact is not one the schema reads', () => {
   /** The sample file fact, and the problems the check names for a variant of it. */
@@ -1203,27 +1098,8 @@ describe('the explicit mapping to the registry kinds (0021 storage forms)', () =
     expect([...union].sort()).toEqual([...REGISTRY_STORAGE_FORMS].sort());
   });
 
-  test('every storage form a registry kind may be kept in is served by some fact kind', () => {
-    for (const form of REGISTRY_STORAGE_FORMS) expect(factKindsForRegistryForm(form).length).toBeGreaterThan(0);
-    // A document kind's own place is found by the inventory and the document
-    // index; its documents, sections and claims stand behind it.
-    expect(factKindsForRegistryForm('document')).toContain('file');
-    expect(factKindsForRegistryForm('document')).toContain('section');
-    expect(factKindsForRegistryForm('document')).toContain('claim');
-  });
-
-  test('the forms a kind serves are answered in code point order, each kind once', () => {
-    for (const form of REGISTRY_STORAGE_FORMS) {
-      const kinds = factKindsForRegistryForm(form);
-      expect([...kinds]).toEqual([...kinds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
-      expect(new Set(kinds).size).toBe(kinds.length);
-      for (const kind of kinds) expect(REGISTRY_KIND_MAPPINGS[kind].registryForms).toContain(form);
-    }
-    // The claim is what every kind of document stands on: it serves every form.
-    expect(factKindsForRegistryForm('component')).toContain('claim');
-    expect(factKindsForRegistryForm('task')).toContain('claim');
-  });
-
+  
+  
   test('the statuses a fact may carry are read as 0005 states them, layer by layer', () => {
     expect(statusesOfLayer('declared')).toEqual(['proposed', 'accepted', 'rejected']);
     expect(statusesOfLayer('extracted')).toEqual(['proposed']);

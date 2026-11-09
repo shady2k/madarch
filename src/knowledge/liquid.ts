@@ -38,7 +38,7 @@ import { BLOCK_NAMES, blockIdentity, foldLanguageParams } from './template.js';
 import { decodeWire, encodeWire } from './wire.js';
 
 /** The bounds a page's template runs under, counted by Liquid; a test names its own to see one fire. */
-export const RENDER_LIMITS: RenderLimits = {
+const RENDER_LIMITS: RenderLimits = {
   templateLimit: 200_000,
   renderLimit: 8_000,
   memoryLimit: 200_000_000,
@@ -55,7 +55,7 @@ export const RENDER_LIMITS: RenderLimits = {
 const STARTER_TEMPLATE_HASHES: ReadonlySet<string> = new Set(Object.values(STARTER_TEMPLATES).map((text) => createHash('sha256').update(text).digest('hex')));
 
 /** The bounds the server enforces itself: the wall clock of a page, the memory its worker may hold, the sizes of a set. */
-export const RENDER_BOUNDS = {
+const RENDER_BOUNDS = {
   wallClockMs: 15_000,
   memoryMiB: 512,
   templateFiles: 200,
@@ -64,7 +64,7 @@ export const RENDER_BOUNDS = {
 } as const;
 
 /** The template files a product holds: its whole `templates` folder, and no other path. */
-export interface TemplateSet {
+interface TemplateSet {
   files: Readonly<Record<string, string>>;
   /** Changes when a template's text, size or place does: a worker is given the set again when it does. */
   digest: string;
@@ -181,7 +181,7 @@ export interface LiquidPageOutcome {
 
 // ---- the worker ---------------------------------------------------------------------------------
 
-export function spawnRenderWorker(): RenderWorkerProcess {
+function spawnRenderWorker(): RenderWorkerProcess {
   const { command, args } = selfCommand(['knowledge-render-worker']);
   const child = Bun.spawn([command, ...args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: process.env });
   let tail = '';
@@ -344,7 +344,7 @@ export function warmRenderWorker(productFolder: string): void {
 }
 
 /** Ends the worker of one product: a product that closes gives back what it holds. */
-export function closeRenderWorker(productFolder: string): void {
+function closeRenderWorker(productFolder: string): void {
   const slot = slots.get(productFolder);
   if (slot === undefined) return;
   stopWorker(slot);
@@ -353,7 +353,7 @@ export function closeRenderWorker(productFolder: string): void {
 }
 
 /** Ends every worker: a products home that closes, and a test that is over. */
-export function closeRenderWorkers(): void {
+function closeRenderWorkers(): void {
   for (const folder of [...slots.keys()]) closeRenderWorker(folder);
 }
 

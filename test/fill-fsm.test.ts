@@ -2,32 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createFillMachine, type MachineSpec } from '../src/fill/fsm-core.js';
-import {
-  CHAIN_STATES,
-  RUN_STATES,
-  UNIT_STATES,
-  chainMachine,
-  newChainContext,
-  newRunContext,
-  newUnitContext,
-  runMachine,
-  unitMachine,
-} from '../src/fill/fsm.js';
-import type {
-  ChainEvent,
-  ChainState,
-  RunContext,
-  RunEvent,
-  RunEvidence,
-  RunState,
-  UnitChildOutcome,
-  UnitContext,
-  UnitEvent,
-  UnitFailedChildPolicy,
-  UnitFailCause,
-  UnitRetryCause,
-  UnitState,
-} from '../src/fill/fsm.js';
+import { CHAIN_STATES, RUN_STATES, UNIT_STATES, chainMachine, newChainContext, newRunContext, newUnitContext, runMachine, unitMachine } from '../src/fill/fsm.js';
+import type { ChainEvent, ChainState, RunContext, RunEvent, RunEvidence, RunState, UnitChildOutcome, UnitContext, UnitEvent, UnitFailedChildPolicy, UnitFailCause, UnitRetryCause, UnitState } from '../src/fill/fsm.js';
 
 /**
  * The transitions decision 0027 allows, written out from the decision rather than

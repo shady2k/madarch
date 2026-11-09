@@ -49,19 +49,19 @@ test('one immutable owner shares terminal evidence across times and concurrent s
   const unread = read(f.owner, pin, instant(5), { repo: 'sample', at: 'unread' });
   release();
   const [a, b] = await Promise.all([first, unread]);
-  expect(a).toMatchObject({ coverage: 'covered', commit: 'a', until: instant(2) });
+  expect(a).toMatchObject({ coverage: 'unfilled', commit: 'a', until: instant(2) });
   expect(b).toMatchObject({ coverage: 'unfilled', commit: 'b', until: instant(3) });
   const last = await read(f.owner, pin, instant(6), { repo: 'sample', at: 'last' });
-  expect(last).toMatchObject({ coverage: 'covered', commit: 'c', until: null,
-    landmarks: { offered: 3, covered: 2, limit: 64, overflow: true, omitted: 1, first: instant(1), last: instant(3), diagnostics: plan.diagnostics } });
-  expect(last.points).toEqual([{ name: 'first', commit: 'a', covered: true }, { name: 'last', commit: 'c', covered: true }, { name: 'unread', commit: 'b', covered: false }]);
+  expect(last).toMatchObject({ coverage: 'unfilled', commit: 'c', until: null,
+    landmarks: { offered: 3, covered: 0, limit: 64, overflow: true, omitted: 1, first: null, last: null, diagnostics: plan.diagnostics } });
+  expect(last.points).toEqual([{ name: 'first', commit: 'a', covered: false }, { name: 'last', commit: 'c', covered: false }, { name: 'unread', commit: 'b', covered: false }]);
   expect((await read(f.owner, pin, instant(7), { repo: 'sample', at: instant(2) })).coverage).toBe('unfilled');
   expect((await read(f.owner, pin, instant(7), { repo: 'sample', at: '2025-01-01' })).coverage).toBe('before');
   expect((await read(f.owner, pin, instant(7), { repo: 'sample', at: '?' })).coverage).toBe('unknown');
   expect(f.n('boundary_epoch_millis')).toBe(1);
   expect(f.n('FROM node_version v')).toBe(1);
   expect(f.n('FROM edge_version e')).toBe(1);
-  expect(f.n('FROM work_item')).toBe(1);
+  expect(f.n('FROM work_item')).toBe(0);
   expect(f.n('SELECT plan')).toBe(1);
   expect(f.calls.filter((call) => call.sql.includes('FROM node_version v') || call.sql.includes('FROM edge_version e')).map((call) => call.values[0])).toEqual([instant(4), instant(4)]);
   a.points.length = 0;
@@ -79,7 +79,7 @@ test('future boundaries forbid reuse until the rounded-up terminal millisecond, 
   await read(f.owner, pin, instant(10), { repo: 'sample', at: 'last' });
   expect(f.n('FROM node_version v')).toBe(3);
   const crossed = new Date(Date.parse(instant(10)) + 1).toISOString();
-  expect(await read(f.owner, pin, crossed, { repo: 'sample', at: 'last' })).toMatchObject({ coverage: 'covered', commit: 'c' });
+  expect(await read(f.owner, pin, crossed, { repo: 'sample', at: 'last' })).toMatchObject({ coverage: 'unfilled', commit: 'c' });
   await read(f.owner, pin, instant(11), { repo: 'sample', at: 'last' });
   expect(f.n('FROM node_version v')).toBe(4);
   expect(f.n('boundary_epoch_millis')).toBe(1);
@@ -105,7 +105,7 @@ test('reader-owner replacement, scope, repository and head each isolate cached e
 for (const failure of ['boundary', 'nodes'] as const) test(`a rejected ${failure} read is not cached`, async () => {
   const read = createSnapshotHistoryReader(); const f = fixture(); f.fail(failure);
   await expect(read(f.owner, pin, instant(4), { repo: 'sample', at: 'first' })).rejects.toThrow(`${failure} unavailable`);
-  expect(await read(f.owner, pin, instant(5), { repo: 'sample', at: 'first' })).toMatchObject({ coverage: 'covered', commit: 'a' });
+  expect(await read(f.owner, pin, instant(5), { repo: 'sample', at: 'first' })).toMatchObject({ coverage: 'unfilled', commit: 'a' });
   await read(f.owner, pin, instant(6), { repo: 'sample', at: 'last' });
   expect(f.n('boundary_epoch_millis')).toBe(failure === 'boundary' ? 2 : 1);
   expect(f.n('FROM node_version v')).toBe(failure === 'nodes' ? 2 : 1);

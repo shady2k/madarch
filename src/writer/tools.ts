@@ -116,10 +116,10 @@ export interface PageSink {
 const BROAD_ENTITY = /^(code\.(service|module):|domain:|product:|question:|correction:)/;
 
 /** How much of its entities a question must share with an earlier one to be the same question: the Jaccard index, at least this. */
-export const SAME_SUBJECT = 0.5;
+const SAME_SUBJECT = 0.5;
 
 /** The share two subjects have in common, from 0 to 1. */
-export function overlap(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+function overlap(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let shared = 0;
   for (const entity of a) if (b.has(entity)) shared += 1;
@@ -127,7 +127,7 @@ export function overlap(a: ReadonlySet<string>, b: ReadonlySet<string>): number 
 }
 
 /** The entities a question is about: the graph keys and document sections of its `about` and of its sides' grounds, without the broad containers. */
-export function subjectOf(about: readonly string[], sides: readonly { readonly grounds: readonly string[] }[]): Set<string> {
+function subjectOf(about: readonly string[], sides: readonly { readonly grounds: readonly string[] }[]): Set<string> {
   const out = new Set<string>();
   for (const entry of [...about, ...sides.flatMap((side) => side.grounds)]) {
     const target = entry.startsWith('madarch:') ? entry.slice('madarch:'.length) : entry;
@@ -157,9 +157,9 @@ export interface UnitBounds {
 export const DEFAULT_UNIT_BOUNDS: UnitBounds = { maxWriteAttempts: 5, maxCalls: 80 };
 
 /** The questions one unit may ask (madarch-m38l.7): a person answers each, so the number is bounded. */
-export const MAX_QUESTIONS_PER_UNIT = 6;
+const MAX_QUESTIONS_PER_UNIT = 6;
 /** A comparison packet is whole or refused, never shortened to fit a tool response. */
-export const MAX_QUESTION_COMPARISON_CHARACTERS = 120_000;
+const MAX_QUESTION_COMPARISON_CHARACTERS = 120_000;
 
 /** What a unit's tools take from the run besides the graph and the sink. */
 export interface UnitExtras {
@@ -195,7 +195,7 @@ export interface UnitExtras {
 }
 
 /** One artifact a unit may read: what it is, the page it stands in, and how a reader names it. */
-export interface ProducedArtifactRead {
+interface ProducedArtifactRead {
   readonly artifact: string;
   readonly kind: string;
   readonly unit: string;
@@ -205,7 +205,7 @@ export interface ProducedArtifactRead {
 
 export const MAX_DOMAINS = 12;
 export const FIND_LIMIT = 40;
-export const NEIGHBOR_LIMIT = 40;
+const NEIGHBOR_LIMIT = 40;
 export const FILE_LINES = 200;
 const LINE_CHARACTERS = 400;
 const PROPERTY_CHARACTERS = 2000;
@@ -392,7 +392,7 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
  * entity, the title it is shown by and the places the page relates, so the identity is never the agent's to
  * choose, and a page that would stand for another entity cannot be written.
  */
-export const WRITE_ENRICHMENT_TOOL: McpToolDefinition = {
+const WRITE_ENRICHMENT_TOOL: McpToolDefinition = {
   name: 'write_enrichment',
   description: 'Writes the enrichment of the one passage this unit is given: the body in the page format, whose headings and statements are the unit\'s own reading, since the document does not settle what the passage is. The core writes the front matter that names the entity, its source and the lines it stands at, and checks the whole page before it writes anything.',
   inputSchema: object({
@@ -405,7 +405,7 @@ export const WRITE_ENRICHMENT_TOOL: McpToolDefinition = {
  * case, a rule or a decision, as `src/writer/structured.ts` declares them. The unit fills the fields; the core
  * writes the sections, the headings in the wiki's language and what an empty field says.
  */
-export function writeEnrichmentTool(kind: StructuredKind): McpToolDefinition {
+function writeEnrichmentTool(kind: StructuredKind): McpToolDefinition {
   const fields = structuredSchema(kind);
   return {
     name: 'write_enrichment',
@@ -425,7 +425,7 @@ export function writeEnrichmentTool(kind: StructuredKind): McpToolDefinition {
  * `src/writer/home-page.ts`, and the core writes them from the fields the unit gives. A home page points at the
  * page that says each thing in full; it does not restate it.
  */
-export function writeHomePageTool(withDomains: boolean): McpToolDefinition {
+function writeHomePageTool(withDomains: boolean): McpToolDefinition {
   const domains = {
     type: 'array',
     description: 'The product\'s domains, each with evidence that resolves in the graph. Every declared domain appears in the "domains" field of the page.',
@@ -443,7 +443,7 @@ export function writeHomePageTool(withDomains: boolean): McpToolDefinition {
   };
 }
 
-export const WRITE_DOMAIN_PAGE_TOOL: McpToolDefinition = {
+const WRITE_DOMAIN_PAGE_TOOL: McpToolDefinition = {
   name: 'write_page',
   description: 'Writes the page of this domain. It opens with the business — participants, the main scenario in numbered steps, the rules that govern it, what can go wrong, what is open — and ends with one section for the developer, the only place where routes, functions, tables, events, status codes, headers and timeouts are named. Every sentence carries the grounds that show it, a business sentence stands on a document section or a service and never on a place of the code, and every place of the developer section is a graph key you resolved. The core writes the sections, their headings in the wiki language and the sentence a part says when the documents settle nothing; a statement you cannot ground is refused, so state it in openPoints instead of inventing it.',
   inputSchema: domainSchema(),

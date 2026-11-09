@@ -3,7 +3,6 @@ import { dirname, join, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
-import { MAPPING_KIND_ROWS, MAPPING_RELATION_ROWS, MAPPING_VERSION, type CatalogMappingRow } from './starter-mapping.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
@@ -299,14 +298,14 @@ export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] 
  * A property's declaration as the starter set writes it: the words a reader sees in each language, how the value is
  * written, and, for a value that is an object, the keys it holds and their labels (a build's context, its Dockerfile).
  */
-export interface PropertyLabel {
+interface PropertyLabel {
   en: string;
   ru: string;
   format?: string;
   fields?: Readonly<Record<string, { en: string; ru: string; format?: string }>>;
 }
 
-export const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
+const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   language: { en: "Language", ru: "Язык", format: "text" },
   frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
   infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
@@ -535,7 +534,7 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.snapshot": ["commit"],
 };
 
-export const yamlText = (text: string): string => JSON.stringify(text);
+const yamlText = (text: string): string => JSON.stringify(text);
 
 /** One property of `PROPERTY_LABELS` as the manifest's flow mapping, its value's keys included. */
 function propertyYaml(label: PropertyLabel): string {
@@ -588,7 +587,7 @@ export const STARTER_PROBLEM_RULES: readonly RuleSpec[] = [
 ];
 
 /** The starter rules as the settings the page reads: the same data the manifest text is written from. */
-export function starterProblemSettings(): ProblemSettings {
+function starterProblemSettings(): ProblemSettings {
   const rules = Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting] as const));
   return { rules, thresholds: { ...DEFAULT_THRESHOLDS } };
 }
@@ -649,31 +648,6 @@ function workflowsManifest(): string {
 export function starterManifest(language?: string): string {
   const text = kindsManifest();
   return language === undefined ? text : `${text}language: ${language}\n`;
-}
-
-/** One row of the mapping as the manifest writes it: a tie to a catalog kind or relation, or an internal reason. */
-function mappingRowYaml(row: CatalogMappingRow): string {
-  if (row.kind !== undefined) return `{ kind: ${yamlText(row.kind)} }`;
-  if (row.relation !== undefined) return `{ relation: ${yamlText(row.relation)}, direction: ${yamlText(row.direction ?? 'same')} }`;
-  return `{ internal: ${yamlText(row.internal ?? '')} }`;
-}
-
-/**
- * The `mapping:` section of the starter manifest (decision 0033, item 7): the version, and every node kind and
- * relation type the extractors declare they emit, in code point order, tied to the catalog or declared internal.
- */
-function mappingLines(): string[] {
-  return [
-    "# The extractors' vocabulary mapped to the catalog (decision 0033, item 7): every node kind and relation type",
-    "# the extractors emit, tied to a catalog kind or relation, or declared internal with the reason. The keys are",
-    "# the extractors' own (`src/extract/vocabulary.ts` declares them); the targets are this manifest's.",
-    "mapping:",
-    `  version: ${MAPPING_VERSION}`,
-    "  kinds:",
-    ...MAPPING_KIND_ROWS.map((row) => `    ${row.key}: ${mappingRowYaml(row)}`),
-    "  relations:",
-    ...MAPPING_RELATION_ROWS.map((row) => `    ${row.key}: ${mappingRowYaml(row)}`),
-  ];
 }
 
 function kindsManifest(): string {
@@ -764,7 +738,6 @@ function kindsManifest(): string {
     "kinds:",
   ];
   for (const kind of CATALOG_KINDS) lines.push(...kindLines(kind));
-  lines.push(...mappingLines());
   return `${lines.join('\n')}\n`;
 }
 

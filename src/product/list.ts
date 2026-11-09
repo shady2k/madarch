@@ -46,7 +46,7 @@ function folderCodePoints(a: string, b: string): number {
 }
 
 /** A manifest that stands but cannot be read, named so the list hides nothing. */
-export interface UnreadableProduct {
+interface UnreadableProduct {
   /** The full path of the folder whose manifest cannot be read. */
   folder: string;
   /** The manifest's file and line, and the reason, as the reader named them. */

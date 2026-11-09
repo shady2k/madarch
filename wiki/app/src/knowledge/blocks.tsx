@@ -28,7 +28,7 @@ import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
-import {ContractDiagnosticView} from './contract-diagnostic.js';
+import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
@@ -59,7 +59,7 @@ export function CodePlace({ location }: { location: CodeLocation }): ReactElemen
 }
 
 /** "Open on the repository's web page" for a place in code, when the repository's address is known. */
-export function WebPlace({ location }: { location: CodeLocation }): ReactElement | null {
+function WebPlace({ location }: { location: CodeLocation }): ReactElement | null {
   const { t } = useTranslation();
   if (location.web === undefined) return null;
   return (
@@ -148,7 +148,7 @@ export interface PlannedMarks {
   statements: Readonly<Record<string, PlannedMarkView>>;
 }
 
-export const NO_PLANNED: PlannedMarks = { headings: {}, statements: {} };
+const NO_PLANNED: PlannedMarks = { headings: {}, statements: {} };
 
 /** The key a sentence is matched by: its words, without the footnote references and with its blanks as one. */
 export const sentenceKey = (text: string): string => text.replace(/\[\^[^\]\s]+\]/g, '').replace(/\s+/g, ' ').trim();

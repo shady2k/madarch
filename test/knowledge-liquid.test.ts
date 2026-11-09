@@ -11,7 +11,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeRenderWorkers, renderLiquidPage, renderWorkers, residentMiB, templateSetOf } from '../src/knowledge/liquid.js';
+import { renderLiquidPage, renderWorkers, residentMiB, templateSetOf } from '../src/knowledge/liquid.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { blockIdentity } from '../src/knowledge/template.js';
@@ -29,7 +29,6 @@ function product(files: Record<string, string>): string {
 }
 
 afterEach(() => {
-  closeRenderWorkers();
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 

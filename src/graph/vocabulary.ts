@@ -59,7 +59,7 @@ export const CODE_RELATIONS: readonly RelationDeclaration[] = [
 ];
 
 /** True when a key belongs to the engine's namespaces (`engine:` or `code.`). */
-export function isEngineKey(key: string): boolean {
+function isEngineKey(key: string): boolean {
   return key.startsWith(ENGINE_PREFIX) || key.startsWith(CODE_PREFIX);
 }
 

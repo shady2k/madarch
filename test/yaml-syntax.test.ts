@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseModel } from '../src/index.js';
+import { parseModel } from './api.js';
 
 const valid = 'version: 1\nelements:\n  - id: shop\n    kind: domain\n';
 

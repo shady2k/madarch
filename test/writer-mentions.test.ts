@@ -8,7 +8,8 @@
  * own labels. No product name is written in the engine, and these tests supply the names as a caller does.
  */
 import { describe, expect, test } from 'bun:test';
-import { checkPage, insertMentionLinks, madarchTargets, type GroundResolver, type MentionName, type PageExpectation } from '../src/writer/index.js';
+import { checkPage, type GroundResolver, type PageExpectation } from '../src/writer/format.js';
+import { insertMentionLinks, madarchTargets, type MentionName } from '../src/writer/mentions.js';
 import { linkedFromBlock } from '../src/knowledge/linked-from.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 

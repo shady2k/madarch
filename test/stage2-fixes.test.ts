@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSERTION_KINDS, CLASHABLE_KINDS, SHARED_KINDS, isOneStateChain, type AssertionChange, type Clock, type CompiledElement, type CompiledEnvironment, type CompiledModel, type CompiledState, type CompiledZone, type HistoryStore, type ReadModel } from '../src/index.js';
+import { ASSERTION_KINDS, CLASHABLE_KINDS, SHARED_KINDS, isOneStateChain, type AssertionChange, type Clock, type CompiledElement, type CompiledEnvironment, type CompiledModel, type CompiledState, type CompiledZone, type HistoryStore, type ReadModel } from './api.js';
 import { createTestHistory, openRawStore } from './test-database.js';
 
 /** A clock a test moves by hand, never the real one. */

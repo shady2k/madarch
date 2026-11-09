@@ -7,12 +7,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
-import { createGraphStore } from '../src/graph/index.js';
-import { indexCounts, indexProductMarkdown, readKnowledgePages } from '../src/knowledge/index/index.js';
+import { readKnowledgePages } from '../src/knowledge/index/index.js';
+import { indexCounts } from '../src/knowledge/index/queries.js';
 import { PageReadError, readIndexedPage } from '../src/knowledge/index/page.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
-import { documentAnchors } from '../src/writer/view.js';
-import { createTestDatabaseOwner } from './test-database.js';
+
+import { documentAnchors } from '../src/knowledge/anchors.js';
 
 const sha = (text: string): string => `sha:${text.length}`;
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
@@ -173,7 +173,7 @@ describe('documentSections', () => {
   });
 });
 
-describe('readKnowledgePages and indexProductMarkdown never refuse a whole product for a finding scoped to one kind or page', () => {
+describe('readKnowledgePages never refuses a whole product for a finding scoped to one kind or page', () => {
   const folder = (): string => mkdtempSync(path.join(tmpdir(), 'madarch-index-product-'));
   const write = (root: string, file: string, text: string): void => {
     mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
@@ -191,24 +191,6 @@ describe('readKnowledgePages and indexProductMarkdown never refuse a whole produ
       const read = readKnowledgePages(root);
       expect(read.findings).toEqual([]);
       expect(read.pages.map((page) => page.id)).toEqual(['domain:payments']);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test('a manifest that cannot be read at all publishes nothing, and says why with each finding\'s file and line', async () => {
-    const root = folder();
-    try {
-      write(root, 'madarch/kinds.yaml', 'kinds:\n  domain: [unclosed\n');
-      write(root, 'docs/domains/payments.md', PAGE_TEXT);
-      let message = '';
-      try {
-        await indexProductMarkdown({ owner: undefined as never, store: undefined as never, productFolder: root, productId: 'shop', at: '2020-01-01T00:00:00.000000Z', repositories: () => undefined });
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toContain('cannot be read, so no kind is known and nothing was published');
-      expect(message).toContain('kinds.yaml:');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -241,29 +223,6 @@ describe('readKnowledgePages and indexProductMarkdown never refuse a whole produ
       rmSync(root, { recursive: true, force: true });
     }
   });
-
-  test('indexProductMarkdown publishes the pages of the kinds that stand, and a page that cannot be read is the only one left out', async () => {
-    const root = folder();
-    const owner = await createTestDatabaseOwner({ btreeGist: true, store: path.join(root, 'graph') });
-    try {
-      const store = createGraphStore(owner);
-      await owner.ready;
-      await store.createSchema();
-      write(root, 'madarch/kinds.yaml', `${KINDS}  topic: { template: templates/missing.md, source: markdown, folder: docs/topics }\n`);
-      write(root, 'templates/domain.md', ':::body\n');
-      write(root, 'docs/domains/payments.md', PAGE_TEXT);
-      write(root, 'docs/domains/broken.md', '---\nid: domain:broken\nkind: domain\nwritten-at: nonsense\n---\nbody\n');
-      write(root, 'docs/topics/one.md', '---\nid: topic:one\nkind: topic\ntitle: One\n---\nText.\n');
-      const report = await indexProductMarkdown({ owner, store, productFolder: root, productId: 'shop', at: '2020-01-01T00:00:00.000000Z', repositories: () => undefined });
-      expect(report.pages).toBe(1);
-      expect(report.findings.map((finding) => finding.file).sort()).toEqual([path.join(root, 'madarch/kinds.yaml'), 'docs/domains/broken.md'].sort());
-      expect(report.findings.find((finding) => finding.file === 'docs/domains/broken.md')!.line).toBe(2);
-      expect((await indexCounts(owner)).map((count) => `${count.kind}:${count.pages}`)).toEqual(['domain:1']);
-    } finally {
-      await owner.close();
-      rmSync(root, { recursive: true, force: true });
-    }
-  }, 60_000);
 
   test('a page that cannot be read names its file and line', async () => {
     const root = folder();

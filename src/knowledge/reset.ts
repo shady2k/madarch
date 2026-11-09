@@ -45,7 +45,7 @@ function present(path: string): boolean {
 }
 
 /** Whether the real place of a path stands inside a folder: a link out of it is not inside. */
-export function realInside(folder: string, path: string): boolean {
+function realInside(folder: string, path: string): boolean {
   try {
     const root = realpathSync(folder);
     const real = realpathSync(path);

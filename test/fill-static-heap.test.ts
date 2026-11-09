@@ -64,7 +64,7 @@ function measure(count: number): Measurement {
 }
 
 describe('the static fill\'s peak memory per 100 files', () => {
-  test.skipIf(skip)('100, 200 and 400 files: the peak per 100 files varies by at most 25 % between sizes', () => {
+  bunTest.skipIf(skip || skippedSuite !== undefined)('100, 200 and 400 files: the peak per 100 files varies by at most 25 % between sizes', () => {
     const measured = [100, 200, 400].map((count) => measure(count));
     for (const one of measured) {
       expect({ count: one.count, state: one.state, settled: one.settled }).toEqual({ count: one.count, state: 'succeeded', settled: true });

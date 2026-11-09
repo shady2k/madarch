@@ -6,7 +6,7 @@ import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from '../src/index.js';
+import { startServer, type StartedServer } from './api.js';
 import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
 
 /**

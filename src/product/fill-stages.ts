@@ -72,18 +72,12 @@ import { isRepositoryPath } from '../fill/facts.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
-import { createGraphStore, createRecordSchema, publishHistory, publishTree, type GraphStore } from '../graph/index.js';
+import { createGraphStore, createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
-import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
-import { createStaticStageReadReader } from '../fill/stages/static-reads.js';
-import { CODE_FACTS_STAGE_ID } from '../fill/stages/code-facts.js';
-import { folderOf, manifestChainOf } from '../fill/stages/service-membership.js';
-import { ensureGraphSchema } from '../fill/stages/static-graph.js';
-import type { AgentStageWiring } from '../fill/stages/agent-stage.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
@@ -112,14 +106,6 @@ export interface StagesFillOptions {
    * through the host; it neither opens nor closes it.
    */
   readonly database: FillDatabase;
-  /**
-   * The agent the product's units are driven with (decision 0026, "Agents and
-   * tools"): where it is named, the agent unit stage is registered beside the eight
-   * deterministic stages and a run of this product plans its units. Left out, the
-   * fill is the deterministic one, and no unit an agent would have to read is
-   * planned — a run with no agent never plans work it cannot run.
-   */
-  readonly agent?: Omit<AgentStageWiring, 'snapshots'>;
   /** What this step's two passes publish through; the store over this owner when it is left out. */
   readonly records?: import('../fill/steps.js').RecordPassWiring;
 }
@@ -145,7 +131,7 @@ export interface StagesFill {
  * `registryHash` names (`RunSnapshot`) and one of the inputs every unit's facts
  * stand on, so a stage whose version moved replaces what it published.
  */
-export function declaredStagesDigest(registry: StageRegistry): string {
+function declaredStagesDigest(registry: StageRegistry): string {
   return hashFillInput(registry.all().map((stage) => `${stage.id}@${String(stage.version)}`).join('\n'));
 }
 
@@ -187,34 +173,24 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const registry = await withSpan('fill.registry', { 'madarch.product': identity.name }, async (span) => {
     const held = createStageRegistry({
       snapshots,
-      checkoutOf: (repository: string) => rootOf(identity, repository),
       records,
-      ...(options.agent === undefined ? {} : { agent: options.agent }),
     });
     span.setAttribute('madarch.stages', held.all().length);
     return held;
   });
-  // The view a stage's own SQL reads through (the history stage's three queries)
-  // stands before any run: it is the store's own schema, and no read may create
-  // it (a read inside a publication's transaction could not).
-  await createStageReadSchema(options.database);
-  // The 0028 graph the static stages publish into and plan from (decision 0033). One store over the
-  // process's owner: its tables and the extractor vocabulary are created with the rest of the fill's.
-  const store: GraphStore = createGraphStore(options.database);
-  await ensureGraphSchema(store);
   // The stages a run of this product enables are its workflow's (decision 0033, item 2): a product that
   // holds no manifest of its own runs the engine's starter set, as a repository that is no product does.
   const workflow = workflowOf(folder);
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
     configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, readFillStageConfiguration(folder), registry),
-    graph: (ref, transaction) => (registry.get(ref.stageId)?.staticReading === true
-      ? createStaticStageReadReader(store, transaction)
-      : createStageReadReader({
-        database: options.database,
-        snapshot: snapshots,
-        ...(transaction === undefined ? {} : { executor: transaction }),
-      })),
+    // This step's two record passes read git and publish through the record store; they ask no graph.
+    // The reader is handed to every stage's plan, and a read through it is refused by name.
+    graph: () => ({
+      query: async () => {
+        throw new Error('this fill runs the record passes and reads no graph (src/product/fill-stages.ts)');
+      },
+    }),
     source: (): SnapshotSource => snapshots,
     inputs: (ref) => inputsOf(registry, pins(), ref),
   };
@@ -380,29 +356,10 @@ function rootOf(identity: ProductIdentity, repository: string): string {
  */
 async function inputsOf(registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Promise<Readonly<Record<string, string>>> {
   const inputs: Record<string, string> = { stages: declaredStagesDigest(registry) };
-  // An agent unit's facts stand on what it read, and nothing on its scope's own pin (decision 0026,
-  // "Updates"): its reads with their membership are rechecked by the orchestrator, the spans it read are
-  // rechecked against the run's own pins, and the prompt, schema and model versions it ran under are part
-  // of its stage's cache versions. A repository's commit here would replace every unit of every commit and
-  // rerun work the change never reached, which is exactly what the update is not. The marker is the stage
-  // contract's own: a stage whose units read and write through the unit's MCP server is an agent stage
-  // (madarch-tzte.24.1's shape), whatever its id.
-  if (registry.get(ref.stageId)?.usesTools === true) return inputs;
   const path = pathOfScope(pins, ref.scope);
-  const readsFacts = RESOLUTION_STAGE_ID === ref.stageId;
-  if (path !== undefined && !readsFacts) {
+  if (path !== undefined) {
     const repository = repositoryOfScope(pins, ref.scope) ?? '';
     inputs['entry'] = blobOf(pins, repository, path);
-    // The code-facts stage's membership fact stands on the manifests above the file, and its ports
-    // on the file's own bytes (the entry above): a manifest that moves re-reads every file whose
-    // unit it declares, although the files' own blobs did not move (madarch-8bdc.2.4).
-    if (ref.stageId === CODE_FACTS_STAGE_ID) {
-      const chain = await manifestChainOf(folderOf(path), async (candidate: string) => {
-        const blob = blobOf(pins, repository, candidate);
-        return blob === 'no-entry' ? undefined : { path: candidate, blob };
-      });
-      inputs['manifests'] = chain.join('\n');
-    }
   } else {
     // A unit whose scope names no path reads one repository whole: the digest of
     // *that* repository's pin, so a commit in one repository of a product with
@@ -411,9 +368,6 @@ async function inputsOf(registry: StageRegistry, pins: readonly RepositoryPin[],
   }
   return inputs;
 }
-
-/** The stage whose units read other units' symbols, whose input is therefore the run's pins (see `inputsOf`). */
-const RESOLUTION_STAGE_ID = 'semantic-resolution';
 
 /**
  * The path one unit's scope names, where it names one: the scopes of the stages

@@ -1,6 +1,6 @@
-import type {ReactElement} from 'react';
-import {useTranslation} from 'react-i18next';
-import type {Block} from './types.js';
+import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { Block } from './types.js';
 
 export default function ContractProto({block}: {block: Extract<Block, {type: 'definition'}>}): ReactElement {
   const {t} = useTranslation();

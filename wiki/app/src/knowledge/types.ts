@@ -4,7 +4,7 @@
  * knowledge of any kind, template or block beyond them.
  */
 
-export type Finding = { file: string; line: number; message: string };
+type Finding = { file: string; line: number; message: string };
 
 export type CodeLocation = { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; web?: { host: string; url: string } };
 
@@ -17,10 +17,10 @@ export type EntityRef = {
   broken?: string;
 };
 
-export type RefRow = { entity: EntityRef; note?: string; noteKey?: 'named' | 'groundedWith' | 'statements' | 'links'; noteArgs?: Record<string, string | number> };
+type RefRow = { entity: EntityRef; note?: string; noteKey?: 'named' | 'groundedWith' | 'statements' | 'links'; noteArgs?: Record<string, string | number> };
 
 /** One row of a history block (the engine's `HistoryRow`): when, who and what, with the figures its facts give. */
-export type HistoryRow = {
+type HistoryRow = {
   when?: string;
   who?: string;
   text: string;
@@ -29,20 +29,20 @@ export type HistoryRow = {
 };
 
 /** One list of a history block: the commits it shows, or the files they touched. */
-export type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
+type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
 
 /** One row of a properties block (the engine's `PropertyRow`). */
 export type PropertyRow = { name: string; value: string; label?: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; valueKind?: 'date' | 'boolean' | 'code' };
-export type MemberRow = { entity: EntityRef; name: string; anchor: string; values: PropertyRow[]; readers: EntityRef[]; writers: EntityRef[] };
+type MemberRow = { entity: EntityRef; name: string; anchor: string; values: PropertyRow[]; readers: EntityRef[]; writers: EntityRef[] };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
 export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
 
 /** One member of a contract's definition (the engine's `DefinitionMember`). */
-export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
+type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
 
 /** Where the rest of a history lives (the engine's `HistoryMore`): the kind's listing, and its words in the reader's language. */
-export type HistoryMore = { href: string; label: string };
+type HistoryMore = { href: string; label: string };
 
 export type RelatedGroup = {
   relation: string;
@@ -63,19 +63,19 @@ export type Neighborhood = {
   more: DiagramMore[];
   relations: { relation: string; direction: 'out' | 'in'; count: number }[];
 };
-export type StepKind = 'enter' | 'route' | 'call' | 'self' | 'read' | 'write' | 'http' | 'grpc' | 'publish' | 'consume';
-export type ChainLane = { id: string; label: string; sub: string; kind: string; href: string | null; group: string; groupLabel?: string };
-export type ChainStep = { n: number; from: string; to: string; label: string; kind: StepKind; href: string | null; site?: CodeLocation; order: 'source' | 'unordered'; note?: string; technical?: true };
-export type Chain = { title: string; entry: EntityRef | null; lanes: ChainLane[]; steps: ChainStep[]; notes: string[]; total: number };
-export type SystemNode = { id: string; kind: 'service' | 'database' | 'topic' | 'external'; label: string; sub: string; href: string | null };
-export type SystemEdge = { from: string; to: string; via: 'http' | 'grpc' | 'sql' | 'publishes' | 'consumes'; label: string; count: number };
-export type ModuleNode = { id: string; label: string; files: number; href: string | null; cycle: boolean };
-export type ModuleEdge = { from: string; to: string; cycle: boolean };
+type StepKind = 'enter' | 'route' | 'call' | 'self' | 'read' | 'write' | 'http' | 'grpc' | 'publish' | 'consume';
+type ChainLane = { id: string; label: string; sub: string; kind: string; href: string | null; group: string; groupLabel?: string };
+type ChainStep = { n: number; from: string; to: string; label: string; kind: StepKind; href: string | null; site?: CodeLocation; order: 'source' | 'unordered'; note?: string; technical?: true };
+type Chain = { title: string; entry: EntityRef | null; lanes: ChainLane[]; steps: ChainStep[]; notes: string[]; total: number };
+type SystemNode = { id: string; kind: 'service' | 'database' | 'topic' | 'external'; label: string; sub: string; href: string | null };
+type SystemEdge = { from: string; to: string; via: 'http' | 'grpc' | 'sql' | 'publishes' | 'consumes'; label: string; count: number };
+type ModuleNode = { id: string; label: string; files: number; href: string | null; cycle: boolean };
+type ModuleEdge = { from: string; to: string; cycle: boolean };
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
 
 export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
-export type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
-export type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
+type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
+type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
 export type ViewElement = {
   id: string;
   label: string;
@@ -89,7 +89,7 @@ export type ViewElement = {
   columns?: { name: string; type?: string; key?: boolean; fk?: boolean }[];
   standsFor?: number;
 };
-export type ViewEdge = { from: string; to: string; label: string; dashed: boolean; why?: string; step?: number; kind?: string; note?: string; href?: string | null; location?: CodeLocation };
+type ViewEdge = { from: string; to: string; label: string; dashed: boolean; why?: string; step?: number; kind?: string; note?: string; href?: string | null; location?: CodeLocation };
 /** One view of a diagrams block: the model, the renderers that draw it (the chosen one first) and the query that asks the server for it again. */
 export type DiagramView = {
   spec: ViewSpec;
@@ -221,7 +221,7 @@ export type OperationMetadata = { contracts: {entity: EntityRef; protocol: strin
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
 /** One page a refresh changed, as the top bar lists it: the page's id and the title its page shows. */
-export type ChangedPage = { id: string; title: string };
+type ChangedPage = { id: string; title: string };
 
 /** The counts the repository page states. */
 export type RepositoryCounts = { files: number; commits: number; folders: number };
@@ -444,12 +444,12 @@ export type GlossaryTerm = { id: string; title: string; definition: string; syno
 export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findingCount: number };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
-export type DocumentRef = { repo: string | null; path: string; title: string };
+type DocumentRef = { repo: string | null; path: string; title: string };
 export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };
 /** A planned change as a page shows it: the task it belongs to, and how the page is reached. */
 export type PlannedMarkView = { task: { id: string; slug: string; title: string; file: string }; how: 'scope' | 'impact' };
 
-export type PlannedSectionView = PlannedMarkView & { anchor: string | null; lines: { start: number; end: number } | null };
+type PlannedSectionView = PlannedMarkView & { anchor: string | null; lines: { start: number; end: number } | null };
 
 export type DocumentPageModel = { repo: string | null; path: string; title: string; markdown: string; resolutions: Record<string, Resolution>; anchors: Record<string, number>; commit: string | null; planned?: PlannedSectionView[]; plannedNote?: string };
 
@@ -460,7 +460,7 @@ export type Excerpt =
 
 export type GroundView = { url: string; resolution: Resolution; excerpt: Excerpt | null };
 
-export type RelyingRef = { page: string; pageTitle: string; text: string; line: number; file: string; how: 'grounds' | 'mentions'; ground: string; sentence?: string; turn?: number };
+type RelyingRef = { page: string; pageTitle: string; text: string; line: number; file: string; how: 'grounds' | 'mentions'; ground: string; sentence?: string; turn?: number };
 
 export type StatementModel = {
   page: EntityRef;
@@ -483,7 +483,7 @@ export type StatementModel = {
 
 export type Author = { name: string; email: string; verified: string };
 
-export type QuestionType = 'contradiction' | 'ambiguous-term' | 'undocumented' | 'gap';
+type QuestionType = 'contradiction' | 'ambiguous-term' | 'undocumented' | 'gap';
 export type QuestionState = 'open' | 'answered' | 'closed';
 
 export type QuestionRow = {
@@ -515,11 +515,11 @@ export type QuestionDetail = QuestionRow & {
 export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest' | string;
+type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest' | string;
 export type ProblemSection = 'code' | 'documents' | 'wiki';
-export type SonarKind = 'vulnerability' | 'bug' | 'code-smell' | 'security-hotspot';
-export type ProblemSeverity = 'blocker' | 'critical' | 'major' | 'minor' | 'info';
-export type ProblemLink = { label: string; href: string | null; key: string | null };
+type SonarKind = 'vulnerability' | 'bug' | 'code-smell' | 'security-hotspot';
+type ProblemSeverity = 'blocker' | 'critical' | 'major' | 'minor' | 'info';
+type ProblemLink = { label: string; href: string | null; key: string | null };
 
 export type Problem = {
   /** The stable id; server listings carry it, a row built by hand need not. */
@@ -620,19 +620,19 @@ export type ProblemItems = {
 };
 
 /** A value an agent offers for the model or the reasoning level. */
-export type ChoiceValue = { value: string; name: string; description?: string };
+type ChoiceValue = { value: string; name: string; description?: string };
 export type Choice = { configId: string | null; name: string; current: string | null; values: ChoiceValue[] };
 export type AgentChoices = { agent: { id: string; label: string }; choices: { model: Choice | null; reasoning: Choice | null } };
 
-export type DangerPlan = {
+type DangerPlan = {
   rewrite: { agentPages: string[]; keptPages: string[] };
   fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
 /** The model roles a feature may ask for (madarch-j6ho.2). */
 export type ModelRoleId = 'writing' | 'classification' | 'analysis' | 'editing';
-export type ModelPair = { agent: string; model?: string; reasoning?: string };
-export type ResolvedModelRole = {
+type ModelPair = { agent: string; model?: string; reasoning?: string };
+type ResolvedModelRole = {
   role: ModelRoleId;
   pair: ModelPair | null;
   source: 'assigned' | 'fallback' | 'none';
@@ -643,11 +643,11 @@ export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | n
 
 
 /** One graph node or edge and its verdict (madarch-mwhd.1). */
-export type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
+type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
 /** Every verdict a person still has to look at: the settings table asks for these, valid rows excluded. */
 export type GraphVerdictFilter = GraphVerdict | 'non-valid';
 export type GraphVerdictRole = 'node' | 'edge';
-export type GraphVerdictRow = {
+type GraphVerdictRow = {
   role: GraphVerdictRole;
   id: string;
   kind: string;
@@ -658,7 +658,7 @@ export type GraphVerdictRow = {
   source: 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'budget' | 'judge-failed';
   tier?: string;
 };
-export type GraphVerdictKindReport = { role: GraphVerdictRole; kind: string; total: number; valid: number; invalid: number; unreviewed: number };
+type GraphVerdictKindReport = { role: GraphVerdictRole; kind: string; total: number; valid: number; invalid: number; unreviewed: number };
 export type GraphVerdictReport = {
   generatedAt: string;
   validatorVersion: string;
@@ -698,7 +698,7 @@ export type ProductSettings = {
   own?: boolean;
 };
 
-export type PlanReason =
+type PlanReason =
   | { kind: 'missing' }
   | { kind: 'language'; from: string | null; to: string }
   | { kind: 'ground-changed' | 'ground-removed'; statement: string; ground: string }
@@ -708,8 +708,8 @@ export type PlanReason =
   | { kind: 'missing-domain'; domain: string }
   | { kind: 'task'; task: string; title: string };
 
-export type PlannedPage = { id: string; path: string; reasons: PlanReason[] };
-export type Unplaced = { kind: 'question' | 'correction'; slug: string; title: string; reason: string };
+type PlannedPage = { id: string; path: string; reasons: PlanReason[] };
+type Unplaced = { kind: 'question' | 'correction'; slug: string; title: string; reason: string };
 
 export type RefreshPlan = { languageChanged: boolean; pages: PlannedPage[]; unchanged: string[]; unplaced: Unplaced[]; problems: string[] };
 
@@ -719,7 +719,7 @@ export type RefreshPreview =
 
 // ---- the agent's journal (madarch-m38l.13) ----------------------------------------------------
 
-export type JournalOutcome = 'ok' | 'refused' | 'failed' | 'rejected';
+type JournalOutcome = 'ok' | 'refused' | 'failed' | 'rejected';
 
 export type JournalRecord = {
   time: string;
@@ -854,4 +854,4 @@ export type ContractReason =
   | {code: 'rendererValidationFailure'}
   | {code: 'selectionNotRendered'};
 export type ContractDiagnostic = { path: string; line: number; fullPath: string; code: string; detail: string; reason?: ContractReason; technicalDetail?: string };
-export type ProtoDocumentation = { services: {name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[]}[]; messages: {name: string; fields: {name: string; type: string; id: number; rule: string; oneof?: string}[]; values?: {name: string; id: number}[]}[] };
+type ProtoDocumentation = { services: {name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[]}[]; messages: {name: string; fields: {name: string; type: string; id: number; rule: string; oneof?: string}[]; values?: {name: string; id: number}[]}[] };

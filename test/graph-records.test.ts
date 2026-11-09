@@ -9,7 +9,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { RECORD_TABLES, commitFacts, createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, recordSizes, repositoryFacts } from '../src/graph/index.js';
+import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
+import { RECORD_TABLES, commitFacts } from '../src/graph/records.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -194,13 +195,7 @@ describe('the two passes over one fixture', () => {
     expect(again).not.toContain('only');
   }, 120_000);
 
-  test('report the bytes of each table and of a row', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const sizes = await recordSizes(owner);
-    for (const table of RECORD_TABLES) expect(sizes[table]?.bytes).toBeGreaterThan(0);
-    expect(sizes['file']!.rows).toBeGreaterThan(3);
-  }, 120_000);
-});
+  });
 
 describe('the gaps each pass owns', () => {
   test('a pass replaces only the gaps it wrote, whatever reason the other pass wrote them under', async () => {

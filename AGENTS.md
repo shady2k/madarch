@@ -72,7 +72,7 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   run that holds several: measured on the pod 2026-10-20 (madarch-cznn), a
   throwaway case that sleeps 6 s passed three times in a row under
   `bun test test/tmp-probe-a.test.ts` and was stopped at 5 000 ms in
-  `bun test test/tmp-probe-a.test.ts test/server-graphs.test.ts`, and CI shard
+  `bun test test/tmp-probe-a.test.ts` with a second test file of the suite beside it, and CI shard
   run 39351539188 stopped a case with no bound at 5 036 ms while its own file's
   cases naming 15 000 ran 5.9 s and passed. So a case whose work is long names
   its own bound in the test; the five seconds are what an unnamed case really
@@ -87,7 +87,7 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   folder* of its own — a second process reopens it, a queue's data directory —
   names one with `store` and pays for that store's cluster: 370 ms to `initdb`
   and start on this box (measured 2026-11-07), which is why
-  `test/server-graphs.test.ts`'s two-source cases keep their own 20 s bound.
+  the case of `test/server-sources.test.ts` that opens store folders names its own 60 s bound.
 - Views are accepted by rendering every page the way a reader sees it, not by
   parse checks: GitHub's own Mermaid renderer in a 1150 px column (open
   `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and

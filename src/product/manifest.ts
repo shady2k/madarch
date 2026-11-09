@@ -33,7 +33,7 @@ export const PRODUCT_SCHEMA_VERSION = 1;
 export const MANIFEST_FILE = 'workspace.yaml';
 
 /** One declared code repository of a product's manifest. */
-export interface ProductRepo {
+interface ProductRepo {
   /** The folder under `repos/` the repository is cloned into. */
   name: string;
   /** The optional origin used to clone it; a linked checkout may have none. */
@@ -47,7 +47,7 @@ export interface ProductRepo {
 }
 
 /** The set versions a manifest pins beside the `skills` field, as `<set>: <version>` lines. */
-export type ProductSkills = Record<string, string>;
+type ProductSkills = Record<string, string>;
 
 /** A product folder, read: where it is, and the fields that never change. */
 export interface ProductIdentity {
@@ -280,7 +280,7 @@ const INDICATOR_WHY: Record<string, string> = {
 };
 
 /** A scalar: plain, quoted, and nothing else this subset takes. */
-export function parseScalar(text: string, file: string, line: number): Parsed<unknown> {
+function parseScalar(text: string, file: string, line: number): Parsed<unknown> {
   const trimmed = text.trim();
   if (trimmed === '') return { ok: true, value: null };
   const first = trimmed[0]!;
@@ -446,7 +446,7 @@ export function parseManifest(text: string, file: string): { ok: true; value: un
 }
 
 /** A folder name a code repository may take: one path segment, and nothing that moves. */
-export function isFolderName(name: unknown): name is string {
+function isFolderName(name: unknown): name is string {
   return typeof name === 'string' && name !== '' && name === name.trim()
     && name !== '.' && name !== '..' && !/[/\\\u0000-\u001f]/.test(name);
 }
@@ -616,7 +616,7 @@ export function decodedKeyWord(key: string): string | null {
 }
 
 /** The lines of one `repos` item, at the indentation the block's items use: the first field on the item's own line, the others indented under it. The caller ends each line the way the file ends its own. */
-export function repoItemLines(repo: { name: string; url?: string; linked?: boolean; moved?: boolean; branch?: string }, indent: number): string[] {
+function repoItemLines(repo: { name: string; url?: string; linked?: boolean; moved?: boolean; branch?: string }, indent: number): string[] {
   const field = (name: string, value: string): string => `${' '.repeat(indent + 2)}${name}: ${value}`;
   const lines = [`${' '.repeat(indent)}- name: ${yamlWord(repo.name)}`];
   if (repo.url !== undefined) lines.push(field('url', yamlText(repo.url)));

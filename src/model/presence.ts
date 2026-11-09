@@ -32,7 +32,7 @@ function intersect(a: readonly string[], b: readonly string[]): string[] {
  * `until` is exclusive. Safe to assume `stateOrder` is the valid chain and
  * `since`/`until` (when given) name states in it.
  */
-export function computeStatesRange(since: string | undefined, until: string | undefined, stateOrder: readonly string[]): string[] {
+function computeStatesRange(since: string | undefined, until: string | undefined, stateOrder: readonly string[]): string[] {
   const sinceIndex = since !== undefined ? stateOrder.indexOf(since) : 0;
   const untilIndex = until !== undefined ? stateOrder.indexOf(until) : stateOrder.length;
   if (sinceIndex < 0 || untilIndex < 0) return [...stateOrder];

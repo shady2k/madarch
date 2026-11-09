@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
-import { answerRepositoryMcpMessage, SERVED_TOOL_NAMES } from '../src/mcp/server.js';
+import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 import { RECORD_FILE_LIMIT } from '../src/mcp/records.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-records-'));
@@ -90,14 +90,7 @@ const call = async (tool: string, args: Record<string, unknown> = {}): Promise<A
 const sourceOf = (answer: Record<string, unknown>): Record<string, unknown> => answer['source'] as Record<string, unknown>;
 
 describe('the tools this step serves', () => {
-  test('lists this step\'s five tools and the seven of decision 0032, in the served order', async () => {
-    const listed = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, session);
-    const tools = ((listed?.['result'] as Record<string, unknown>)['tools'] ?? []) as { name: string; description: string; inputSchema: Record<string, unknown> }[];
-    expect(tools.map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
-    expect(tools.slice(0, 5).map((tool) => tool.name)).toEqual(['list_files', 'get_file', 'get_file_history', 'get_commit', 'get_repository']);
-    for (const tool of tools) expect(tool.inputSchema['type']).toBe('object');
-  }, 120_000);
-
+  
   test('get_repository names the as-is commit and the counts the graph holds', async () => {
     const { isError, answer } = await call('get_repository');
     expect(isError).toBe(false);

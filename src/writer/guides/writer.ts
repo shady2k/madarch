@@ -1,7 +1,6 @@
 /** Guide-only preparation on the existing temporal graph and pinned Git snapshot. */
 import { resolve, posix } from 'node:path';
 import { parseEnv } from 'node:util';
-import { readComposeDocument } from '../../extract/operations/compose.js';
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../../fill/snapshot.js';
 import { resolveLens } from '../../graph/reads.js';
@@ -23,8 +22,7 @@ import { join } from 'node:path';
 import remarkParse from 'remark-parse';
 import { firstGuideCursor, guidePagesComplete, registerGuidePages, markGuideCurrent } from './prepared.js';
 import { parseGuideArtifact } from './artifact.js';
-import { ENVIRONMENT_VALUE_RECORDS } from '../../extract/operations/env.js';
-import { readSyntaxTree, syntaxLanguageOf, type SyntaxLanguage } from '../../fill/stages/syntax-extract.js';
+import { readSyntaxTree, syntaxLanguageOf, type SyntaxLanguage } from '../../knowledge/syntax.js';
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import { KINDS_FILE, parseKinds } from '../../knowledge/kinds.js';
 import { splitFrontMatter } from '../../knowledge/markdown.js';
@@ -32,11 +30,19 @@ import { QUESTION_KIND, CORRECTION_KIND, parseQuestion, parseCorrection } from '
 import { parseTask } from '../../loop/tasks.js';
 import { GuidePreparationError, type GuidePreparationStage } from './preparation-error.js';
 
-export const GUIDE_UNIT_VERSION = 'guide-writer@1';
+/** The graph facts that carry an environment value, by the record they stand on and the field it holds. */
+const ENVIRONMENT_VALUE_RECORDS = {
+  variable: { record: 'node', key: 'code.env-var', field: 'default' },
+  definition: { record: 'node', key: 'code.env-definition', field: 'value' },
+  read: { record: 'edge', key: 'code.reads-env', field: 'default' },
+  defines: { record: 'edge', key: 'code.defines', field: 'value' },
+} as const;
+
+const GUIDE_UNIT_VERSION = 'guide-writer@1';
 const MAX_PREPARED_BYTES = 8 * 1024 * 1024;
 const MAX_GRAPH_ROWS = 1200;
 const MAX_SOURCE_LINES = 200;
-export interface GuideEvidenceSpan {
+interface GuideEvidenceSpan {
   readonly ground: GuideGround; readonly text: string; readonly digest: string;
   /** Private decoded syntax literals from the complete source tree; never sent to the agent or persisted. */
   readonly sourceLiterals?: readonly string[];
@@ -68,7 +74,7 @@ export interface GuideWriterWiring {
 }
 
 /** Resolve all coordinates through the graph's own state-chain policy. */
-export async function resolveGuideContext(wiring: Pick<GuideWriterWiring, 'owner' | 'snapshots' | 'valid'>): Promise<GuideContext> {
+async function resolveGuideContext(wiring: Pick<GuideWriterWiring, 'owner' | 'snapshots' | 'valid'>): Promise<GuideContext> {
   const repositories = [];
   for (const pin of await wiring.snapshots.pins()) {
     const reader = await wiring.snapshots.open(pin.id);
@@ -86,8 +92,8 @@ export async function resolveGuideContext(wiring: Pick<GuideWriterWiring, 'owner
 const visible = (alias: string): string => `${alias}.valid_from <= $1::timestamptz AND $1::timestamptz < ${alias}.valid_to AND ${alias}.recorded_from <= $2::timestamptz AND $2::timestamptz < ${alias}.recorded_to AND ${alias}.states @> $3::bigint AND ${alias}.scope_id = $4::bigint`;
 export interface GuideGraphMembership { readonly nodes: readonly Record<string, unknown>[]; readonly edges: readonly Record<string, unknown>[] }
 /** The legacy knowledge graph has its own publication namespace, not fill_fact. */
-export async function readGuideGraph(wiring: Pick<GuideWriterWiring, 'owner' | 'scope'>, context: GuideContext, current = false, transaction?: import('../../history/types.js').OuterTransaction): Promise<GuideGraphMembership> {
-  const read = async (tx: import('../../history/types.js').OuterTransaction): Promise<GuideGraphMembership> => {
+export async function readGuideGraph(wiring: Pick<GuideWriterWiring, 'owner' | 'scope'>, context: GuideContext, current = false, transaction?: import('../../history-types.js').OuterTransaction): Promise<GuideGraphMembership> {
+  const read = async (tx: import('../../history-types.js').OuterTransaction): Promise<GuideGraphMembership> => {
     let known = context.known;
     if (current) {
       const row = (await tx.query<{known:string}>("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS known")).rows[0];
@@ -210,7 +216,7 @@ async function sourceLiteralValues(path:string,text:string):Promise<{values:read
 /** Conservative parsed-config policy: literal configuration values are withheld, not guessed public defaults. */
 type GuideConfigurationReference = { readonly name: string; readonly path: string; readonly value: string };
 /** Environment settings and explicit secret stores, not arbitrary structured configuration. */
-export async function configurationReferences(path: string, text: string, readPinned: (path: string) => Promise<string>): Promise<readonly GuideConfigurationReference[]> {
+async function configurationReferences(path: string, text: string, readPinned: (path: string) => Promise<string>): Promise<readonly GuideConfigurationReference[]> {
   const values: GuideConfigurationReference[] = [];
   const envFile = (file: string, content: string): void => {
     for (const [name, value] of Object.entries(parseEnv(content))) {
@@ -247,19 +253,6 @@ export async function configurationReferences(path: string, text: string, readPi
       }
     }
   }
-  const compose = readComposeDocument(text, path);
-  if (compose.present) {
-    if (compose.gaps.length > 0) throw new GuidePreparationError({ stage: 'source-policy', code: 'invalid', file: 'src/writer/guides/writer.ts', line: 254 });
-    for (const service of compose.services) {
-      for (const variable of service.environment) if (variable.value !== null) values.push({ name: variable.name, path, value: variable.value });
-      for (const file of service.envFiles) {
-        const relative = posix.normalize(posix.join(posix.dirname(path), file));
-        if (posix.isAbsolute(file) || relative === '..' || relative.startsWith('../')) throw new GuidePreparationError({ stage: 'source-policy', code: 'unavailable', file: 'src/writer/guides/writer.ts', line: 260 });
-        try { envFile(relative, await readPinned(relative)); }
-        catch { throw new GuidePreparationError({ stage: 'source-policy', code: 'unavailable', file: 'src/writer/guides/writer.ts', line: 262 }); }
-      }
-    }
-  }
   return values;
 }
 
@@ -279,10 +272,10 @@ function guideValueRanges(text: string, values: readonly string[]): { start: num
   }
   return ranges.sort((a, b) => a.start - b.start || b.end - a.end);
 }
-export function containsGuideSecret(text: string, sensitiveValues: readonly string[] | undefined): boolean {
+function containsGuideSecret(text: string, sensitiveValues: readonly string[] | undefined): boolean {
   return guideValueRanges(text, sensitiveValues ?? []).length > 0;
 }
-export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: readonly string[] = [], hostChecker?: (text: string) => boolean): { readonly evidence: GuidePreparedEvidence; readonly sensitiveValues: readonly string[]; readonly containsSecret: (text: string) => boolean } {
+function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: readonly string[] = [], hostChecker?: (text: string) => boolean): { readonly evidence: GuidePreparedEvidence; readonly sensitiveValues: readonly string[]; readonly containsSecret: (text: string) => boolean } {
   const known = [...new Set(knownValues.filter((value) => value.length > 0))];
   const values = new Set<string>();
   const references = [...(evidence.configReferences ?? [])];
@@ -469,11 +462,11 @@ async function sourceContextSnapshots(snapshots:SnapshotSource,context:GuideCont
   return createGitSnapshotSource(rebound);
 }
 
-export function guideProductDocument(path:string):boolean {
+function guideProductDocument(path:string):boolean {
   return (path.endsWith('.md')||path.endsWith('.markdown')) && !path.split('/').some((part)=>part.startsWith('.')) && !path.startsWith('repos/') && !path.startsWith('docs/guide-walks/') && !path.startsWith('docs/sources/') && path!=='AGENTS.md' && path!=='CLAUDE.md';
 }
 /** Each span belongs to this scope's one actual repository pin; no cross-repository path matching. */
-export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owner' | 'scope' | 'snapshots'>, context: GuideContext): Promise<GuidePreparedEvidence> {
+async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owner' | 'scope' | 'snapshots'>, context: GuideContext): Promise<GuidePreparedEvidence> {
   const codePins=(await wiring.snapshots.pins()).filter((pin)=>pin.form==='code');
   if(codePins.length!==1)throw new Error('guide preparation: this legacy writer needs one actual code scope; no repository was omitted');
   const repository=context.repositories.find((pin)=>pin.name===codePins[0]!.id);
@@ -559,7 +552,7 @@ export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owne
 }
 
 /** A proposed semantic judgement is independent of the agent's guide payload and bound to exact source bytes. */
-export async function verifyGuideStep(agent: UnitAgent, evidence: GuidePreparedEvidence, step: GuideStep, procedure: GuideProcedure, guide: GuideDocument): Promise<readonly string[]> {
+async function verifyGuideStep(agent: UnitAgent, evidence: GuidePreparedEvidence, step: GuideStep, procedure: GuideProcedure, guide: GuideDocument): Promise<readonly string[]> {
   const spans: GuideEvidenceSpan[] = [];
   for (const ground of step.grounds) {
     const held = evidence.spans.find((candidate) => guideDigest(candidate.ground) === guideDigest(ground));
@@ -590,7 +583,7 @@ export async function verifyGuideStep(agent: UnitAgent, evidence: GuidePreparedE
   return verdict?.instruction === true && verdict.expected === true ? [] : ['The source judgement did not support both the exact instruction and expected result.'];
 }
 
-export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<GuideWriterHost> {
+async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<GuideWriterHost> {
   // Preparation belongs to the guide unit. A refused complete graph must not stop unrelated narrative units.
   return {
     async prepare(kind: GuideKind, locale: GuideLocale): Promise<GuidePreparedUnit> {

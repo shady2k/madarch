@@ -36,7 +36,6 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
-import { readMapping, type MappingRead } from './mapping.js';
 import { readWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
@@ -79,7 +78,7 @@ export interface Finding {
 }
 
 /** An edge the product declares between an entity of a kind and the entity at a key (decision 0029: the manifests hold the relations). */
-export interface DeclaredRelation {
+interface DeclaredRelation {
   /** The relation type the edge is shown as. */
   type: string;
   /** The key of the other end, with `{attribute}` standing for the entity's own attribute. */
@@ -89,10 +88,10 @@ export interface DeclaredRelation {
 
 /** How a kind's entities came to be: written by the agent, written by a person, read from the code, read from the history. */
 export type Origin = 'agent' | 'person' | 'code' | 'history';
-export const ORIGINS: readonly Origin[] = ['agent', 'person', 'code', 'history'];
+const ORIGINS: readonly Origin[] = ['agent', 'person', 'code', 'history'];
 
 /** A group of kinds in the navigation and the catalogue (`groups:` in the manifest). */
-export interface GroupDecl {
+interface GroupDecl {
   name: string;
   /** The group's name per interface language. */
   labels: Readonly<Record<string, string>>;
@@ -286,13 +285,13 @@ const NAV_TRAITS = ['own-page', 'loop'] as const;
 export type NavTrait = (typeof NAV_TRAITS)[number];
 
 /** A kind's name in one language, as a reader says it of one entity and of several. */
-export interface KindLabel {
+interface KindLabel {
   one: string;
   many: string;
 }
 
 /** How a property's value is written for a reader: a list, commands, ports, a date, a plain word. */
-export const PROPERTY_FORMATS = ['text', 'list', 'commands', 'ports', 'boolean', 'number', 'date', 'path', 'code', 'build', 'scripts'] as const;
+const PROPERTY_FORMATS = ['text', 'list', 'commands', 'ports', 'boolean', 'number', 'date', 'path', 'code', 'build', 'scripts'] as const;
 export type PropertyFormat = (typeof PROPERTY_FORMATS)[number];
 
 /** A property the product names in its manifest: its reader-facing label in each language and how its value is written. */
@@ -319,7 +318,7 @@ export interface MemberDecl {
 }
 
 /** The renderers a diagram can open on (`diagram:` of the manifest). */
-export const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify'];
+const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify'];
 
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
@@ -331,7 +330,7 @@ export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
 export const EVERY_ROLE = 'everything';
 
 /** What a role changes on a page and in the navigation, as the manifest declares it (`roles:`). */
-export interface RoleDecl {
+interface RoleDecl {
   /** The role's id, as the product's manifest names it (product, analyst, designer, security-engineer ...). */
   name: string;
   /** The blocks of a template that stand open for the role (block names); the others stay on the page, collapsed. Absent: every block is open. */
@@ -342,7 +341,7 @@ export interface RoleDecl {
 }
 
 /** A kind the product's documents are expected to hold, and the manifest's line that says so. */
-export interface ExpectedKind {
+interface ExpectedKind {
   readonly kind: string;
   readonly line: number;
 }
@@ -389,11 +388,6 @@ export interface KindsManifest {
    * are read as the versions before the catalog read them.
    */
   catalog?: { readonly schema: CatalogSchema; readonly kinds: ReadonlyMap<string, CatalogEntry>; readonly findings: readonly Finding[] };
-  /**
-   * The mapping that ties the extractors' vocabulary to the catalog (`mapping:`), when the manifest declares one:
-   * its version, the row of every extractor kind and relation, and the findings of reading it.
-   */
-  mapping?: { readonly version: number; readonly kinds: MappingRead['kinds']; readonly relations: MappingRead['relations']; readonly findings: readonly Finding[] };
   /**
    * The product's workflows (`madarch/workflows.yaml`), when the product holds one: the workflows it reads and the
    * findings of the workflow check — a stage the engine's registry does not hold, a stage whose required input no
@@ -1231,13 +1225,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
-  // The mapping that ties the extractors' vocabulary to the catalog (decision 0033, item 7): every kind and
-  // relation an extractor declares it emits has a row, and every row names something the catalog holds.
-  let mapping: MappingRead | undefined;
-  if (top['mapping'] !== undefined) {
-    mapping = readMapping(top['mapping'], at, file, catalogSchema === undefined ? undefined : { schema: catalogSchema, kinds: catalogEntries }, undefined, declaredKindNames);
-    findings.push(...mapping.findings);
-  }
   // The catalog as a whole: a subgroup above its bound or with no kind, an area with no subgroup, two kinds of one
   // concept id, and a value the catalog marks as an attribute declared as a kind.
   if (catalogSchema !== undefined) {
@@ -1262,7 +1249,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), ...(mapping === undefined ? {} : { mapping: { version: mapping.version, kinds: mapping.kinds, relations: mapping.relations, findings: mapping.findings } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, properties, kinds, declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

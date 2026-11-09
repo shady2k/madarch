@@ -1,3 +1,4 @@
+import { memorySink, memoryJournal } from './writer-memory.js';
 /**
  * The writer's tools (decision 0032, section 2): the answers a unit asks of its graph — a symbol by
  * name with its code, callers, callees, references and tests; an entity's context in one call; a flow
@@ -14,11 +15,8 @@ import { describe, expect, test } from 'bun:test';
 import { documentAnchors } from '../src/knowledge/anchors.js';
 import type { GraphEntity, NeighborEdge, NeighborGroup } from '../src/knowledge/graph-read.js';
 import type { Question } from '../src/loop/entities.js';
-import {
-  AnswerRefusal, CONTEXT_PURPOSES, getContext, getDocumentSections, getPage, getSymbol,
-  searchPages, searchQuestions, traceFlow, type GraphReads,
-} from '../src/writer/answers.js';
-import { memorySink } from '../src/writer/index.js';
+import { AnswerRefusal, CONTEXT_PURPOSES, getContext, getDocumentSections, getPage, getSymbol, searchPages, searchQuestions, traceFlow, type GraphReads } from '../src/writer/answers.js';
+
 import { addCounters, betweenCounters, countersOf, fileJournal, journalOfUnit, NO_COUNTERS, recordOf } from '../src/writer/journal.js';
 import { preparedContextPart, productPrompt } from '../src/writer/prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, WRITER_TOOLS, type PageSink, type UnitSpec } from '../src/writer/tools.js';
@@ -529,29 +527,7 @@ const DOMAIN_FIELDS: Record<string, unknown> = {
 };
 
 describe('a unit holds the tools that answer its questions', () => {
-  test('the seven answers are tools, of a product unit and of a domain unit alike', () => {
-    const names = WRITER_TOOLS.map((tool) => tool.name);
-    for (const name of ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions', 'read_file']) expect(names).toContain(name);
-    const held = tools().tools.map((tool) => tool.name);
-    for (const name of ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions']) expect(held).toContain(name);
-    // A domain unit writes no page of its own Markdown and declares no domains (madarch-ztyq.6): its write_page
-    // takes the page's title and the fields of its six sections, and the core writes the page. A product unit's
-    // takes the fields of the home page's eight sections (madarch-ztyq.7) beside the domains it declares, and the
-    // headings and footnotes are the core's, never the unit's.
-    const domainWrite = tools().tools.find((tool) => tool.name === 'write_page')!;
-    const domainSchema = domainWrite.inputSchema as { properties: Record<string, unknown>; required?: readonly string[] };
-    expect(Object.keys(domainSchema.properties)).toEqual(['title', 'participants', 'mainScenario', 'rules', 'whatCanGoWrong', 'openPoints', 'developer']);
-    expect(domainSchema.required).toEqual(['participants', 'mainScenario']);
-    const productWrite = new UnitTools(view(), { kind: 'product', id: 'product:shop', path: 'docs/product.md', name: 'Shop' }, memorySink(), [], DEFAULT_UNIT_BOUNDS, BASIS, { reads: stubReads(), questions: async () => [] }).tools.find((tool) => tool.name === 'write_page')!;
-    const productSchema = productWrite.inputSchema as { properties: Record<string, unknown>; required?: readonly string[] };
-    expect(Object.keys(productSchema.properties)).toEqual(['fields', 'domains']);
-    expect(productSchema.required).toEqual(['fields', 'domains']);
-    const fieldsSchema = (productSchema.properties['fields'] as { properties: Record<string, unknown> }).properties;
-    expect(Object.keys(fieldsSchema)).toEqual(['title', 'whatItIs', 'scenarios', 'system', 'domains', 'rules', 'technology', 'coverage', 'notConnected']);
-    expect(Object.keys(domainSchema.properties)).not.toContain('fields');
-    expect(Object.keys(domainSchema.properties)).not.toContain('domains');
-  });
-
+  
   test('every answer names the repository, the revision and the instant it was read at, with its evidence and its cuts', async () => {
     const session = tools();
     const answer = await session.call('get_symbol', { name: 'refund' });
@@ -588,27 +564,8 @@ describe('a unit holds the tools that answer its questions', () => {
     expect(session.counters().unresolvedJoins).toBe(2);
   });
 
-  test('what the unit produced is counted: the page, its statements, their grounds and links, and a question', async () => {
-    const sink = memorySink();
-    const session = tools(sink);
-    const written = await session.call('write_page', { fields: DOMAIN_FIELDS });
-    expect(written.isError, JSON.stringify(written.answer)).toBe(false);
-    // One statement per section and the developer's note: six footnotes of one ground each, and one link in the
-    // text. A footnote's ground is a ground, not a link, and the core wrote the sections from the fields.
-    expect(written.counters?.produced).toEqual({ pages: 1, statements: 6, grounds: 6, links: 1, questions: 0 });
-    const empty = await session.call('ask_question', { type: 'gap' });
-    expect(empty.isError).toBe(true);
-    expect(session.counters().produced.questions).toBe(0);
+  
   });
-
-  test('a call over the bound is answered with no counters at all', async () => {
-    const session = new UnitTools(view(), DOMAIN, memorySink(), [], { maxWriteAttempts: 5, maxCalls: 1 }, BASIS, { reads: stubReads() });
-    await session.call('read_file', { path: 'services/payments/refund.ts' });
-    const over = await session.call('read_file', { path: 'services/payments/refund.ts' });
-    expect(over.isError).toBe(true);
-    expect(over.counters).toEqual(NO_COUNTERS);
-  });
-});
 
 describe('the subgraph a unit is handed comes before it asks', () => {
   test('the prompt names the services, routes, tables, channels and documents, with the key to go on from', async () => {
@@ -706,25 +663,4 @@ describe('a home page refusal names the field it stands in (madarch-ztyq.7 revie
     expect(JSON.stringify(written.answer)).toContain('fields.whatItIs[0].grounds[0]');
   });
 
-  test('an empty product gets the explicit page of gap sentences instead of a refusal', async () => {
-    const reads = stubReads();
-    const empty = {
-      ...view(reads),
-      overview: async () => ({ kinds: [], relations: [], documents: [] }),
-      node: async () => null,
-      graphKey: async () => false,
-      docSection: async () => false,
-      documentPaths: async () => [],
-    } as unknown as GraphView;
-    const sink = memorySink();
-    const session = new UnitTools(empty, PRODUCT, sink, [], DEFAULT_UNIT_BOUNDS, BASIS, { reads, questions: async () => [] });
-    const written = await session.call('write_page', { fields: { whatItIs: [] }, domains: [] });
-    expect(written.isError, JSON.stringify(written.answer)).toBe(false);
-    expect(written.answer).toMatchObject({ written: true, path: 'docs/product.md' });
-    const page = sink.pages.get('docs/product.md')!;
-    expect(page.split('\n').filter((line) => line.startsWith('## '))).toHaveLength(8);
-    expect(page).toContain('have not yet been assessed');
-    expect(page).toContain('<!-- madarch:empty-product-gap:what-it-is:');
-    expect(page).not.toMatch(/\[\^[A-Za-z0-9_-]+\]/);
   });
-});

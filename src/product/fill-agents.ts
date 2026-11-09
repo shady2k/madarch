@@ -14,8 +14,8 @@ export type AgentKind = 'claude' | 'codex' | 'omp';
  * from this machine instead.
  */
 export const AGENT_API_KEY_ENV: Readonly<Record<AgentKind, string | undefined>> = { claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', omp: undefined };
-export interface AgentSettings { model?: string; executable?: string; extension?: string; tools?: string; }
-export type AgentEvent = { unitId: string; stage: FillUnit['stage']; type: string; timestamp: string; payload: unknown };
+interface AgentSettings { model?: string; executable?: string; extension?: string; tools?: string; }
+type AgentEvent = { unitId: string; stage: FillUnit['stage']; type: string; timestamp: string; payload: unknown };
 type Child = Pick<ChildProcessWithoutNullStreams, 'stdout' | 'stderr' | 'once' | 'kill'>;
 type Spawn = (command: string, args: string[], options: { cwd: string; stdio: ['ignore', 'pipe', 'pipe']; env: NodeJS.ProcessEnv }) => Child;
 
@@ -50,7 +50,7 @@ export function normalizeAgentEvent(line: string, unit: Pick<FillUnit, 'id' | 's
 }
 
 /** Run one extraction in the pinned source snapshot. Product writes are intentionally a separate controlled apply operation. */
-export function createHeadlessAgentExecutor(options: {
+function createHeadlessAgentExecutor(options: {
   kind: AgentKind; snapshot: string; promptFor: (unit: FillUnit) => string; settings?: AgentSettings;
   onEvent: (event: AgentEvent) => Promise<void> | void;
   /** Store the unmodified provider line in the unit's private raw log. */

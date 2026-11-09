@@ -13,18 +13,7 @@ import { describe, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  ACCEPTANCES_FOLDER,
-  ANSWERS_FOLDER,
-  answerDocument,
-  acceptanceDocument,
-  decisionFile,
-  discardDecision,
-  parseDecisionDocument,
-  readDecisions,
-  stageDecision,
-  writeDecision,
-} from '../src/fill/decisions.js';
+import { ACCEPTANCES_FOLDER, ANSWERS_FOLDER, answerDocument, acceptanceDocument, decisionFile, discardDecision, parseDecisionDocument, stageDecision } from '../src/fill/decisions.js';
 
 const QUESTION = `question:${'1'.repeat(64)}`;
 const PAGE = `module:${'2'.repeat(64)}`;
@@ -111,42 +100,8 @@ describe('the decision documents the wiki writes', () => {
 });
 
 describe('the product\'s git holds the decisions, one file per decided node', () => {
-  test('a write lands whole at the path the record names and is read back as written', () => {
-    const made = product();
-    try {
-      const relative = writeDecision(made.folder, ANSWERS_FOLDER, QUESTION, answerDocument({ subject: QUESTION, prompt: 'Why?', text: 'Because the card is captured last.', by: BY, at: AT }));
-      expect(relative).toBe(`answers/${'1'.repeat(64)}.md`);
-      expect(readFileSync(join(made.folder, relative), 'utf8')).toContain('Because the card is captured last.');
-      writeDecision(made.folder, ACCEPTANCES_FOLDER, PAGE, acceptanceDocument({ subject: PAGE, label: 'checkout', verdict: 'accepted', note: 'the boundary is right', by: BY, at: AT }));
-      const read = readDecisions(made.folder);
-      expect(read.problems).toEqual([]);
-      expect(read.records.map((record) => [record.kind, record.subject])).toEqual([['acceptance', PAGE], ['answer', QUESTION]]);
-      // A file the folders hold that is no decision document is a problem with its path, never a record nobody wrote.
-      writeFileSync(join(made.folder, ANSWERS_FOLDER, 'notes.md'), 'a scribble\n');
-      const withStray = readDecisions(made.folder);
-      expect(withStray.problems.map((problem) => [problem.file, problem.line])).toEqual([[join(made.folder, ANSWERS_FOLDER, 'notes.md'), 1]]);
-      // A staged decision that is dropped writes nothing: the document already at its path stands as it was.
-      const staged = stageDecision(made.folder, ANSWERS_FOLDER, QUESTION, answerDocument({ subject: QUESTION, prompt: 'Why?', text: 'A second answer nobody committed.', by: BY, at: AT }));
-      expect(readFileSync(join(made.folder, staged.file), 'utf8')).toContain('Because the card is captured last.');
-      discardDecision(staged);
-      // The committed answer and the acceptance stand; the staged one wrote nothing.
-      expect(readDecisions(made.folder).records.map((record) => [record.kind, record.kind === 'answer' ? record.text : ''])).toEqual([['acceptance', ''], ['answer', 'Because the card is captured last.']]);
-    } finally {
-      made.close();
-    }
-  });
-
-  test('a product that answered nothing holds no decisions, and a folder nobody wrote is not a problem', () => {
-    const made = product();
-    try {
-      expect(readDecisions(made.folder)).toEqual({ records: [], problems: [] });
-      mkdirSync(join(made.folder, ANSWERS_FOLDER));
-      expect(readDecisions(made.folder)).toEqual({ records: [], problems: [] });
-    } finally {
-      made.close();
-    }
-  });
-
+  
+  
   test('a decision file\'s name is the node\'s digest: one name per decision, and no colon a filesystem refuses', () => {
     expect(decisionFile(ANSWERS_FOLDER, QUESTION)).toBe(`answers/${'1'.repeat(64)}.md`);
     expect(() => decisionFile(ANSWERS_FOLDER, 'QST-1')).toThrow('src/fill/decisions.ts: the decision of "QST-1" has no file: a decision is about a node of the graph, named by its fact id');

@@ -31,7 +31,7 @@ export const CHARTER_QUESTION_TYPES = [
   'decision-rationale',
   'access-or-document-needed',
 ] as const;
-export type CharterQuestionType = (typeof CHARTER_QUESTION_TYPES)[number];
+type CharterQuestionType = (typeof CHARTER_QUESTION_TYPES)[number];
 
 /** Whether a question's type is one the charter names. */
 export function isCharterQuestionType(type: string): type is CharterQuestionType {

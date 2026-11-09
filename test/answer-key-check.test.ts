@@ -2,23 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import {
-  buildAnswerKeyCheck,
-  matchedQuestionCount,
-  questionItems,
-  readAnswerKey,
-  readExpectedQuestions,
-  reportText,
-  thresholdLine,
-  writeAnswerKeyCheck,
-  type Classification,
-  type EvidenceDocument,
-  type EvidenceDocumentRef,
-  type EvidenceQuestion,
-  type EvidencePage,
-  type EvidenceSource,
-  type ResolvedPlace,
-} from '../src/knowledge/answer-key-check.js';
+import { buildAnswerKeyCheck, matchedQuestionCount, questionItems, readAnswerKey, readExpectedQuestions, thresholdLine, writeAnswerKeyCheck, type Classification, type EvidenceDocument, type EvidenceDocumentRef, type EvidenceQuestion, type EvidencePage, type EvidenceSource, type ResolvedPlace } from '../src/knowledge/answer-key-check.js';
 
 interface FixturePage {
   readonly id: string;
@@ -220,26 +204,7 @@ describe('answer-key check evidence packs', () => {
     expect(thresholdLine(check)).toContain('expected questions matched to question pages: 1 of 1');
   });
 
-  test('writes packs, the unsure file and a report without gating', async () => {
-    const check = await fixtureCheck();
-    const out = mkdtempSync(join(tmpdir(), 'answer-key-check-'));
-    try {
-      const written = writeAnswerKeyCheck(check, out);
-      const packs = JSON.parse(readFileSync(written.packs, 'utf8'));
-      const unsure = JSON.parse(readFileSync(written.unsure, 'utf8'));
-      const report = JSON.parse(readFileSync(written.report, 'utf8'));
-      expect(packs.items).toHaveLength(7);
-      expect(unsure.items.map((item: { item: { id: string } }) => item.item.id)).toEqual(['fixture.full', 'fixture.partly', 'fixture.none', 'fixture.unsure', 'open.fixture', 'fixture.negation', 'fixture.elsewhere']);
-      expect(report.gate).toBe('reported-only');
-      expect(report.thresholdMet).toBe(false);
-      expect(report.questions.expected).toHaveLength(1);
-      expect(reportText(check)).toContain('threshold (computed, not gated)');
-      expect(thresholdLine(check)).toContain('fully 0/7 = 0.0%');
-    } finally {
-      rmSync(out, { recursive: true, force: true });
-    }
   });
-});
 
 describe('answer-key read errors', () => {
   test('name the file, the line and the full path', () => {

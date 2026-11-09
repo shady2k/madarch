@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { Maximize2Icon, Minimize2Icon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { DiagramOpenContext } from './open.js';
+import { DiagramOpenContext, DiagramOpenProvider } from './open.js';
 
 const FullscreenContext = createContext(false);
 
@@ -45,7 +45,7 @@ export function Fullscreenable({ children }: { children: ReactNode }): ReactElem
         {full ? <Minimize2Icon aria-hidden="true" className="size-4" /> : <Maximize2Icon aria-hidden="true" className="size-4" />}
       </button>
       <FullscreenContext.Provider value={full}>
-        <DiagramOpenContext.Provider value={open}>{children}</DiagramOpenContext.Provider>
+        <DiagramOpenProvider onOpen={open}>{children}</DiagramOpenProvider>
       </FullscreenContext.Provider>
     </div>
   );

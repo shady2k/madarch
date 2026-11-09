@@ -15,7 +15,8 @@ import { KMarkdown } from './blocks.js';
 import { GlossaryContext, GlossaryPage, TermBlockView, filterTerms, termIndex } from './glossary.js';
 import { EntityPage } from './pages.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
-import { RoleContext, blockOpen, chooseRole, leadGroups, loadSettings, resetSettings } from './roles.js';
+import { RoleContext, blockOpen, chooseRole, leadGroups, loadSettings } from './roles.js';
+import { resetSettings } from '../../test/reset.js';
 import type { Glossary, GlossaryTerm, PageModel } from './types.js';
 
 beforeAll(async () => {

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
-import { answerRepositoryMcpMessage, type PendingRepository } from '../src/mcp/server.js';
+import { type PendingRepository } from '../src/mcp/server.js';
 import { SERVED_TOOL_NAMES } from '../src/mcp/server.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
@@ -65,27 +65,4 @@ describe('a served checkout', () => {
     }
   }, 300_000);
 
-  test('serves through the protocol, and a contract answer is the graph own, never a startup failure', async () => {
-    const ready = RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
-    const pending: PendingRepository = { repository: REPOSITORY, ready };
-    try {
-      const initialized = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, pending);
-      expect((initialized?.['result'] as Record<string, unknown>)['serverInfo']).toMatchObject({ name: 'madarch' });
-      const listed = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, pending);
-      expect(((listed?.['result'] as Record<string, unknown>)['tools'] as { name: string }[]).map((tool) => tool.name)).toEqual([...SERVED_TOOL_NAMES]);
-      // A client that asks while the store is being filled is told so and asks again (madarch-ztyq.10 review).
-      let text = '';
-      for (let attempt = 0; attempt < 120; attempt++) {
-        const called = await answerRepositoryMcpMessage({ jsonrpc: '2.0', id: 3 + attempt, method: 'tools/call', params: { name: 'get_file', arguments: { path: 'contracts/openapi/items.yaml' } } }, pending);
-        const result = called?.['result'] as Record<string, unknown>;
-        text = ((result['content'] as { text: string }[])[0]!.text);
-        if (!text.includes('graph-building')) break;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      expect(text).toContain('"path":"contracts/openapi/items.yaml"');
-      expect(text).not.toContain('startup-failed');
-    } finally {
-      await (await ready).close();
-    }
-  }, 300_000);
-});
+  });

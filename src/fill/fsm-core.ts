@@ -58,7 +58,7 @@ export interface TransitionSpec<State extends string, Event extends FillEventObj
 }
 
 /** A named guard: a pure predicate over the persisted context and the event. */
-export interface GuardSpec<Context, Event extends FillEventObject> {
+interface GuardSpec<Context, Event extends FillEventObject> {
   /** What the guard means, in the words the refusal and the diagram use. */
   readonly describe: string;
   readonly check: (context: Context, event: Event) => boolean;
@@ -68,7 +68,7 @@ export interface GuardSpec<Context, Event extends FillEventObject> {
  * A named action. `effect` is performed by the caller after the new state is
  * persisted; `context` is a pure update XState applies while it steps.
  */
-export type ActionSpec<Context, Event extends FillEventObject> =
+type ActionSpec<Context, Event extends FillEventObject> =
   | { readonly kind: 'effect'; readonly describe: string }
   | { readonly kind: 'context'; readonly describe: string; readonly apply: (context: Context, event: Event) => Context };
 
@@ -84,7 +84,7 @@ export interface MachineSpec<State extends string, Event extends FillEventObject
 }
 
 /** A machine's state and context as they are persisted: plain data, never an XState object. */
-export interface MachineSnapshot<State extends string, Context> {
+interface MachineSnapshot<State extends string, Context> {
   readonly state: State;
   readonly context: Context;
 }
@@ -105,7 +105,7 @@ export interface Refusal<State extends string> {
   readonly transitions: readonly string[];
 }
 
-export type StepResult<State extends string, Context> =
+type StepResult<State extends string, Context> =
   | {
     readonly ok: true;
     /** The transition id that was taken. */
@@ -309,7 +309,7 @@ export function createFillMachine<State extends string, Event extends FillEventO
  * that already carries one — nor must they mistake an unrelated message that
  * happens to begin with a slash for a located one.
  */
-export function isLocated(message: string): boolean {
+function isLocated(message: string): boolean {
   return /^(?:\/|[A-Za-z]:[\\/])[^:]*:\d+:\d+:/.test(message);
 }
 

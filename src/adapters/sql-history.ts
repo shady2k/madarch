@@ -1,5 +1,5 @@
 import type { CompiledModel } from '../model/compile.js';
-import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history/assertions.js';
+import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history-assertions.js';
 import type {
   AssertionChange,
   AssertionRecord,
@@ -13,7 +13,7 @@ import type {
   StoreInput,
   SourceRegistry,
   StoreResult,
-} from '../history/types.js';
+} from '../history-types.js';
 import { byCodePoint } from '../model/order.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { createDatabaseOwner, type DatabaseClusterRef, type DatabaseOwner, type OuterTransaction } from './database-owner.js';

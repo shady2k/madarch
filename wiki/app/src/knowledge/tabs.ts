@@ -11,7 +11,7 @@
 import { useEffect, useRef, useSyncExternalStore, type MouseEvent } from 'react';
 import { appBase, appPath, appRoute } from '../app-base.js';
 
-export interface Tab {
+interface Tab {
   key: string;
   /** The page's address inside the product's wiki: path, query and hash, without the product's mount. */
   address: string;
@@ -79,7 +79,7 @@ function set(next: TabsState): void {
 }
 
 /** Forgets every tab (a test starts over; a product opened anew starts with its one tab). */
-export function resetTabs(): void {
+function resetTabs(): void {
   state = null;
   counter = 0;
   for (const listener of listeners) listener();
@@ -98,7 +98,7 @@ const subscribe = (listener: () => void): (() => void) => {
 function onPop(): void {
   const now = current();
   const address = currentAddress();
-  const front = now.tabs.find((tab) => tab.key === now.active);
+  const front = frontTab();
   if (front?.address === address) return;
   // Focusing an already-open tab pushes its address into browser history. Back/forward
   // should restore the tab already holding that address, not overwrite the tab that
@@ -112,8 +112,10 @@ function onPop(): void {
   set({ ...now, tabs: now.tabs.map((tab) => (tab.key === now.active ? { ...tab, address, title: null } : tab)) });
 }
 
+export const tabsState = current;
+
 export function useTabs(): TabsState {
-  return useSyncExternalStore(subscribe, current, current);
+  return useSyncExternalStore(subscribe, tabsState, tabsState);
 }
 
 /** The tab in front. */
@@ -140,7 +142,7 @@ const withoutHash = (address: string): string => {
  * address without its hash, so another section of an open document is the same page: that tab then shows the section.
  * Returns whether a tab other than the one in front held it.
  */
-export function focusOpenTab(address: string): boolean {
+function focusOpenTab(address: string): boolean {
   const now = current();
   const open = now.tabs.find((tab) => tab.key !== now.active && withoutHash(tab.address) === withoutHash(address));
   if (open === undefined) return false;
@@ -194,7 +196,7 @@ export function closeTab(key: string): void {
 export function syncFrontTabAddress(): void {
   const now = current();
   const address = currentAddress();
-  const front = now.tabs.find((tab) => tab.key === now.active);
+  const front = frontTab();
   if (front === undefined || front.address === address) return;
   set({ ...now, tabs: now.tabs.map((tab) => (tab.key === now.active ? { ...tab, address } : tab)) });
 }
@@ -208,7 +210,7 @@ export function setTabTitle(key: string, title: string): void {
 }
 
 /** Whether a click asks for a new tab: control or command, or the middle button. */
-export const wantsNewTab = (event: { ctrlKey: boolean; metaKey: boolean; button: number }): boolean => event.ctrlKey || event.metaKey || event.button === 1;
+const wantsNewTab = (event: { ctrlKey: boolean; metaKey: boolean; button: number }): boolean => event.ctrlKey || event.metaKey || event.button === 1;
 
 /** Whether a click is left to the browser: shift (a window of its own) or alt. */
 const leftToBrowser = (event: { shiftKey: boolean; altKey: boolean; button: number }): boolean => event.shiftKey || event.altKey || (event.button !== 0 && event.button !== 1);

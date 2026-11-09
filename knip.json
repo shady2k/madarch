@@ -1,14 +1,18 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "bun": false,
   "entry": [
     "scripts/*.ts",
-    "src/index.ts",
     "test/**/*.test.ts",
     "test/deadline.ts",
     "test/questions-once-browser-check.ts",
     "test/postgres-cluster-owner-driver.ts",
     "test/queue-binary-driver.ts",
     "test/run-scratch.ts",
+    "test/run-postgres.ts",
+    "test/test-database.ts",
+    "test/repo-fixture.ts",
+    "test/git-env.ts",
     "test/type-checks/*.ts",
     "wiki/app/index.html",
     "wiki/app/src/main.tsx",
@@ -21,11 +25,11 @@
   ],
   "project": [
     "scripts/**/*.ts",
-    "src/**/*.ts",
     "test/**/*.ts",
     "wiki/app/src/**/*.tsx",
     "wiki/app/src/**/*.ts",
-    "wiki/app/test/**/*.ts"
+    "wiki/app/test/**/*.ts",
+    "wiki/app/vite.config.ts"
   ],
   "ignore": [
     "test/fixtures/**",
@@ -34,11 +38,7 @@
     "wiki/starlight/**"
   ],
   "include": [
-    "files",
-    "exports",
-    "nsExports",
-    "types",
-    "nsTypes",
-    "enumMembers"
-  ]
+    "files"
+  ],
+  "ignoreExportsUsedInFile": true
 }

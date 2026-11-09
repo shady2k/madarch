@@ -34,11 +34,11 @@ import { stateMachinesOf } from './state-machines.js';
 
 // ---- the vocabulary ----------------------------------------------------------------------------------
 
-export const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'er', 'state', 'deployment', 'domain', 'domain-map'] as const;
+const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'er', 'state', 'deployment', 'domain', 'domain-map'] as const;
 export type ViewType = (typeof VIEW_TYPES)[number];
 
 /** The renderers, in the order the tabs stand in when the setting does not move one to the front. */
-export const RENDERERS = ['likec4', 'mermaid', 'archify'] as const;
+const RENDERERS = ['likec4', 'mermaid', 'archify'] as const;
 export type Renderer = (typeof RENDERERS)[number];
 
 /**
@@ -59,7 +59,7 @@ export const RENDERERS_OF: Readonly<Record<ViewType, readonly Renderer[]>> = {
 };
 
 /** The renderer the tabs open on when neither the product nor the environment names one. */
-export const DEFAULT_RENDERER: Renderer = 'likec4';
+const DEFAULT_RENDERER: Renderer = 'likec4';
 
 /**
  * The first tab: the product's setting, else `MADARCH_WIKI_DIAGRAM`, else LikeC4; a type the renderer cannot draw falls
@@ -118,7 +118,7 @@ export function parseSpec(query: URLSearchParams): ViewSpec {
 }
 
 /** The specification as the query a request carries it in. */
-export function specQuery(spec: ViewSpec): string {
+function specQuery(spec: ViewSpec): string {
   const query = new URLSearchParams({ type: spec.type, subject: spec.subject });
   if (spec.scope !== undefined) query.set('scope', spec.scope);
   if (spec.entry !== undefined) query.set('entry', spec.entry);
@@ -128,9 +128,9 @@ export function specQuery(spec: ViewSpec): string {
 // ---- the model ---------------------------------------------------------------------------------------
 
 /** How many elements a view shows before it folds them into the level above. */
-export const NODE_BUDGET = 40;
+const NODE_BUDGET = 40;
 
-export interface ViewElement {
+interface ViewElement {
   id: string;
   label: string;
   /** The look: the kind the renderers style (`container`, `database`, `channel`, `external`, `person`, `component`, `table`, `participant`, `state`, `node`, `image`, `product`). */
@@ -153,7 +153,7 @@ export interface ViewElement {
   standsFor?: number;
 }
 
-export interface ViewEdge {
+interface ViewEdge {
   /** A graph relation discriminator, retained when parallel facts share both ends. */
   discriminator?: string;
   from: string;
@@ -251,8 +251,8 @@ const WORDS = {
     domainOf: (title: string) => `Домен: ${title}`, event: (name: string) => `событие ${name}`, nothingNearby: 'К этому домену не привязано ничего из того, что знает граф.',
   },
 };
-export type Words = (typeof WORDS)['en'] & { lang: 'en' | 'ru' };
-export const wordsOf = (lang: string | undefined): Words => ({ ...(lang === 'ru' ? WORDS.ru : WORDS.en), lang: lang === 'ru' ? 'ru' : 'en' });
+type Words = (typeof WORDS)['en'] & { lang: 'en' | 'ru' };
+const wordsOf = (lang: string | undefined): Words => ({ ...(lang === 'ru' ? WORDS.ru : WORDS.en), lang: lang === 'ru' ? 'ru' : 'en' });
 
 const via = (word: string, label: string): string => {
   // One label per relation: a label that already says the verb is not said twice ("publishes publishes").
@@ -373,7 +373,7 @@ export function shapeOf(view: GraphView): ShapeDiagram {
 }
 
 /** The Mermaid source of a view: its own where the type has a better syntax, else the shared flowchart or sequence. */
-export function mermaidOfView(view: GraphView): string {
+function mermaidOfView(view: GraphView): string {
   return view.mermaid ?? mermaidOfDiagram(shapeOf(view));
 }
 
@@ -677,7 +677,7 @@ async function filesOfSubject(ctx: RenderContext, subject: GraphEntity): Promise
 }
 
 /** Every state view the subject's files hold, one per transition table. */
-export async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Words): Promise<GraphView[]> {
+async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Words): Promise<GraphView[]> {
   const { files, dropped } = await filesOfSubject(ctx, subject);
   const views: GraphView[] = [];
   const queue = [...files];

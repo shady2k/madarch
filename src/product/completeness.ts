@@ -4,7 +4,7 @@ import { join as joinPath, relative, sep } from 'node:path';
 import { Value } from 'typebox/value';
 import { ProductCompleteness, type ProductCompleteness as ProductCompletenessData } from './schema.js';
 
-export const COMPLETENESS_FILE = 'docs/completeness.json';
+const COMPLETENESS_FILE = 'docs/completeness.json';
 
 /** Snapshot data or absence. Invalid/unreadable snapshots are surfaced as a problem. */
 export type CompletenessRead =

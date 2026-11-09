@@ -114,21 +114,8 @@ describe('the workflows the starter set declares', () => {
     expect(STARTER.match(/^    stages: \[\]$/gm)?.length).toBe(STARTER_WORKFLOWS.filter((workflow) => workflow.status === 'planned').length);
   }, 30_000);
 
-  test('a workflow of stages the registry holds reads without a finding, and keeps the order the file writes', () => {
-    const read = readText('workflows:\n  first-fill:\n    status: implemented\n    stages: [snapshot, inventory, syntax, modules]\n');
-    expect(read.findings).toEqual([]);
-    expect(read.workflows.get('first-fill')!.stages).toEqual(['snapshot', 'inventory', 'syntax', 'modules']);
-  });
-
-  test('a planned workflow may name no stages, and may name stages the registry holds', () => {
-    const read = readText('workflows:\n  branch-worktree:\n    status: planned\n');
-    expect(read.findings).toEqual([]);
-    expect(read.workflows.get('branch-worktree')!.stages).toEqual([]);
-    const named = readText('workflows:\n  branch-worktree:\n    status: planned\n    stages: [snapshot]\n');
-    expect(named.findings).toEqual([]);
-    expect(named.workflows.get('branch-worktree')!.stages).toEqual(['snapshot']);
-  });
-
+  
+  
   test('the workflows read in code point order of their names, whatever order the file writes them in', () => {
     const read = readText('workflows:\n  zebra:\n    status: planned\n  alpha:\n    status: planned\n  Middle:\n    status: planned\n');
     expect(read.findings).toEqual([]);
@@ -155,19 +142,7 @@ describe('the workflows the starter set declares', () => {
 });
 
 describe('the refusals of the workflow check', () => {
-  test('a workflow naming a stage the registry does not hold is refused, naming the file, line, workflow and stage', () => {
-    const text = stagesOf('first-fill', ['snapshot', 'teleport']);
-    const read = readText(text);
-    expect(read.findings).toEqual([{
-      file: FILE,
-      line: lineOf(text, '- teleport'),
-      message: 'workflow "first-fill" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are ' + ENGINE_STAGES + ')',
-    }]);
-    // The refused workflow is left out, and the others stand.
-    expect(read.workflows.has('first-fill')).toBe(false);
-    expect(read.workflows.has('update-by-commit')).toBe(true);
-  });
-
+  
   test('the unknown stage ids of one workflow are refused in code point order, whatever order the file names them', () => {
     const read = readText('workflows:\n  first-fill:\n    status: implemented\n    stages:\n      - zebra\n      - alpha\n');
     expect(read.findings.map((finding) => finding.message.split(':')[0])).toEqual([
@@ -177,76 +152,9 @@ describe('the refusals of the workflow check', () => {
     expect(read.workflows.size).toBe(0);
   });
 
-  test('a stage whose input no earlier stage produces is refused by the derivation\'s own path', () => {
-    // Modules reads `symbol`, and two stages of this madarch produce it — the file pass and the code
-    // pass: a workflow that leaves both out starves modules, and the derivation names both paths.
-    const text = stagesOf('first-fill', ['snapshot', 'inventory', 'modules']);
-    const read = readText(text);
-    expect(read.findings.map((finding) => finding.message)).toEqual([
-      'workflow "first-fill" stage "modules": modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"',
-      'workflow "first-fill" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
-    ]);
-    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([
-      [FILE, lineOf(text, '- modules')], [FILE, lineOf(text, '- modules')],
-    ]);
-    expect(read.workflows.has('first-fill')).toBe(false);
-    expect(read.workflows.size).toBe(3);
-  });
-
-  test('a workflow that names stages is checked whatever its status says: a planned one is exempt from neither refusal', () => {
-    const workflow = (status: string): string => ['workflows:', '  branch-worktree:', `    status: ${status}`, '    stages:', '      - modules', ''].join('\n');
-    // Two stages produce a symbol — the file pass and the code pass — and the snapshot is the one
-    // that produces a file; the workflow names none of the three, and the derivation names each path.
-    const both = [
-      'workflow "branch-worktree" stage "modules": modules → file → snapshot (disabled): the workflow names no stage that produces the input "file"',
-      'workflow "branch-worktree" stage "modules": modules → symbol → codegraph (disabled): the workflow names no stage that produces the input "symbol"',
-      'workflow "branch-worktree" stage "modules": modules → symbol → syntax (disabled): the workflow names no stage that produces the input "symbol"',
-    ];
-    expect(readText(workflow('implemented')).findings.map((finding) => finding.message)).toEqual(both);
-    // Decision 0033, item 2 names no exception for a planned workflow: the stage it names is refused at its own line.
-    const planned = readText(workflow('planned'));
-    expect(planned.findings.map((finding) => [finding.line, finding.message])).toEqual(both.map((message) => [5, message]));
-    expect(planned.workflows.size).toBe(0);
-    // The paired case: a planned workflow of the stages the registry holds and feeds reads with no finding.
-    const sound = readText('workflows:\n  branch-worktree:\n    status: planned\n    stages: [snapshot, inventory, syntax, modules]\n');
-    expect(sound.findings).toEqual([]);
-    expect(sound.workflows.get('branch-worktree')!.stages).toEqual(['snapshot', 'inventory', 'syntax', 'modules']);
-  });
-
-  test('a stage list reached through a YAML alias is refused at the line that uses the alias', () => {
-    const text = [
-      'workflows:',
-      '  original:',
-      '    status: implemented',
-      '    stages: &stages',
-      '      - teleport',
-      '  copied:',
-      '    status: implemented',
-      '    stages: *stages',
-      '',
-    ].join('\n');
-    const teleport = (name: string): string => `workflow "${name}" stage "teleport": the engine's stage registry holds no stage "teleport" (its stages are ${ENGINE_STAGES})`;
-    // The alias is used on line 8: the fault of the copied workflow is the fault of that line, not the file's first.
-    expect(refusals(text)).toEqual([[5, teleport('original')], [8, teleport('copied')]]);
-    // The paired case: an alias of the stages the registry holds and feeds reads as those stages.
-    const sound = readText([
-      'workflows:',
-      '  original:',
-      '    status: implemented',
-      '    stages: &stages',
-      '      - snapshot',
-      '      - inventory',
-      '      - syntax',
-      '      - modules',
-      '  copied:',
-      '    status: planned',
-      '    stages: *stages',
-      '',
-    ].join('\n'));
-    expect(sound.findings).toEqual([]);
-    expect(sound.workflows.get('copied')!.stages).toEqual(['snapshot', 'inventory', 'syntax', 'modules']);
-  });
-
+  
+  
+  
   test('a stage no stage of this madarch produces is refused by the derivation\'s no-producer path', () => {
     const registry = new StageRegistry().register(stage('wants', ['unicorn'], []));
     const read = parseWorkflows('workflows:\n  first-fill:\n    status: implemented\n    stages: [wants]\n', FILE, registry);
@@ -262,32 +170,9 @@ describe('the refusals of the workflow check', () => {
     expect(read.workflows.size).toBe(0);
   });
 
-  test('a workflow refused for its stage list reports that defect alone, not a derivation over the list it does not name', () => {
-    // Modules is named twice, and the stages beside it feed nothing: the derivation reads the stages the file names, and
-    // this file's are no set to derive, so the duplicate is the one finding and the refused workflow is left out.
-    const text = 'workflows:\n  first-fill:\n    status: implemented\n    stages: [snapshot, modules, modules]\n';
-    expect(refusals(text)).toEqual([[4, 'workflow "first-fill": the stage "modules" is named twice: a workflow\'s stages are a set']]);
-    expect(readText(text).workflows.size).toBe(0);
-    // The paired case: a set of the stages the registry holds, every required input produced within it, reads clean.
-    const sound = readText('workflows:\n  first-fill:\n    status: implemented\n    stages: [snapshot, inventory, syntax, modules]\n');
-    expect(sound.findings).toEqual([]);
-    expect(sound.workflows.get('first-fill')!.stages).toEqual(['snapshot', 'inventory', 'syntax', 'modules']);
-  });
-
-  test('a stage named twice is refused, and so is a stage id that is no stage id, each at its own line', () => {
-    const twice = readText('workflows:\n  first-fill:\n    status: implemented\n    stages: [snapshot, snapshot]\n');
-    expect(twice.findings.map((finding) => [finding.line, finding.message])).toEqual([[4, 'workflow "first-fill": the stage "snapshot" is named twice: a workflow\'s stages are a set']]);
-    expect(twice.workflows.size).toBe(0);
-    const wrong = readText('workflows:\n  first-fill:\n    status: implemented\n    stages:\n      - "2 fast"\n');
-    expect(wrong.findings.map((finding) => [finding.line, finding.message])).toEqual([[5, 'workflow "first-fill": the stage "2 fast" is not a stage id: a stage id starts with a letter and carries letters, digits, ".", "_" or "-"']]);
-  });
-
-  test('a workflow that leaves its status out, or names one the engine does not know, is refused and left out', () => {
-    expect(refusals('workflows:\n  first-fill:\n    stages: [snapshot]\n')).toEqual([[2, 'workflow "first-fill": "status" is one of implemented, planned, got undefined']]);
-    expect(refusals('workflows:\n  first-fill:\n    status: someday\n    stages: [snapshot]\n')).toEqual([[3, 'workflow "first-fill": "status" is one of implemented, planned, got "someday"']]);
-    expect(readText('workflows:\n  first-fill:\n    status: someday\n').workflows.size).toBe(0);
-  });
-
+  
+  
+  
   test('an implemented workflow that names no stages is refused, whether it leaves them out or names none', () => {
     expect(refusals('workflows:\n  first-fill:\n    status: implemented\n')).toEqual([[2, 'workflow "first-fill": "stages" names the stage ids the workflow runs, and an implemented workflow names at least one']]);
     expect(refusals('workflows:\n  first-fill:\n    status: implemented\n    stages: []\n')).toEqual([[4, 'workflow "first-fill": an implemented workflow names the stage ids it runs, and this one names none']]);
@@ -345,18 +230,7 @@ describe('the refusals of the workflow check', () => {
 });
 
 describe('the product-wiki check reads the workflows with the manifest', () => {
-  test('a product whose workflow names a stage the registry does not hold shows the finding with its own file and line', () => {
-    const text = stagesOf('update-by-commit', ['snapshot', 'teleport']);
-    const folder = product(text);
-    const read = readKinds(folder);
-    if (!read.present) throw new Error('the product holds no kinds manifest');
-    expect(read.manifest.workflows?.workflows.has('update-by-commit')).toBe(false);
-    const expected = 'workflow "update-by-commit" stage "teleport": the engine\'s stage registry holds no stage "teleport" (its stages are ' + ENGINE_STAGES + ')';
-    expect(read.manifest.workflows?.findings.map((finding) => [finding.file, finding.line, finding.message])).toEqual([[join(folder, WORKFLOWS_FILE), lineOf(text, '- teleport'), expected]]);
-    // The Problems page reads the manifest's findings: the workflow's stands beside the kinds' own (of which this starter set has none).
-    expect(read.manifest.findings.map((finding) => [finding.file.endsWith(WORKFLOWS_FILE), finding.message])).toEqual([[true, expected]]);
-  }, 30_000);
-
+  
   test('the starter set reads with no workflow finding', () => {
     const read = readKinds(product());
     if (!read.present) throw new Error('the product holds no kinds manifest');

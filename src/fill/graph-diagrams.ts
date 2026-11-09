@@ -49,7 +49,7 @@ const NO_PAGE_SPANS: GraphSnapshotSource = {
 };
 
 /** The node a page is about, as the specs are derived from it. */
-export interface DiagramNode {
+interface DiagramNode {
   readonly id: string;
   readonly kind: FactKind;
   /** The name the node's value or place gives its repository, when it names one. */
@@ -62,7 +62,7 @@ export interface DiagramNode {
  * draws beside itself. Both are read from the graph (below), so a page shows the
  * structure that is there rather than a level that only names the repository.
  */
-export interface ModuleScopes {
+interface ModuleScopes {
   /** A repository's: the fact ids whose children its two module views draw — the repository's own when its top level has more than one module, else the module whose children are the first level that has. */
   readonly view?: readonly string[];
   /** A module's: the modules of its own level it relates to, which its page draws beside it. */
@@ -79,7 +79,7 @@ export interface ModuleScopes {
  * caller that names none gets a repository's module views drawn at its own top level and
  * a module drawn by its own child modules alone.
  */
-export function diagramSpecsFor(options: {
+function diagramSpecsFor(options: {
   readonly kind: FactKind;
   readonly id: string;
   readonly repositoryId?: string;
@@ -223,7 +223,7 @@ export async function moduleNeighbours(reads: DiagramGraphReads, module: Fact, r
 }
 
 /** One diagram of a page: the specification it was asked for and the model the graph answered. */
-export interface NodeDiagram {
+interface NodeDiagram {
   readonly spec: DiagramViewSpec;
   readonly model: DiagramModel;
 }

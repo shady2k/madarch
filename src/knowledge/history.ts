@@ -25,7 +25,7 @@ function historyShapeOf(ctx: RenderContext, kind: string): HistoryShape | undefi
  * The kinds of list the block can build, in the order it builds them. A template asks for the ones it wants with
  * `sections="summary,hotspots"`, so a page that is meant to be read in a minute carries the whole story elsewhere.
  */
-export const HISTORY_SECTIONS: readonly HistorySection['role'][] = ['summary', 'hotspots', 'commits', 'files', 'authors', 'coupling', 'renames', 'parents', 'branches', 'snapshots'];
+const HISTORY_SECTIONS: readonly HistorySection['role'][] = ['summary', 'hotspots', 'commits', 'files', 'authors', 'coupling', 'renames', 'parents', 'branches', 'snapshots'];
 
 const toInt = (value: string | undefined, fallback: number, min: number, max: number): number => {
   const parsed = value === undefined ? Number.NaN : Number(value);
@@ -33,7 +33,7 @@ const toInt = (value: string | undefined, fallback: number, min: number, max: nu
 };
 
 /** The day a commit happened, as the page shows it: the date of its effective time, in UTC. */
-export function dayOf(value: unknown): string | undefined {
+function dayOf(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length < 10) return undefined;
   return value.slice(0, 10);
 }

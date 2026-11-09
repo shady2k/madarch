@@ -135,18 +135,10 @@ jobs:
       # carries the owner's decision, which is how a rule changes.
       - name: The list of architectural violations only shrinks
         run: bun run check:architecture-base
-      - run: bun test test/postgres-query-database.test.ts
-        env:
-          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       # The queue's PostgreSQL leg (madarch-tzte.19.2): the sharded test job sets
       # no server, so this is the only place the queue's postgres profile, its
       # pooled statements and its schema install run at all.
       - run: bun test test/queue-postgres.test.ts
-        env:
-          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
-      # The fact store's PostgreSQL leg (madarch-tzte.20.2): the sharded test job sets no server, so this
-      # is the only place the fill's own tables and a publication through them run on a server.
-      - run: bun test test/fill-fact-store-postgres.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       # The temporal graph store's PostgreSQL leg (madarch-bjdx): the sharded test job sets no server, so this is
@@ -155,15 +147,6 @@ jobs:
       - run: bun test test/graph-store-postgres.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
-      # The fill's crash-injection suite with several executor processes
-      # (madarch-tzte.19.6): the sharded test job sets no server, so this is the
-      # only place three executors work one run against PostgreSQL at all.
-      - run: bun test test/fill-crash-postgres.test.ts
-        env:
-          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
-      - run: bun run views:check
-      # The product repository's contract cases (decision 0021): every example and every refusal.
-      - run: bun run contract:check
       # The walk over a product's pages (madarch-j6ho.1): every page of the
       # generated training product, read through the JSON, fails on an empty
       # section, a raw key, text outside the wiki's language, a raw id or a

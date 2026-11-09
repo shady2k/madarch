@@ -60,7 +60,7 @@ export interface SettingsState {
 
 let state: SettingsState = { loaded: false, role: 'everything', roles: [], asked: true, error: null };
 const listeners = new Set<() => void>();
-const publish = (next: SettingsState): void => {
+export const publishSettings = (next: SettingsState): void => {
   state = next;
   for (const listener of listeners) listener();
 };
@@ -69,10 +69,10 @@ const publish = (next: SettingsState): void => {
 export async function loadSettings(signal?: AbortSignal): Promise<void> {
   try {
     const settings = await getSettings(signal);
-    publish({ loaded: true, role: settings.role, roles: rolesOf(settings.roles), asked: settings.asked, error: null });
+    publishSettings({ loaded: true, role: settings.role, roles: rolesOf(settings.roles), asked: settings.asked, error: null });
   } catch (failure) {
     if (signal?.aborted) return;
-    publish({ loaded: true, role: 'everything', roles: [], asked: true, error: failure instanceof Error ? failure.message : String(failure) });
+    publishSettings({ loaded: true, role: 'everything', roles: [], asked: true, error: failure instanceof Error ? failure.message : String(failure) });
   }
 }
 
@@ -80,17 +80,15 @@ export async function loadSettings(signal?: AbortSignal): Promise<void> {
 export async function chooseRole(role: string): Promise<void> {
   try {
     const settings = await setRole(role);
-    publish({ loaded: true, role: settings.role, roles: rolesOf(settings.roles), asked: settings.asked, error: null });
+    publishSettings({ loaded: true, role: settings.role, roles: rolesOf(settings.roles), asked: settings.asked, error: null });
   } catch (failure) {
-    publish({ ...state, error: failure instanceof Error ? failure.message : String(failure) });
+    publishSettings({ ...state, error: failure instanceof Error ? failure.message : String(failure) });
     throw failure;
   }
 }
 
 /** Forgets what was read (a test starts over). */
-export function resetSettings(): void {
-  publish({ loaded: false, role: 'everything', roles: [], asked: true, error: null });
-}
+
 
 export function useSettings(): SettingsState {
   return useSyncExternalStore((listener) => { listeners.add(listener); return () => listeners.delete(listener); }, () => state, () => state);

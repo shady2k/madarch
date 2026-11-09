@@ -37,7 +37,7 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { createSchemaOnce } from '../adapters/schema-stamp.js';
-import type { OuterTransaction } from '../history/types.js';
+import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
 import { raise } from '../model/raise.js';
 
@@ -60,8 +60,8 @@ export const RECORD_TABLES = [
 ] as const;
 
 /** The kinds this step writes, in code point order: the engine's own vocabulary under `code.`. */
-export const RECORD_NODE_KINDS = ['author', 'blob', 'commit', 'directory', 'file', 'gitlink', 'repository'] as const;
-export const RECORD_EDGE_KINDS = ['as-is', 'authored', 'contains', 'parent', 'touched'] as const;
+const RECORD_NODE_KINDS = ['author', 'blob', 'commit', 'directory', 'file', 'gitlink', 'repository'] as const;
+const RECORD_EDGE_KINDS = ['as-is', 'authored', 'contains', 'parent', 'touched'] as const;
 
 const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS kind (
@@ -480,7 +480,7 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
 }
 
 /** The folder one path stands in: the path's own text without its last leg, or '' for a top-level path. */
-export function folderOfPath(path: string): string {
+function folderOfPath(path: string): string {
   const at = path.lastIndexOf('/');
   return at < 0 ? '' : path.slice(0, at);
 }
@@ -602,7 +602,7 @@ async function publishGaps(tx: OuterTransaction, repositoryId: string, gaps: rea
 // ---- the history pass ------------------------------------------------------
 
 /** The author key a person is folded under: git's own mailmap applied, then the lowercase email. */
-export function authorKeyOf(email: string): string {
+function authorKeyOf(email: string): string {
   return email.trim().toLowerCase();
 }
 
@@ -849,7 +849,7 @@ export interface CommitRecord {
  * and keep the offset: `2026-11-07T19:14:32` at `+180` is `19:14:32 +03:00`, and the instant that
  * clock names is `16:14:32Z`, a third number the reader may compute and this one must not print.
  */
-export function gitDateOf(localClock: string, offsetMin: number): string {
+function gitDateOf(localClock: string, offsetMin: number): string {
   const sign = offsetMin < 0 ? '-' : '+';
   const total = Math.abs(offsetMin);
   return `${localClock}${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
@@ -1153,7 +1153,7 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string):
 }
 
 /** Every table's bytes with its indexes and its rows, for the bytes-per-row measurement. */
-export async function recordSizes(owner: DatabaseOwner): Promise<Record<string, { bytes: number; rows: number }>> {
+async function recordSizes(owner: DatabaseOwner): Promise<Record<string, { bytes: number; rows: number }>> {
   return await owner.transaction('snapshot', async (tx) => {
     const out: Record<string, { bytes: number; rows: number }> = {};
     for (const table of RECORD_TABLES) {

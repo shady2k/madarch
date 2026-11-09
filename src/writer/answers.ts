@@ -20,7 +20,7 @@ import { anchorLines } from '../knowledge/anchors.js';
 import { GraphReader, type GraphEntity, type NeighborEdge, type NeighborGroup } from '../knowledge/graph-read.js';
 import { documentSections } from '../knowledge/index/sections.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
-import { fileKey, symbolKey } from '../extract/code/keys.js';
+import { fileKey, symbolKey } from '../knowledge/keys.js';
 import type { Question } from '../loop/entities.js';
 import { byCodePoint } from '../model/order.js';
 import { statementsOf } from './sentences.js';
@@ -130,19 +130,19 @@ export interface AnswerResult {
 }
 
 /** The bounds one answer keeps; every one of them is said when it cuts. */
-export const SYMBOL_SIDE_LIMIT = 8;
-export const CONTEXT_ROWS = 6;
-export const CONTEXT_MAX_ROWS = 36;
+const SYMBOL_SIDE_LIMIT = 8;
+const CONTEXT_ROWS = 6;
+const CONTEXT_MAX_ROWS = 36;
 export const FLOW_STEPS = 60;
-export const FLOW_STEP_LIMIT = 200;
+const FLOW_STEP_LIMIT = 200;
 export const FLOW_DEPTH = 4;
-export const SECTIONS_SHOWN = 30;
-export const SECTION_EXCERPT = 400;
-export const DOCUMENT_SCAN = 200;
-export const SECTION_NAME = 120;
-export const PAGE_LINES = 400;
-export const PAGE_MATCHES = 4;
-export const PAGE_TEXT = 240;
+const SECTIONS_SHOWN = 30;
+const SECTION_EXCERPT = 400;
+const DOCUMENT_SCAN = 200;
+const SECTION_NAME = 120;
+const PAGE_LINES = 400;
+const PAGE_MATCHES = 4;
+const PAGE_TEXT = 240;
 export const PAGES_SHOWN = 10;
 export const QUESTIONS_SHOWN = 60;
 export const EVIDENCE_SHOWN = 60;

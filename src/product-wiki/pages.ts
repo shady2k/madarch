@@ -61,22 +61,22 @@ function kitOf(productFolder: string): RegistryKit | undefined {
 }
 
 /** The address prefix of a page's route within the app. */
-export const PAGE_ADDRESS_PREFIX = '/p/';
+const PAGE_ADDRESS_PREFIX = '/p/';
 
 /**
  * A page's address: the prefix plus its path, each segment percent-escaped,
  * so a `#`, a space or a `?` in a file name reaches the route whole instead
  * of being cut off as a fragment or a query.
  */
-export function addressOf(path: string): string {
+function addressOf(path: string): string {
   return PAGE_ADDRESS_PREFIX + path.split('/').map(encodeURIComponent).join('/');
 }
 
 /** The folder the wiki reads its pages from, inside the product. */
-export const DOCS_FOLDER = 'docs';
+const DOCS_FOLDER = 'docs';
 
 /** One page as the pages list names it. */
-export interface WikiPageEntry {
+interface WikiPageEntry {
   /** The page's path within the product, like `docs/example.md` or `README.md`. */
   path: string;
   /** The page's title: its first level-one heading, else its file's name. */
@@ -90,7 +90,7 @@ export interface WikiPageEntry {
 }
 
 /** One page as the document's forms read it: the fields, whom it grew from, who links to it. */
-export interface WikiPageDocument {
+interface WikiPageDocument {
   /** The kind the product's registry names the page, when one stands and names it; `undefined` keeps the plain page. */
   kind?: DocumentKind;
   /** The document's id as the registry's id shapes read it, when the identity line gives one. */
@@ -106,7 +106,7 @@ export interface WikiPageDocument {
 }
 
 /** One page asked for, whole. */
-export interface WikiPage {
+interface WikiPage {
   path: string;
   title: string;
   markdown: string;
@@ -133,7 +133,7 @@ export interface WikiPage {
  * registry at all: the state is left out, the ask's answer keeps its
  * shape before registries.
  */
-export type ProductWikiContract =
+type ProductWikiContract =
   | { known: true; version: number }
   | { known: false; version?: number; message: string };
 
@@ -143,23 +143,23 @@ export type ProductWikiContract =
  * answer is keyed by the revision and scans the texts — pays for one walk rather than two,
  * and reads the text a reader reads (the header's field lines blanked, `blankFieldLines`).
  */
-export type ProductWikiTexts =
+type ProductWikiTexts =
   | { ok: true; revision: string; texts: ReadonlyMap<string, string> }
   | { ok: false; message: string };
 
 /** The wiki's pages as one ask found them, and how the registry is served. */
-export type ProductWikiPages =
+type ProductWikiPages =
   | { ok: true; revision: string; pages: WikiPageEntry[]; contract?: ProductWikiContract }
   | { ok: false; message: string };
 
 /** The wiki's questions and the answered ones, as one ask found them. */
-export type ProductWikiQuestions =
+type ProductWikiQuestions =
   | { ok: true; questions: OpenQuestion[]; openCount: number; kindName?: string; answererLabel?: string; concernsLabel?: string }
   | { ok: false; message: string };
 
 
 /** One page as one ask found it, or the refusal naming the path asked for. */
-export type ProductWikiPage =
+type ProductWikiPage =
   | { ok: true; page: WikiPage }
   | { ok: false; message: string; /** Absence or an invalid ask (404), not a filesystem failure (500). */
       notFound?: boolean };
@@ -170,12 +170,12 @@ export type OpenedProductWiki =
   | { ok: false; file: string; line: number; message: string };
 
 /** The product information needed by the wiki; a manifestless home has no product id. */
-export type ProductWikiIdentity =
+type ProductWikiIdentity =
   | (Pick<ProductIdentity, 'id' | 'name' | 'folder' | 'repos'> & { manifest: 'present' })
   | { manifest: 'absent'; name: string; folder: string; repos: [] };
 
 /** Normalized overview facts projected from the product's declared page sections. */
-export interface ProductWikiOverview {
+interface ProductWikiOverview {
   audience?: string;
   problem?: string;
   outcome?: string;
@@ -791,4 +791,4 @@ function titleOf(path: string, markdown: string): string {
  * side): the app needs nothing else — the server's wiki part reads through
  * `openProductWiki` alone.
  */
-export type WikiPageListResult = ProductWikiPages;
+type WikiPageListResult = ProductWikiPages;

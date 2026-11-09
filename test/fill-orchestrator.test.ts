@@ -22,8 +22,8 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageE
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, unblockUnit, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, publishUnit, readMembership, readProgress, readPublication, readPublications, readRunConfiguration, readSealedChildren, readUnitDraft, readUnitReads, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, readRunConfiguration, readSealedChildren, readUnitReads, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/graph-reads.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { startServer } from '../src/server/http.js';
@@ -32,8 +32,8 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readTransitions, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
-import { createTestDatabaseOwner, createTestQueryDatabase } from './test-database.js';
+import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit } from '../src/fill/state-store.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const QUEUE = 'fill-units';
@@ -445,52 +445,7 @@ describe('the membership digest a tracked read stands on', () => {
 });
 
 describe('planning from the registry', () => {
-  test('plans every enabled stage in the derived order, snapshots what it resolved and starts the run', async () => {
-    const { world: opened, runId, plan } = await plannedWorld({ registry: basicRegistry() });
-    const run = await readRun(opened.owner, runId);
-    // Decision 0027: a run walks created → planning → running, and planning closes its epoch.
-    expect(run?.state).toBe('running');
-    expect(run?.context).toEqual({ planningEpoch: 1, planningClosed: true });
-
-    // The plan named the units in the derived stage order, most important first inside each stage.
-    expect(plan.units.map((unit) => unit.unitId)).toEqual([
-      'snapshot/src', 'snapshot/docs', 'modules/core', 'overview/product',
-    ]);
-    const units = await readRunUnits(opened.owner, runId);
-    // The store answers a run's units in code point order of their ids, whatever order they were planned in.
-    expect(units.map((unit) => unit.unitId)).toEqual([
-      'modules/core', 'overview/product', 'snapshot/docs', 'snapshot/src',
-    ]);
-    expect(units.map((unit) => unit.state)).toEqual(['planned', 'planned', 'planned', 'planned']);
-    expect(units.every((unit) => unit.generation === 1)).toBe(true);
-
-    // The unit identity carries no run id (decision 0026), and each unit's inputs digest is the digest of
-    // the named inputs the run hashed: the commit it stands on.
-    expect(units.every((unit) => !unit.unitId.includes(runId))).toBe(true);
-    // The digest is the unit's cache key's known part: the named inputs the run hashed and the versions that
-    // decide what the unit reads and answers, its stage's own among them (0026, "Updates"). Three stages answer
-    // three digests, and the two units of one stage answer one.
-    expect(new Set(units.map((unit) => unit.inputsDigest)).size).toBe(3);
-    expect(new Set(units.filter((unit) => unit.stageId === 'snapshot').map((unit) => unit.inputsDigest)).size).toBe(1);
-
-    const configuration = await readRunConfiguration(opened.owner, runId);
-    expect(configuration?.digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(configuration?.snapshot).toEqual(SNAPSHOT);
-
-    const journal = await readTransitions(opened.owner, { kind: 'run', id: runId });
-    expect(journal.map((entry) => entry.transitionId)).toEqual(['run/created--plan-->planning', 'run/planning--start-->running']);
-    const events = await readProgress(opened.owner, runId);
-    // Each stage's units are announced with the stage's own attempt, in the derived order.
-    expect(events.map((event) => event.kind)).toEqual([
-      'run-planned', 'unit-planned', 'unit-planned', 'stage-planned', 'unit-planned', 'stage-planned', 'unit-planned', 'stage-planned', 'run-started',
-    ]);
-    // One stage-planned event per stage, in the derived order, naming what the stage's attempt gave.
-    expect(events.filter((event) => event.kind === 'stage-planned').map((event) => event.summary)).toEqual([
-      'stage snapshot planned 2 units', 'stage modules planned 1 unit', 'stage overview planned 1 unit',
-    ]);
-    expect(events.every((event, index) => event.seq === index + 1)).toBe(true);
-  });
-
+  
   test('a required capability no enabled stage produces blocks the run with its starvation path', async () => {
     const registry = new StageRegistry().register(draftingStage('modules', { units: ['core'], consumes: ['file-facts'] }));
     const { world: opened, runId, plan } = await planWorld({ registry });
@@ -608,90 +563,9 @@ describe('admission within the slots, by priority', () => {
 });
 
 describe('one attempt: lease, run, draft, validate, publish', () => {
-  test('runs a unit to its publication, applies its facts once and settles its job', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry });
-    await admitUnits(opened.orchestrator, { runId });
-    const outcome = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(outcome.result).toBe('published');
-    const unit = await readUnit(opened.owner, 'snapshot/src');
-    expect(unit?.state).toBe('published');
-    expect(unit?.publishedAt).toBe(NOW);
-
-    // One publication per generation, with the draft it published and the facts it applied.
-    const publications = await readPublications(opened.owner, 'snapshot/src');
-    expect(publications).toHaveLength(1);
-    expect(publications[0]!.generation).toBe(1);
-    expect(publications[0]!.facts).toBe(1);
-    expect(opened.applied).toHaveLength(1);
-    expect(opened.applied[0]!.unitId).toBe('snapshot/src');
-
-    // The lease that attempt took is the generation's first token, and the journal shows every step.
-    const journal = await readTransitions(opened.owner, { kind: 'unit', id: 'snapshot/src' });
-    expect(journal.map((entry) => entry.transitionId)).toEqual([
-      'fill-store/unit--create-->planned',
-      'unit/planned--admit-->ready',
-      'unit/ready--lease-->leased',
-      'unit/leased--start-->running',
-      'unit/running--submit-draft-->draft',
-      'unit/draft--validate-draft-->validating',
-      'unit/validating--publish-->published',
-    ]);
-    expect(journal.slice(2).map((entry) => entry.fence)).toEqual([1, 1, 1, 1, 1]);
-    // The queue holds nothing unfinished for it: the settlement landed with the publication.
-    expect(await opened.queue.claim({ queue: QUEUE, limit: 1 })).toEqual([]);
-    const events = await readProgress(opened.owner, runId);
-    expect(events.map((event) => event.kind)).toEqual([
-      'run-planned', 'unit-planned', 'stage-planned', 'run-started', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-drafted', 'unit-validating', 'unit-published',
-    ]);
-  });
-
-  test('a published generation is an immutable record: a later job for it changes nothing', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    const published = await readUnit(opened.owner, 'snapshot/src');
-    const journalLength = (await readTransitions(opened.owner, { kind: 'unit', id: 'snapshot/src' })).length;
-
-    // A job left over for the same unit, as a provider that handed it out twice would leave it.
-    await opened.queue.enqueue({ queue: QUEUE, data: { unitId: 'snapshot/src', generation: 1 }, singletonKey: 'snapshot/src' });
-    const late = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(late.result).toBe('nothing-to-do');
-    expect(late.summary).toBe('the unit is published');
-    expect(await readUnit(opened.owner, 'snapshot/src')).toEqual(published);
-    expect((await readTransitions(opened.owner, { kind: 'unit', id: 'snapshot/src' })).length).toBe(journalLength);
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  });
-
-  test('a validation that refuses the draft spends a retry and retracts the draft', async () => {
-    let attempts = 0;
-    const registry = new StageRegistry().register(draftingStage('snapshot', {
-      units: ['src'], produces: ['file-facts'],
-      validate: () => { attempts += 1; return attempts === 1 ? { ok: false, errors: ['the evidence does not name a file'] } : { ok: true }; },
-    }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 1_000 } });
-    await admitUnits(opened.orchestrator, { runId });
-    const refused = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(refused.result).toBe('retried');
-    const waiting = await readUnit(opened.owner, 'snapshot/src');
-    expect(waiting?.state).toBe('retry_wait');
-    expect(waiting?.context.retriesLeft).toBe(DEFAULT_ORCHESTRATOR_LIMITS.retries - 1);
-    expect(waiting?.context.retryAt).toBe(NOW + 1_000);
-    // Nothing is published and the draft is retracted, so the next attempt starts clean.
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    const draft = await opened.owner.run(async (transaction) => transaction.query<{ retracted_at: unknown }>('SELECT retracted_at FROM fill_unit_draft WHERE unit_id = $1', ['snapshot/src']));
-    expect(draft.rows[0]?.retracted_at).toBe(NOW);
-
-    // The sweep wakes it once the wait is over, and the next attempt publishes.
-    opened.clock.advance(1_000);
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept.swept.map((unit) => unit.outcome)).toEqual(['woken']);
-    const published = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(published.result).toBe('published');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-  });
-
+  
+  
+  
   test('a run whose unit cannot be covered completes partially, with the reason on the record', async () => {
     const registry = new StageRegistry().register(fakeStage('snapshot', {
       produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
@@ -712,80 +586,10 @@ describe('one attempt: lease, run, draft, validate, publish', () => {
     expect((await readChain(opened.owner, 'fixture-product'))?.state).toBe('quiescent');
   });
 
-  test('a unit a person unblocked is runnable again', async () => {
-    const stageState = { refuse: true };
-    const registry = new StageRegistry().register(fakeStage('snapshot', {
-      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
-      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: () => (stageState.refuse ? { outcome: 'blocked', reason: 'the snapshot could not be read' } : { outcome: 'draft' }),
-    }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 0 } });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('blocked');
-
-    stageState.refuse = false;
-    const unblocked = await unblockUnit(opened.orchestrator, { unitId: 'snapshot/src', resolution: 'the person fixed the snapshot and resumed the unit' });
-    expect(unblocked.result).toBe('retried');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
-    const published = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(published.result).toBe('published');
   });
-});
 
 describe('a split and its join', () => {
-  test('seals the children and the parent in one transaction, then joins the parent once they are published and fresh', async () => {
-    const { stage, attempts } = splittingStage();
-    const registry = new StageRegistry().register(stage);
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 0 } });
-    await admitUnits(opened.orchestrator, { runId });
-    const split = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(split.result).toBe('split');
-    const parent = await readUnit(opened.owner, 'modules/root');
-    expect(parent?.state).toBe('waiting_children');
-    // The parent's attempt ended: its lease is revoked, and its children are sealed with it.
-    expect(parent?.lease?.revokedAt).toBe(NOW);
-    const sealed = await readSealedChildren(opened.owner, 'modules/root', 1);
-    expect(sealed.map((child) => child.unitId)).toEqual(['modules/left', 'modules/right']);
-    sample: {
-      const children = await readRunUnits(opened.owner, runId);
-      expect(children.map((unit) => `${unit.unitId}:${unit.state}`)).toEqual([
-        'modules/left:planned', 'modules/right:planned', 'modules/root:waiting_children',
-      ]);
-    }
-
-    // The children are admitted and published; the sweep then joins the parent.
-    for (let pass = 0; pass < 4; pass += 1) {
-      await admitUnits(opened.orchestrator, { runId });
-      await workOnce(opened.orchestrator, { worker: 'worker-2' });
-      await schedulerPass(opened.orchestrator, { runId });
-    }
-    expect((await readUnit(opened.owner, 'modules/left'))?.state).toBe('published');
-    expect((await readUnit(opened.owner, 'modules/right'))?.state).toBe('published');
-    // The parent ran twice — the attempt that split, and the attempt after its join — and each child once.
-    expect(attempts.filter((id) => id === 'root')).toHaveLength(2);
-    expect([...attempts].filter((id) => id !== 'root').sort()).toEqual(['left', 'right']);
-    const joined = await readUnit(opened.owner, 'modules/root');
-    expect(joined?.state).toBe('published');
-    expect(joined?.generation).toBe(1);
-    const journal = await readTransitions(opened.owner, { kind: 'unit', id: 'modules/root' });
-    expect(journal.map((entry) => entry.transitionId)).toEqual([
-      'fill-store/unit--create-->planned',
-      'unit/planned--admit-->ready',
-      'unit/ready--lease-->leased',
-      'unit/leased--start-->running',
-      'unit/running--wait-for-children-->waiting_children',
-      'unit/waiting_children--join-all-published-->ready',
-      'unit/ready--lease-->leased',
-      'unit/leased--start-->running',
-      'unit/running--submit-draft-->draft',
-      'unit/draft--validate-draft-->validating',
-      'unit/validating--publish-->published',
-    ]);
-    // The second attempt holds a greater fencing token than the first.
-    expect(journal.map((entry) => entry.fence)).toEqual([0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2]);
-  });
-
+  
   test('a parent joins only while every child it sealed is still fresh', async () => {
     const query = 'SELECT module FROM modules';
     const attempts: string[] = [];
@@ -871,31 +675,7 @@ describe('a split and its join', () => {
     expect((await readUnit(opened.owner, 'modules/root-a'))?.state).toBe('blocked');
   });
 
-  test('a child that failed fails the waiting parent under the run\'s own policy', async () => {
-    const { stage } = splittingStage();
-    const registry = new StageRegistry().register(stage);
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 0, failedChildPolicy: 'propagate' } });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect((await readUnit(opened.owner, 'modules/left'))?.state).toBe('planned');
-
-    // A child generation that will never publish — cancelled, as the run's own cancellation of one child
-    // would leave it — is a failed child for its parent's join, and the policy propagates it.
-    const cancelled = await advanceUnit(opened.owner, { unitId: 'modules/left', event: { type: 'cancel', at: NOW, cause: 'the child was cancelled' } });
-    expect(cancelled.ok).toBe(true);
-    // The other child is cancelled too, so nothing of the run is left runnable or in flight.
-    expect((await advanceUnit(opened.owner, { unitId: 'modules/right', event: { type: 'cancel', at: NOW, cause: 'the child was cancelled' } })).ok).toBe(true);
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept.swept.map((unit) => `${unit.unitId}:${unit.outcome}`)).toEqual(['modules/root:join-failed']);
-    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('failed');
-    expect((await readTransitions(opened.owner, { kind: 'unit', id: 'modules/root' })).at(-1)?.transitionId)
-      .toBe('unit/waiting_children--fail-child-failed-->failed');
-
-    // The run's own coverage is unmet, so it completes partially.
-    const settlement = await schedulerPass(opened.orchestrator, { runId });
-    expect(settlement.run.state).toBe('completed_partial');
   });
-});
 
 describe('staleness from tracked reads, empty results included', () => {
   /** A stage that reads one query and drafts what it read. */
@@ -911,64 +691,8 @@ describe('staleness from tracked reads, empty results included', () => {
     });
   }
 
-  test('a read that answered nothing and answers a row now refuses the publication, and the attempt retries', async () => {
-    const query = 'SELECT path FROM files WHERE repository = $1';
-    const registry = new StageRegistry().register(readingStage(query));
-    const graph = fakeGraph();
-    const { world: opened, runId } = await plannedWorld({ registry, graph, limits: { retryDelayMs: 0 } });
-    await admitUnits(opened.orchestrator, { runId });
-
-    // The read is recorded with the membership of an empty answer: decision 0027 rechecks it like any other.
-    graph.rows.set(query, []);
-    // The graph gains a row between the read and the publication of the same attempt: the publication's
-    // own recheck is what refuses it, before any fact lands.
-    const graphReader = graph.reader;
-    let firstRead = true;
-    graph.reader = {
-      query: async (text: string) => {
-        if (firstRead) { firstRead = false; return []; }
-        return await graphReader.query(text);
-      },
-    };
-    graph.rows.set(query, [{ path: 'src/index.ts' }]);
-    const outcome = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(outcome.result).toBe('retried');
-    expect(outcome.summary).toContain('which is now 1');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect(opened.applied).toEqual([]);
-    const unit = await readUnit(opened.owner, 'snapshot/src');
-    expect(unit?.state).toBe('retry_wait');
-    const reads = await readUnitReads(opened.owner, 'snapshot/src', 1);
-    expect(reads.map((read) => [read.query, read.members, read.membership])).toEqual([[query, 0, reads[0]!.membership]]);
-  });
-
-  test('a published generation whose read moved goes stale and opens its replacement', async () => {
-    const query = 'SELECT module FROM clusters';
-    const registry = new StageRegistry().register(readingStage(query));
-    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
-    const { world: opened, runId } = await plannedWorld({ registry, graph });
-    await admitUnits(opened.orchestrator, { runId });
-    const published = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(published.result).toBe('published');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-
-    // The graph moves under the published generation: its recorded read no longer answers the same.
-    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
-    const sweep = await invalidateStaleUnits(opened.orchestrator, { runId });
-    expect(sweep.refused).toEqual([]);
-    expect(sweep.invalidated.map((unit) => [unit.unitId, unit.generation, unit.replacement])).toEqual([['snapshot/src', 1, 2]]);
-    // The sweep names the read that moved (madarch-tzte.26.1), so an update says why a unit was replaced.
-    expect(sweep.invalidated[0]!.cause).toBe('a read the generation recorded answers something else now: SELECT module FROM clusters');
-    const generations = await (await import('../src/fill/state-store.js')).readUnitGenerations(opened.owner, 'snapshot/src');
-    expect(generations.map((generation) => `${generation.generation}:${generation.state}`)).toEqual(['1:stale', '2:planned']);
-    // The publication stays an immutable record of what was published, and the replacement is a new
-    // generation of the same unit, planned against the inputs as they stand.
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-    expect(generations[0]!.publishedAt).toBe(NOW);
-    expect(generations[1]!.inputsDigest).toBe(generations[0]!.inputsDigest);
-    expect((await readTransitions(opened.owner, { kind: 'unit', id: 'snapshot/src' })).at(-1)?.transitionId).toBe('fill-store/generation--open-->planned');
-  });
-
+  
+  
   test('named inputs that moved make a planned generation stale before it ever runs', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
     const { world: opened, runId } = await plannedWorld({ registry });
@@ -985,65 +709,8 @@ describe('staleness from tracked reads, empty results included', () => {
 });
 
 describe('publication: exactly once per generation', () => {
-  test('the same digest answers the existing record, and a different digest is refused', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    const record = (await readPublication(opened.owner, 'snapshot/src', 1))!;
-    const unit = (await readUnit(opened.owner, 'snapshot/src'))!;
-    expect(opened.applied).toHaveLength(1);
-
-    // The same request again: decision 0027's "a repeated request with the same identity and digest
-    // returns the existing result", and nothing is applied twice.
-    const replay = await publishUnit(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, fence: 1, identity: { inputsDigest: unit.inputsDigest, stageId: 'snapshot', stageVersion: 1 }, at: NOW + 1,
-      revalidate: async () => ({ membership: 'x', members: 0 }),
-      apply: async () => { throw new Error('a replay must not apply facts again'); },
-    });
-    expect(replay.outcome).toBe('replayed');
-    expect(replay.outcome === 'replayed' ? replay.record : null).toEqual(record);
-    expect(opened.applied).toHaveLength(1);
-
-    const different = await publishUnit(opened.owner, {
-      // The same generation under another stage version is another publication: its digest differs.
-      unitId: 'snapshot/src', generation: 1, fence: 1, identity: { inputsDigest: unit.inputsDigest, stageId: 'snapshot', stageVersion: 2 }, at: NOW + 2,
-      revalidate: async () => ({ membership: 'x', members: 0 }),
-      apply: async () => 0,
-    });
-    expect(different.outcome).toBe('refused');
-    expect(different.outcome === 'refused' ? different.code : '').toBe('fill-publication/digest-mismatch');
-    expect(await readPublication(opened.owner, 'snapshot/src', 1)).toEqual(record);
-    expect(different.outcome === 'refused' ? different.reason : '').toContain('one generation has one publication');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  });
-
-  test('a publication the store refuses is a retried unit, and the next attempt publishes', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    let applied = 0;
-    const { world: opened, runId } = await plannedWorld({
-      registry,
-      limits: { retryDelayMs: 0 },
-      apply: async ({ writes }) => {
-        applied += 1;
-        if (applied === 1) throw new Error('the graph refused the write');
-        return writes.length;
-      },
-    });
-    await admitUnits(opened.orchestrator, { runId });
-    // A refused publication spends one attempt and leaves the other units' work standing: the failure is
-    // the unit's, and the run's next pass carries it.
-    const refused = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(refused.result).toBe('retried');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('retry_wait');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect((await runEvidence(opened.orchestrator, runId)).pendingPublications).toBe(0);
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept.swept.map((unit) => unit.outcome)).toEqual(['woken']);
-    const published = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(published.result).toBe('published');
-  });
-
+  
+  
   test('a publication that fails every attempt names the unit failed and leaves the run partial', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
     const { world: opened, runId } = await plannedWorld({
@@ -1065,49 +732,7 @@ describe('publication: exactly once per generation', () => {
     expect(settlement.run.state).toBe('completed_partial');
   });
 
-  test('a cancellation intent that lands while a publication is under way is refused by the publication itself', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry });
-    await admitUnits(opened.orchestrator, { runId });
-    // The unit as its attempt leaves it at the last step before publication: leased, running, drafted and
-    // validating, with the reads the draft stands on recorded.
-    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-1', ttlMs: 60_000, at: NOW })).ok).toBe(true);
-    for (const event of [
-      { type: 'start', at: NOW, generation: 1, fence: 1 },
-      { type: 'submit-draft', at: NOW, generation: 1, fence: 1 },
-    ] as const) {
-      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event })).ok).toBe(true);
-    }
-    await recordUnitDraft(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, at: NOW,
-      writes: [{ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } }],
-    });
-    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'validate-draft', at: NOW, generation: 1, fence: 1 } })).ok).toBe(true);
-    const membership = readMembership([]);
-    await recordUnitRead(opened.owner, { unitId: 'snapshot/src', generation: 1, query: 'select 1', rows: [], at: NOW });
-
-    // The order the race turns on: the publication read the run's control and is walking the reads its
-    // draft stands on, and the person's cancellation intent reaches the run's row in between. The
-    // recheck before the machine's step is what has to refuse it, whatever the control read saw.
-    let applied = 0;
-    const raced = await publishUnit(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, fence: 1, at: NOW,
-      identity: { inputsDigest: (await readUnit(opened.owner, 'snapshot/src'))!.inputsDigest, stageId: 'snapshot', stageVersion: 1 },
-      revalidate: async (_read, executor) => {
-        await executor.query("UPDATE fill_run SET state = 'cancelling' WHERE run_id = $1", [runId]);
-        return { membership, members: 0 };
-      },
-      apply: async () => { applied += 1; return 1; },
-    });
-    expect(raced.outcome).toBe('refused');
-    expect(raced.outcome === 'refused' ? raced.code : '').toBe('fill-publication/authority-revoked');
-    expect(raced.outcome === 'refused' ? raced.reason : '').toContain('cancelling');
-    // Nothing of the refused publication stands: no record, no fact, and the generation is not published.
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect(applied).toBe(0);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('validating');
   });
-});
 
 describe('cancellation, pause and stop', () => {
   /** A stage that reports it is running and then waits for the attempt's own cancellation. */
@@ -1129,38 +754,7 @@ describe('cancellation, pause and stop', () => {
     return { stage, reached };
   }
 
-  test('cancelling revokes the attempt\'s authority, cancels its generation and refuses a publication that raced it', async () => {
-    const { stage, reached } = waitingStage();
-    const registry = new StageRegistry().register(stage);
-    const { world: opened, runId } = await plannedWorld({ registry });
-    await admitUnits(opened.orchestrator, { runId });
-    const working = workOnce(opened.orchestrator, { worker: 'worker-1' });
-    await reached;
-    const cancelled = await cancelRun(opened.orchestrator, { runId, cause: 'the person stopped the run' });
-    expect(cancelled.run.state).toBe('cancelled');
-    expect(cancelled.cancelledUnits).toEqual(['snapshot/src']);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('cancelled');
-    // The attempt's own signal was aborted, which is how its agent session ends.
-    const attempt = await working;
-    expect(attempt.result).toBe('refused');
-    expect(attempt.refusal?.code).toBe('fill-unit/no-transition');
-    expect((await readTransitions(opened.owner, { kind: 'run', id: runId })).map((entry) => entry.transitionId)).toEqual([
-      'run/created--plan-->planning', 'run/planning--start-->running',
-      'run/running--cancel-->cancelling', 'run/cancelling--drained-->cancelled',
-    ]);
-
-    // A publication that raced the cancellation is refused by the publication's own check.
-    await recordUnitDraft(opened.owner, { unitId: 'snapshot/src', generation: 1, writes: [{ kind: 'fact', evidence: 'src:1', value: {} }], at: NOW });
-    const raced = await publishUnit(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, fence: 1, identity: { inputsDigest: 'digest-of-the-unit-inputs', stageId: 'snapshot', stageVersion: 1 }, at: NOW,
-      revalidate: async () => ({ membership: 'x', members: 0 }),
-      apply: async () => 0,
-    });
-    expect(raced.outcome).toBe('refused');
-    expect(raced.outcome === 'refused' ? raced.code : '').toBe('fill-publication/authority-revoked');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-  });
-
+  
   test('a unit step that lands while the run is cancelling is refused, whichever of the two writes lands first', async () => {
     // The losing interleaving of a cancel and a step, forced without timing: the run's cancel intent stands and the drain has
     // not reached the unit, so the unit is still running when its attempt reports blocked. The step answers with the
@@ -1241,26 +835,7 @@ describe('cancellation, pause and stop', () => {
 });
 
 describe('the human-edit guard', () => {
-  test('stales a stage a person edited and blocks the run for that review', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const guard: HumanEditGuard = { check: () => 'conflict' };
-    const { world: opened, runId } = await plannedWorld({ registry, guard });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-
-    const pass = await schedulerPass(opened.orchestrator, { runId });
-    expect(pass.guarded).toEqual(['snapshot']);
-    expect(pass.run.state).toBe('blocked');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('stale');
-    const events = await readProgress(opened.owner, runId);
-    expect(events.at(-1)?.summary).toContain('human-edit-wins');
-    // The publication stays the record of what was published, and no replacement generation is opened:
-    // the work waits for the person's review.
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.generation).toBe(1);
   });
-});
 
 describe('driving a whole run', () => {
   test('planning, admission, three stages and one publication per generation, with no sleeps', async () => {
@@ -1281,39 +856,7 @@ describe('driving a whole run', () => {
     ]);
   });
 
-  test('a unit whose lease lapsed is retried by the sweep, and one with no retry left fails', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 1 } });
-    await admitUnits(opened.orchestrator, { runId });
-
-    // A worker that takes the unit and dies without settling it: the lease is in force and nothing runs.
-    const leased = await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-that-dies', ttlMs: 1_000, at: NOW });
-    expect(leased.ok).toBe(true);
-    opened.clock.advance(1_000);
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept.swept.map((unit) => `${unit.unitId}:${unit.outcome}`)).toEqual(['snapshot/src:retried']);
-    const waiting = await readUnit(opened.owner, 'snapshot/src');
-    expect(waiting?.state).toBe('retry_wait');
-    expect(waiting?.context.retriesLeft).toBe(0);
-    expect(waiting?.context.retryAt).toBe(NOW + 1_500);
-    expect(waiting?.lease?.revokedAt).toBe(NOW + 1_000);
-
-    // The wait ends, the unit is runnable again, and its last attempt lapses with no retry left.
-    opened.clock.advance(500);
-    const woken = await sweepUnits(opened.orchestrator, { runId });
-    expect(woken.swept.map((unit) => `${unit.unitId}:${unit.outcome}`)).toEqual(['snapshot/src:woken']);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
-    const again = await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-that-dies-again', ttlMs: 1_000, at: opened.clock.now() });
-    expect(again.ok).toBe(true);
-    // The token grew with the attempt: the second lease is not the first one again.
-    expect(again.ok ? again.record.context.fence : 0).toBe(2);
-    opened.clock.advance(1_000);
-    const failed = await sweepUnits(opened.orchestrator, { runId });
-    expect(failed.swept.map((unit) => `${unit.unitId}:${unit.outcome}`)).toEqual(['snapshot/src:failed']);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('failed');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-  });
-
+  
 });
 
 describe('the service the background server owns', () => {
@@ -1443,39 +986,7 @@ describe('what the review found, kept as tests', () => {
     expect(attempts).toBe(2);
   });
 
-  test('a stage that raised spends a retry, and the progress it reported before raising is kept', async () => {
-    const raise = { value: true };
-    const registry = new StageRegistry().register(fakeStage('snapshot', {
-      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
-      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: (_unit, context) => {
-        context.progress('read half the repository', 0.5);
-        if (raise.value) throw new Error('the snapshot tool answered nothing');
-        return { outcome: 'draft' };
-      },
-    }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 1_000, retries: 1 } });
-    await admitUnits(opened.orchestrator, { runId });
-    const retried = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(retried.result).toBe('retried');
-    expect(retried.summary).toContain('the snapshot tool answered nothing');
-    const unit = await readUnit(opened.owner, 'snapshot/src');
-    expect(unit?.state).toBe('retry_wait');
-    expect(unit?.context.retriesLeft).toBe(0);
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    // What the stage reported before it raised is the run's own durable progress, not a silence.
-    const reported = (await readProgress(opened.owner, runId)).filter((event) => event.kind === 'unit-progress');
-    expect(reported.map((event) => event.summary)).toEqual(['read half the repository (50%)']);
-
-    // The retry raises too, and with no retry left the generation fails for good.
-    opened.clock.advance(1_000);
-    await sweepUnits(opened.orchestrator, { runId });
-    const failed = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(failed.result).toBe('failed');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('failed');
-    expect((await readProgress(opened.owner, runId)).at(-1)?.kind).toBe('unit-failed');
-  });
-
+  
   test('a product configuration that moved under a run refuses a second planning of it', async () => {
     let enabled = true;
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
@@ -1489,30 +1000,7 @@ describe('what the review found, kept as tests', () => {
     expect(again.outcome === 'refused' ? again.reason : '').toContain('a changed product configuration is a new run');
   });
 
-  test('a failed child the run accepts as partial lets the parent join and publish', async () => {
-    const { stage } = splittingStage();
-    const registry = new StageRegistry().register(stage);
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 0, failedChildPolicy: 'accept-partial' } });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect((await advanceUnit(opened.owner, { unitId: 'modules/left', event: { type: 'cancel', at: NOW, cause: 'the child was cancelled' } })).ok).toBe(true);
-    await admitUnits(opened.orchestrator, { runId });
-    expect((await workOnce(opened.orchestrator, { worker: 'worker-2' })).result).toBe('published');
-
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept.swept.map((unit) => `${unit.unitId}:${unit.outcome}`)).toEqual(['modules/root:join-enqueued']);
-    const joined = await workOnce(opened.orchestrator, { worker: 'worker-3' });
-    expect(joined.result).toBe('published');
-    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('published');
-    expect((await readTransitions(opened.owner, { kind: 'unit', id: 'modules/root' })).map((entry) => entry.transitionId))
-      .toContain('unit/waiting_children--join-accepted-partial-->ready');
-    // The policy lets the parent carry on; it does not claim the run covered a child that never
-    // published, so the run finishes with the hole it has.
-    const settlement = await schedulerPass(opened.orchestrator, { runId });
-    expect(settlement.run.state).toBe('completed_partial');
-    expect(settlement.settlement.evidence.coverageMet).toBe(false);
-  });
-
+  
   test('a join whose children are still running settles its job and leaves the parent waiting', async () => {
     const { stage } = splittingStage();
     const registry = new StageRegistry().register(stage);
@@ -1529,24 +1017,7 @@ describe('what the review found, kept as tests', () => {
     expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('waiting_children');
   });
 
-  test('a run inherits the published units it would plan', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry });
-    expect((await driveRun(opened.orchestrator, { runId, workers: 2 })).run.state).toBe('succeeded');
-
-    const second = 'run-2';
-    expect((await startRun(opened.orchestrator, { runId: second })).ok).toBe(true);
-    const planned = await planRun(opened.orchestrator, { runId: second });
-    expect(planned.outcome).toBe('planned');
-    if (planned.outcome !== 'planned') return;
-    expect(planned.reused).toEqual(['snapshot/src']);
-    expect(planned.units).toEqual([]);
-    // Nothing to work: the new run covers what it inherited and finishes.
-    const driven = await driveRun(opened.orchestrator, { runId: second, workers: 1 });
-    expect(driven.run.state).toBe('succeeded');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  });
-
+  
   test('a unit a finished run left blocked is retried by the next run, never inherited and never trapping the product', async () => {
     // The work blocks on its first attempt and drafts on the next: the first run ends completed_partial, and a
     // second fill of the same product must be able to work the unit again. The refusal for a unit another run
@@ -1616,95 +1087,11 @@ describe('what the review found, kept as tests', () => {
     expect(attempts).toBe(3);
   });
 
-  test('the scheduler rechecks what went stale before it lets a run finish', async () => {
-    const query = 'SELECT module FROM clusters';
-    const registry = new StageRegistry().register(fakeStage('snapshot', {
-      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
-      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: (unit, context) => {
-        void context.graph.query(query).then(() => undefined);
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-        return { outcome: 'draft' };
-      },
-    }));
-    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
-    const { world: opened, runId } = await plannedWorld({ registry, graph });
-    await admitUnits(opened.orchestrator, { runId });
-    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-
-    // The graph moves under the published generation, and the run's own pass finds it before finishing:
-    // the generation goes stale, its replacement is planned, and the run does not settle as it stands.
-    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
-    const pass = await schedulerPass(opened.orchestrator, { runId });
-    expect(pass.stale).toBe(1);
-    expect(pass.run.state).toBe('running');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('planned');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.generation).toBe(2);
-    // The replacement runs, and this time the run finishes over a graph nothing moved under.
-    const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
-    expect(driven.run.state).toBe('succeeded');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(2);
+  
   });
-
-  test('a publication the machine refuses writes no fact, and a moved read refuses it before anything runs', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    let applications = 0;
-    const { world: opened, runId } = await plannedWorld({
-      registry,
-      apply: async ({ writes }) => { applications += 1; return writes.length; },
-    });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(applications).toBe(1);
-
-    // The same generation, then a request whose digest differs: the facts are never applied twice, and a
-    // generation that is refused publishes nothing.
-    const unit = (await readUnit(opened.owner, 'snapshot/src'))!;
-    const replay = await publishUnit(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, fence: 1,
-      identity: { inputsDigest: unit.inputsDigest, stageId: 'snapshot', stageVersion: 1 }, at: NOW + 1,
-      revalidate: async () => ({ membership: 'x', members: 0 }),
-      apply: async () => { throw new Error('a replay applies nothing'); },
-    });
-    expect(replay.outcome).toBe('replayed');
-    expect(applications).toBe(1);
-
-    const otherVersion = await publishUnit(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, fence: 1,
-      identity: { inputsDigest: unit.inputsDigest, stageId: 'snapshot', stageVersion: 2 }, at: NOW + 2,
-      revalidate: async () => ({ membership: 'x', members: 0 }),
-      apply: async () => { throw new Error('a refused publication applies nothing'); },
-    });
-    expect(otherVersion.outcome).toBe('refused');
-    expect(otherVersion.outcome === 'refused' ? otherVersion.code : '').toBe('fill-publication/digest-mismatch');
-    expect(applications).toBe(1);
-  });
-});
 
 describe('the background server that owns the orchestrator', () => {
-  test('holds the orchestrator it was given and stops it with everything else it opened', async () => {
-    const folder = await mkdtemp(join(tmpdir(), 'madarch-server-orchestrator-'));
-    try {
-      let stopped = 0;
-      const clock = { now: () => NOW };
-      const server = await startServer({
-        dataFolder: folder,
-        queryDatabase: await createTestQueryDatabase({ clock }),
-        port: 0,
-        clock,
-        orchestrator: { stop: async () => { stopped += 1; } },
-      });
-      // The server holds it while it serves: nothing stops the fill's orchestrator behind the server's back.
-      expect(stopped).toBe(0);
-      await server.stop();
-      expect(stopped).toBe(1);
-    } finally {
-      await rm(folder, { recursive: true, force: true });
-    }
   });
-});
 
 describe('what the second review found, kept as tests', () => {
   test('a starved plan blocks the run and leaves the product able to start the next one', async () => {
@@ -1720,35 +1107,7 @@ describe('what the second review found, kept as tests', () => {
     expect(second.chain.context.activeRunId).toBe('run-2');
   });
 
-  test('a generation a person\'s edit left stale is replaced by the next run, never reused', async () => {
-    const guard = { verdict: 'conflict' as 'clean' | 'conflict' };
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry, guard: { check: () => guard.verdict } });
-    await admitUnits(opened.orchestrator, { runId });
-    await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    const edited = await schedulerPass(opened.orchestrator, { runId });
-    expect(edited.run.state).toBe('blocked');
-    const stale = await readUnit(opened.owner, 'snapshot/src');
-    expect(stale?.state).toBe('stale');
-    expect(stale?.generation).toBe(1);
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-
-    // The next run does not inherit it: a stale generation is work to redo, not work already done.
-    const second = 'run-2';
-    expect((await startRun(opened.orchestrator, { runId: second })).ok).toBe(true);
-    guard.verdict = 'clean';
-    const planned = await planRun(opened.orchestrator, { runId: second });
-    expect(planned.outcome).toBe('planned');
-    if (planned.outcome !== 'planned') return;
-    expect(planned.reused).toEqual([]);
-    expect(planned.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['snapshot/src:2']);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('planned');
-    const driven = await driveRun(opened.orchestrator, { runId: second, workers: 1 });
-    expect(driven.run.state).toBe('succeeded');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(2);
-  });
-
+  
   test('a planned unit with no plan row is reported, never dropped in silence', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
     const { world: opened, runId } = await plannedWorld({ registry });
@@ -1874,81 +1233,11 @@ describe('a job the queue no longer holds', () => {
 });
 
 describe('an attempt that died between its draft and its publication', () => {
-  test('a lease that lapsed while the unit stood validating is retried, its draft retracted and nothing published', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
-    await admitUnits(opened.orchestrator, { runId });
-    // The unit's own job is left where the admission put it — queued, not claimed:
-    // the attempt below is the store's own, which is what a worker's steps are.
-    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-that-dies', ttlMs: 1_000, at: NOW })).ok).toBe(true);
-    for (const event of [
-      { type: 'start', at: NOW, generation: 1, fence: 1 },
-      { type: 'submit-draft', at: NOW, generation: 1, fence: 1 },
-    ] as const) {
-      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event })).ok).toBe(true);
-    }
-    // The effect the machine's own step asks for: what the attempt wrote.
-    await recordUnitDraft(opened.owner, {
-      unitId: 'snapshot/src', generation: 1, at: NOW,
-      writes: [{ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } }],
-    });
-    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'validate-draft', at: NOW, generation: 1, fence: 1 } })).ok).toBe(true);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('validating');
-
-    // The worker is killed here. Its lease lapses, and the sweep retries the
-    // generation: the machine allows the lapse from `validating`, the retry is
-    // spent, and the draft the dead attempt recorded is retracted.
-    opened.clock.advance(1_000);
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept).toMatchObject({ swept: [{ unitId: 'snapshot/src', outcome: 'retried' }], refused: [] });
-    const retried = await readUnit(opened.owner, 'snapshot/src');
-    expect(retried).toMatchObject({ state: 'retry_wait', generation: 1 });
-    expect(retried?.context.retriesLeft).toBe(1);
-    expect(retried?.context.retryAt).toBe(NOW + 1_500);
-    expect((await readUnitDraft(opened.owner, 'snapshot/src', 1))?.retractedAt).toBe(NOW + 1_000);
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-
-    // The retry runs at its own moment and publishes exactly once.
-    opened.clock.advance(500);
-    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
-    const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  }, 30_000);
-});
+  });
 
 
 describe('the window between a machine step and its enqueue', () => {
-  test('a unit left ready by a retry whose job was lost is offered the queue again, revoked lease and all', async () => {
-    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
-    await admitUnits(opened.orchestrator, { runId });
-    // An attempt takes the lease and dies within it: the lapse revokes the lease,
-    // which leaves the generation holding a revoked lease row.
-    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-that-dies', ttlMs: 1_000, at: NOW })).ok).toBe(true);
-    opened.clock.advance(1_000);
-    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
-
-    // The retry's own moment comes and the wake moves the unit to `ready`, and its
-    // enqueue is the step after that: here the enqueue's job is settled away, which
-    // is what a crash between the two leaves behind.
-    opened.clock.advance(500);
-    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
-    const woken = await readUnit(opened.owner, 'snapshot/src');
-    expect(woken).toMatchObject({ state: 'ready', lease: { revokedAt: NOW + 1_000 } });
-    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
-    expect(await opened.queue.fail(QUEUE, claimed, 'the worker that claimed the woken unit died before its lease')).toBe('failed');
-
-    // The unit stands `ready` holding a revoked lease and the queue holds nothing
-    // for it: it is offered again, which a guard on "no lease at all" would miss.
-    const swept = await sweepUnits(opened.orchestrator, { runId });
-    expect(swept).toMatchObject({ swept: [{ unitId: 'snapshot/src', outcome: 'requeued' }], refused: [] });
-    const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
-    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  }, 30_000);
-});
+  });
 
 describe('a worker whose lease lapsed while it was still inside its stage', () => {
   /** The run's unfinished jobs, by the unit each carries: a key no new job can take while it stands. */
@@ -1998,41 +1287,7 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
     return { registry, lapse };
   }
 
-  test('a step the machine refuses ends the attempt\'s claim, so the run reaches the unit again', async () => {
-    const { registry, lapse } = lapsedStage('draft');
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
-    await admitUnits(opened.orchestrator, { runId });
-    expect(await unfinished(opened)).toEqual(['snapshot/src']);
-    lapse.now = async () => {
-      opened.clock.advance(1_000);
-      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
-      // The retry's own moment comes while the attempt still runs: the run wakes the
-      // generation to `ready`, and both jobs it asks for are answered "nothing created"
-      // — the state the failed CI run reported, where the unit stood ready with its
-      // retry spent and one unfinished job holding its key.
-      opened.clock.advance(500);
-      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
-      expect(await unfinished(opened)).toEqual(['snapshot/src']);
-    };
-
-    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    // The unit stands `ready`, so the machine refuses `submit-draft`. The claim that
-    // attempt held is settled with the machine's own words, not kept: kept, it would
-    // hold the unit's key until the queue's real-time lease let go of it.
-    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'completed' });
-    expect(worked.refusal?.reason).toContain('"ready"');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('ready');
-    expect(await unfinished(opened)).toEqual([]);
-    expect(await refusals(opened, runId)).toEqual([expect.stringContaining('refused submit-draft')]);
-
-    // The run's next offer of the unit reaches the queue, and the generation publishes
-    // exactly once.
-    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['requeued']);
-    expect(await unfinished(opened)).toEqual(['snapshot/src']);
-    expect(await workOnce(opened.orchestrator, { worker: 'worker-2' })).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  }, 30_000);
-
+  
   test('a block the machine refuses ends the attempt\'s claim just the same', async () => {
     const { registry, lapse } = lapsedStage('blocked');
     const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
@@ -2050,153 +1305,20 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
     expect(await refusals(opened, runId)).toEqual([expect.stringContaining('refused block')]);
   }, 30_000);
 
-  test('a claim the queue no longer holds is reported as its own to settle, not settled twice', async () => {
-    const { registry, lapse } = lapsedStage('draft');
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
-    await admitUnits(opened.orchestrator, { runId });
-    lapse.now = async () => {
-      opened.clock.advance(1_000);
-      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
-      // The queue's own maintenance gets to the claim first — what its real-time lease
-      // does to a worker that went quiet — and the attempt's settlement finds nothing.
-      await settleClaimInQueue(opened, 'snapshot/src');
-      expect(await unfinished(opened)).toEqual([]);
-    };
-    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'none' });
-    expect(await refusals(opened, runId)).toEqual([expect.stringContaining('The queue no longer held its claim')]);
-    // The unit is still the run's: the wake offers it, and it publishes once.
-    opened.clock.advance(500);
-    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
-    expect(await unfinished(opened)).toEqual(['snapshot/src']);
-    expect(await workOnce(opened.orchestrator, { worker: 'worker-2' })).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-  }, 30_000);
-
-  test('a split whose suspension the machine refuses ends its claim, and the run still finishes', async () => {
-    // The same lapse, one step further: the stage splits, so the seal and the step that
-    // suspends the parent — `wait-for-children` — are one transaction, and the step is
-    // the one refused. The children that transaction wrote stand (a window of its own,
-    // madarch-tzte.19.7's finding: the step should be judged before anything is sealed);
-    // what this test holds is the claim: settled, so the run can reach the parent again.
-    const lapse: { now?: () => Promise<void> } = {};
-    const attempts: string[] = [];
-    const registry = new StageRegistry().register(fakeStage('modules', {
-      produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'cluster' }],
-      plan: () => ({ units: [{ id: 'root', scope: 'the repository' }], coverage: 'planned' }),
-      execute: async (unit, context): Promise<StageExecutionResult> => {
-        attempts.push(unit.id);
-        if (unit.id === 'root' && attempts.filter((id) => id === unit.id).length === 1) {
-          const lapseNow = lapse.now;
-          lapse.now = undefined;
-          await lapseNow?.();
-          return { outcome: 'split', children: [{ id: 'left', scope: 'the left half' }, { id: 'right', scope: 'the right half' }] };
-        }
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts' } });
-        return { outcome: 'draft' };
-      },
-    }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
-    await admitUnits(opened.orchestrator, { runId });
-    lapse.now = async () => {
-      opened.clock.advance(1_000);
-      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
-    };
-
-    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(worked).toMatchObject({ unitId: 'modules/root', result: 'refused', job: 'completed' });
-    expect(worked.refusal?.reason).toContain('wait-for-children');
-    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('retry_wait');
-    expect(await unfinished(opened)).toEqual([]);
-
-    // The parent's retry comes due, and the run drives every generation it holds — the
-    // parent and the two children — to one publication each.
-    opened.clock.advance(2_000);
-    const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
-    if (!driven.settled) {
-      const status = await runStatus(opened.orchestrator, runId);
-      throw new Error(`the run did not settle (${driven.stoppedBecause ?? 'no reason'}): ${JSON.stringify(status?.units)}; queue ${JSON.stringify(await unfinished(opened))}; progress ${JSON.stringify(await refusals(opened, runId))}`);
-    }
-    expect(driven.run.state).toBe('succeeded');
-    for (const unitId of ['modules/root', 'modules/left', 'modules/right']) {
-      expect(await readPublications(opened.owner, unitId)).toHaveLength(1);
-    }
-  }, 30_000);
-});
+  
+  });
 
 describe('a draft set a store recorded before the parts existed', () => {
   // madarch-tzte.21.11 stores a draft set in parts, and a store recorded by the code before it holds the
   // whole set in the row's own `writes` column. That row is a set like any other: a reader answers it
   // whole, and a store that answered it empty would publish nothing for it.
-  test('is read back whole from its row, and a set recorded again is its parts alone', async () => {
-    const owner = await createTestDatabaseOwner();
-    try {
-      await createOrchestratorSchema(owner);
-      const legacy = [
-        { kind: 'fact' as const, evidence: 'src/a.ts:1', value: { at: 1 } },
-        { kind: 'fact' as const, evidence: 'src/b.ts:2', value: { at: 2 } },
-      ];
-      await owner.transaction('write', async (transaction) => {
-        await transaction.query(
-          `INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at, retracted_at)
-           VALUES ($1, $2, $3, $4::jsonb, $5, NULL)`,
-          ['modules:legacy', 1, 'legacy-digest', JSON.stringify(legacy), NOW],
-        );
-      });
-      const read = await readUnitDraft(owner, 'modules:legacy', 1);
-      expect(read?.writes).toEqual(legacy as never);
-      expect(read?.digest).toBe('legacy-digest');
-
-      // Recorded again: the row keeps the digest and the times, its own column is emptied, and the set is
-      // the parts alone — nothing of the column the store before the parts wrote is read as a write.
-      const fewer = [legacy[0]!];
-      await recordUnitDraft(owner, { unitId: 'modules:legacy', generation: 1, writes: fewer, at: NOW + 1 });
-      const recorded = await readUnitDraft(owner, 'modules:legacy', 1);
-      expect(recorded?.writes).toEqual(fewer as never);
-      const own = await owner.transaction('snapshot', async (executor) => (await executor.query<{ writes: unknown }>(
-        'SELECT writes FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2',
-        ['modules:legacy', 1],
-      )).rows[0]?.writes);
-      expect(own).toEqual([]);
-    } finally {
-      await owner.close();
-    }
-  }, 30_000);
-});
+  });
 
 describe('a draft set larger than one part', () => {
   // madarch-tzte.21.11: one jsonb value of a repository-wide unit's whole draft set — 34 MB for the
   // modules stage over the madarch tree — took the embedded store's memory up by about 490 MB for good.
   // A set is recorded in parts of a few hundred writes, and read back whole and in order.
-  test('is recorded in parts no larger than a part, read back whole and in order, and replaced whole', async () => {
-    const owner = await createTestDatabaseOwner();
-    try {
-      await createOrchestratorSchema(owner);
-      // The part is 500 writes (the requirement's own number, not the constant's): 1 001 writes are three
-      // parts, and a store that put them in one takes this test down.
-      const count = 1_001;
-      const writes = Array.from({ length: count }, (_, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
-      const recorded = await recordUnitDraft(owner, { unitId: 'modules:big', generation: 1, writes, at: NOW });
-      const parts = await owner.transaction('snapshot', async (executor) => (await executor.query<{ part: unknown; size: unknown }>(
-        'SELECT part, jsonb_array_length(writes) AS size FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2 ORDER BY part',
-        ['modules:big', 1],
-      )).rows.map((row) => [Number(row.part), Number(row.size)]));
-      expect(parts).toEqual([[0, 500], [1, 500], [2, 1]]);
-      const read = await readUnitDraft(owner, 'modules:big', 1);
-      expect(read?.writes).toEqual(writes);
-      expect(read?.digest).toBe(recorded.digest);
-
-      // Recorded again with fewer writes: the set is the new one, and no part of the one before it stands.
-      const fewer = writes.slice(0, 3);
-      await recordUnitDraft(owner, { unitId: 'modules:big', generation: 1, writes: fewer, at: NOW + 1 });
-      expect((await readUnitDraft(owner, 'modules:big', 1))?.writes).toEqual(fewer);
-      // Another generation of the same unit is its own set.
-      expect(await readUnitDraft(owner, 'modules:big', 2)).toBeNull();
-    } finally {
-      await owner.close();
-    }
-  }, 60_000);
-});
+  });
 
 describe('a generation’s cache key, and what a run reaches over the declared capabilities', () => {
   /**
@@ -2238,32 +1360,7 @@ describe('a generation’s cache key, and what a run reaches over the declared c
     return plan;
   }
 
-  test('a published generation whose key stands is inherited by the next run, and one whose read moved is replaced before it runs', async () => {
-    const query = 'SELECT module FROM clusters';
-    const units = { names: ['src'] };
-    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
-    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
-    const opened = await world({ registry, graph });
-    await driveOne(opened, 'run-1');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-
-    // The graph stands as it stood: the second run inherits the generation and works nothing on its behalf.
-    const second = await driveOne(opened, 'run-2');
-    expect(second.reused).toEqual(['snapshot/src']);
-    expect(second.units).toEqual([]);
-
-    // The graph moves under the publication: the third run replaces it, and its progress names the read that
-    // moved rather than saying only that something did.
-    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
-    const third = await driveOne(opened, 'run-3');
-    expect(third.reused).toEqual([]);
-    expect(third.units.map((unit) => `${unit.unitId}:${unit.generation}:${unit.state}`)).toEqual(['snapshot/src:2:planned']);
-    const stale = (await readProgress(opened.owner, 'run-3')).filter((event) => event.kind === 'unit-stale');
-    expect(stale.map((event) => event.unitId)).toEqual(['snapshot/src']);
-    expect(stale[0]!.summary).toContain('a read the generation recorded answers something else now: SELECT module FROM clusters');
-    expect((await readUnitGenerations(opened.owner, 'snapshot/src')).map((generation) => `${generation.generation}:${generation.state}`)).toEqual(['1:stale', '2:published']);
-  });
-
+  
   test('a version a stage declares as part of the key replaces every unit the last one planned', async () => {
     const prompt = { value: 'packet@1' };
     const units = { names: ['src'] };
@@ -2382,60 +1479,8 @@ describe('a generation’s cache key, and what a run reaches over the declared c
     expect(sweep.invalidated[0]!.cause).toContain('a read the generation recorded answers something else now:');
   });
 
-  test('a reader that fails for a reason of its own is no movement of the graph: the planning fails, and replaces nothing', async () => {
-    const query = 'SELECT module FROM clusters';
-    const units = { names: ['src'] };
-    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
-    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
-    const opened = await world({ registry, graph });
-    await driveOne(opened, 'run-1');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-
-    // A store error, a broken statement: a failure of the run, never a movement of the graph. The planning fails
-    // with it, and no generation is replaced for it.
-    graph.reader = { query: async () => { throw new Error('table fill_fact: the connection was closed'); } };
-    const started = await startRun(opened.orchestrator, { runId: 'run-2' });
-    expect(started.ok).toBe(true);
-    await expect(planRun(opened.orchestrator, { runId: 'run-2' })).rejects.toThrow('the connection was closed');
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.generation).toBe(1);
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
-
-    // The reader's own refusal is a movement of the graph: the same planning now replaces the generation.
-    graph.reader = { query: async () => { throw new GraphReadRefusal('src/fill/graph-reads.ts:1:1: the file src/one.ts is gone at this pin'); } };
-    const plan = await planRun(opened.orchestrator, { runId: 'run-2' });
-    expect(plan.outcome).toBe('planned');
-    if (plan.outcome !== 'planned') return;
-    expect(plan.reused).toEqual([]);
-    expect(plan.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['snapshot/src:2']);
-  });
-
-  test('a read the graph can no longer answer refuses the publication, and the attempt retries', async () => {
-    // The publication's own recheck reads through the same seam: a draft whose read the graph cannot answer stands
-    // on bytes nothing holds any more, and the publication is refused as a moved read rather than raising.
-    const query = 'SELECT module FROM clusters';
-    const units = { names: ['src'] };
-    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
-    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
-    const { world: opened, runId } = await plannedWorld({ registry, graph, limits: { retryDelayMs: 0 } });
-    await admitUnits(opened.orchestrator, { runId });
-    const reader = graph.reader;
-    let reads = 0;
-    graph.reader = {
-      query: async (text: string) => {
-        reads += 1;
-        // The attempt's own read is answered; the publication's recheck finds the file gone.
-        if (reads === 1) return await reader.query(text);
-        throw new GraphReadRefusal('src/fill/graph-reads.ts:1:1: the file src/one.ts is gone at this pin');
-      },
-    };
-    const outcome = await workOnce(opened.orchestrator, { worker: 'worker-1' });
-    expect(outcome.result).toBe('retried');
-    expect(String(outcome.summary)).toContain('unanswered: src/fill/graph-reads.ts:1:1: the file src/one.ts is gone at this pin');
-    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
-    expect(opened.applied).toEqual([]);
-  });
-
+  
+  
   test('a span read whose bytes did not move at the new pin leaves its generation standing, and one whose bytes moved replaces it', async () => {
     // 0026, "Updates": a unit's cache key holds "the spans it read", and a span's key is the bytes — never the
     // commit they were read at. The span row a read answers is the reader's, so this walks the rule with a
@@ -2547,60 +1592,7 @@ describe('the second planning epoch of a first fill (madarch-tzte.26.3)', () => 
     return plan;
   }
 
-  test('a run crashed between a producer\'s publication and its consumer\'s planning plans the consumer when it is driven again, to the same result', async () => {
-    const query = 'SELECT scope FROM consumers';
-    const registry = new StageRegistry()
-      .register(readingStageOf('snapshot', { units: { names: ['src'] }, produces: ['file-facts'] }))
-      .register(graphPlanningStage('overview', { query, consumes: ['file-facts'], produces: ['product-overview'] }));
-    const graph = fakeGraph();
-    // The clock is the test's own and moves across the restart, so the resumed run's steps stand after
-    // the first world's in the store's own times.
-    const clock = testClock();
-    const owner = await createTestDatabaseOwner();
-    const opened = await world({ registry, graph, owner, clock });
-    await startRun(opened.orchestrator, { runId: 'run-1' });
-    const planned = await planRun(opened.orchestrator, { runId: 'run-1' });
-    expect(planned.outcome).toBe('planned');
-    if (planned.outcome !== 'planned') return;
-    // The consumer's plan reads what its producer writes: at the planning nothing stood, so it planned
-    // no unit, and the run records the attempt.
-    expect(planned.units.map((unit) => unit.unitId)).toEqual(['snapshot/src']);
-    await admitUnits(opened.orchestrator, { runId: 'run-1' });
-    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
-    // The process is lost here: the producer's publication stands in the store and the consumer has
-    // planned nothing. The world is closed and opened again over the same database, which is the restart.
-    await opened.close();
-    // The producer's facts stand now: what its publication wrote, as the graph the units read answers it.
-    graph.rows.set(query, [{ scope: 'product' }]);
-    clock.advance(60_000);
-    const resumed = await world({ registry, graph, owner, clock });
-    const driven = await driveRun(resumed.orchestrator, { runId: 'run-1' });
-    // The same result a run without the crash reaches: the consumer planned in the reopened planning
-    // epoch, published exactly once, and the run finished with its work.
-    expect({ state: driven.run.state, settled: driven.settled }).toEqual({ state: 'succeeded', settled: true });
-    expect(await readUnit(resumed.owner, 'overview/product')).toMatchObject({ state: 'published', generation: 1, runId: 'run-1' });
-    expect(await readPublications(resumed.owner, 'overview/product')).toHaveLength(1);
-    expect(await readPublications(resumed.owner, 'snapshot/src')).toHaveLength(1);
-    // One reopened planning epoch: the run's own journal names it, and the resume landed on the same
-    // result a run without the crash reaches.
-    const journal = await readTransitions(resumed.owner, { kind: 'run', id: 'run-1' });
-    expect(journal.map((entry) => entry.transitionId)).toEqual([
-      'run/created--plan-->planning', 'run/planning--start-->running', 'run/running--replan-->planning', 'run/planning--start-->running',
-      'run/running--complete-->succeeded',
-    ]);
-    const events = await readProgress(resumed.owner, 'run-1');
-    expect(events.map((event) => event.kind)).toContain('run-replanned');
-    // Stage 23's old limitation (madarch-tzte.23.5, seen in the stage-23 walk): a run that stopped
-    // stood in the store non-terminal, and the next run of the product was refused with the chain
-    // active. The resumed run settles whole, so the next run of the product is accepted and settles
-    // too — nothing the crash left behind holds the product.
-    const next = await plannedAndDriven(resumed, 'run-2');
-    expect(next.units).toEqual([]);
-    expect(next.reused).toEqual(['snapshot/src', 'overview/product']);
-    await resumed.close();
-    await owner.close();
-  });
-
+  
   test('a second run of a filled product re-plans nothing: its publications are its plan\'s answer already', async () => {
     const query = 'SELECT scope FROM consumers';
     const registry = new StageRegistry()

@@ -20,7 +20,7 @@ export interface WebLink {
 }
 
 /** A remote read apart: the host name (lower case, no port, no credentials) and the repository path without `.git`. */
-export interface Remote {
+interface Remote {
   readonly host: string;
   /** `owner/repo`, or `group/subgroup/repo`. */
   readonly repository: string;
@@ -66,7 +66,7 @@ export function parseRemote(origin: string): Remote | undefined {
 type HostKind = WebLink['host'];
 
 /** Which web interface a host name serves; `undefined` for a host not known. */
-export function hostKind(host: string): HostKind | undefined {
+function hostKind(host: string): HostKind | undefined {
   const name = host.replace(/^www\./, '');
   if (name === 'github.com') return 'GitHub';
   if (name === 'gitlab.com' || name.startsWith('gitlab.')) return 'GitLab';

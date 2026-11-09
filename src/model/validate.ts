@@ -94,7 +94,7 @@ export interface PositionedEntity {
  * A step of a scenario's main flow, with the lines its own checks report
  * by: the step item's line, and its `id`'s and `relation`'s.
  */
-export interface PositionedScenarioStep {
+interface PositionedScenarioStep {
   step: ScenarioStep;
   line: number;
   idLine: number;
@@ -106,7 +106,7 @@ export interface PositionedScenarioStep {
  * its item, its `id`, its `at`, its `when`, its `steps` key, and each of
  * its own steps as the main flow's are held.
  */
-export interface PositionedScenarioAlternative {
+interface PositionedScenarioAlternative {
   alternative: ScenarioAlternative;
   line: number;
   idLine: number;

@@ -42,7 +42,7 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
-import type { SqlExecutor } from '../query/sql-driver.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { FillControl } from '../product/fill-runtime.js';
@@ -119,8 +119,6 @@ import type { ChainEvidence, RunEvidence } from './fsm.js';
 import type { QueueService, ClaimedJob } from './queue.js';
 import type { FillStageConfigurationRead } from './config.js';
 import type { FillStage, StagePlan } from './stage.js';
-import { STATIC_GRAPH_READ, staticGraphRead, staticStageContext, type StaticGraphNode, type StaticGraphReader, type StaticStageSource } from './stages/static-context.js';
-import { createFileFactsCache, type FileFactsCache } from './stages/file-facts.js';
 
 // ---------------------------------------------------------------------------------------------
 // The seams a caller passes
@@ -279,13 +277,11 @@ export interface OrchestratorOptions {
    * scope names. The source is the host's, so the run never reaches a checkout
    * itself and a stage never receives a tree reader.
    */
-  readonly staticSource?: (ref: UnitRef) => Promise<StaticStageSource | undefined> | StaticStageSource | undefined;
   /**
    * The graph a static unit reads through (decision 0033): bounded by key, by
    * global name and by one neighbourhood, never a whole table. The host owns
    * the store; a stage is handed the reader and nothing wider.
    */
-  readonly staticGraph?: (ref: UnitRef) => Promise<StaticGraphReader | undefined> | StaticGraphReader | undefined;
   /** Every durable progress event, once it is committed. */
   readonly sink?: ProgressSink;
   /** Where the orchestrator's own lines go; nothing by default. */
@@ -310,8 +306,6 @@ export interface FillOrchestrator {
   readonly control: RunControlReader;
   readonly guard: HumanEditGuard | undefined;
   readonly unitTools: ((request: UnitToolsOpening) => Promise<StageUnitTools | undefined>) | undefined;
-  readonly staticSource: ((ref: UnitRef) => Promise<StaticStageSource | undefined>) | undefined;
-  readonly staticGraph: ((ref: UnitRef) => Promise<StaticGraphReader | undefined>) | undefined;
   readonly sink: ProgressSink | undefined;
   readonly log: (line: string) => void;
   /**
@@ -321,13 +315,6 @@ export interface FillOrchestrator {
    * removes it when the attempt ends.
    */
   readonly authority: Map<string, AbortController>;
-  /**
-   * The run's memory of parsed files (madarch-8bdc.2.5): one parse per file a static
-   * unit reads, shared by every stage and unit of this orchestrator's fills. Its bound
-   * is `FILE_FACTS_CACHE_LIMITS` (512 files, 64 MiB of source text); what it answered
-   * is read at the end of a fill (`fileFacts.stats`).
-   */
-  readonly fileFacts: FileFactsCache;
 }
 
 /** Builds the orchestrator, resolving every seam and the limits. */
@@ -355,21 +342,10 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     control: options.control ?? (async () => undefined),
     guard: options.guard,
     unitTools: options.unitTools === undefined ? undefined : async (request) => await options.unitTools!(request),
-    staticSource: options.staticSource === undefined ? undefined : async (ref) => await options.staticSource!(ref),
-    staticGraph: options.staticGraph === undefined ? undefined : async (ref) => await options.staticGraph!(ref),
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
-    fileFacts: createFileFactsCache(),
   };
-}
-
-/** The file a static unit's own reading is about, where its id names one (`file:<repository>:<path>`). */
-function ownPathOf(stageUnitId: string): string | undefined {
-  if (!stageUnitId.startsWith('file:')) return undefined;
-  const rest = stageUnitId.slice('file:'.length);
-  const at = rest.indexOf(':');
-  return at < 0 ? undefined : rest.slice(at + 1);
 }
 
 /** The key one attempt's authority is registered under. */
@@ -495,7 +471,7 @@ function unitRef(unit: UnitRecord, plan: UnitPlanRecord): UnitRef {
  * of a unit's cache key (0027's `inputsDigest` holds their digest), so a run that resolves another of
  * them replaces the units the last one planned rather than inheriting them.
  */
-export function stageCacheVersions(stage: FillStage): Readonly<Record<string, string>> {
+function stageCacheVersions(stage: FillStage): Readonly<Record<string, string>> {
   return { stage: `${stage.id}@${String(stage.version)}`, ...(stage.cacheVersions?.() ?? {}) };
 }
 
@@ -541,7 +517,7 @@ function movedVersions(recorded: Readonly<Record<string, string>> | undefined, n
 }
 
 /** Why a generation's cache key moved, or that it did not: decision 0026's four parts, as a run reads them. */
-export type CacheKeyVerdict =
+type CacheKeyVerdict =
   | { readonly fresh: true }
   | { readonly fresh: false; readonly cause: string; /** The digest the generation's known part resolves to now. */ readonly digest: string };
 
@@ -552,7 +528,7 @@ export type CacheKeyVerdict =
  * whose bytes at the run's own pin changed, included. A generation whose key moved is replaced, never
  * inherited and never overwritten (0027): a published one keeps its publication as its record.
  */
-export async function generationFresh(orchestrator: FillOrchestrator, unit: UnitRecord, known?: { readonly digest: string; readonly versions: Readonly<Record<string, string>> }): Promise<CacheKeyVerdict> {
+async function generationFresh(orchestrator: FillOrchestrator, unit: UnitRecord, known?: { readonly digest: string; readonly versions: Readonly<Record<string, string>> }): Promise<CacheKeyVerdict> {
   const plan = await readUnitPlan(orchestrator.database, unit.unitId, unit.generation);
   if (plan === null) {
     // Nothing says what the generation's scope was, so its key cannot be read: it is reported as stale with the
@@ -677,7 +653,7 @@ const LIVE_STATES: readonly UnitState[] = ['planned', 'ready', 'leased', 'runnin
 // ---------------------------------------------------------------------------------------------
 
 /** One unit the run planned, as the orchestrator created or found it. */
-export interface PlannedUnit {
+interface PlannedUnit {
   readonly unitId: string;
   readonly stageId: string;
   readonly stageUnitId: string;
@@ -1008,7 +984,7 @@ type ReplanOutcome =
  * planning, or one a pause resumed — closes its epoch with whatever it plans
  * here, so the resume lands on the same result.
  */
-export async function replanAfterPublications(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<ReplanOutcome> {
+async function replanAfterPublications(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<ReplanOutcome> {
   const database = orchestrator.database;
   const run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded: a run is created before it plans`);
@@ -1072,7 +1048,7 @@ export async function replanAfterPublications(orchestrator: FillOrchestrator, op
 // ---------------------------------------------------------------------------------------------
 
 /** One unit this pass admitted, with the job its admission created. */
-export interface AdmittedUnit {
+interface AdmittedUnit {
   readonly unitId: string;
   readonly generation: number;
   readonly stageId: string;
@@ -1083,7 +1059,7 @@ export interface AdmittedUnit {
 }
 
 /** What one admission pass did. */
-export interface AdmissionOutcome {
+interface AdmissionOutcome {
   readonly run: RunRecord;
   readonly admitted: readonly AdmittedUnit[];
   /** The units a slot refused this pass, in the order they were considered: they wait for one to free. */
@@ -1195,14 +1171,14 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
 // ---------------------------------------------------------------------------------------------
 
 /** Why a unit was sent away from an attempt and what the sweep did with it. */
-export interface SweptUnit {
+interface SweptUnit {
   readonly unitId: string;
   readonly outcome: 'woken' | 'wake-refused' | 'retried' | 'failed' | 'join-enqueued' | 'join-failed' | 'requeued';
   readonly reason: string;
 }
 
 /** What one sweep did. */
-export interface SweepOutcome {
+interface SweepOutcome {
   readonly swept: readonly SweptUnit[];
   /** Every named step the sweep asked the machine for and the machine refused, so nothing here is dropped in silence. */
   readonly refused: readonly UnitRefusal[];
@@ -1394,12 +1370,12 @@ async function settleJoin(
 // ---------------------------------------------------------------------------------------------
 
 /** What one worker's attempt ended with. */
-export type WorkResult =
+type WorkResult =
   | 'published' | 'replayed' | 'split' | 'blocked' | 'retried' | 'failed' | 'cancelled'
   | 'nothing-to-do' | 'refused';
 
 /** What `workOnce` answered. */
-export interface WorkOutcome {
+interface WorkOutcome {
   /** True when a job was claimed and looked at; false when the queue had none. */
   readonly claimed: boolean;
   readonly unitId?: string;
@@ -1626,49 +1602,11 @@ async function attemptUnitPhases(
     // again — the store's own answer, read once per attempt, and no graph read that
     // a child's publication could move.
     const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
-    // A static stage is handed its pinned repository, path-scoped, and never a tree reader (0033): the
-    // source is the host's, and the reads it makes of the graph go through this attempt's tracked reader.
-    const staticSource = orchestrator.staticSource === undefined ? undefined : await orchestrator.staticSource(unitRef(unit, plan));
-    const staticGraph = orchestrator.staticGraph === undefined ? undefined : await orchestrator.staticGraph(unitRef(unit, plan));
-    // Every bounded read through the static context is recorded as this generation's dependency, exactly as a
-    // stage's own tracked read is: the publication's recheck replays it, and an answer that moved refuses the
-    // publication rather than writing facts the graph no longer supports (decision 0027).
-    const recordStatic = async <T>(text: string, rows: readonly T[]): Promise<readonly T[]> => {
-      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
-      await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'node' : 'nodes'}` });
-      return rows;
-    };
-    const trackedStatic: StaticGraphReader | undefined = staticGraph === undefined ? undefined : {
-      byKey: async (key, options) => await recordStatic(staticGraphRead({ kind: 'key', value: key, limit: options?.limit ?? 256 }), await staticGraph.byKey(key, options)),
-      byGlobalName: async (name, options) => await recordStatic(staticGraphRead({ kind: 'globalName', value: name, limit: options?.limit ?? 256 }), await staticGraph.byGlobalName(name, options)),
-      edgesByProperty: async (relation, field, value, options) => {
-        // A read of the edges another unit published, by the value they carry: the recorded text
-        // names the relation, the field and the value, so the recheck replays the same question.
-        const text = staticGraphRead({ kind: 'edgesByProperty', value, relation, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
-        const answered = await staticGraph.edgesByProperty(relation, field, value, options);
-        return { rows: await recordStatic(text, answered.rows), next: answered.next };
-      },
-      byProperty: async (kind, field, value, options) => {
-        // A read by a value: the recorded text names the kind, the field and the value, so the
-        // publication's recheck replays the same question and refuses an answer that moved.
-        const text = staticGraphRead({ kind: 'property', value, nodeKind: kind, field, limit: options?.limit ?? 256, ...(options?.after === undefined ? {} : { after: options.after }) });
-        const answered = await staticGraph.byProperty(kind, field, value, options);
-        return { rows: await recordStatic(text, answered.rows), next: answered.next };
-      },
-      neighbourhood: async (nodeId, options) => {
-        const text = staticGraphRead({ kind: 'neighbourhood', value: nodeId, limit: options.limit ?? 256, relations: options.relations, direction: options.direction, ...(options.after === undefined ? {} : { after: options.after }) });
-        const answered = await staticGraph.neighbourhood(nodeId, options);
-        // A page's rows are its membership: the cursor it answers is the query the next page names,
-        // and the page after the last one is the empty page a later mention would land on.
-        return { rows: await recordStatic(text, answered.rows), next: answered.next };
-      },
-    };
     context = {
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
       graph: attemptReader,
-      ...(staticSource === undefined || trackedStatic === undefined ? {} : { static: staticStageContext(staticSource, trackedStatic, orchestrator.fileFacts, ownPathOf(plan.stageUnitId)) }),
       draft: draftWriter,
       ...(sealedChildren.length === 0 ? {} : { sealedChildren }),
       // A stage reports its progress synchronously; the notes are kept in order and written as the run's
@@ -2217,7 +2155,7 @@ export interface RunSettleOutcome {
  * outstanding. Nothing is settled while work stands, which is the whole point of
  * the guards behind them.
  */
-export async function settleRun(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<RunSettleOutcome> {
+async function settleRun(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<RunSettleOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
@@ -2338,7 +2276,7 @@ export async function resumeRun(orchestrator: FillOrchestrator, options: { reado
 }
 
 /** Fails one run for its spent budget, naming what was spent. */
-export async function failRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly detail: string }): Promise<RunSettleOutcome> {
+async function failRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly detail: string }): Promise<RunSettleOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
@@ -2352,7 +2290,7 @@ export async function failRun(orchestrator: FillOrchestrator, options: { readonl
 }
 
 /** Blocks one run with the starvation path that stopped it. */
-export async function blockRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly reason: string }): Promise<RunSettleOutcome> {
+async function blockRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly reason: string }): Promise<RunSettleOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
@@ -2366,7 +2304,7 @@ export async function blockRun(orchestrator: FillOrchestrator, options: { readon
 }
 
 /** Unblocks one generation after an explicit resolution, and makes it runnable again. */
-export async function unblockUnit(orchestrator: FillOrchestrator, options: { readonly unitId: string; readonly resolution: string }): Promise<WorkOutcome> {
+async function unblockUnit(orchestrator: FillOrchestrator, options: { readonly unitId: string; readonly resolution: string }): Promise<WorkOutcome> {
   const database = orchestrator.database;
   const unit = await readUnit(database, options.unitId);
   if (unit === null) raise(`no unit ${options.unitId} is recorded`);
@@ -2382,14 +2320,14 @@ export async function unblockUnit(orchestrator: FillOrchestrator, options: { rea
 }
 
 /** One named step the machine refused on one unit generation, with the machine's own words. */
-export interface UnitRefusal {
+interface UnitRefusal {
   readonly unitId: string;
   readonly code: string;
   readonly reason: string;
 }
 
 /** One generation the sweep found stale, with what moved. */
-export interface StaleUnit {
+interface StaleUnit {
   readonly unitId: string;
   readonly generation: number;
   readonly replacement: number;
@@ -2414,7 +2352,7 @@ export interface StaleUnit {
  * replacement.
  */
 /** What one staleness sweep did: the generations it replaced, and the steps the machine refused. */
-export interface StaleSweep {
+interface StaleSweep {
   readonly invalidated: readonly StaleUnit[];
   readonly refused: readonly UnitRefusal[];
 }
@@ -2523,9 +2461,9 @@ async function propagatedUnits(
 }
 
 /** What the human-edit guard answered for one stage. */
-export type StageGuardVerdict = 'clean' | 'conflict' | 'nothing-to-guard';
+type StageGuardVerdict = 'clean' | 'conflict' | 'nothing-to-guard';
 
-export interface StageGuardOutcome {
+interface StageGuardOutcome {
   readonly outcome: StageGuardVerdict;
   /** The generations the guard could not mark stale, each with the machine's own words. */
   readonly refused: readonly UnitRefusal[];
@@ -2537,7 +2475,7 @@ export interface StageGuardOutcome {
  * generations go stale and the run waits for that person's review rather than
  * publishing over them.
  */
-export async function guardStage(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly stageId: string }): Promise<StageGuardOutcome> {
+async function guardStage(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly stageId: string }): Promise<StageGuardOutcome> {
   const guard = orchestrator.guard;
   if (guard === undefined) return { outcome: 'nothing-to-guard', refused: [] };
   const database = orchestrator.database;
@@ -2569,7 +2507,7 @@ type SchedulerPhase = 'read' | 'sweep' | 'evidence' | 'replan' | 'admit' | 'guar
 type SchedulerPhases = Readonly<Record<SchedulerPhase, number>>;
 
 /** What one scheduler pass did. */
-export interface SchedulerOutcome {
+interface SchedulerOutcome {
   /** The run as it stands after the pass. */
   readonly run: RunRecord;
   readonly admitted: number;
@@ -2847,4 +2785,4 @@ export async function runStatus(orchestrator: FillOrchestrator, runId: string): 
 }
 
 /** The orchestrator's own tables, so a host can create them beside the state machines'. */
-export { ORCHESTRATOR_TABLES };
+;

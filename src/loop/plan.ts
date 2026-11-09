@@ -32,7 +32,7 @@ import { parseStatementRef, readCorrections, readQuestions, type Correction, typ
 
 const run = promisify(execFile);
 
-export type PlanReason =
+type PlanReason =
   | { readonly kind: 'missing' }
   | { readonly kind: 'language'; readonly from: string | null; readonly to: string }
   | { readonly kind: 'ground-changed' | 'ground-removed'; readonly statement: string; readonly ground: string }
@@ -44,7 +44,7 @@ export type PlanReason =
   /** A person's confirmed task reaches this page («Поправить страницы сейчас»): the run edits exactly the pages it reaches. */
   | { readonly kind: 'task'; readonly task: string; readonly title: string };
 
-export interface PlannedPage {
+interface PlannedPage {
   readonly id: string;
   readonly path: string;
   readonly reasons: readonly PlanReason[];
@@ -68,7 +68,7 @@ export interface RefreshPlan {
   readonly problems: readonly string[];
 }
 
-export interface DecideInput {
+interface DecideInput {
   /** The product's pages (product and domain kinds), as the index reads them. */
   readonly pages: readonly IndexedPage[];
   readonly grounds: readonly GroundChange[];
@@ -152,7 +152,7 @@ export function decide(input: DecideInput): RefreshPlan {
 type Raw = Record<string, unknown>;
 
 /** The services that appeared in the graph after `since` (an ISO time) and that no page of the product names. */
-export async function servicesSince(owner: DatabaseOwner, since: string, named: ReadonlySet<string>): Promise<string[]> {
+async function servicesSince(owner: DatabaseOwner, since: string, named: ReadonlySet<string>): Promise<string[]> {
   const rows = (await owner.run((tx) => tx.query<Raw>(
     `SELECT v.properties->>'recordKey' AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id
      WHERE k.key = 'code.service' AND v.properties ? 'recordKey' AND v.recorded_to = 'infinity'
@@ -263,7 +263,7 @@ async function textsOfGround(change: GroundChange, repository: string, reader: G
 }
 
 /** The brief of each planned page: the page as it stands and what changed. Pages with no text yet get no brief. */
-export async function briefsFor(planned: Planned): Promise<Map<string, EditBrief>> {
+async function briefsFor(planned: Planned): Promise<Map<string, EditBrief>> {
   const { plan, inputs } = planned;
   const { options } = inputs;
   const reader = gitReader(options.repository.path);
@@ -317,7 +317,7 @@ export async function briefsFor(planned: Planned): Promise<Map<string, EditBrief
 }
 
 /** The writer's seam: the plan as the writer reads it. */
-export function neededFrom(planned: Planned, briefs: ReadonlyMap<string, EditBrief>): (input: UnitsInput) => UnitsNeeded {
+function neededFrom(planned: Planned, briefs: ReadonlyMap<string, EditBrief>): (input: UnitsInput) => UnitsNeeded {
   return (input) => {
     const paths = new Set(planned.plan.pages.map((page) => page.path));
     const linked = input.productPage === null ? [] : [...input.productPage.matchAll(/\(madarch:domain:([a-z][a-z0-9-]*)\)/g)].map((match) => `${DOMAINS_FOLDER}/${match[1]}.md`);

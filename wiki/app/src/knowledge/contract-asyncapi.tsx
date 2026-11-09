@@ -1,9 +1,9 @@
-import {useEffect, useRef, useState, type ReactElement} from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import AsyncApiComponent, {PLUGIN_EVENT_ERROR} from '@asyncapi/react-component';
 import '@asyncapi/react-component/styles/default.min.css';
-import {useTranslation} from 'react-i18next';
-import type {Block} from './types.js';
-import {ContractRenderProblem, type ContractRenderFailure, contractValidationFailure, asyncApiEventFailure} from './contract-diagnostic.js';
+import { useTranslation } from 'react-i18next';
+import type { Block } from './types.js';
+import { ContractRenderProblem, type ContractRenderFailure, contractValidationFailure, asyncApiEventFailure } from './contract-diagnostic.js';
 
 /** The parser sees the bundled schema object; no schema URL, socket or API execution is supplied. */
 export default function ContractAsyncApi({block}: {block: Extract<Block, {type: 'definition'}>}): ReactElement {

@@ -8,10 +8,10 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { cn } from '@/lib/utils.js';
 
 export const TooltipProvider = TooltipPrimitive.Provider;
-export const Tooltip = TooltipPrimitive.Root;
-export const TooltipTrigger = TooltipPrimitive.Trigger;
+const Tooltip = TooltipPrimitive.Root;
+const TooltipTrigger = TooltipPrimitive.Trigger;
 
-export const TooltipContent = forwardRef<
+const TooltipContent = forwardRef<
   HTMLDivElement,
   React.ComponentProps<typeof TooltipPrimitive.Content>
 >(function TooltipContent({ className, sideOffset = 6, ...props }, ref): ReactElement {

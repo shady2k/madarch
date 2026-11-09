@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { CompiledModelSchema, loadAndCompileModel, loadModel, parseModel, type ModelWarning } from '../src/index.js';
+import { CompiledModelSchema, loadAndCompileModel, loadModel, parseModel, type ModelWarning } from './api.js';
 
 function fixture(name: string): string {
   return fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));

@@ -152,7 +152,7 @@ function nodeBox(node: Node): string {
 }
 
 /** What a node reads as: its label and, on an ER table, the columns it holds. */
-export function labelOf(element: DiagramElement): string {
+function labelOf(element: DiagramElement): string {
   const columns = element.columns ?? [];
   if (columns.length === 0) return element.label;
   return `${element.label}: ${columns.map((column) => (column.dataType === undefined ? column.label : `${column.label} ${column.dataType}`)).join(COLUMN_JOIN)}`;
@@ -179,7 +179,7 @@ function arrowOf(model: DiagramModel, edge: DiagramEdge, byId: ReadonlyMap<strin
  * qualified name after its file, a table's name after its repository — because a lifeline is a
  * column and not a page's width. The element list under the diagram names the whole label.
  */
-export function participantLabelOf(element: DiagramElement): string {
+function participantLabelOf(element: DiagramElement): string {
   const label = labelOf(element);
   const hash = label.lastIndexOf('#');
   if (hash >= 0 && hash + 1 < label.length) return label.slice(hash + 1);

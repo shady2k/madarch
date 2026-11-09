@@ -21,7 +21,7 @@ function realGit(): string {
 const shQuote = (word: string): string => "'" + word.split("'").join("'\\''") + "'";
 import { readProduct } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
-import { GIT_IDENTITY, GIT_ENV } from './model-check-repo.js';
+import { GIT_IDENTITY, GIT_ENV } from './repo-fixture.js';
 import { refuseNonScratchHome, noStrayDrafts, ISOLATED_HOME } from './scratch-home.js';
 
 // The library tests here create drafts in-process: with MADARCH_HOME at a

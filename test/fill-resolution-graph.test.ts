@@ -162,7 +162,7 @@ for (const size of [100, 200, 400]) {
       if (root !== '') rmSync(root, { recursive: true, force: true });
     });
 
-    test.skipIf(skip)(`the calls, references and inheritance edges are the generator's expected set, read through src/graph`, async () => {
+    bunTest.skipIf(skip || skippedSuite !== undefined)(`the calls, references and inheritance edges are the generator's expected set, read through src/graph`, async () => {
       expect({ state: first?.state, settled: first?.settled }).toEqual({ state: 'succeeded', settled: true });
       const symbols = await symbolsOf(opened!, 'ring');
       // Each file declares its class, the class's method, its function and its two uses.
@@ -179,7 +179,7 @@ for (const size of [100, 200, 400]) {
       expect(read.sort(byEdge)).toEqual(expected.sort(byEdge));
     }, 1_800_000);
 
-    test.skipIf(skip)('a second run of the same commit writes nothing', async () => {
+    bunTest.skipIf(skip || skippedSuite !== undefined)('a second run of the same commit writes nothing', async () => {
       const second = await run(opened!, `run-${String(size)}-two`);
       expect({ state: second.state, settled: second.settled }).toEqual({ state: 'succeeded', settled: true });
       // Every unit the run holds is one it inherited: nothing was planned and nothing ran.

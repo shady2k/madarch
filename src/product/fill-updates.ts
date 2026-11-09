@@ -43,7 +43,7 @@ import { listProducts } from './list.js';
 import { readChosenAgent } from './fill-wizard.js';
 
 /** One repository of one product, as the watcher names it in its lines. */
-export interface WatchedRepository {
+interface WatchedRepository {
   /** The product's name, as its manifest names it. */
   readonly product: string;
   /** The repository's id: the product's own name for the product repository, the manifest's name for a code repository. */
@@ -55,7 +55,7 @@ export interface WatchedRepository {
 }
 
 /** A ref's own answer: the branch the checkout stands on, the commit that branch names, and the file it was read from. */
-export interface RepositoryHead {
+interface RepositoryHead {
   readonly branch: string;
   readonly commit: string;
   readonly file: string;
@@ -84,10 +84,10 @@ export type UpdateRunAnswer =
   | { readonly started: false; readonly deferred: true; readonly reason: string };
 
 /** Starts one product's update run: the background server's fill service. */
-export type UpdateRunStarter = (request: UpdateRunRequest) => Promise<UpdateRunAnswer>;
+type UpdateRunStarter = (request: UpdateRunRequest) => Promise<UpdateRunAnswer>;
 
 /** One commit waiting for its debounce to end. */
-export interface PendingUpdate {
+interface PendingUpdate {
   readonly product: string;
   readonly repository: string;
   readonly commit: string;
@@ -98,7 +98,7 @@ export interface PendingUpdate {
 }
 
 /** What one pass over the home did, for the lines and for a test. */
-export interface UpdatePassReport {
+interface UpdatePassReport {
   /** The commits this pass left waiting for their debounce or for a fill to end. */
   readonly waiting: readonly PendingUpdate[];
   /** The runs this pass asked for, started or not. */
@@ -147,7 +147,7 @@ export interface UpdateWatch {
 }
 
 /** The heads this watcher last saw, as they are kept under the products home. */
-export interface SeenHeads { readonly repositories: Record<string, { readonly branch: string; readonly commit: string }> }
+interface SeenHeads { readonly repositories: Record<string, { readonly branch: string; readonly commit: string }> }
 
 const DEFAULT_DEBOUNCE_MS = 5_000;
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -162,7 +162,7 @@ export function seenKey(product: string, repository: string): string {
 }
 
 /** One ref's value, read from its file in a Git folder, or from `packed-refs` where the ref stands packed. */
-export function refValueOf(commonDir: string, ref: string): { commit: string; file: string } | undefined {
+function refValueOf(commonDir: string, ref: string): { commit: string; file: string } | undefined {
   const loose = join(commonDir, ...ref.split('/'));
   try {
     const text = readFileSync(loose, 'utf8').trim();
@@ -192,7 +192,7 @@ export function refValueOf(commonDir: string, ref: string): { commit: string; fi
  * folder in an ordinary checkout, or a file naming it (`gitdir: <path>`) in a
  * worktree and in a submodule. Nothing here runs git.
  */
-export function gitFolderOf(folder: string): { gitDir: string; commonDir: string } | undefined {
+function gitFolderOf(folder: string): { gitDir: string; commonDir: string } | undefined {
   const dotGit = join(folder, '.git');
   let gitDir: string;
   try {
@@ -274,7 +274,7 @@ export function headCommitOf(folder: string): { commit: string; file: string } |
 }
 
 /** The paths a watcher of one checkout listens to: its branch's ref, `packed-refs`, `HEAD`, and the branch folder it stands in. */
-export function watchedPathsOf(folder: string, declaredBranch?: string): readonly string[] {
+function watchedPathsOf(folder: string, declaredBranch?: string): readonly string[] {
   const folders = gitFolderOf(folder);
   if (folders === undefined) return [];
   const read = headOf(folder, declaredBranch);
@@ -355,7 +355,7 @@ function writeSeenHeads(home: string, seen: Record<string, { branch: string; com
 }
 
 /** The id of one product's update run for one commit: the same commit never starts two runs, and the id names both. */
-export function updateRunId(product: string, commit: string): string {
+function updateRunId(product: string, commit: string): string {
   return `update-${product}-${commit.slice(0, 12)}`;
 }
 

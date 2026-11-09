@@ -34,7 +34,7 @@ export interface CollectInput {
 }
 
 /** One draft as the page's row, with its stable id. */
-export function problemOf(draft: ProblemDraft): Problem {
+function problemOf(draft: ProblemDraft): Problem {
   return {
     id: problemId(draft.rule, draft.identity),
     section: draft.section, rule: draft.rule, kind: draft.kind, sonar: draft.sonar, severity: draft.severity,
@@ -86,5 +86,5 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   return { ...listing, notes: [...notes, ...listing.notes] };
 }
 
-export { CODE_PREDICATES, DOCUMENT_PREDICATES, PREDICATES, WIKI_PREDICATE, ruleForKind, ruleSpecs, rulesOf } from './rules.js';
+;
 export * from './types.js';

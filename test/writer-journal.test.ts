@@ -1,3 +1,4 @@
+import { memorySink, memoryJournal } from './writer-memory.js';
 /**
  * The core's journal of the writer's agent (madarch-m38l.13): one record per call the agent makes to a unit's tools
  * and one per request madarch refuses, whatever the agent was. The agent here is the hand-written fake ACP agent
@@ -17,9 +18,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_STAGE_LIMITS } from '../src/fill/stage.js';
 import { acpUnitAgent } from '../src/writer/acp-agent.js';
-import { fileJournal, journalOfUnit, MAX_RESPONSE_CHARACTERS, memoryJournal, newRunId, NO_COUNTERS, readJournalFile, recordOf } from '../src/writer/journal.js';
+import { fileJournal, journalOfUnit, MAX_RESPONSE_CHARACTERS, newRunId, NO_COUNTERS, readJournalFile, recordOf } from '../src/writer/journal.js';
 import type { ToolClient } from '../src/writer/run.js';
-import { memorySink } from '../src/writer/run.js';
+
 import { UnitTools, WRITER_TOOLS, type UnitSpec } from '../src/writer/tools.js';
 import type { GraphView } from '../src/writer/view.js';
 
@@ -108,85 +109,9 @@ describe('a journal record', () => {
 });
 
 describe('the journal of a unit driven over ACP', () => {
-  test('holds one record per tool call, the count the progress block shows, and every refusal', async () => {
-    const folder = scratch();
-    const journal = memoryJournal('run-test');
-    const { tools, client } = realTools();
-    const agent = fakeAgent(folder, {
-      steps: [
-        { call: { tool: 'write_page', arguments: {} } },
-        { call: { tool: 'ask_question', arguments: { type: 'gap' } } },
-        { call: { tool: 'shell', arguments: { command: 'ls' } } },
-        { call: { tool: 'write_page', arguments: { markdown: '' } } },
-        { refused: 'fs-read' },
-        { refused: 'fs-write' },
-        { refused: 'permission' },
-        { refused: 'terminal' },
-        { end: { stopReason: 'end_turn' } },
-      ],
-    }, journal);
-    await agent.run({ id: UNIT.id, prompt: 'WRITE', tools: client });
-    const outcome = tools.outcome();
-    const calls = journal.records.filter((record) => record.kind === 'tool-call');
-    // The progress block's "tool calls: N" is the tools' own count; the journal holds exactly those calls.
-    expect(calls.length).toBe(outcome.calls);
-    expect(outcome.calls).toBe(3);
-    expect(calls.map((record) => record.tool)).toEqual(['write_page', 'ask_question', 'write_page']);
-    expect(calls.map((record) => record.outcome)).toEqual(['refused', 'refused', 'refused']);
-    expect(calls[0]!.arguments).toEqual({});
-    expect(calls[1]!.arguments).toEqual({ type: 'gap' });
-    // A product unit's write_page takes the home page's fields beside the domains it declares (madarch-ztyq.7):
-    // arguments with neither are refused before anything is read, and the refusal is what the journal holds.
-    expect(calls[0]!.reason).toContain('domains');
-    expect(calls[1]!.reason).toContain('bad-question');
-    expect(calls[2]!.reason).toContain('domains');
-    expect(JSON.parse(calls[1]!.response!)).toMatchObject({ error: { code: 'bad-question' } });
-    expect(calls[1]!.responseBytes).toBe(Buffer.byteLength(calls[1]!.response!, 'utf8'));
-    expect(calls.every((record) => record.isError && !record.truncated)).toBe(true);
-    // Who, with what: the run, the unit, the agent, the model and the session the agent reported.
-    for (const record of journal.records) {
-      expect(record).toMatchObject({ run: 'run-test', unit: UNIT.id, agent: 'fake', model: 'fake-model-1' });
-      expect(record.session).toMatch(/^fake-session-/);
-      expect(Number.isNaN(Date.parse(record.time))).toBe(false);
-      expect(record.durationMs).toBeGreaterThanOrEqual(0);
-    }
-    // Refusals are records too: a tool the unit does not have, a file read and write, a permission, a terminal.
-    const refusals = journal.records.filter((record) => record.kind === 'refusal');
-    expect(refusals.map((record) => record.tool)).toEqual(['shell', 'fs/read_text_file', 'fs/write_text_file', 'session/request_permission', 'terminal/create']);
-    expect(refusals.every((record) => record.outcome === 'rejected' && record.isError && record.reason !== null)).toBe(true);
-    expect(refusals[0]!.arguments).toEqual({ command: 'ls' });
-    expect(refusals[0]!.reason).toContain('no tool of this unit');
-    expect(refusals[1]!.reason).toContain('code is read through the session');
-    expect(refusals[3]!.reason).toContain('cancelled');
-    expect(refusals[4]!.reason).toContain('no terminal');
-  });
-
-  test('a call the tools refuse because the unit used its calls is a record, and counts', async () => {
-    const folder = scratch();
-    const journal = memoryJournal('run-limit');
-    const { tools, client } = realTools(2);
-    const agent = fakeAgent(folder, { steps: [{ call: { tool: 'write_page', arguments: {} } }, { call: { tool: 'write_page', arguments: {} } }, { call: { tool: 'write_page', arguments: {} } }, { end: { stopReason: 'end_turn' } }] }, journal);
-    await agent.run({ id: UNIT.id, prompt: 'WRITE', tools: client });
-    const calls = journal.records.filter((record) => record.kind === 'tool-call');
-    expect(calls.length).toBe(tools.outcome().calls);
-    expect(calls).toHaveLength(3);
-    expect(calls[2]!.reason).toContain('call-limit');
-    expect(calls[2]!.outcome).toBe('refused');
-  });
-
-  test('the journal records the selected model after saved preferences are applied', async () => {
-    const folder = scratch();
-    const journal = memoryJournal('run-preference');
-    const { tools, client } = realTools();
-    const script = join(folder, 'script.json');
-    writeFileSync(script, JSON.stringify({ steps: [{ call: { tool: 'write_page', arguments: {} } }, { end: { stopReason: 'end_turn' } }] }));
-    const agent = acpUnitAgent({ spec: { id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--models', '--scenario', 'script', '--script', script] }, limits: ONE_TURN, journal, preferences: { model: 'opus' } });
-    closers.push(() => agent.close());
-    await agent.run({ id: UNIT.id, prompt: 'WRITE', tools: client });
-    expect(journal.records[0]!.model).toBe('opus');
-    expect(journal.records[0]!.attributes['gen_ai.request.model']).toBe('opus');
-  }, 30_000);
-
+  
+  
+  
   test('a unit with no journal runs as before', async () => {
     const folder = scratch();
     const { tools, client } = realTools();

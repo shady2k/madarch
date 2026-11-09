@@ -20,9 +20,9 @@ import { sha256Hex } from '../graph/digest.js';
 import { readEmptyProductGapMarker, type EmptyProductGap } from './gap-marker.js';
 
 /** Inline code is never prose; kept as a name to say so at the call sites that read the tree. */
-export const codeSpan = (node: { type: string }): boolean => node.type === 'inlineCode';
+const codeSpan = (node: { type: string }): boolean => node.type === 'inlineCode';
 
-export interface Sentence {
+interface Sentence {
   readonly text: string;
   readonly terminated: boolean;
 }
@@ -234,7 +234,7 @@ function endsSentence(masked: string): boolean {
   return at >= 0 && isTerminal(masked[at]);
 }
 
-export interface SentenceRange extends Span {
+interface SentenceRange extends Span {
   readonly terminated: boolean;
 }
 
@@ -312,7 +312,7 @@ function sentenceRanges(text: string, from: number, to: number, segmenter: Intl.
 }
 
 /** The text with its masked sentence ends restored; the reader no longer masks them, so this is the text itself. */
-export const unmask = (text: string): string => text;
+const unmask = (text: string): string => text;
 
 interface Token {
   readonly start: number;
@@ -691,12 +691,12 @@ export function readPage(body: string, language?: string): PageReading {
 }
 
 /** Masks code spans, link targets and question links from the tree; the text itself is returned unchanged. */
-export function maskInline(text: string): string {
+function maskInline(text: string): string {
   return text;
 }
 
 /** Splits a Markdown text into sentences in the wiki's language. */
-export function sentencesOf(masked: string, language?: string): Sentence[] {
+function sentencesOf(masked: string, language?: string): Sentence[] {
   const text = masked.trim();
   if (text === '') return [];
   const offset = masked.indexOf(text);
@@ -705,7 +705,7 @@ export function sentencesOf(masked: string, language?: string): Sentence[] {
 }
 
 /** The units of a body (paragraphs, list items, quotes), its headings and its footnote definitions, without judging any of them. */
-export function readUnits(body: string, bodyStart: number): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
+function readUnits(body: string, bodyStart: number): { units: TextUnit[]; definitions: Definition[]; headings: TextUnit[] } {
   return readPage(body).units(bodyStart);
 }
 
@@ -729,7 +729,7 @@ export function plainSentence(text: string): string {
 }
 
 /** Question references are qualifiers; remove them from the text they follow while leaving the rest as written. */
-export function withoutQuestionLinks(text: string): string {
+function withoutQuestionLinks(text: string): string {
   const reader = readPage(text);
   const questions = reader.linksIn(0, text.length).filter((link) => link.url.startsWith('madarch:question:'));
   if (questions.length === 0) return text.trim();

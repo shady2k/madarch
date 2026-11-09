@@ -1,7 +1,7 @@
-import type {ReactElement} from 'react';
-import {useTranslation} from 'react-i18next';
-import type {TFunction} from 'i18next';
-import type {ContractDiagnostic, ContractReason} from './types.js';
+import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import type { ContractDiagnostic, ContractReason } from './types.js';
 
 /** Protocol and product vocabulary only; no source parsing or server runtime imports. */
 const reasonKeys = {
@@ -50,7 +50,7 @@ export function contractReasonText(t: TFunction, reason: ContractReason | undefi
   return t(reasonKeys[reason.code], 'params' in reason ? reason.params : {});
 }
 
-export function ContractTechnicalDetails({text}: {text: string | undefined}): ReactElement | null {
+function ContractTechnicalDetails({text}: {text: string | undefined}): ReactElement | null {
   const {t} = useTranslation();
   return text === undefined || text === '' ? null : <details data-testid="contract-technical-details"><summary>{t('knowledge.contractTechnicalDetails')}</summary><pre className="whitespace-pre-wrap break-words">{text}</pre></details>;
 }
@@ -81,7 +81,7 @@ export function contractRelationText(t: TFunction, relation: string): string {
   }
 }
 
-export const contractRendererFailure = (detail: string | undefined): ContractRenderFailure => ({reason: {code: 'rendererFailure'}, ...(detail === undefined ? {} : {technicalDetail: detail})});
+const contractRendererFailure = (detail: string | undefined): ContractRenderFailure => ({reason: {code: 'rendererFailure'}, ...(detail === undefined ? {} : {technicalDetail: detail})});
 export const contractValidationFailure = (detail: string | undefined): ContractRenderFailure => ({reason: {code: 'rendererValidationFailure'}, ...(detail === undefined ? {} : {technicalDetail: detail})});
 export const contractSelectionFailure = (): ContractRenderFailure => ({reason: {code: 'selectionNotRendered'}});
 export function redocLoadedFailure(error: Error | undefined): ContractRenderFailure | null {

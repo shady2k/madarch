@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft, CONSTITUTION as PINNED_AGENTS } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
-import { GIT_ENV } from './model-check-repo.js';
+import { GIT_ENV } from './repo-fixture.js';
 import { refuseNonScratchHome, noStrayDrafts, ISOLATED_HOME } from './scratch-home.js';
 
 process.env.MADARCH_HOME = ISOLATED_HOME;

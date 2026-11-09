@@ -21,9 +21,9 @@ import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 import { ruleForKind } from '../problems/rules.js';
 import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
 
-export type QuestionState = 'open' | 'answered' | 'closed';
+type QuestionState = 'open' | 'answered' | 'closed';
 
-export interface QuestionRow {
+interface QuestionRow {
   readonly slug: string;
   readonly id: string;
   readonly title: string;
@@ -96,9 +96,9 @@ export async function questionDetail(productFolder: string, slug: string, resolv
 // ---- problems ---------------------------------------------------------------------------------
 
 /** The kind of a wiki finding; the code and the documents carry kinds of their own. */
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest';
+type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest';
 /** Who fixes it: the agent when the pages are refreshed, or a person. */
-export type Fixer = 'agent' | 'person';
+type Fixer = 'agent' | 'person';
 
 export interface Problem {
   /** The problem's stable id: its rule and the place it names, never its position in the list. */
@@ -413,7 +413,7 @@ function correctionProblem(correction: Correction, pages: ReadonlyMap<string, In
 // ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
 
 /** One scope of a task, as it is stored and as a reader says it. */
-export interface TaskScopeRow {
+interface TaskScopeRow {
   readonly scope: TaskScope;
   readonly words: string;
   /** The place as a reader says it: a heading and a title, each a link. */
@@ -421,7 +421,7 @@ export interface TaskScopeRow {
 }
 
 /** How a task closed: by a commit of a repository, or by a person. */
-export type TaskClosureView =
+type TaskClosureView =
   | { readonly repository: string; readonly commit: string; readonly at: string; readonly subject: string }
   | { readonly person: true; readonly at: string | null };
 

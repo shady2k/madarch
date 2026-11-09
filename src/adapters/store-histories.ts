@@ -12,7 +12,7 @@
 import { byCodePoint } from '../model/order.js';
 import { clusterDatabases, leaseStoreCluster, renameClusterDatabase, type ClusterLease } from './database-owner.js';
 import { createHistoryStore } from './sql-history.js';
-import type { Clock, HistoryStore } from '../history/types.js';
+import type { Clock, HistoryStore } from '../history-types.js';
 import { sha256Hex } from '../graph/digest.js';
 
 /** The prefix every history database of a store carries, so the store's other databases are left alone. */

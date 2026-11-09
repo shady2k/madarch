@@ -7,7 +7,7 @@ import {Operations} from './operations.js';
 import {setWikiLanguage} from '../i18n.js';
 import type {EntityRef, ContractDiagnostic, ContractReason} from './types.js';
 import {ContractDiagnosticView, ContractRenderProblem, contractReasonText, redocLoadedFailure, asyncApiEventFailure, contractSelectionFailure, contractValidationFailure, selectContractOperation} from './contract-diagnostic.js';
-import i18n from '../i18n.js';
+import { i18n } from '../i18n.js';
 import en from '../locales/en.json';
 import ru from '../locales/ru.json';
 import ContractView, {descriptionImageDiagnostic, RendererBoundary} from './contract-view.js';
