@@ -7,7 +7,7 @@
  * these, and a rule the manifest does not declare is not run.
  */
 import { byCodePoint } from '../model/order.js';
-import type { ProblemSettings, RuleSpec } from './types.js';
+import type { ProblemNote, ProblemSettings, RuleSpec } from './types.js';
 
 /** The implementations of the code section, by the name a manifest's rule uses. */
 const CODE_PREDICATES = [
@@ -43,6 +43,18 @@ export function ruleSpecs(settings: ProblemSettings): RuleSpec[] {
   return Object.entries(settings.rules)
     .map(([id, setting]) => ({ id, ...setting }))
     .sort((a, b) => byCodePoint(a.id, b.id));
+}
+
+/**
+ * The notes for the rules whose predicate no section of the engine implements, one per rule (madarch-8bdc.13): the
+ * manifest reader refuses such a rule, and a settings object a caller builds can still name one. A rule that does not run
+ * is said once, whatever section it names, and never once per section that passed over it — the code section used to say
+ * it for every documents and wiki rule of the starter manifest.
+ */
+export function unimplementedRuleNotes(settings: ProblemSettings): ProblemNote[] {
+  return ruleSpecs(settings).flatMap((rule) => rule.enabled === false || PREDICATES.includes(rule.predicate)
+    ? []
+    : [{ message: `the rule ${rule.id} names the predicate "${rule.predicate}", which the engine does not implement: the rule is not run`, textKey: 'ruleUnimplemented', textArgs: { rule: rule.id, predicate: rule.predicate } } satisfies ProblemNote]);
 }
 
 /** The rules one predicate finds with, in id order; a disabled rule is not among them. */

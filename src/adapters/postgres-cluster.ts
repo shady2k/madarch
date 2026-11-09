@@ -52,6 +52,7 @@ import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
 import { sha256Hex } from '../graph/digest.js';
 import { ensurePostgresInstalled, refuseRoot } from './postgres-install.js';
+import { postgresInstallFolder } from './postgres-builds.js';
 import { setPriority } from 'node:os';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
@@ -363,6 +364,12 @@ function createDataDir(dataDir: string, bin: string, log: (line: string) => void
  */
 const openInProcess = new Map<string, Promise<HeldCluster>>();
 
+/**
+ * The user locks this process holds, by data directory: the descriptor each open keeps, so a process that is ending can
+ * give its holds back without waiting for the owners that hold them (`stopStoreForExit`).
+ */
+const userLocks = new Map<string, Set<number>>();
+
 /** The cluster one open made, and how many callers in this process hold it. */
 interface HeldCluster {
   readonly cluster: RunningCluster;
@@ -416,6 +423,18 @@ async function releaseCluster(key: string): Promise<void> {
   await held.cluster.stop();
 }
 
+/**
+ * Whether this process has said it is stopping: a process that is ending starts no server, so a role whose server was
+ * killed does not spend the wait for its exit on an `initdb` — the start is synchronous, and the stop cannot run until it
+ * returns (madarch-8bdc.12: a daemon's stop waited its whole two seconds on a role doing one).
+ */
+let startsRefused = false;
+
+/** Refuses every server start from now on, for a process that is ending. */
+export function refuseStarts(): void {
+  startsRefused = true;
+}
+
 /** The open itself, under the two locks that two processes share a store's server by. */
 async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<RunningCluster> {
   const env = options.env ?? process.env;
@@ -428,6 +447,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
   // The use of the server is held before anything else: a stop another process is making ends first, so the server this
   // open finds or starts is never one a leaving process is about to stop.
   const users = await holdLock(usersLockPath(dataDir), LOCK_SH, { what: `the use of the PostgreSQL server on ${dataDir}`, deadlineMs: USERS_LOCK_WAIT_MS });
+  const holds = userLocks.get(dataDir) ?? new Set<number>();
+  holds.add(users);
+  userLocks.set(dataDir, holds);
   try {
     // The start's own hold: one process decides whether a server is needed, runs `initdb` and starts it, and the next
     // process finds it answering and connects to it instead of starting a second server of the same store.
@@ -437,6 +459,7 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
         // A server another process started, or a predecessor left: it serves this store, so it is lowered too.
         lowerPriorityOf(dataDir);
       } else {
+        if (startsRefused) throw new Error(`${dataDir}:1: this process is stopping, so the store's PostgreSQL server is not started for it (src/adapters/postgres-cluster.ts)`);
         await reclaimStaleServer(dataDir, bin, socketDir, log);
         startServer({ dataDir, socketDir, bin, log });
         if (!(await answering(socketDir))) {
@@ -457,6 +480,52 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
 }
 
 /**
+ * Stops a store's server for a process that is ending (madarch-8bdc.12): every hold this process still has on the store is
+ * given back first — a pool whose close is still waiting for a client inside a transaction must not keep the server up
+ * behind the process — then the exclusive hold is asked for, which the kernel grants only when no other process of the
+ * binary uses the server, and the server is stopped under it. A store another process still uses is left alone.
+ *
+ * This is the last resort of a process nothing waits for any more: the ordinary stop is every owner's `stop`, which walks
+ * the holds one at a time. The store's own programs are found as an ordinary open finds them, and a server that does not
+ * answer is no server to stop.
+ */
+export async function stopStoreForExit(store: string, options: { readonly force?: boolean } = {}): Promise<void> {
+  const { dataDir, socketDir } = clusterPaths(store);
+  const key = resolve(dataDir);
+  // A process that is ending (`force`) drops the holds it still has, its own owners included, and stops the server: nothing
+  // in it reads the store again. A role giving its stores up inside a process that goes on living leaves a store another
+  // owner of this process still uses alone — that owner's `stop` decides, and it stops the server when it is the last.
+  if (options.force !== true) {
+    const opening = openInProcess.get(key);
+    const heldByProcess = opening === undefined ? undefined : await opening.catch(() => undefined);
+    if (heldByProcess !== undefined && heldByProcess.users > 0) return;
+  }
+  for (const descriptor of userLocks.get(key) ?? []) releaseLock(descriptor);
+  userLocks.delete(key);
+  openInProcess.delete(key);
+  mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
+  const users = openSync(usersLockPath(key), 'a+');
+  try {
+    if (flock(users, LOCK_EX | LOCK_NB) !== 0) return;
+    // The programs of the install that is here, and never an install: `ensurePostgresInstalled` downloads one when the
+    // caller's home holds none, and a role ending in a home that never ran a server would wait for that download before it
+    // stopped anything (measured: a daemon's role held a server's stop for its whole two-second wait this way). No
+    // `pg_ctl` means no server of this install runs, so there is nothing to stop.
+    const bin = join(postgresInstallFolder(process.env), 'bin');
+    if (!existsSync(join(bin, 'pg_ctl'))) return;
+    // No question is asked of the server first either: `pg_ctl stop` answers "not running" for a server that is gone, and a
+    // connection this process tried to open before it (up to its own two-second bound) is time the store's death may not
+    // spend (madarch-8bdc.12).
+    const stopped = runBinary(join(bin, 'pg_ctl'), ['-D', key, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
+    // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
+    // its socket away would make it look gone.
+    if (stopped.code === 0) removeSocketFiles(socketDir);
+  } finally {
+    releaseLock(users);
+  }
+}
+
+/**
  * Gives up this process's use of a server. It is stopped only when no other process of the binary still holds it, which
  * the kernel answers through the users lock: the exclusive hold is granted only when no shared hold is left. A server
  * another process still uses is left running — the api role's server is never stopped by a fill child that finished
@@ -464,6 +533,7 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
  */
 async function stopCluster(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly users: number }): Promise<void> {
   const { dataDir, socketDir, bin, users } = options;
+  userLocks.get(dataDir)?.delete(users);
   if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
     // The kernel took this process's shared hold away to try, and gave the exclusive one to nobody: another process
     // holds the server (or is asking for it), so it keeps answering and this hold is simply given back. This is the

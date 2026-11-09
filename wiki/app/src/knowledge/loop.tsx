@@ -874,7 +874,7 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
   const { t } = useTranslation();
   const language = useLanguage();
   const { data: task, error } = useRead<TaskDetail>(`task:${id}`, version, (signal) => getTask(id, signal));
-  useTabTitle(task?.title ?? null);
+  useTabTitle(task?.title ?? (error !== null ? t('loop.tasksMissing') : null));
   if (task === null && error === null) return <PageSkeleton testId="task-page-loading" />;
   if (task === null) {
     return <Alert variant="problem" data-testid="task-page-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;

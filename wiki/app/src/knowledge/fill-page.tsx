@@ -19,6 +19,7 @@ import { PlanList } from './loop.js';
 import { addressOfEntity, addressOfJournal } from './routes.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { startFill, UNIT_STATE_KEY, unitName } from './writer.js';
+import { useTabTitle } from './tabs.js';
 import type { WikiStatus, WriterUnit } from './types.js';
 
 /** A run's time of day in the reader's language, or nothing when the run did not say when it was. */
@@ -73,6 +74,7 @@ function UnitRow({ unit, current, kinds, language }: { unit: WriterUnit; current
 export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
+  useTabTitle(t('knowledge.fillPage.title'));
   const [retrying, setRetrying] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const writer = status.writer;

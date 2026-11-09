@@ -5,7 +5,7 @@
  * instances answer pages from what the fill wrote.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
@@ -48,11 +48,38 @@ beforeAll(async () => {
 afterAll(async () => {
   if (skip) return;
   for (const child of fills) { try { child.kill(); } catch { /* already gone */ } }
+  // The children first, waited for, then the servers: a fill role killed with its store still open leaves the store's
+  // PostgreSQL server running, and the server that closes after it is the one that stops it (madarch-8bdc.12). The store
+  // a child left behind is stopped here too, so the file leaves nothing behind when it passes or fails.
+  await Promise.all(fills.map(async (child) => await child.exited.catch(() => undefined)));
   for (const instance of api) await instance.stop().catch(() => undefined);
+  for (const pid of postmastersUnder(storeRoot)) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
   fills = [];
   api = [];
   rmSync(work, { recursive: true, force: true });
 }, 120_000);
+
+/** The pid of every PostgreSQL server a store under `root` left running, from the `postmaster.pid` each keeps. */
+function postmastersUnder(root: string): number[] {
+  const found: number[] = [];
+  const walk = (folder: string): void => {
+    let names: string[];
+    try { names = readdirSync(folder); } catch { return; }
+    for (const name of names) {
+      const path = join(folder, name);
+      if (name === 'postmaster.pid') {
+        try {
+          const pid = Number(readFileSync(path, 'utf8').split('\n')[0]?.trim());
+          if (Number.isInteger(pid) && pid > 1) found.push(pid);
+        } catch { /* gone between the listing and the read */ }
+        continue;
+      }
+      if (name === 'pgdata' || name === 'graph' || name === 'read' || folder === root) walk(path);
+    }
+  };
+  walk(root);
+  return found;
+}
 
 describe.skipIf(skip)('two api and two fill instances against one store', () => {
   test('one press fills the product once, every unit publishes once, and both api instances answer from it', async () => {

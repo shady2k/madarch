@@ -173,6 +173,10 @@ the decision is 0033. madarch-alzf's memory work is carried by O7.
 
 10 (`findingBudget` in `.shady2k/config.json`); self-filling had 11.
 
+Raised to 15 on 2026-11-09, displacing nothing: the owner's walk of the demo
+found small reader-UI faults (madarch-u3vw.9 to .13) and the eleventh went over
+10. Asked «поднять лимит находок вехи с 10 до 15?», the owner said «Да».
+
 ### Target date
 
 None set by the owner. The coordinator's forecast is given with the design.

@@ -6,10 +6,10 @@
  * The cases run real processes: the cluster's rule is a lock the kernel holds, and only a second process can show it.
  */
 import { afterAll, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
+import { clusterPaths, clusterQuery, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-cluster-owner-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -25,6 +25,26 @@ async function answering(store: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** The pid `postmaster.pid` names, or null when no line does: a server still there, or gone. */
+function postmasterOf(store: string): number | null {
+  try {
+    const pid = Number(readFileSync(join(clusterPaths(store).dataDir, 'postmaster.pid'), 'utf8').split('\n')[0]?.trim());
+    return Number.isInteger(pid) && pid > 1 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a process is still there: one this process may not signal counts as there. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -77,6 +97,32 @@ test('a platform whose C library this build does not ask for refuses by name, an
   expect(said).toContain('refused:');
   expect(said).toContain('win32');
   expect(said).toContain('flock(2)');
+}, 120_000);
+
+test('a store another process still uses is not stopped for this process\'s exit, and one nobody uses is', async () => {
+  // The last resort of a process nothing waits for (madarch-8bdc.12): a role whose server was killed stops the store's
+  // server itself. It gives the rule the cluster has — one process using it is enough to leave it running — and the
+  // store it stops here was opened by no owner of this process at all, as a role killed before its first pass finds it.
+  const store = storeOf('exit');
+  const marker = join(root, 'holding.txt');
+  const holding = child('hold-store', store, '60000', marker);
+  try {
+    await untilFile(marker);
+    expect(await answering(store)).toBe(true);
+    // Another process of the binary uses it: the exit leaves it answering.
+    await stopStoreForExit(store);
+    expect(await answering(store)).toBe(true);
+    // The process that used it is gone: the next exit stops it.
+    holding.kill('SIGKILL');
+    await holding.exited;
+    await stopStoreForExit(store);
+    expect(await answering(store)).toBe(false);
+    // The server itself is gone, not only its socket: a stop that failed must not pass for one that worked.
+    const held = postmasterOf(store);
+    expect(held === null || !alive(held)).toBe(true);
+  } finally {
+    try { holding.kill('SIGKILL'); } catch { /* already gone */ }
+  }
 }, 120_000);
 
 test('an open waits for a start another process is making, then starts the server it finds nothing answering on', async () => {

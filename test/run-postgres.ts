@@ -10,6 +10,8 @@
  * run's scratch, which is what makes a finished run leave nothing behind and a
  * killed run's server the next run's to sweep.
  */
+import { spawnSync } from 'node:child_process';
+import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { leaseStoreCluster, type ClusterLease } from '../src/adapters/database-owner.js';
@@ -17,6 +19,94 @@ import { noteTestServerFailure, TEST_SERVER_VARIABLE } from './test-database.js'
 
 let lease: ClusterLease | undefined;
 let failure: Error | undefined;
+
+/**
+ * Stops the run's server, waited for, before the scratch folder that holds it is swept: a run that ends must leave no
+ * PostgreSQL server behind, and a sweep that only signals the process it found would leave one finishing its shutdown
+ * (measured: one `postgres -D <scratch>/tmp/postgres/pgdata` alive right after every shard run, gone a moment later).
+ */
+export async function stopRunPostgres(): Promise<void> {
+  const held = lease;
+  lease = undefined;
+  await held?.close().catch(() => undefined);
+  // A server the close could not stop — another process of this run still held it, or a child still connected — is
+  // signalled here and waited for: this run's server may not outlive the run, and the sweep that removes its folder follows.
+  await stopServerIn(join(tmpdir(), 'postgres', 'pgdata'));
+}
+
+/**
+ * Stops every PostgreSQL server whose data directory stands inside `folder` — a run's scratch — and waits for each: a
+ * run leaves no server behind, whichever test file started it and whether or not that file closed it (madarch-8bdc.12:
+ * shard 5 left two, one of a product's store and one of a served product's query graph).
+ */
+export async function stopServersUnder(folder: string): Promise<void> {
+  const dataDirs: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 12) return;
+    let names: string[];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      const path = join(dir, name);
+      if (name === 'postmaster.pid') { dataDirs.push(dir); continue; }
+      // A folder's children are followed, never a link out of the run's own scratch.
+      try { if (statSync(path).isDirectory() && lstatSync(path).isSymbolicLink() === false) walk(path, depth + 1); } catch { /* gone or unreadable */ }
+    }
+  };
+  walk(folder, 0);
+  for (const dataDir of dataDirs) await stopServerIn(dataDir);
+}
+
+/**
+ * Stops every fill role whose command line names `folder` — a run's scratch — and waits for each: a run leaves no
+ * process behind, and a role a test started directly (or a server's child a signal reached too late) is one.
+ */
+export async function stopRolesUnder(folder: string): Promise<void> {
+  const listed = spawnSync('ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' });
+  for (const line of (listed.stdout ?? '').split('\n')) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match === null) continue;
+    const pid = Number(match[1]);
+    const command = match[2] ?? '';
+    if (!command.includes('--role') || !command.includes(' fill') || !command.includes(folder)) continue;
+    if (!Number.isInteger(pid) || pid <= 1) continue;
+    for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
+      try { process.kill(pid, signal); } catch { break; }
+      const until = Date.now() + 3_000;
+      while (Date.now() < until && alive(pid)) await Bun.sleep(20);
+      if (!alive(pid)) break;
+    }
+  }
+}
+
+/** One server, signalled and waited for: only the one whose own command line names this data directory. */
+async function stopServerIn(dataDir: string): Promise<void> {
+  let pid: number;
+  try {
+    pid = Number(readFileSync(join(dataDir, 'postmaster.pid'), 'utf8').split('\n')[0]?.trim());
+  } catch {
+    return;
+  }
+  if (!Number.isInteger(pid) || pid <= 1) return;
+  let mine = true;
+  try { mine = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').includes(dataDir); } catch { mine = true; }
+  if (!mine) return;
+  for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
+    try { process.kill(pid, signal); } catch { return; }
+    const until = Date.now() + 5_000;
+    while (Date.now() < until && alive(pid)) await Bun.sleep(20);
+    if (!alive(pid)) return;
+  }
+}
+
+/** Whether a process is still there: one this process may not signal counts as there. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
 
 /**
  * Starts the run's server, once, and puts its socket folder where every test file

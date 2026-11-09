@@ -35,6 +35,8 @@ export interface RunFillOptions {
   readonly paths?: readonly string[];
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
+  /** The content language the press named, when it named one: recorded on the run's root span, never a statement. */
+  readonly language?: string;
   /**
    * The store the run's trace is kept under (`<store>/traces/<run>.jsonl`); the home
    * folder when it is left out. A fill run always leaves its trace, whether it
@@ -126,6 +128,7 @@ export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
       'madarch.product': product,
       'madarch.steps': steps,
       'madarch.workers': options.workers ?? 1,
+      ...(options.language === undefined ? {} : { 'madarch.language': options.language }),
     }, async () => {
       log.info('fill started', { runId, product, steps, store });
       const answer = await runFillTraced(options, runId);

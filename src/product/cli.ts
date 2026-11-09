@@ -714,7 +714,6 @@ async function fillRoleCommand(rest: readonly string[]): Promise<number> {
   const parent = Number(process.env['MADARCH_FILL_PARENT'] ?? '0');
   return await runFillRole({
     knowledgeRoot: root === undefined || root === '' ? knowledgeRootOf(home) : root,
-    productsHome: home,
     ...(Number.isInteger(parent) && parent > 1 ? { parentPid: parent } : {}),
     // The process that owns the binary opens the stores it works: the role itself holds no connection (decision 0033, 3).
     openStore: async (databaseFolder) => await createDatabaseOwner({ store: databaseFolder, btreeGist: true }),

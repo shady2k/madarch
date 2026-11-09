@@ -39,9 +39,13 @@ function useColorScheme(): 'light' | 'dark' {
   return scheme;
 }
 
-/** Renders one Mermaid source into the box; a failed draw is the named failure. */
-/** `bind` runs on the drawn svg (it makes its nodes links) and may return what undoes it. */
-export function MermaidDiagram({ source, title, bind }: { source: string; title?: string; bind?: (root: HTMLElement) => void | (() => void) }): ReactElement {
+/**
+ * Renders one Mermaid source into the box; a failed draw is the named failure.
+ * `place` names where the source stands for a failure that is not a view's own
+ * (a fence in a document, madarch-u3vw.18); `bind` runs on the drawn svg (it
+ * makes its nodes links) and may return what undoes it.
+ */
+export function MermaidDiagram({ source, title, bind, place }: { source: string; title?: string; bind?: (root: HTMLElement) => void | (() => void); place?: string }): ReactElement {
   const { t } = useTranslation();
   const [failed, setFailed] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
@@ -86,7 +90,9 @@ export function MermaidDiagram({ source, title, bind }: { source: string; title?
   if (failed !== null) {
     return (
       <p className="diagram-error" data-testid="mermaid-error">
-        {t('diagram.mermaidFailed', { title: title ?? '', message: failed })}
+        {place === undefined
+          ? t('diagram.mermaidFailed', { title: title ?? '', message: failed })
+          : t('diagram.mermaidFailedAt', { place, message: failed })}
       </p>
     );
   }

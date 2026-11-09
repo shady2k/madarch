@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { CodeLines, KLink } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
+import { useTabTitle } from './tabs.js';
 import { getCommit, getFile, getFileText, getFolder, getRun } from './api.js';
 import { addressOfCommit, addressOfFile, addressOfFolder, addressOfRun, K_RUN } from './routes.js';
 import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, SourceFile, WikiStatus } from './types.js';
@@ -147,6 +148,7 @@ export function RepositoryPage({ status, version }: { status: WikiStatus; versio
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
   const repository = status.repository as RepositoryFactsView;
+  useTabTitle(repository.name);
   const { data, error } = useRead<{ folder: FolderPageModel }>('repository-root', version, (signal) => getFolder('', null, signal));
   const run = status.fill.run;
   const finished = run === undefined ? undefined : new Date(run.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
@@ -222,6 +224,7 @@ export function RepositoryPage({ status, version }: { status: WikiStatus; versio
 /** One folder: its subfolders, its own files and the page of the next files. */
 export function FolderPage({ path, after, version }: { path: string; after: string | null; version: number }): React.ReactElement {
   const { t } = useTranslation();
+  useTabTitle(path === '' ? '/' : path);
   const { data, error } = useRead<{ folder: FolderPageModel }>(`folder:${path}:${after ?? ''}`, version, (signal) => getFolder(path, after, signal));
   if (data === null && error === null) return <PageSkeleton testId="folder-loading" rows />;
   if (data === null) return <Refusal what={path === '' ? 'the root folder' : path} message={error ?? ''} />;
@@ -315,6 +318,7 @@ export function FilePage({ path, after, version }: { path: string; after: { walk
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
   const key = `file:${path}:${after === null ? '' : `${after.walk}:${after.commit}`}`;
+  useTabTitle(path);
   const { data, error } = useRead<{ file: FilePageModel }>(key, version, (signal) => getFile(path, after, signal));
   if (data === null && error === null) return <PageSkeleton testId="file-loading" rows />;
   if (data === null) return <Refusal what={path} message={error ?? ''} />;
@@ -392,6 +396,7 @@ export function FilePage({ path, after, version }: { path: string; after: { walk
 export function CommitPage({ hash, version }: { hash: string; version: number }): React.ReactElement {
   const { t } = useTranslation();
   const { data, error } = useRead<{ commit: CommitPageModel }>(`commit:${hash}`, version, (signal) => getCommit(hash, signal));
+  useTabTitle(data === null ? (error === null ? null : hash) : data.commit.subject);
   if (data === null && error === null) return <PageSkeleton testId="commit-loading" rows />;
   if (data === null) return <Refusal what={hash} message={error ?? ''} />;
   const commit = data.commit;
@@ -455,6 +460,7 @@ export function CommitPage({ hash, version }: { hash: string; version: number })
 export function RunPage({ run: named, version }: { run: string | null; version: number }): React.ReactElement {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
+  useTabTitle(t('knowledge.run.title'));
   const { data, error } = useRead<{ run: FillRunView }>(`run:${named ?? ''}`, version, (signal) => getRun(named, signal));
   if (data === null && error === null) return <PageSkeleton testId="run-loading" rows />;
   if (data === null) return <Refusal what={named ?? t('knowledge.run.title')} message={error ?? ''} />;

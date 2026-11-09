@@ -308,7 +308,13 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     : createGraphs({ historyOf: (source) => sources.historyOf(source), database: queryDatabase });
   const env = options.env ?? process.env;
   // Each product's knowledge wiki (decision 0029): its own graph store, opened on its first ask and closed with the server.
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
+  /**
+   * The home this server serves: the products home it was given, or, for one product's wiki, the folder that product
+   * stands in — the same home its fill role is started with (madarch-8bdc.12: a role started with the default home
+   * watched a home nothing served).
+   */
+  const serveHome = options.productHome ?? (options.productFolder === undefined ? productsHome(env as Record<string, string | undefined>) : dirname(options.productFolder));
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
@@ -497,13 +503,13 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   // each store's queue, at a lower scheduling priority so the process that answers pages never loses a core to it.
   const fillChild = options.fillProcess === false || process.env['MADARCH_ROLE'] === 'api'
     ? undefined
-    : startFillRole({ home: options.productHome ?? productsHome(env as Record<string, string | undefined>), root: knowledgeHost.root });
+    : startFillRole({ home: serveHome, root: knowledgeHost.root });
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
     url: server.url.origin,
     async stop(): Promise<void> {
-      fillChild?.stop();
+      await fillChild?.stop();
       server.stop(true);
       await handle.drain();
       let failure: unknown;
@@ -522,15 +528,29 @@ const notServed = (message: string): Response => Response.json({ message }, { st
  * Starts the fill role as a child of this process (madarch-8bdc.9): `madarch --role fill --home <home>`, at nice 10, with
  * its output on this process's error stream. It ends when the api process ends, and `stop()` ends it first.
  */
-function startFillRole(options: { readonly home: string; readonly root: string }): { stop: () => void } | undefined {
+/**
+ * How long a server's stop gives its fill role before killing it: a role giving its stores up stops a store's server in
+ * about 200-300 ms here, and one inside a store's synchronous start cannot stop at all until that returns (measured: a
+ * daemon's stop waited its whole two-second wait on one; `madarch new`'s case ran 5 857 ms in CI).
+ */
+const FILL_STOP_MS = 300;
+
+function startFillRole(options: { readonly home: string; readonly root: string }): { stop: () => Promise<void> } | undefined {
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
     const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
-      stop: () => {
+      stop: async () => {
+        // The role is asked to stop and given a moment to give its stores up (madarch-8bdc.12), then killed: a role inside
+        // a store's *start* (`initdb` and `pg_ctl start` are synchronous) cannot run its stop until that returns, and a
+        // server's own stop may not wait on its child's work — measured: `madarch new`'s daemon stop took its whole two
+        // seconds that way, and the stores a hard stop leaves are the server's own owners' to stop, as the tests' sweep
+        // does for a run.
         try { child.kill(); } catch { /* already gone */ }
+        const stopped = await Promise.race([child.exited.then(() => true, () => true), Bun.sleep(FILL_STOP_MS).then(() => false)]);
+        if (!stopped) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
       },
     };
   } catch {

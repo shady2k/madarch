@@ -11,7 +11,7 @@ import type { Question } from '../src/loop/entities.js';
 import { composeDefault, evaluateCode, type CodeSnapshot } from '../src/problems/code.js';
 import { evaluateDocuments } from '../src/problems/documents.js';
 import { openProblemsOf } from '../src/problems/index.js';
-import { ruleForKind } from '../src/problems/rules.js';
+import { ruleForKind, unimplementedRuleNotes } from '../src/problems/rules.js';
 import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
 import { DEFAULT_THRESHOLDS, SONAR_KINDS, PROBLEM_SEVERITIES, problemId, type ProblemSettings, type RuleSetting } from '../src/problems/types.js';
 import type { ProblemDraft } from '../src/problems/types.js';
@@ -290,6 +290,33 @@ describe('a page badge', () => {
     ];
     expect(openProblemsOf(problems, page)).toBe(1);
     expect(openProblemsOf(problems, 'code.file:src/none.ts')).toBe(0);
+  });
+});
+
+describe('the rules of another section', () => {
+  test('the code section runs the code\'s rules only, and the starter set says nothing about the others', () => {
+    // madarch-8bdc.13: every documents and wiki rule of the starter set came back as a note "the engine does not
+    // implement", because the code section ran the whole manifest.
+    const judged = evaluateCode(snapshot({}), settings());
+    expect(judged.notes.filter((note) => note.message.includes('does not implement'))).toEqual([]);
+    expect(unimplementedRuleNotes(settings())).toEqual([]);
+  });
+
+  test('a rule whose predicate no section implements is one note, whatever section it names', () => {
+    // The manifest reader refuses such a rule; a settings object a caller builds can still name one, and it is said once.
+    const inCode = settings({ rules: { 'custom.unknown': { predicate: 'no-such-predicate', section: 'code' } } });
+    const codeNotes = unimplementedRuleNotes(inCode);
+    expect(codeNotes).toHaveLength(1);
+    expect(codeNotes[0]!.message).toContain('the rule custom.unknown names the predicate "no-such-predicate", which the engine does not implement');
+    // The page reads the note by its key and its arguments, so the rule and the predicate it names are the note's own.
+    expect(codeNotes[0]!.textKey).toBe('ruleUnimplemented');
+    expect(codeNotes[0]!.textArgs).toEqual({ rule: 'custom.unknown', predicate: 'no-such-predicate' });
+    // The rule is not run either: a code rule the code section does not implement gives no finding and no second note.
+    expect(evaluateCode(snapshot({}), inCode).notes.filter((note) => note.message.includes('does not implement'))).toEqual([]);
+    const inDocuments = settings({ rules: { 'custom.unknown': { predicate: 'no-such-predicate', section: 'documents' } } });
+    expect(unimplementedRuleNotes(inDocuments)).toHaveLength(1);
+    // A disabled rule runs nothing and says nothing.
+    expect(unimplementedRuleNotes(settings({ rules: { 'custom.unknown': { predicate: 'no-such-predicate', section: 'code', enabled: false } } }))).toEqual([]);
   });
 });
 

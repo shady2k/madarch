@@ -29,6 +29,7 @@ import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
+import { mermaidFence, MermaidFence } from './diagram-fence.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
@@ -155,13 +156,15 @@ export const sentenceKey = (text: string): string => text.replace(/\[\^[^\]\s]+\
 /** What a page's text is read for: a page that carries a planned change tells every block of it (madarch-m38l.14). */
 export const PlannedContext = createContext<PlannedMarks>(NO_PLANNED);
 
-export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: {
+export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm, sourcePath }: {
   text: string;
   resolutions: Readonly<Record<string, Resolution>>;
   inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> };
   statements?: StatementView;
   /** The id of the glossary entry this text is, which it does not link to. */
   exceptTerm?: string;
+  /** The Markdown file this text comes from, when it is not a document page: a failed fence names it. */
+  sourcePath?: string;
 }): ReactElement {
   const { t } = useTranslation();
   const { index } = useTerms();
@@ -211,11 +214,19 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
       }
       return <span className="plain-link">{children}</span>;
     },
-    ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'pre'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => {
+    ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => {
       const line = node?.position?.start.line;
       const mark = line === undefined ? undefined : planned.headings[line];
       return createElement(tag, mark === undefined ? { 'data-line': line } : { 'data-line': line, 'data-planned': 'true' }, children, mark === undefined ? null : <PlannedBadge mark={mark} />);
     }])) as Components)),
+    // A ```mermaid fence is the wiki's own diagram, not code (madarch-u3vw.18): the parser's language on the code node
+    // decides, so any other fence stays the code block it was.
+    pre: ({ node, children }) => {
+      const fence = mermaidFence(node);
+      const line = node?.position?.start.line;
+      if (fence !== null) return <MermaidFence source={fence.source} line={fence.line} path={inDocument?.path ?? sourcePath ?? null} />;
+      return <pre {...(inDocument === undefined || line === undefined ? {} : { 'data-line': line })}>{children}</pre>;
+    },
     table: ({ children }) => <div className="table-wrap"><table>{children}</table></div>,
     ...(statements === undefined ? {} : {
       span: ({ node: _node, className, children, ...rest }) => {
@@ -313,10 +324,10 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
           </AlertDescription>
         </Alert>
       )}
-      <KMarkdown text={block.markdown} resolutions={resolutions} {...(read ? { statements: { pageId: pageId!, showGrounds } } : {})} />
+      <KMarkdown text={block.markdown} resolutions={resolutions} sourcePath={block.file} {...(read ? { statements: { pageId: pageId!, showGrounds } } : {})} />
       {block.localized !== undefined && <details className="mt-5 border-t border-line pt-4" data-testid="localized-source">
         <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
-        <KMarkdown text={block.localized.original} resolutions={resolutions} />
+        <KMarkdown text={block.localized.original} resolutions={resolutions} sourcePath={block.localized.sourceDocument} />
         <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</p>
       </details>}
     </section>
