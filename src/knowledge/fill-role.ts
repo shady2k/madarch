@@ -39,7 +39,7 @@ export interface FillRoleOptions {
 const ENDING_MS = 1_600;
 
 /** How often the process that started the role is looked for: often enough to end inside a second, cheap enough to keep. */
-const PARENT_CHECK_MS = 100;
+const PARENT_CHECK_MS = 50;
 
 /** Whether a process is still there: one this process may not signal counts as there. */
 function alive(pid: number): boolean {
@@ -99,8 +99,10 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     // not what the server's death may be held by), and then the servers are stopped. A killed server's stores are gone
     // inside the two seconds the rule allows even on a loaded machine.
     void stopQueues(state);
-    const closes = [...(state.running === undefined ? [] : [state.running.close()]), ...[...state.owners].map(async (owner) => await owner.close())];
-    await Promise.race([Promise.allSettled(closes.map(async (closing) => await closing.catch(() => undefined))), Bun.sleep(ENDING_MS / 4)]);
+    // The stores first and forced: the process is ending, so its own holds go with it and the server stops here — a close
+    // that waits for a client inside a transaction must not hold the stores up (madarch-8bdc.12).
+    void (state.running?.close() ?? Promise.resolve()).catch(() => undefined);
+    void Promise.allSettled([...state.owners].map(async (owner) => await owner.close().catch(() => undefined)));
     state.running = undefined;
     // Whatever a close is still waiting for, the stores' servers are stopped here: this process was their last user, and a
     // server nothing serves must not outlive it (madarch-8bdc.12 — a killed server left one up 30 s).
@@ -110,7 +112,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         // role killed before its first pass found the store still has a server to stop, and the server's own use of it
         // died with the server.
         const databases = new Set<string>([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((folder) => join(folder, 'graph'))]);
-        for (const database of databases) await stopStoreForExit(database);
+        for (const database of databases) await stopStoreForExit(database, { force: true });
       })(),
       Bun.sleep(Math.max(0, deadline - Date.now())),
     ]);

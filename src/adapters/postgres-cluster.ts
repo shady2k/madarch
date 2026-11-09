@@ -475,14 +475,17 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
  * the holds one at a time. The store's own programs are found as an ordinary open finds them, and a server that does not
  * answer is no server to stop.
  */
-export async function stopStoreForExit(store: string): Promise<void> {
+export async function stopStoreForExit(store: string, options: { readonly force?: boolean } = {}): Promise<void> {
   const { dataDir, socketDir } = clusterPaths(store);
   const key = resolve(dataDir);
-  // Another owner of this process still uses the store — a test's own connection, a product's reader — and the holds this
-  // process has are that owner's, not the exit's to drop: its `stop` decides, and it stops the server when it is the last.
-  const opening = openInProcess.get(key);
-  const heldByProcess = opening === undefined ? undefined : await opening.catch(() => undefined);
-  if (heldByProcess !== undefined && heldByProcess.users > 0) return;
+  // A process that is ending (`force`) drops the holds it still has, its own owners included, and stops the server: nothing
+  // in it reads the store again. A role giving its stores up inside a process that goes on living leaves a store another
+  // owner of this process still uses alone — that owner's `stop` decides, and it stops the server when it is the last.
+  if (options.force !== true) {
+    const opening = openInProcess.get(key);
+    const heldByProcess = opening === undefined ? undefined : await opening.catch(() => undefined);
+    if (heldByProcess !== undefined && heldByProcess.users > 0) return;
+  }
   for (const descriptor of userLocks.get(key) ?? []) releaseLock(descriptor);
   userLocks.delete(key);
   openInProcess.delete(key);
@@ -490,7 +493,9 @@ export async function stopStoreForExit(store: string): Promise<void> {
   const users = openSync(usersLockPath(key), 'a+');
   try {
     if (flock(users, LOCK_EX | LOCK_NB) !== 0) return;
-    if (!(await answering(socketDir))) return;
+    // No question is asked of the server first: `pg_ctl stop` answers "not running" for a server that is gone, and a
+    // connection this process tried to open before it (up to its own two-second bound) is time the store's death may not
+    // spend (madarch-8bdc.12).
     const { bin } = await ensurePostgresInstalled({});
     const stopped = runBinary(join(bin, 'pg_ctl'), ['-D', key, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
     // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
