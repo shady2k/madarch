@@ -167,7 +167,7 @@ describe('the menu', () => {
     expect(askedPage).toBe(false);
   });
 
-  test('«Waiting for you» stands directly under Home, counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
+  test('the catalogue stands beside Home as a place of the product, «Waiting for you» under it counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
       if (url.endsWith('/api/k/status')) return json(status({
         home: 'product:shop', filled: true,
@@ -186,8 +186,11 @@ describe('the menu', () => {
     const home = app.querySelector('[data-testid=nav-home]')!;
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     const catalogue = app.querySelector('[data-testid=nav-catalogue]')!;
-    expect(home.nextElementSibling).toBe(waiting);
-    expect(waiting.nextElementSibling).toBe(catalogue);
+    // The catalogue waits for nobody: it is a place of the product beside Home, not one of the waiting group's rows.
+    expect(home.nextElementSibling).toBe(catalogue);
+    expect(catalogue.nextElementSibling).toBe(waiting);
+    expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')!.textContent).toContain('2');
     // A count drawn from files is absent until it is above zero: nothing of the product is read before the fill runs.
