@@ -122,7 +122,7 @@ describe('an empty product', () => {
     const text = await response.text();
     expect(response.status).toBe(200);
     const catalog = JSON.parse(text) as { kinds: any[]; groups: any[]; findings: any[] };
-    expect(catalog.kinds.length).toBe(490);
+    expect(catalog.kinds.length).toBe(515);
     expect(catalog.groups.length).toBe(126);
     expect(catalog.findings).toEqual([]);
     const empty = catalog.kinds.find((kind) => kind.kind === 'domain-repository');
