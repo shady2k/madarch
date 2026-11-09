@@ -26,6 +26,7 @@
   },
   "diagram": {
     "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
+    "mermaidFailedAt": "The Mermaid diagram at {{place}} could not be drawn: {{message}}",
     "likec4Failed": "The LikeC4 diagram of {{title}} could not be served: the webcomponent bundle failed to load.",
     "likec4Loading": "Loading the LikeC4 diagram…",
     "mermaidLoading": "Drawing the diagram…"
@@ -313,6 +314,12 @@
     "cardRelated": "Connected to",
     "noSuchDocument": "This document is not there",
     "documentBadge": "Document",
+    "documentDiagram": {
+      "diagram": "Diagram",
+      "source": "Source",
+      "switch": "Diagram or source",
+      "line": "line {{line}}"
+    },
     "findingsHelp": "The page reads as it is. These are places where a statement points to a document, file or function that is not in the graph or the documents right now; they are marked in the text. The agent puts them right when it updates the pages; Refresh checks the links again meanwhile.",
     "findingsDetails": "Details for an engineer",
     "findingsHide": "Hide the details",
