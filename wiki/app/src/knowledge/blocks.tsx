@@ -27,6 +27,7 @@ import { PendingPages } from './pending.js';
 import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
+import { FilesTableView } from './files-table.js';
 import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
@@ -785,6 +786,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'graph': return <NeighborhoodGraph block={block} />;
     case 'diagrams': return <DiagramsView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
+    case 'files': return <FilesTableView block={block} />;
     case 'history': return <History block={block} />;
     case 'definition': return <Definition block={block} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;

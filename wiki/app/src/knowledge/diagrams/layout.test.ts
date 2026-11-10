@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { layoutNeighborhood, layoutTreemap, mergeHood, NODE_H, NODE_W, textWidth, fit } from './layout.js';
+import { layoutNeighborhood, mergeHood, NODE_H, NODE_W, textWidth, fit } from './layout.js';
 import type { Neighborhood } from '../types.js';
 
 const node = (id: string, hops = 1) => ({ id, kind: 'code.symbol', label: id, href: `/e/${id}`, hops });
@@ -73,34 +73,6 @@ describe('the neighbourhood layout', () => {
     expect(merged.edges).toHaveLength(HOOD.edges.length + 1);
     const answered = mergeHood(HOOD, { center: 'c', nodes: [node('c', 0), node('callee9')], edges: [{ from: 'c', to: 'callee9', relation: 'code.calls', count: 1 }], more: [], relations: [] }, { node: 'c', relation: 'code.calls', direction: 'out' });
     expect(answered.more).toEqual([]);
-  });
-});
-
-describe('the treemap layout', () => {
-  test('files get areas in proportion to their lines, inside the frame, without overlapping', () => {
-    const leaves = [
-      { id: '1', name: 'a.ts', path: 'src/a.ts', value: 300, data: null },
-      { id: '2', name: 'b.ts', path: 'src/b.ts', value: 100, data: null },
-      { id: '3', name: 'c.ts', path: 'test/c.ts', value: 100, data: null },
-      { id: '4', name: 'd.ts', path: 'd.ts', value: 50, data: null },
-    ];
-    const cells = layoutTreemap(leaves, 600, 300);
-    const files = cells.filter((cell) => cell.leaf !== undefined);
-    expect(files).toHaveLength(4);
-    for (const cell of files) {
-      expect(cell.x).toBeGreaterThanOrEqual(0);
-      expect(cell.y).toBeGreaterThanOrEqual(0);
-      expect(cell.x + cell.w).toBeLessThanOrEqual(600.001);
-      expect(cell.y + cell.h).toBeLessThanOrEqual(300.001);
-    }
-    const area = (id: string): number => { const cell = files.find((entry) => entry.leaf!.id === id)!; return cell.w * cell.h; };
-    expect(area('1') / area('2')).toBeGreaterThan(2.5);
-    expect(area('1') / area('2')).toBeLessThan(3.5);
-    for (const a of files) for (const b of files) {
-      if (a === b) continue;
-      const apart = a.x + a.w <= b.x + 0.001 || b.x + b.w <= a.x + 0.001 || a.y + a.h <= b.y + 0.001 || b.y + b.h <= a.y + 0.001;
-      expect(apart).toBe(true);
-    }
   });
 });
 

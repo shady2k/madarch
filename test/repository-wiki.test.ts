@@ -50,8 +50,8 @@ const json = async (server: StartedServer, product: string, path: string): Promi
 
 
 /** One entity page as the app reads it, its blocks already read. */
-const pageOf = async (server: StartedServer, product: string, id: string, after?: string): Promise<{ status: number; body: Record<string, unknown> }> =>
-  await json(server, product, `/api/page?id=${encodeURIComponent(id)}&full=1${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`);
+const pageOf = async (server: StartedServer, product: string, id: string, after?: string, full = true): Promise<{ status: number; body: Record<string, unknown> }> =>
+  await json(server, product, `/api/page?id=${encodeURIComponent(id)}${full ? '&full=1' : ''}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`);
 
 /** The one block of a page with this type. */
 const blockOf = (page: { body: Record<string, unknown> }, type: string): Record<string, unknown> & { data: Record<string, unknown>; sections?: unknown[]; rows?: unknown[] } => {
@@ -204,8 +204,14 @@ git(folder,'commit','-qm','the nested file moves');
       const page = deepModel['files'] as unknown[];
       expect(page.length).toBe(100);
       expect(deepModel['nextHref']).toContain('after=files%2Fdeep%2Ff0099.txt');
-      // The whole answer is a page, not the repository: two thousand rows would be tens of thousands of bytes.
-      expect(JSON.stringify(deep.body).length).toBeLessThan(60_000);
+      // The page a reader opens is a page, not the repository: its Files map and table are blocks of their own
+      // (madarch-j9ao.1), asked for later by their identities, so the answer carries the place each stands at and never
+      // the folder's two thousand cells.
+      const deferred = await pageOf(server, 'many', 'code.directory:many-code/files/deep', undefined, false);
+      expect(deferred.status).toBe(200);
+      expect(JSON.stringify(deferred.body).length).toBeLessThan(60_000);
+      const map = (deferred.body['blocks'] as { type: string }[]).find((block) => block.type === 'deferred' && (block as { block?: string }).block === 'treemap');
+      expect(map).toBeDefined();
       const second = await pageOf(server, 'many', 'code.directory:many-code/files/deep', 'files/deep/f0099.txt');
       expect(((blockOf(second, 'folder').data as Record<string, unknown>)['files'] as { path: string }[])[0]!.path).toBe('files/deep/f0100.txt');
     } finally {

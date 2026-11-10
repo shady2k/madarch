@@ -80,7 +80,10 @@ test('the four entity pages of a walk-size repository stay bounded, cold with no
   const hash = git(repository, 'rev-parse', 'HEAD');
   const email = git(repository, 'log', '-1', '--format=%ae');
   const pages = [
-    ['repository', `/products/shop/api/page?id=${encodeURIComponent('code.repository:big')}&full=1`, 90, 16_000, 300],
+    // The repository page is the Files page (madarch-j9ao.1): its map and table read the repository's files and their
+    // rhythm, one page of files and one aggregate of commits each — 2 000 rows apiece on this repository, and never the
+    // whole history evidence.
+    ['repository', `/products/shop/api/page?id=${encodeURIComponent('code.repository:big')}&full=1`, 90, 24_000, 300],
     ['commit', `/products/shop/api/page?id=${encodeURIComponent(`code.commit:${hash}`)}&full=1`, 55, 10_000, 200],
     ['file', `/products/shop/api/page?id=${encodeURIComponent('code.file:big/src/file-0000.ts')}&full=1`, 30, 17_000, 200],
     ['author', `/products/shop/api/page?id=${encodeURIComponent(`code.author:${email}`)}&full=1`, 20, 10_000, 200],

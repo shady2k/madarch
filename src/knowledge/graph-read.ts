@@ -105,6 +105,20 @@ export interface RelationEdge {
   properties: Record<string, unknown>;
 }
 
+/** One file's rhythm, as one aggregated read states it (madarch-j9ao.1): its commits per window, its last change and its authors. */
+export interface FileRhythm {
+  readonly path: string;
+  /** Commits touching the file in the last 30 days, 90 days, a year, and the whole history the fill read. */
+  readonly d30: number;
+  readonly d90: number;
+  readonly d365: number;
+  readonly all: number;
+  /** The instant of the newest commit touching it, ISO 8601 in UTC; null when none touched it. */
+  readonly last: string | null;
+  /** The distinct authors (a signature's name, else its email) of those commits, in code-point order. */
+  readonly authors: readonly string[];
+}
+
 export interface HistoryEvidence {
   entities: GraphEntity[];
   edges: { from: string; to: string; relation: string; properties: Record<string, unknown> }[];
@@ -1307,6 +1321,55 @@ export class GraphReader {
         hotspots: sort([...merged].map(([node, n]) => ({ node, n })), hotspotEntities), hotspotsTotal: merged.size,
         authorRows: sort(authors.rows, authorEntities), authorsTotal: authors.rows.length,
       };
+    });
+  }
+
+  /**
+   * The rhythm of every file of a repository, in one statement: the commits that touched each file in three windows,
+   * the newest of them and the distinct authors. It is a bounded read on purpose (madarch-j9ao.1): the whole history
+   * evidence of a repository holds every commit and every edge, and a page that drew a map of files may not carry it.
+   * A merge repeats what its parents did and is not counted as a change of its own, as git's own path history does.
+   */
+  async fileRhythm(repository: string, windows: { readonly d30: string; readonly d90: string; readonly d365: string }): Promise<Map<string, FileRhythm>> {
+    const answer = new Map<string, FileRhythm>();
+    if (this.declared !== undefined && this.declared.size === 0) return answer;
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ path: string; d30: string; d90: string; d365: string; all_count: string; last: Date | string | null; authors: string[] | null }>(
+        `WITH tree AS (
+           SELECT f.node_id AS file_node, p.text AS path FROM ${GIT_TABLES.file} f
+           JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
+           JOIN ${GIT_TABLES.path} p ON p.id = f.path_id
+           WHERE r.name = $1 AND EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.contains}' WHERE e.to_node = f.node_id)
+         ), marks AS (
+           SELECT e.to_node AS file_node, c.commit_date AS at, coalesce(sig.name, sig.email) AS author
+           FROM edge e JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.touched}'
+           JOIN ${GIT_TABLES.commit} c ON c.node_id = e.from_node
+           LEFT JOIN edge ae ON ae.to_node = c.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
+           LEFT JOIN ${GIT_TABLES.signature} sig ON sig.node_id = ae.from_node
+           WHERE c.commit_date IS NOT NULL
+             AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+         )
+         SELECT t.path,
+                count(m.at) FILTER (WHERE m.at >= $2::timestamptz)::text AS d30,
+                count(m.at) FILTER (WHERE m.at >= $3::timestamptz)::text AS d90,
+                count(m.at) FILTER (WHERE m.at >= $4::timestamptz)::text AS d365,
+                count(m.at)::text AS all_count,
+                max(m.at) AS last,
+                coalesce(array_agg(DISTINCT m.author) FILTER (WHERE m.author IS NOT NULL), '{}') AS authors
+         FROM tree t LEFT JOIN marks m ON m.file_node = t.file_node
+         GROUP BY t.path`,
+        [repository, windows.d30, windows.d90, windows.d365],
+      );
+      for (const row of found.rows) {
+        const last = row.last === null ? null : row.last instanceof Date ? row.last.toISOString() : new Date(row.last).toISOString();
+        answer.set(row.path, {
+          path: row.path,
+          d30: Number(row.d30), d90: Number(row.d90), d365: Number(row.d365), all: Number(row.all_count),
+          last: last !== null && Number.isFinite(Date.parse(last)) ? last : null,
+          authors: [...(row.authors ?? [])].sort(byCodePoint),
+        });
+      }
+      return answer;
     });
   }
 

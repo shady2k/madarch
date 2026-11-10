@@ -27,7 +27,7 @@ import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.j
 
 type DiagramsBlock = Extract<Block, { type: 'diagrams' }>;
 
-const RENDERER_NAME: Record<DiagramRenderer, string> = { likec4: 'LikeC4', mermaid: 'Mermaid', archify: 'archify' };
+const RENDERER_NAME: Record<DiagramRenderer, string> = { likec4: 'LikeC4', mermaid: 'Mermaid', archify: 'archify', echarts: 'ECharts' };
 
 /**
  * Makes the nodes of a drawn Mermaid svg links: the server names the boxes of a flowchart `n<position>` (a sequence's
@@ -353,7 +353,7 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
       </div>
       {view.empty !== null ? <p className="m-0 p-3 text-small text-muted" data-testid="diagram-empty">{view.empty}</p> : (
         <div className="dg-picture" data-testid="view-picture">
-          {renderer === 'mermaid' ? <ZoomBox><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} />}
+          {renderer === 'mermaid' ? <ZoomBox><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : renderer === 'likec4' || renderer === 'archify' ? <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} /> : null}
           {fellBack !== null && <p className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack.renderer] })} {fellBack.message}</p>}
         </div>
       )}

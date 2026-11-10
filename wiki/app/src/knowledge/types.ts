@@ -63,9 +63,37 @@ export type Neighborhood = {
   more: DiagramMore[];
   relations: { relation: string; direction: 'out' | 'in'; count: number }[];
 };
-export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
+/** The Files page's read (madarch-j9ao.1), as the server answers it: the same shape as `src/knowledge/files-map.ts`. */
+export type FilesMapArea = 'lines' | 'bytes';
+export type FilesMapColour = 'language' | 'heat' | 'age' | 'authors';
+export type FilesMapWindow = '30d' | '90d' | '1y' | 'all';
+export type FilesMapEngine = 'echarts' | 'mermaid';
+export type FilesMapFile = {
+  id: string;
+  path: string;
+  repository: string;
+  href: string | null;
+  lines: number | null;
+  bytes: number | null;
+  language: string | null;
+  candidates: string[];
+  /** Commits touching the file: 30 days, 90 days, a year, all. */
+  heat: [number, number, number, number];
+  last: string | null;
+  authors: string[];
+};
+export type FilesMapLanguage = { name: string; files: number; lines: number; bytes: number };
+export type FilesMapTotals = { files: number; lines: number; bytes: number; withoutLines: number; languages: FilesMapLanguage[]; ambiguous: number; other: number };
+export type FilesMap = {
+  repository: string;
+  folder: string;
+  files: FilesMapFile[];
+  totals: FilesMapTotals;
+  windows: { d30: string; d90: string; d365: string };
+  graphTotal: number | null;
+};
 
-export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
+export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify' | 'echarts';
 type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
 type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
 export type ViewElement = {
@@ -107,7 +135,8 @@ type BlockShape =
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
-  | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
+  | { type: 'treemap'; title: string; data: FilesMap; area: FilesMapArea; colour: FilesMapColour; window: FilesMapWindow; engine: FilesMapEngine; mermaid: string; mermaidDrawn: number; mermaidOmitted: number; notes: string[] }
+  | { type: 'files'; title: string; data: FilesMap; area: FilesMapArea; colour: FilesMapColour; window: FilesMapWindow; pageSize: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }

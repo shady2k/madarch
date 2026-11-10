@@ -60,7 +60,7 @@ async function page(id: string, lang?: string): Promise<PageModel> {
 function rowsOf(block: Block): number {
   if (block.type === 'history') return block.sections.reduce((count, section) => count + section.rows.length, 0);
   if (block.type === 'related') return block.groups.reduce((count, group) => count + group.rows.length, 0);
-  if (block.type === 'treemap') return block.files.length;
+  if (block.type === 'treemap' || block.type === 'files') return block.data.files.length;
   return 0;
 }
 

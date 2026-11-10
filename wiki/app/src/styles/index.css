@@ -2240,6 +2240,38 @@ html {
   .dg-chip { min-height: 32px; }
 }
 
+
+/* ---- The Files page: the map, its switches, its legend and the table (madarch-j9ao.1) -------------- */
+.dg-totals { margin: 0 0 8px; font-size: var(--fs-small); color: var(--text-secondary); }
+.dg-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; margin: 0 0 6px; font-size: var(--fs-small); }
+.dg-crumb { padding: 2px 6px; border: 1px solid transparent; border-radius: var(--radius-control); background: none; color: var(--text); cursor: pointer; font: inherit; }
+.dg-crumb:hover, .dg-crumb:focus-visible { border-color: var(--border); background: var(--surface-hover); }
+.dg-crumb[data-current='true'] { font-weight: 600; }
+.dg-crumb-part { display: inline-flex; align-items: center; gap: 4px; }
+.dg-crumb-sep { color: var(--text-muted); }
+.dg-chart { width: 100%; }
+.dg-static { padding: 8px; overflow-x: auto; }
+.dg-legend-list { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; }
+.dg-legend-list li { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+.dg-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); }
+.dg-legend-ramp { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.dg-ramp-wide { display: inline-block; width: 120px; height: 10px; border-radius: 3px; border: 1px solid var(--border); }
+.dg-note { color: var(--text-muted); }
+.dg-files-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 14px; margin: 0 0 10px; }
+.dg-filter { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-small); color: var(--text-secondary); }
+.dg-filter input, .dg-filter select { width: 12rem; }
+.dg-filter input[type='number'] { width: 7rem; }
+.dg-select { min-height: 34px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-page); color: var(--text); font: inherit; }
+.dg-sort { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit; cursor: pointer; }
+.dg-sort:hover { color: var(--text); }
+.dg-files-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: var(--fs-small); color: var(--text-secondary); }
+.dg-files-pager .dg-chip:disabled { opacity: 0.45; cursor: default; }
+.dg-files-pager .dg-chip { display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 700px) {
+  .dg-filter input, .dg-filter select { width: 100%; }
+  .dg-filter { flex: 1 1 10rem; }
+}
+
 /* The chain on a phone: the lanes would scroll sideways under a column of bare numbers, so the steps are a list. */
 .dg-chain-list { display: none; margin: 0; padding-left: 2.2em; font-size: var(--fs-small); }
 .dg-chain-list li { margin: 0 0 10px; padding-left: 2px; }

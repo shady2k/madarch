@@ -330,22 +330,19 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(domain!.up).toMatchObject({ spec: { type: 'domain-map' } });
   });
 
-  bunTest.skipIf(skip || skippedSuite !== undefined)('a service page is where its treemap lives: the files it holds with their lines and their churn from history, order_service.go its hotspot, its lock file left out and said (hotspot, large-file)', async () => {
+  bunTest.skipIf(skip || skippedSuite !== undefined)('a service page is where its map lives: the files its folder holds, with their lines and the commits the history states', async () => {
     expect(hasItem('hotspot')).toBe(true);
     const treemap = block(await page('code.service:orders'), 'treemap');
-    expect(treemap.scope).toBe('services/orders');
-    const byPath = new Map(treemap.files.map((file) => [file.path, file]));
+    expect(treemap.data.folder).toBe('services/orders');
+    const byPath = new Map(treemap.data.files.map((file) => [file.path, file]));
     const hot = byPath.get('services/orders/internal/application/order_service.go')!;
-    expect(hot.churn).toBe(28);
+    expect(hot.heat[3]).toBe(28);
     expect(hot.lines).toBeGreaterThan(200);
-    expect(treemap.maxChurn).toBe(28);
-    expect(Math.max(...treemap.files.map((file) => file.churn))).toBe(hot.churn);
+    expect(Math.max(...treemap.data.files.map((file) => file.heat[3]))).toBe(hot.heat[3]);
     // A service's picture is its own folder: no other service's files are in it.
     expect([...byPath.keys()].every((path) => path.startsWith('services/orders/'))).toBe(true);
-    // The lock file the service pins its dependencies with is left out and said.
-    expect([...byPath.keys()].some((path) => path.endsWith('go.sum'))).toBe(false);
-    expect(treemap.notes.join(' ')).toContain('lock file');
     const pay = block(await page('code.service:payments'), 'treemap');
-    expect(pay.files.find((file) => file.path === 'services/payments/src/api/legacy-report.ts')!.lines).toBeGreaterThan(700);
+    expect(pay.data.files.find((file) => file.path === 'services/payments/src/api/legacy-report.ts')!.lines).toBeGreaterThan(700);
   });
+
 });

@@ -663,18 +663,24 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         })),
       };
     case 'treemap':
+    case 'files':
       return {
         title: block.title,
         type: 'items',
-        total: block.total,
-        items: block.files.map((file) => ({
+        total: block.data.totals.files,
+        items: block.data.files.map((file) => ({
           title: file.path,
           url: at(file.href, prefix),
           id: file.id,
-          count: file.lines,
-          note: `${file.churn} commits`,
+          ...(file.lines === null ? {} : { count: file.lines }),
+          note: [
+            file.language ?? '—',
+            file.lines === null ? 'no line count' : `${String(file.lines)} lines`,
+            `${String(file.heat[3])} commits`,
+            file.authors.length === 0 ? 'no author' : file.authors.join(', '),
+          ].join(' · '),
         })),
-        ...(block.notes.length === 0 ? {} : { notes: block.notes }),
+        notes: [...block.notes, `Area is the ${block.area}; colour is the ${block.colour}${block.colour === 'heat' ? ` over ${block.window}` : ''}.`],
       };
     case 'related':
       return {

@@ -78,8 +78,12 @@ function cleanBlocks(language: string): Block[] {
       rows: [{ entity: ROWS[KIND_SERVICE]![1]!, note: 'named', noteKey: 'named' }],
     },
     {
-      type: 'treemap', title: word(language, 'Files', 'Файлы'), scope: 'orders', maxChurn: 1, total: 1, notes: [],
-      files: [{ id: 'code.file:services/orders/main.go', path: 'services/orders/main.go', href: null, lines: 40, churn: 1 }],
+      type: 'treemap', title: word(language, 'Files', 'Файлы'), area: 'lines', colour: 'heat', window: '90d', engine: 'echarts', mermaid: 'treemap\n    "main.go": 40\n', mermaidDrawn: 1, mermaidOmitted: 0, notes: [],
+      data: {
+        repository: 'orders', folder: '', graphTotal: 1, windows: { d30: '2026-10-11T00:00:00Z', d90: '2026-08-12T00:00:00Z', d365: '2025-11-10T00:00:00Z' },
+        totals: { files: 1, lines: 40, bytes: 400, withoutLines: 0, ambiguous: 0, other: 0, languages: [{ name: 'Go', files: 1, lines: 40, bytes: 400 }] },
+        files: [{ id: 'code.file:services/orders/main.go', path: 'services/orders/main.go', repository: 'orders', href: null, lines: 40, bytes: 400, language: 'Go', candidates: ['Go'], heat: [0, 1, 1, 1], last: '2026-10-01T00:00:00Z', authors: ['Ada'] }],
+      },
     },
     {
       type: 'history', title: word(language, 'Observed contributions', 'Наблюдаемые изменения'),
