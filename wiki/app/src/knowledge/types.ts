@@ -71,19 +71,17 @@ export type FilesMapEngine = 'echarts' | 'mermaid';
 export type FilesMapFile = {
   id: string;
   path: string;
-  repository: string;
   href: string | null;
   lines: number | null;
   bytes: number | null;
   language: string | null;
-  candidates: string[];
   /** Commits touching the file: 30 days, 90 days, a year, all. */
   heat: [number, number, number, number];
   last: string | null;
   authors: string[];
 };
 export type FilesMapLanguage = { name: string; files: number; lines: number; bytes: number };
-export type FilesMapTotals = { files: number; lines: number; bytes: number; withoutLines: number; languages: FilesMapLanguage[]; ambiguous: number; other: number };
+export type FilesMapTotals = { files: number; lines: number; bytes: number; withoutLines: number; languages: FilesMapLanguage[]; ambiguous: number };
 export type FilesMap = {
   repository: string;
   folder: string;

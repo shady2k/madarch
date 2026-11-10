@@ -239,7 +239,7 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
                 <TableCell className="max-w-[28rem] truncate font-mono text-[0.85em]" title={file.path}>
                   {file.href === null ? file.path : <KLink href={file.href} testId="files-row-link">{file.path}</KLink>}
                 </TableCell>
-                <TableCell className="text-muted" title={file.candidates.join(', ')}>{drawn ?? t('knowledge.files.other')}</TableCell>
+                <TableCell className="text-muted">{drawn ?? t('knowledge.files.other')}</TableCell>
                 <TableCell className="text-right text-muted">{file.lines === null ? '—' : countText(file.lines)}</TableCell>
                 <TableCell className="text-right text-muted">{file.bytes === null ? '—' : bytesText(file.bytes)}</TableCell>
                 <TableCell className="text-right" data-testid="files-row-heat">{countText(heatOf(file, window))}</TableCell>

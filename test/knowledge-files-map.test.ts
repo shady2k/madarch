@@ -123,8 +123,7 @@ test('the totals count what the graph holds: files, lines, bytes and the languag
   expect(block.data.totals.lines).toBe(200);
   expect(block.data.totals.bytes).toBe(6800);
   expect(block.data.totals.withoutLines).toBe(1);
-  expect(block.data.totals.ambiguous).toBe(1);
-  expect(block.data.totals.other).toBe(1);
+  expect(block.data.totals.ambiguous).toBe(2);
   expect(block.data.totals.languages).toEqual([
     { name: 'TypeScript', files: 2, lines: 150, bytes: 1300 },
     { name: 'Markdown', files: 1, lines: 20, bytes: 200 },

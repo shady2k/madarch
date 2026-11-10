@@ -36,14 +36,12 @@ export interface FilesMapFile {
   /** The graph entity's key (`code.file:<repository>/<path>`), which orders the table and its cursors. */
   id: string;
   path: string;
-  repository: string;
   /** The file's entity page. */
   href: string | null;
   lines: number | null;
   bytes: number | null;
   /** The accepted language, or null when the claims name candidates and no one language. */
   language: string | null;
-  candidates: string[];
   /** Commits that touched the file: the last 30 days, 90 days, a year, the whole history. */
   heat: readonly [number, number, number, number];
   /** The last change, as the graph states it (ISO 8601 with its offset), or null when no commit touched the file. */
@@ -69,10 +67,8 @@ export interface FilesMapTotals {
   /** Files the graph states are binary, or whose line count it does not hold. */
   withoutLines: number;
   languages: FilesMapLanguage[];
-  /** Files whose claims name several candidates: they have no accepted language and are counted as other. */
+  /** Files with no accepted language (their claims name several candidates or none): drawn as other. */
   ambiguous: number;
-  /** Files whose claims name no language at all: they are drawn as other and counted in no language. */
-  other: number;
 }
 
 /** The instants the heat windows start at, so a page can say what it counts from. */
@@ -157,7 +153,7 @@ async function readFilesMapUncached(
   // One repository's files, read by its own pages: a page of the map may not walk every file of every repository the
   // product holds. The read stops at the block's limit, and the map says what it left out (its page knows the
   // repository's count; a folder's count is known only when its last page was read).
-  const inside: { path: string; lines: number | null; bytes: number | null; language: string | null; candidates: readonly string[] }[] = [];
+  const inside: { path: string; lines: number | null; bytes: number | null; language: string | null }[] = [];
   let after: string | undefined;
   let exhausted = false;
   for (;;) {
@@ -168,7 +164,7 @@ async function readFilesMapUncached(
     });
     for (const row of page.rows) {
       if (inside.length >= options.limit) break;
-      inside.push({ path: row.path, lines: row.lines, bytes: row.bytes, language: row.language, candidates: row.candidates });
+      inside.push({ path: row.path, lines: row.lines, bytes: row.bytes, language: row.language });
     }
     if (page.next === null) { exhausted = true; break; }
     if (inside.length >= options.limit) break;
@@ -189,7 +185,6 @@ async function readFilesMapUncached(
   const languages = new Map<string, FilesMapLanguage>();
   let withoutLines = 0;
   let ambiguous = 0;
-  let other = 0;
   let lines = 0;
   let bytes = 0;
   const files: FilesMapFile[] = inside.map((file) => {
@@ -200,14 +195,11 @@ async function readFilesMapUncached(
     if (fileLines === null) withoutLines += 1;
     else lines += fileLines;
     if (fileBytes !== null) bytes += fileBytes;
-    const candidates = [...file.candidates];
     // The language a file is drawn by is the one its claims accept. A file whose claims name several candidates has no
     // accepted one (decision 0034 item 7: a claimed field's accepted value is computed, never picked by a reader), so it
     // is counted as other and the note says how many files that is and why.
-    if (language === null) {
-      if (candidates.length > 1) ambiguous += 1;
-      else other += 1;
-    } else {
+    if (language === null) ambiguous += 1;
+    else {
       const held = languages.get(language) ?? { name: language, files: 0, lines: 0, bytes: 0 };
       held.files += 1;
       held.lines += fileLines ?? 0;
@@ -221,12 +213,10 @@ async function readFilesMapUncached(
     return {
       id: `code.file:${scope.repository}/${path}`,
       path,
-      repository: scope.repository,
       href: entityAddress(`code.file:${scope.repository}/${path}`),
       lines: fileLines,
       bytes: fileBytes,
       language,
-      candidates,
       heat,
       last: last === null ? null : new Date(last).toISOString(),
       authors: [...authors].sort(byCodePoint),
@@ -237,7 +227,7 @@ async function readFilesMapUncached(
     repository: scope.repository,
     folder,
     files,
-    totals: { files: inside.length, lines, bytes, withoutLines, ambiguous, other, languages: [...languages.values()].sort((left, right) => right.files - left.files || byCodePoint(left.name, right.name)) },
+    totals: { files: inside.length, lines, bytes, withoutLines, ambiguous, languages: [...languages.values()].sort((left, right) => right.files - left.files || byCodePoint(left.name, right.name)) },
     windows,
     graphTotal,
   };
