@@ -546,6 +546,12 @@ export class GraphReader {
     private readonly generated?: ReadonlyMap<string, GeneratedKindRead>,
   ) {}
 
+  /** One page's repository facts: every block of a page asks for the same repository, and it is read once. */
+  private readonly repositoryMemo = new Map<string, Promise<GraphRepositoryFacts | null>>();
+
+  /** One page's history evidence: two blocks of a page ask for the same repository's story, and it is read once. */
+  private readonly historyMemo = new Map<string, Promise<HistoryEvidence>>();
+
   at(instant: string, scope: string): GraphReader {
     return new GraphReader(this.owner, () => instant, BigInt(scope).toString(), this.transaction, this.declared, this.generated);
   }
@@ -617,6 +623,17 @@ export class GraphReader {
    * answer, never a page model of another store.
    */
   async repository(name: string): Promise<GraphRepositoryFacts | null> {
+    const held = this.repositoryMemo.get(name);
+    if (held !== undefined) return await held;
+    const read = this.repositoryOnce(name);
+    this.repositoryMemo.set(name, read);
+    // A read that failed stands no cache entry: the next block asks again rather than inheriting the failure.
+    read.catch(() => { if (this.repositoryMemo.get(name) === read) this.repositoryMemo.delete(name); });
+    return await read;
+  }
+
+  /** The repository's facts, read once for the page that holds this reader. */
+  private async repositoryOnce(name: string): Promise<GraphRepositoryFacts | null> {
     const facts = await repositoryFacts(this.storeOwner(), name).catch((error: unknown) => { if (missingTable(error)) return null; throw error; });
     if (facts === null) return null;
     return {
@@ -1295,6 +1312,16 @@ export class GraphReader {
 
   async historyEvidence(scope: string): Promise<HistoryEvidence> {
     if (this.declared !== undefined && this.declared.size === 0) return { entities: [], edges: [] };
+    const held = this.historyMemo.get(scope);
+    if (held !== undefined) return await held;
+    const read = this.historyEvidenceOnce(scope);
+    this.historyMemo.set(scope, read);
+    read.catch(() => { if (this.historyMemo.get(scope) === read) this.historyMemo.delete(scope); });
+    return await read;
+  }
+
+  /** The history evidence of one scope, read once for the page that holds this reader. */
+  private async historyEvidenceOnce(scope: string): Promise<HistoryEvidence> {
     return await this.run(async (tx) => {
       const found = await tx.query<Raw>(
         `${entitySelectSql(scope, true)} WHERE

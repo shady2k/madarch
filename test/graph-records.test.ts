@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
-import { commitFacts } from '../src/graph/records.js';
+import { commitWithPaths as commitFacts } from '../src/graph/records.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';

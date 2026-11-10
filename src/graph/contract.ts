@@ -364,6 +364,33 @@ async function dropEdgeKind(tx: OuterTransaction, name: string): Promise<void> {
   await tx.query(`DROP TABLE IF EXISTS ${quote(table, 'table')}`);
 }
 
+
+/**
+ * The expression indexes the key lookups need (the review of stage 1c, point 15), made from the contract: a vertex is
+ * found by its entity and a text key field's value, or by the key values of the entity a reference key field names —
+ * that is how a page counts a repository's files and folders without scanning every vertex and every `contains` edge.
+ * One index per key field, named by its place in the key, so two fields of one kind never collide within the 63-byte
+ * identifier bound.
+ */
+async function keyIndexes(tx: OuterTransaction, contract: GraphContract): Promise<void> {
+  for (const vertex of contract.vertex) {
+    const table = tableOf(vertex, 'vertex');
+    for (const [at, fieldName] of vertex.key.entries()) {
+      const field = vertex.fields.find((one) => one.name === fieldName);
+      if (field === undefined) continue;
+      let expression: string | undefined;
+      if (field.reference !== undefined) {
+        const target = contract.vertex.find((one) => one.name === field.reference);
+        const targetKey = target?.key[0];
+        if (targetKey !== undefined) expression = `((key->'${fieldName}'->'key'->>'${targetKey}'))`;
+      } else if (field.type === 'text') {
+        expression = `((key->>'${fieldName}'))`;
+      }
+      if (expression === undefined) continue;
+      await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(`${table}_k${String(at)}`, 'index')} ON node (entity_id, ${expression})`);
+    }
+  }
+}
 /** Every kind the store registers that this contract no longer declares, its table and its rows removed. */
 async function pruneKinds(tx: OuterTransaction, contract: GraphContract): Promise<void> {
   const declaredVertex = new Set(contract.vertex.map((kind) => kind.name));
@@ -387,6 +414,7 @@ export async function createContractTablesIn(tx: OuterTransaction, contract: Gra
   // Every edge kind's table holds its opinions, with or without fields: the evidence of an edge has its home there too.
   for (const edge of contract.edge) await makeTable(tx, tableOf(edge, 'edge'), edge.fields, [], 'edge_id', edge.name, edge.checks ?? [], edge.indexes ?? []);
   await registerKinds(tx, contract);
+  await keyIndexes(tx, contract);
   await pruneKinds(tx, contract);
 }
 
