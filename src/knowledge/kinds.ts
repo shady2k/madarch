@@ -423,7 +423,8 @@ export interface MemberDecl {
 }
 
 /** The renderers a diagram can open on (`diagram:` of the manifest). */
-const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify'];
+/** The diagram engines a product may open on (madarch-j9ao.1 adds the treemap's ECharts beside the drawn views'); `echarts` draws the Files map and cannot draw the drawn views. */
+export const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify', 'echarts'];
 
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];

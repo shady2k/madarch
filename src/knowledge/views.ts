@@ -38,7 +38,7 @@ const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'e
 export type ViewType = (typeof VIEW_TYPES)[number];
 
 /** The renderers, in the order the tabs stand in when the setting does not move one to the front. */
-const RENDERERS = ['likec4', 'mermaid', 'archify'] as const;
+const RENDERERS = ['likec4', 'mermaid', 'archify', 'echarts'] as const;
 export type Renderer = (typeof RENDERERS)[number];
 
 /**

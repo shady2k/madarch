@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import type { Finding } from './kinds.js';
 
 /** The blocks the engine ships. */
-export const BLOCK_NAMES = ['body', 'graph', 'relations', 'related', 'callers', 'callees', 'source', 'er', 'sequence', 'system', 'modules', 'treemap', 'history', 'definition', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children', 'term', 'members', 'repository', 'folder', 'file', 'overview-about', 'overview-how', 'overview-data', 'overview-terms', 'overview-status', 'overview-reading'] as const;
+export const BLOCK_NAMES = ['body', 'graph', 'relations', 'related', 'callers', 'callees', 'source', 'er', 'sequence', 'system', 'modules', 'treemap', 'files', 'history', 'definition', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children', 'term', 'members', 'repository', 'folder', 'file', 'overview-about', 'overview-how', 'overview-data', 'overview-terms', 'overview-status', 'overview-reading'] as const;
 type BlockName = (typeof BLOCK_NAMES)[number];
 
 /** The languages a template may write a parameter in (`title-ru`): the wiki's interface languages. */

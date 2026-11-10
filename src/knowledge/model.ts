@@ -12,6 +12,7 @@ import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
+import type { FilesMap, FilesMapArea, FilesMapColour, FilesMapEngine, FilesMapWindow } from './files-map.js';
 
 /**
  * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
@@ -185,13 +186,42 @@ export interface ModuleEdge {
   cycle: boolean;
 }
 
-export interface TreemapFile {
-  id: string;
-  path: string;
-  href: string | null;
-  lines: number;
-  /** Commits that changed the file, over the whole history read. */
-  churn: number;
+/**
+ * The Files page's two blocks (madarch-j9ao.1): the repository map, with the area
+ * and colour switches and the engine that draws it, and the file table, with the
+ * measure its filter ranges over. Both carry the same read (`FilesMap`), so the
+ * picture and the table can never disagree about a file.
+ */
+export interface TreemapBlockData {
+  type: 'treemap';
+  title: string;
+  data: FilesMap;
+  area: FilesMapArea;
+  colour: FilesMapColour;
+  window: FilesMapWindow;
+  /** The engine the template chose; a reader may switch the picture to the other one that can draw it. */
+  engine: FilesMapEngine;
+  /** The same map as Mermaid's own `treemap` diagram, at most `MERMAID_TREEMAP_LIMIT` leaves. */
+  mermaid: string;
+  /** The leaves the picture leaves out, and the number it draws: 0 and the drawn count when it draws every one. */
+  mermaidOmitted: number;
+  mermaidDrawn: number;
+  /** What the map leaves out, and why, in the reader's language. */
+  notes: string[];
+}
+
+/** The file table below the map: the same read, paged by a keyset cursor in the app. */
+export interface FilesBlockData {
+  type: 'files';
+  title: string;
+  data: FilesMap;
+  area: FilesMapArea;
+  colour: FilesMapColour;
+  window: FilesMapWindow;
+  /** The rows one page holds. */
+  pageSize: number;
+  /** What the read leaves out, and why, in the reader's language. */
+  notes: string[];
 }
 
 /** The six sections of the product overview (madarch-47vw.5): each is a block the product's own template places. */
@@ -235,7 +265,8 @@ type BlockShape =
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | DiagramsBlockShape
   | RelationsBlockShape
-  | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
+  | TreemapBlockData
+  | FilesBlockData
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }

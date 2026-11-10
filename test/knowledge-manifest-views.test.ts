@@ -52,8 +52,8 @@ const span = (path: string) => ({ path, lineStart: 1, lineEnd: 10, byteStart: 0,
 const entity = (kind: string, name: string, properties: Record<string, unknown> = {}, path?: string): GraphEntity =>
   ({ key: `${kind}:${name}`, kind, label: name, properties, nodeIds: [], scope: 'repo', ...(path === undefined ? {} : { span: span(path) }) });
 
-const SERVICE = entity('code.service', 'payments', { language: 'TypeScript' }, 'services/payments/main.ts');
-const FILE = entity('code.file', 'services/payments/main.ts', { path: 'services/payments/main.ts' }, 'services/payments/main.ts');
+const SERVICE = entity('code.service', 'payments', { language: 'TypeScript', repository: 'shop' }, 'services/payments/main.ts');
+const FILE = entity('code.file', 'services/payments/main.ts', { path: 'services/payments/main.ts', repository: 'shop' }, 'services/payments/main.ts');
 const MODULE = entity('code.module', 'services/payments', { files: 2 });
 const DATABASE = entity('code.database', 'shop');
 const ORDERS = entity('code.table', 'shop/orders', { path: 'db/schema.sql' }, 'db/schema.sql');
@@ -104,6 +104,19 @@ class FixtureReader extends GraphReader {
   }
   override async listOperations(options: { q?: string; after?: string; limit: number }) {
     return this.page(this.entities.filter((one) => (one.kind === 'code.operation' || one.kind === 'code.channel') && matches(one, options)), options.limit);
+  }
+  override async files(repository: string, options: { prefix?: string; language?: string; after?: string; limit: number }) {
+    const rows = this.entities.filter((one) => one.kind === 'code.file' && one.properties['repository'] === repository)
+      .filter((one) => options.prefix === undefined || String(one.properties['path'] ?? '').startsWith(options.prefix))
+      .map((one) => ({ path: String(one.properties['path']), mode: null, blob: null, form: 'text' as const, bytes: 1, lines: 1, language: null, candidates: [] as string[] }));
+    return { rows: rows.slice(0, options.limit), next: rows.length > options.limit ? rows[options.limit - 1]!.path : null };
+  }
+  override async repository(name: string) {
+    return { name, counts: { files: this.entities.filter((one) => one.kind === 'code.file').length, commits: 0, folders: 0 } } as never;
+  }
+  override async fileRhythm(_repository: string, _windows: { d30: string; d90: string; d365: string }) {
+    // The map's rhythm read is one statement of its own; this fixture has no rhythm to answer.
+    return new Map();
   }
   override async byPrefix(kind: string, prefix: string, limit: number) {
     const rows = this.entities.filter((one) => one.kind === kind && one.key.startsWith(prefix));
@@ -158,6 +171,7 @@ function context(manifest: KindsManifest, folder: string, entities: readonly Gra
   return {
     productFolder: folder, manifest, language: 'en', markdown: new Map(), docEntities: new Map(), localizedSources: new Map(),
     documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph,
+    historyEvidence: async () => ({ entities: [], edges: [] }),
     readSource: async (_repo: string | null, path: string) => (path === 'contracts/api.yaml'
       ? 'openapi: 3.0.3\ninfo: {title: Catalogue, version: 1.0.0}\npaths:\n  /items: {get: {operationId: listItems, responses: {}}}\n'
       : path === 'services/payments/main.ts' ? 'export const pay = (): void => {};\n' : undefined),
@@ -312,15 +326,20 @@ describe('the system view draws the kinds the manifest gives its parts', () => {
     expect(none.rows.map((row) => row.relation)).not.toContain('uses-database');
   });
 
-  test('a treemap covers the folder of a container only under system: container', async () => {
+  test('the map of a page covers the folder its code stands in, and a page with no repository is a problem', async () => {
     const subject: Subject = { source: 'graph', entity: SERVICE };
-    const drawn = readFixture('treemap-with', { 'code.service': ['    system: container'] });
-    const block = await treemapBlock(context(drawn.manifest, drawn.folder), subject, {}, 'en');
-    expect(block).toMatchObject({ type: 'treemap', scope: 'services/payments' });
+    const drawn = readFixture('treemap-with');
+    const block = await treemapBlock(context(drawn.manifest, drawn.folder), subject, {}, 'templates/service.liquid', 1, 'en');
+    if (block.type !== 'treemap') throw new Error(`the map came back as ${block.type}`);
+    expect(block.data.folder).toBe('services/payments');
+    expect(block.data.files.map((file) => file.path)).toEqual(['services/payments/main.ts']);
 
-    const without = readFixture('treemap-without');
-    const whole = await treemapBlock(context(without.manifest, without.folder), subject, {}, 'en');
-    expect(whole).toMatchObject({ type: 'treemap', scope: '' });
+    // A page the graph places in no repository has no files to map: the block says so instead of drawing an empty box.
+    const homeless: Subject = { source: 'graph', entity: entity('code.service', 'orphan', { language: 'Go' }, 'orphan/main.go') };
+    const refused = await treemapBlock(context(drawn.manifest, drawn.folder), homeless, {}, 'templates/service.liquid', 2, 'en');
+    if (refused.type !== 'problem') throw new Error(`the map came back as ${refused.type}`);
+    expect(refused.file).toBe('templates/service.liquid');
+    expect(refused.line).toBe(2);
   });
 });
 
@@ -438,6 +457,7 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
         ask: async (subject: Subject) => (await collectNeighbors({
           productFolder: read.folder, manifest: read.manifest, language: 'en', markdown: new Map(), docEntities: new Map(), localizedSources: new Map(),
           documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph,
+    historyEvidence: async () => ({ entities: [], edges: [] }),
           readSource: async () => undefined,
           resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
         } as unknown as RenderContext, subject, { limit: 20 })).rows.map((row) => row.relation),
@@ -459,7 +479,10 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
       const views = await buildViews({
         ctx: {
           productFolder: read.folder, manifest: read.manifest, language: 'en', markdown: new Map(), docEntities: new Map(), localizedSources: new Map(),
-          documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph, readSource: async () => undefined,
+          documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph,
+    historyEvidence: async () => ({ entities: [], edges: [] }),
+    // The map's rhythm read is one statement of its own; this fixture has no rhythm to answer.
+    fileRhythm: async () => new Map(), readSource: async () => undefined,
           resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
         } as unknown as RenderContext, lang: 'en', productTitle: 'Fixture',
       }, { type: 'sequence', subject: inside.key }, { source: 'graph', entity: inside });
@@ -475,7 +498,10 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
     const graph = new FixtureReader(ENTITIES, gone);
     const rows = await collectNeighbors({
       productFolder: read.folder, manifest: read.manifest, language: 'en', markdown: new Map(), docEntities: new Map(), localizedSources: new Map(),
-      documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph, readSource: async () => undefined,
+      documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph,
+    historyEvidence: async () => ({ entities: [], edges: [] }),
+    // The map's rhythm read is one statement of its own; this fixture has no rhythm to answer.
+    fileRhythm: async () => new Map(), readSource: async () => undefined,
       resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
     } as unknown as RenderContext, { source: 'graph', entity: SERVICE }, { limit: 20 });
     expect(rows.rows.find((row) => row.relation === 'uses-database')?.ref).toMatchObject({ id: 'code.database:archive', kind: 'code.database', href: null });

@@ -20,8 +20,10 @@ import { entityAddress } from './addresses.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { RenderContext, Subject } from './blocks.js';
 import { idOf, locationOf, refOfGraph, refOfMarkdown, declaredNeighbors, relatesGroups } from './blocks.js';
-import { kindDraws, sequenceFormOf, systemKindOf, systemKindsOf, systemPartOf, type SystemPart } from './kinds.js';
-import type { Block, Chain, ChainLane, ChainStep, DiagramEdge, DiagramMore, DiagramNode, EntityRef, ModuleEdge, ModuleNode, Neighborhood, StepKind, SystemEdge, SystemNode, TreemapFile } from './model.js';
+import { DIAGRAM_RENDERER_NAMES, kindDraws, sequenceFormOf, systemKindOf, systemKindsOf, systemPartOf, type SystemPart } from './kinds.js';
+import type { Block, Chain, ChainLane, ChainStep, DiagramEdge, DiagramMore, DiagramNode, EntityRef, ModuleEdge, ModuleNode, Neighborhood, StepKind, SystemEdge, SystemNode } from './model.js';
+import { FILES_MAP_AREAS, FILES_MAP_COLOURS, FILES_MAP_ENGINES, FILES_MAP_WINDOWS, readFilesMap, scopeOf, type FilesMap, type FilesMapArea, type FilesMapColour, type FilesMapEngine, type FilesMapWindow } from './files-map.js';
+import { mermaidTreemap } from './files-treemap.js';
 
 const toInt = (value: string | undefined, fallback: number, min: number, max: number): number => {
   const parsed = value === undefined ? Number.NaN : Number(value);
@@ -93,6 +95,24 @@ function diagramWords(lang: string | undefined) {
       return ru ? `${parts.join(' и ')} не нарисованы.` : `${parts.join(' and ')} ${lockfiles + declared === 1 ? 'is' : 'are'} not drawn.`;
     },
     unreadFiles: (n: number) => ru ? `${n} ${plural(n, 'файл был', 'файла были', 'файлов были')} не прочитаны в зафиксированной версии и не нарисованы.` : `${n} file${n === 1 ? ' was' : 's were'} not readable at the commit the graph was filled from and ${n === 1 ? 'is' : 'are'} not drawn.`,
+    filesMapMore: (limit: number) => ru
+      ? `Показаны первые ${limit} файлов (предел блока); в папке есть и другие, и они не прочитаны.`
+      : `The first ${limit} files are drawn (the block's limit); the folder holds more, and they were not read.`,
+    filesMapCut: (shown: number, total: number) => ru
+      ? `Показаны ${shown} из ${total} файлов: остальные не прочитаны (предел блока).`
+      : `Showing ${shown} of ${total} files: the rest were not read (the block's limit).`,
+    filesWithoutLines: (n: number) => ru
+      ? `У ${n} ${plural(n, 'файла', 'файлов', 'файлов')} нет числа строк (двоичный файл): они учтены в итогах и нарисованы без площади.`
+      : `${n} file${n === 1 ? '' : 's'} hold${n === 1 ? 's' : ''} no line count (a binary file): ${n === 1 ? 'it is' : 'they are'} counted in the totals and drawn with no area.`,
+    filesAmbiguous: (n: number) => ru
+      ? `У ${n} ${plural(n, 'файла', 'файлов', 'файлов')} источники называют несколько языков, и ни один не принят: они нарисованы как прочие.`
+      : `${n} file${n === 1 ? '' : 's'} hold${n === 1 ? 's' : ''} several candidate languages and no accepted one: ${n === 1 ? 'it is' : 'they are'} drawn as other.`,
+    filesOther: (n: number) => ru
+      ? `У ${n} ${plural(n, 'файла', 'файлов', 'файлов')} язык не назван: они нарисованы как прочие и не входят ни в один язык.`
+      : `${n} file${n === 1 ? '' : 's'} name${n === 1 ? 's' : ''} no language: ${n === 1 ? 'it is' : 'they are'} drawn as other and counted in no language.`,
+    filesMapEmpty: (folder: string) => ru
+      ? `В графе нет файлов в папке ${folder === '' ? 'репозитория' : folder}.`
+      : `The graph holds no files in ${folder === '' ? 'the repository' : folder}.`,
   };
 }
 type DiagramWords = ReturnType<typeof diagramWords>;
@@ -932,76 +952,124 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject, la
   return { service: subject.entity.label, nodes, edges, cycles: [...cycles.entries()].sort((a, b) => byCodePoint(a[0], b[0])).map(([, members]) => members.sort(byCodePoint)), notes };
 }
 
-// ---- the treemap --------------------------------------------------------------------------------
+// ---- the Files page: the repository map and its table -------------------------------------------
 
-/** The dependency extractor's lock-file node: a path it files as one is not code anyone edits. */
-const LOCKFILE_KIND = 'code.lockfile' as const;
-const LOCKFILE_PREFIX = `${LOCKFILE_KIND}:`;
-const lockPathOf = (key: string): string => key.slice(LOCKFILE_PREFIX.length);
+/** The leaves a static Mermaid picture draws; more is a picture no reader can read, and the note says what it left out. */
+const MERMAID_TREEMAP_LIMIT = 250;
 
-/** The lines of a file whose row carries no count: its bytes at the graph's commit, or undefined when unreadable. */
-async function linesOfSource(ctx: RenderContext, scope: string, path: string): Promise<number | undefined> {
-  const text = await ctx.readSource(ctx.repoOfScope(scope) ?? null, path);
-  if (text === undefined) return undefined;
-  return text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+/** A block parameter the map or the table takes, and nothing else: a wrong one is a problem at the template's line. */
+function refusedParams(params: Readonly<Record<string, string>>, accepted: readonly string[], block: string, file: string, line: number): Block | undefined {
+  const known = new Set(['title', 'title-<lang>', ...accepted]);
+  for (const name of Object.keys(params)) {
+    if (accepted.includes(name) || name === 'title') continue;
+    // A title in another interface language is folded before the block reads it; a name that only looks like one is not.
+    if (name.startsWith('title-')) continue;
+    return { type: 'problem', block, file, line, message: `"${name}" is not a parameter of the ${block} block: it takes ${[...known].join(', ')}` };
+  }
+  return undefined;
 }
 
-export async function treemapBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, lang?: string): Promise<Block> {
+/** One choice of a block parameter, or a problem that names the template's line and the choices it accepts. */
+function choiceOf<T extends string>(value: string | undefined, accepted: readonly T[], fallback: T, block: string, name: string, file: string, line: number): T | Block {
+  if (value === undefined) return fallback;
+  if ((accepted as readonly string[]).includes(value)) return value as T;
+  return { type: 'problem', block, file, line, message: `"${name}" is ${JSON.stringify(value)}: the ${block} block takes ${accepted.join(', ')}` };
+}
+
+/** The area, colour, window and engine of a map block, or the problem that says which value is wrong. */
+function mapOptions(params: Readonly<Record<string, string>>, block: string, file: string, line: number, diagram: string | undefined): { area: FilesMapArea; colour: FilesMapColour; window: FilesMapWindow; engine: FilesMapEngine; limit: number } | Block {
+  const refused = refusedParams(params, ['area', 'colour', 'window', 'engine', 'limit', 'scope'], block, file, line);
+  if (refused !== undefined) return refused;
+  const area = choiceOf(params['area'], FILES_MAP_AREAS, 'lines', block, 'area', file, line);
+  if (typeof area !== 'string') return area;
+  const colour = choiceOf(params['colour'], FILES_MAP_COLOURS, 'language', block, 'colour', file, line);
+  if (typeof colour !== 'string') return colour;
+  const window = choiceOf(params['window'], FILES_MAP_WINDOWS, '90d', block, 'window', file, line);
+  if (typeof window !== 'string') return window;
+  // The engine the template asks for, else the product's own setting when it can draw a treemap, else ECharts. A block
+  // that asks for an engine which cannot draw it says so and offers the ones that can (decision 0035's engine list); a
+  // manifest's setting is a choice for the drawn views and never a broken map, so a value they alone can draw opens the
+  // map on ECharts.
+  const asked = params['engine'];
+  if (asked !== undefined && !(FILES_MAP_ENGINES as readonly string[]).includes(asked)) {
+    return { type: 'problem', block, file, line, message: DIAGRAM_RENDERER_NAMES.includes(asked) || asked === 'likec4' || asked === 'archify'
+      ? `the ${block} block cannot be drawn by ${asked}: it is drawn by ${FILES_MAP_ENGINES.join(' or ')}`
+      : `"engine" is ${JSON.stringify(asked)}: the ${block} block is drawn by ${FILES_MAP_ENGINES.join(' or ')}` };
+  }
+  const fromDiagram = diagram !== undefined && (FILES_MAP_ENGINES as readonly string[]).includes(diagram) ? diagram : undefined;
+  const engine = (asked ?? fromDiagram ?? 'echarts') as FilesMapEngine;
+  return { area, colour, window, engine, limit: toInt(params['limit'], 20000, 1, 20000) };
+}
+
+/** The folder a map covers: the block's `scope`, else the folder of a directory page, else the repository's root. */
+function mapFolder(params: Readonly<Record<string, string>>, scope: { folder: string }): string {
+  if (params['scope'] !== undefined) return params['scope'].replace(/^\/+|\/+$/g, '');
+  return scope.folder;
+}
+
+/** The read a map or a table shows, with its notes in the reader's language. */
+async function filesMapOf(ctx: RenderContext, subject: Subject, limit: number, folder: string, lang: string | undefined): Promise<{ data: FilesMap; notes: string[] }> {
   const w = diagramWords(lang);
-  const title = params['title'] ?? 'Files by size and change';
-  const limit = toInt(params['limit'], 400, 10, 1500);
-  let scope = '';
-  if (params['scope'] !== undefined) scope = params['scope'].replace(/\/+$/, '');
-  // The treemap of a container covers the folder its code stands in; one opened on the product's page covers every file.
-  else if (subject.source === 'graph' && systemPartOf(ctx.manifest, subject.entity.kind) === 'container' && subject.entity.span !== undefined) scope = dirname(subject.entity.span.path) === '.' ? '' : dirname(subject.entity.span.path);
-  // The picture needs one number a row, so it asks for one: the read answers path, repository, key and the lines the
-  // file's opinions agree on, and never loads an opinion, a field or an evidence entry it would not draw.
-  const found = await ctx.graph.fileFacts(scope === '' ? '' : `${scope}/`, limit);
+  const data = await readFilesMap(ctx, subject, { folder, limit });
   const notes: string[] = [];
-    // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency
-  // extractor's `code.lockfile` node for that exact path, or the file's own `generated` fact (a repository that
-  // declares it generated or vendored). No file name is special here, so the picture and the note name none.
-  const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
-  const lockPaths = new Set(locks.rows.map((lock) => lockPathOf(lock.key)));
-  const churn = await ctx.graph.inDegreesOfNodes('code.touched', found.rows.map((file) => ({ id: file.node, key: file.key })));
-  let lockfiles = 0;
-  let declared = 0;
-  const files: TreemapFile[] = [];
-  let unread = 0;
-  const queue = [...found.rows];
-  const read = async (): Promise<void> => {
-    for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-      const path = file.path;
-      if (lockPaths.has(path)) {
-        lockfiles += 1;
-        continue;
-      }
-      if (file.generated === true) {
-        declared += 1;
-        continue;
-      }
-      // The file's size is its fact: the tree lister files every path with the lines it holds, so a row that carries
-      // that count is measured without reading a byte. Only a row that lacks it falls back to the bytes, and a file
-      // those bytes cannot answer for is said, never drawn as empty.
-      const counted = file.lines;
-      const lines = typeof counted === 'number' && Number.isSafeInteger(counted) && counted >= 0
-        ? counted : await linesOfSource(ctx, file.scope, path);
-      if (lines === undefined) {
-        unread += 1;
-        continue;
-      }
-      files.push({ id: file.key, path, href: ctx.manifest.kinds.has('code.file') ? entityAddress(file.key) : null, lines, churn: churn.get(file.key) ?? 0 });
-    }
+  if (data.graphTotal === null) notes.push(w.filesMapMore(limit));
+  else if (data.graphTotal > data.files.length) notes.push(w.filesMapCut(data.files.length, data.graphTotal));
+  if (data.totals.withoutLines > 0) notes.push(w.filesWithoutLines(data.totals.withoutLines));
+  if (data.totals.ambiguous > 0) notes.push(w.filesAmbiguous(data.totals.ambiguous));
+  if (data.totals.other > 0) notes.push(w.filesOther(data.totals.other));
+  if (data.files.length === 0) notes.push(w.filesMapEmpty(data.folder));
+  return { data, notes };
+}
+
+/**
+ * The repository map (`treemap`): a drillable treemap of the repository's folders
+ * and files, read from the graph alone. The area follows the lines or the bytes,
+ * the colour the language, the heat of a window, the age of the last change or the
+ * number of authors, and the same map is drawn by Apache ECharts or by Mermaid's
+ * own `treemap` diagram as a static picture.
+ */
+export async function treemapBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number, lang?: string): Promise<Block> {
+  const scope = scopeOf(subject);
+  if (scope === undefined) {
+    return { type: 'problem', block: 'treemap', file, line, message: 'the treemap block shows the files of a code.repository or a code.directory page' };
+  }
+  const options = mapOptions(params, 'treemap', file, line, ctx.manifest.diagram);
+  if ('type' in options) return options;
+  const { data, notes } = await filesMapOf(ctx, subject, options.limit, mapFolder(params, scope), lang);
+  const picture = mermaidTreemap(data.files, data.folder, options.area, MERMAID_TREEMAP_LIMIT);
+  return {
+    type: 'treemap',
+    title: params['title'] ?? 'Repository map',
+    data,
+    area: options.area,
+    colour: options.colour,
+    window: options.window,
+    engine: options.engine,
+    mermaid: picture.source,
+    mermaidDrawn: picture.drawn,
+    mermaidOmitted: picture.omitted,
+    notes,
   };
-  await Promise.all(Array.from({ length: 8 }, read));
-  const hidden: string[] = [];
-  if (lockfiles > 0) hidden.push(`${lockfiles} lock file${lockfiles === 1 ? '' : 's'}`);
-  if (declared > 0) hidden.push(`${declared} repository-declared generated or vendored file${declared === 1 ? '' : 's'}`);
-  if (hidden.length > 0) notes.push(w.hiddenFiles(lockfiles, declared));
-  if (unread > 0) notes.push(w.unreadFiles(unread));
-  files.sort((a, b) => byCodePoint(a.path, b.path));
-  // The note counts what is drawn, not every node the first read returned: hidden lock files and generated files are not
-  // cells, and neither is a file with no lines — the tree draws nothing for it (`treemap.tsx` filters it out too).
-  if (found.total > found.rows.length) notes.push(w.filesRead(files.filter((file) => file.lines > 0).length, found.total));
-  return { type: 'treemap', title, scope, files, maxChurn: files.reduce((max, file) => Math.max(max, file.churn), 0), total: found.total, notes };
+}
+
+/**
+ * The file table (`files`): the same read as the map, filtered by path text, by
+ * language and by a range of the colour measure, sorted by any column and paged
+ * by a key cursor in the reader's app.
+ */
+export async function filesBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number, lang?: string): Promise<Block> {
+  const scope = scopeOf(subject);
+  if (scope === undefined) {
+    return { type: 'problem', block: 'files', file, line, message: 'the files block shows the files of a code.repository or a code.directory page' };
+  }
+  const refused = refusedParams(params, ['area', 'colour', 'window', 'limit', 'scope'], 'files', file, line);
+  if (refused !== undefined) return refused;
+  const area = choiceOf(params['area'], FILES_MAP_AREAS, 'lines', 'files', 'area', file, line);
+  if (typeof area !== 'string') return area;
+  const colour = choiceOf(params['colour'], FILES_MAP_COLOURS, 'heat', 'files', 'colour', file, line);
+  if (typeof colour !== 'string') return colour;
+  const window = choiceOf(params['window'], FILES_MAP_WINDOWS, '90d', 'files', 'window', file, line);
+  if (typeof window !== 'string') return window;
+  const { data, notes } = await filesMapOf(ctx, subject, toInt(params['limit'], 20000, 1, 20000), mapFolder(params, scope), lang);
+  return { type: 'files', title: params['title'] ?? 'Files', data, area, colour, window, pageSize: 50, notes };
 }

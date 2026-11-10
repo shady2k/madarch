@@ -137,17 +137,24 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this file", title_ru="Страницы об этом файле" %}{% endblock %}
 `,
   'repository.liquid': `{% layout "./entity.liquid" %}
+{# The Files section: the map of the whole tree first, the table of every file below it. A reader drills the map into
+   a folder and climbs back by the breadcrumb; the table finds a file by path, language and measure. Both read the
+   graph alone. #}
+{% block lead %}{% treemap title="Repository map" title-ru="Карта репозитория" colour="heat" window="90d" %}{% endblock %}
 {% block details %}{% repository title="Repository" title-ru="Репозиторий" %}{% endblock %}
-{% block lead %}{% folder title="Root" title-ru="Корень" %}{% endblock %}
-{% block parts %}{% history title="History" title-ru="История" %}
-{% treemap title="Files by size and change" title-ru="Файлы по размеру и изменчивости" %}
+{% block parts %}{% files title="Files" title-ru="Файлы" colour="heat" window="90d" %}
+{% history title="History" title-ru="История" %}
+{% folder title="Root" title-ru="Корень" %}
 {% related title="Files" title-ru="Файлы" relation="code.contains" depth=3 kind="code.file" limit=80 %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this repository", title_ru="Вокруг этого репозитория" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this repository", title_ru="Страницы об этом репозитории" %}{% endblock %}
 `,
   'directory.liquid': `{% layout "./entity.liquid" %}
+{# A folder's page is the Files section of that folder: the map of what it holds, then its files as a table. #}
+{% block lead %}{% treemap title="Folder map" title-ru="Карта папки" colour="heat" window="90d" %}{% endblock %}
 {% block details %}{% folder title="Files and folders" title-ru="Файлы и папки" %}{% endblock %}
-{% block parts %}{% related title="Around this folder" title-ru="Вокруг этой папки" direction="both" limit=40 %}{% endblock %}
+{% block parts %}{% files title="Files" title-ru="Файлы" colour="heat" window="90d" %}
+{% related title="Around this folder" title-ru="Вокруг этой папки" direction="both" limit=40 %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this folder", title_ru="Вокруг этой папки" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this folder", title_ru="Страницы об этой папке" %}{% endblock %}
 `,

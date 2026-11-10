@@ -15,7 +15,7 @@ import {
   attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock, termBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
-import { graphBlock, treemapBlock } from './diagrams.js';
+import { filesBlock, graphBlock, treemapBlock } from './diagrams.js';
 import { diagramsBlock, relationsBlock } from './views.js';
 import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
@@ -48,7 +48,7 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
  * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
  */
 /** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
-const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'history', 'definition', 'overview-how', 'overview-data']);
+const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'files', 'history', 'definition', 'overview-how', 'overview-data']);
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: string } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
@@ -200,7 +200,8 @@ function isDrawn(block: Block): boolean {
     case 'file': return true;
     case 'members': return block.rows.length > 0;
     case 'graph': return block.neighborhood.nodes.length > 1 || block.neighborhood.edges.length > 0 || block.neighborhood.more.length > 0;
-    case 'treemap': return block.files.some((file) => file.lines > 0);
+    case 'treemap': return true;
+    case 'files': return true;
     case 'history': return block.sections.some((section) => section.rows.length > 0);
     case 'definition': return block.members.length > 0 || block.spec.text.trim() !== '' || block.document !== undefined || (block.descriptions ?? []).length > 0;
     case 'source': return block.text.trim() !== '';
@@ -265,7 +266,8 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
   switch (name) {
     case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
-    case 'treemap': return await treemapBlock(ctx, subject, params, lang ?? ctx.language);
+    case 'treemap': return await treemapBlock(ctx, subject, params, file, line, lang ?? ctx.language);
+    case 'files': return await filesBlock(ctx, subject, params, file, line, lang ?? ctx.language);
     case 'history': return await historyBlock(ctx, subject, params, file, line, lang);
     case 'definition': return await definitionBlock(ctx, subject, params, file, line);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
