@@ -7,6 +7,6 @@
 export {
   RecordGap, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles,
   graphKindCounts, listDirectories, listFiles, listRepositories, publishHistory, publishTree, repositoryFacts,
-  type FileDate, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
+  type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
   type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';

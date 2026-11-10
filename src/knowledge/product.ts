@@ -39,7 +39,6 @@ import { GraphReader } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
-import { commitPage, filePage, folderPage, recordedFileCount, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -218,11 +217,6 @@ interface PausedRun {
   readonly resumed?: boolean;
 }
 
-/** The store's pins table: `<store>/graph`'s `knowledge_fill`, which `src/knowledge/fill-run.ts` writes. */
-const KNOWLEDGE_FILL_TABLE = `CREATE TABLE IF NOT EXISTS knowledge_fill (
-  repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
-  commits int NOT NULL, filled_commits int NOT NULL)`;
-
 /** One read of the status and the render context its writer units were named against. */
 type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
 
@@ -345,7 +339,7 @@ export class KnowledgeProduct {
    * PostgreSQL telling this side to try again, and the second attempt finds the tables the other committed.
    */
   private async ensureStoreTables(owner: DatabaseOwner): Promise<void> {
-    const there = async (): Promise<boolean> => (await owner.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.knowledge_fill') IS NOT NULL AS there"))).rows[0]?.there === true;
+    const there = async (): Promise<boolean> => (await owner.run(async (tx) => await tx.query<{ there: boolean }>("SELECT to_regclass('public.node') IS NOT NULL AS there"))).rows[0]?.there === true;
     if (await there()) return;
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -356,7 +350,6 @@ export class KnowledgeProduct {
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
           await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-          await tx.query(KNOWLEDGE_FILL_TABLE);
         });
         return;
       } catch (error) {
@@ -515,11 +508,26 @@ export class KnowledgeProduct {
     await held.owner.close().catch(() => undefined);
   }
 
+  /**
+   * The repositories the graph holds, and the commit each is as-is at: the graph's own answer, never the fill's
+   * `knowledge_fill` rows. The fill's operational counts are not product data; what a page states of a repository is
+   * read from the repository entity and its as-is edge (madarch-hsqs stage A).
+   */
   private async loadPins(owner: DatabaseOwner): Promise<void> {
-    const next = await owner.transaction('snapshot', async (tx) => {
-      const rows = await tx.query<Record<string, unknown>>('SELECT repo, scope, head, commit_hash, effective_time, commits, filled_commits FROM knowledge_fill');
-      return rows.rows.map((row):RepositoryPin=>({name:String(row['repo']),scope:row['scope']===null?null:String(row['scope']),head:String(row['head']),commit:String(row['commit_hash']),effectiveTime:String(row['effective_time']),commits:Number(row['commits']),filledCommits:Number(row['filled_commits'])}));
-    });
+    const reader = new GraphReader(owner, this.validAt);
+    const held = await reader.repositoryFactsAll().catch(() => []);
+    const next: RepositoryPin[] = [];
+    for (const facts of held) {
+      const commit = facts.asIsCommit ?? '';
+      const at = commit === '' ? undefined : await reader.commit(facts.name, commit).catch(() => null);
+      const shallow = facts.gaps.some((gap) => gap.reason === 'shallow-history');
+      next.push({
+        name: facts.name, scope: facts.nodeId, head: commit, commit,
+        effectiveTime: at?.commitDate ?? new Date().toISOString(),
+        commits: facts.counts.commits,
+        filledCommits: shallow ? 0 : facts.counts.commits,
+      });
+    }
     this.replacePins(next);
   }
 
@@ -1681,7 +1689,7 @@ export class KnowledgeProduct {
   // ---- reads -----------------------------------------------------------------------------
 
   /** The inputs of one page: the manifest and Markdown as they stand now, and the graph. */
-  async context(history?: HistoryContext, snapshot?: PageSnapshot): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
+  async context(history?: HistoryContext, snapshot?: PageSnapshot, after?: string): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     // The manifest is parsed once per revision of its text and the template paths it names: every read asks for it, and a
@@ -1709,20 +1717,22 @@ export class KnowledgeProduct {
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const language = read.manifest.language ?? 'en';
     const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope !== null && pin.scope === scope)?.name;
-    const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
-      if (repo === null) {
-        if (history !== undefined) return undefined;
-        // The product repository's own files, not its git folder or a dotfile (`.env`, `.git/config`) a reader never meant to publish.
-        if (!insideFolder(product.folder, path) || path.split('/').some((part) => part.startsWith('.')) || path.startsWith('repos/')) return undefined;
-        try {
-          // Through a link too: the real file must stand inside the product repository, and be a file of a size the view shows.
-          const real = realpathSync(join(product.folder, path));
-          if (!insideFolder(realpathSync(product.folder), relative(realpathSync(product.folder), real)) || !statSync(real).isFile() || statSync(real).size > 2 * 1024 * 1024) return undefined;
-          return readFileSync(real, 'utf8');
-        } catch {
-          return undefined;
-        }
+    const declaredRepositories = new Set(this.repositories().map((one) => one.name));
+    const readProductFile = async (path: string): Promise<string | undefined> => {
+      if (history !== undefined) return undefined;
+      // The product repository's own files, not its git folder or a dotfile (`.env`, `.git/config`) a reader never meant to publish.
+      if (!insideFolder(product.folder, path) || path.split('/').some((part) => part.startsWith('.')) || path.startsWith('repos/')) return undefined;
+      try {
+        // Through a link too: the real file must stand inside the product repository, and be a file of a size the view shows.
+        const real = realpathSync(join(product.folder, path));
+        if (!insideFolder(realpathSync(product.folder), relative(realpathSync(product.folder), real)) || !statSync(real).isFile() || statSync(real).size > 2 * 1024 * 1024) return undefined;
+        return readFileSync(real, 'utf8');
+      } catch {
+        return undefined;
       }
+    };
+    const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
+      if (repo === null || !declaredRepositories.has(repo)) return await readProductFile(path);
       if (history !== undefined && repo !== history.repo) return undefined;
       const pin = pins.get(repo);
       if (pin === undefined || pin.commit === '') return undefined;
@@ -1736,10 +1746,6 @@ export class KnowledgeProduct {
       if (origin === undefined || commit === undefined || commit === '') return undefined;
       return webLink({ origin, commit, path, lineStart, lineEnd });
     };
-    // The store's records answer the kind `code.file` (madarch-8bdc.2.5): the fill publishes the repository's paths in
-    // the record tables, and a page of a past time is the temporal graph's alone, so a historical page is asked nothing
-    // of them. The repository resolved is the one the wiki's repository pages show, the product's first declared one.
-    const records = history === undefined && declared.size > 0 ? this.recordFiles(indexOwner) : undefined;
     // A declared checkout that holds no commit is named with its path: the wiki says what it leaves unread rather than
     // failing, and the fill says the same of it. This reads a ref, never a document.
     const emptyRepositories: Finding[] = [];
@@ -1756,7 +1762,7 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
     };
@@ -1893,7 +1899,7 @@ export class KnowledgeProduct {
     try {
       const owner = await this.open();
       const declared = new Set(gitContractOf(context.manifest).vertex.map((kind) => kind.name));
-      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
     }
@@ -2031,7 +2037,7 @@ export class KnowledgeProduct {
     try {
       const owner = await this.open();
       const declared = new Set(gitContractOf(ctx.manifest).vertex.map((kind) => kind.name));
-      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared) };
 
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
@@ -2211,58 +2217,21 @@ export class KnowledgeProduct {
   }
 
   /**
-   * The repository a page is about: the one the caller named when the product declares it, the
-   * product's first declared repository otherwise, and any repository the store holds when the
-   * product declares none. A product's own repository is filled beside its code repositories, and
-   * a page about "the repository" is about the code the reader connected, not about the product's
-   * own pages.
+   * The repository the graph holds, as a page states it: the one the caller named when the graph holds it, else the
+   * product's first declared repository the graph holds, else the first the graph holds. Everything is the graph's
+   * answer; there is no second store of repository pages.
    */
-  private async currentRepository(owner: DatabaseOwner, named: string | null = null): Promise<string | null> {
-    let declared: string[] = [];
-    try {
-      declared = this.repositories().map((repository) => repository.name);
-    } catch {
-      declared = [];
-    }
-    const wanted = named !== null && declared.includes(named) ? named : declared[0] ?? named;
-    return await repositoryOf(owner, wanted);
-  }
-
-  /** The repository the store holds, as a page states it: the named one, else the declared first one. */
   async repositoryView(named: string | null = null): Promise<RepositoryFactsView | undefined> {
     const owner = await this.open();
-    const repository = await this.currentRepository(owner, named);
-    if (repository === null) return undefined;
-    const page = await repositoryPage(owner, repository);
-    if (page === null) return undefined;
-    return {
-      name: page.repository, url: page.url, defaultBranch: page.defaultBranch, asIsCommit: page.asIsCommit,
-      counts: page.counts, gaps: page.gaps, steps: page.steps,
-    };
-  }
-
-  /** One folder's page, or null when the store holds no tree, no such folder, and no file inside it. */
-  async folderView(folder: string, after?: string): Promise<FolderPageModel | null> {
-    const owner = await this.open();
-    const repository = await this.currentRepository(owner);
-    if (repository === null) return null;
-    return await folderPage(owner, repository, folder, after);
-  }
-
-  /** One file's page, or null when the store holds no such file. */
-  async fileView(path: string, after?: { readonly walk: number; readonly commit: string }): Promise<FilePageModel | null> {
-    const owner = await this.open();
-    const repository = await this.currentRepository(owner);
-    if (repository === null) return null;
-    return await filePage(owner, repository, path, after);
-  }
-
-  /** One commit's page, or null when the store holds no such commit. */
-  async commitView(hash: string): Promise<CommitPageModel | null> {
-    const owner = await this.open();
-    const repository = await this.currentRepository(owner);
-    if (repository === null) return null;
-    return await commitPage(owner, repository, hash);
+    let declared: string[] = [];
+    try { declared = this.repositories().map((repository) => repository.name); } catch { declared = []; }
+    const reader = new GraphReader(owner, this.validAt);
+    const held = await reader.repositoryFactsAll().catch(() => []);
+    const chosen = (named === null ? undefined : held.find((one) => one.name === named))
+      ?? held.find((one) => one.name === declared[0])
+      ?? held[0];
+    if (chosen === undefined) return undefined;
+    return { id: chosen.id, name: chosen.name, url: chosen.url, defaultBranch: chosen.defaultBranch, asIsCommit: chosen.asIsCommit, counts: chosen.counts, gaps: chosen.gaps, steps: chosen.steps };
   }
 
   /** The newest run of the store's trace, or the named one. */
@@ -2453,25 +2422,6 @@ export class KnowledgeProduct {
   }
 
   /**
-   * The store's record tables as a page's context reads them: the files of the repository the wiki's repository pages
-   * show, counted and paged. A context built once for the files and a status answer that states the store's numbers
-   * both read them here, so the kind `code.file` answers from one reader whichever path asked.
-   */
-  private recordFiles(indexOwner: DatabaseOwner): NonNullable<RenderContext['records']> {
-    let held: Promise<string | null> | undefined;
-    const repository = (): Promise<string | null> => (held ??= repositoryOf(indexOwner, this.repositories()[0]?.name ?? null));
-    return {
-      files: {
-        count: async (prefix?: string): Promise<number> => { const name = await repository(); return name === null ? 0 : await recordedFileCount(indexOwner, name, prefix); },
-        page: async (options: { readonly after?: string; readonly prefix?: string; readonly limit: number }) => {
-          const name = await repository();
-          return name === null ? { total: 0, rows: [], next: null } : await recordedFiles(indexOwner, name, options);
-        },
-      },
-    };
-  }
-
-  /**
    * The facts of one file the store holds, by the page id the kind `code.file` names it with (`code.file:<path>`), or
    * `undefined` when the id names no file of the repository the wiki's repository pages show. The record tables are
    * read on the reader's own snapshot, the way the repository pages read them.
@@ -2482,14 +2432,14 @@ export class KnowledgeProduct {
     return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
   }
 
-  async page(id: string, lang?: string, options: { defer?: boolean; only?: string; history?: HistorySelection } = {}): Promise<PageResult> {
+  async page(id: string, lang?: string, options: { defer?: boolean; only?: string; after?: string; history?: HistorySelection } = {}): Promise<PageResult> {
     const history = options.history === undefined ? undefined : await this.historyAt(options.history);
     // A gap is a visible result, not an empty current page or a reason to fall back to the tip.
     if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
     const guideKind = (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => GUIDE_OUTPUTS[kind].id === id);
     if (guideKind !== undefined) {
       // Guide authority can open its own transactions. It never enters the page batch.
-      const context = await this.context(history);
+      const context = await this.context(history, undefined, options.after);
       if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
       return await this.guidePage(guideKind, lang === 'ru' ? 'ru' : lang === 'en' ? 'en' : context.ctx.language === 'ru' ? 'ru' : 'en', context.ctx, history);
     }
@@ -2503,7 +2453,7 @@ export class KnowledgeProduct {
     const validAt = this.validAt();
     const pins = new Map(this.pins);
     const rendered: PageResult = await owner.transaction('snapshot', async (transaction) => {
-      const context = await this.context(history, { owner, transaction, validAt, pins });
+      const context = await this.context(history, { owner, transaction, validAt, pins }, options.after);
       if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
       if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
       const result: PageResult = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
@@ -3048,7 +2998,7 @@ export class KnowledgeProduct {
   /**
    * The second level: the sources of one rule — the page or the file each problem stands in — grouped, counted and
    * paged in code-point order of their keys. `after` is the key of the last source of the previous page, exactly as
-   * the repository's folder page takes it (`src/knowledge/repository-view.ts`); `next` is the key to pass back.
+   * a folder page takes it; `next` is the key to pass back.
    */
   async problemSources(rule: string, options: { after?: string; limit: number }): Promise<ProblemSources | undefined> {
     const listing = await this.problemListing();

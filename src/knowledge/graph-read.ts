@@ -10,6 +10,9 @@ import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner
 import { byCodePoint } from '../model/order.js';
 import type { LandmarkPlan } from './history-landmarks.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
+import { commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listFiles, listRepositories, repositoryFacts } from '../graph/index.js';
+import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
+import { entityAddress } from './addresses.js';
 
 export interface SourceSpan {
   path: string;
@@ -139,6 +142,8 @@ const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
   to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_clock, c.commit_offset_min,
   (SELECT count(*)::int FROM edge pe JOIN kind pk ON pk.id = pe.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id) AS parent_count,
   s.name AS signature_name, s.email,
+  (SELECT sa.name FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}' JOIN ${GIT_TABLES.signature} sa ON sa.node_id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_name,
+  (SELECT sa.email FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}' JOIN ${GIT_TABLES.signature} sa ON sa.node_id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_email,
   (SELECT c2.value FROM claim c2 WHERE c2.node_id = n.id AND c2.attribute = 'language' ORDER BY c2.id DESC LIMIT 1) AS language,
   (CASE WHEN k.name = '${GIT_KINDS.repository}' THEN n.id ELSE coalesce(f.repository_node, d.repository_node, g.repository_node,
     (SELECT min(he.from_node) FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}' WHERE he.to_node = n.id),
@@ -207,6 +212,8 @@ function entityOf(row: Raw): GraphEntity {
     properties['effectiveAt'] = properties['committedAt'];
     properties['merge'] = Number(row['parent_count'] ?? 0) > 1;
     properties['onFirstParent'] = true;
+    if (row['commit_author_name'] !== null && row['commit_author_name'] !== undefined) properties['author'] = row['commit_author_name'];
+    if (row['commit_author_email'] !== null && row['commit_author_email'] !== undefined) properties['authorEmail'] = row['commit_author_email'];
   } else if (graphKind === `${GIT_KINDS.signature}`) {
     properties['name'] = row['signature_name'];
     properties['email'] = row['email'];
@@ -234,6 +241,79 @@ async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: s
     return found.rows[0] === undefined ? {} : { walk: found.rows[0].walk };
   }
   return {};
+}
+
+/** The repository as the graph states it, and the page a block shows of it. */
+export interface GraphRepositoryFacts {
+  readonly nodeId: string;
+  readonly id: string;
+  readonly name: string;
+  readonly url: string;
+  readonly defaultBranch: string | null;
+  readonly asIsCommit: string | null;
+  readonly asIsHref: string | null;
+  readonly counts: { readonly files: number; readonly commits: number; readonly folders: number };
+  readonly gaps: readonly { readonly what: string; readonly reason: string }[];
+  readonly steps: { readonly tree: boolean; readonly history: boolean };
+}
+
+/** One file of a repository as a block shows it. */
+export interface GraphFileFacts {
+  readonly repository: string;
+  readonly path: string;
+  readonly id: string;
+  readonly href: string;
+  readonly mode: string | null;
+  readonly blob: string | null;
+  readonly bytes: number | null;
+  readonly lines: number | null;
+  readonly form: 'text' | 'binary' | null;
+  readonly language: string | null;
+  readonly candidates: readonly string[];
+  readonly created: (FileDate & { readonly href: string }) | null;
+  readonly modified: (FileDate & { readonly href: string }) | null;
+  readonly commitCount: number;
+  readonly authors: readonly string[];
+}
+
+/** One file of a folder's listing: the fields the table shows, not the facts of its own page. */
+export interface GraphFolderFile {
+  readonly path: string;
+  readonly id: string;
+  readonly href: string;
+  readonly mode: string | null;
+  readonly blob: string | null;
+  readonly bytes: number | null;
+  readonly lines: number | null;
+  readonly form: 'text' | 'binary' | null;
+  readonly language: string | null;
+  readonly candidates: readonly string[];
+}
+
+/** One page of a folder's own folders and files. */
+export interface GraphFolderFacts {
+  readonly repository: string;
+  readonly id: string;
+  readonly folder: string;
+  readonly parent: { readonly path: string; readonly href: string } | null;
+  readonly folders: readonly { readonly path: string; readonly href: string }[];
+  readonly files: readonly GraphFolderFile[];
+  readonly nextHref: string | null;
+}
+
+/** One commit, its author and dates, its parents and the paths it changed. */
+export interface GraphCommitFacts {
+  readonly repository: string;
+  readonly hash: string;
+  readonly href: string;
+  readonly author: { readonly name: string; readonly email: string };
+  readonly authorDate: string;
+  readonly authorOffsetMin: number;
+  readonly commitDate: string;
+  readonly commitOffsetMin: number;
+  readonly subject: string;
+  readonly parents: readonly string[];
+  readonly changed: readonly { readonly path: string; readonly change: string; readonly added: number | null; readonly removed: number | null; readonly previousPath: string | null; readonly href: string | null }[];
 }
 
 export class GraphReader {
@@ -287,6 +367,108 @@ export class GraphReader {
       const found = await tx.query<Raw>(`${ENTITY_SELECT} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
       return this.scoped(found.rows.map(entityOf));
     });
+  }
+
+  /** The owner a graph read opens its own statement on: the page's transaction while a page is drawn, never a nested one. */
+  private storeOwner(): DatabaseOwner {
+    const transaction = this.transaction;
+    if (transaction === undefined) return this.owner;
+    const owner = this.owner;
+    return new Proxy(owner, {
+      get(target, key) {
+        if (key === 'transaction') return async (_mode: string, work: (tx: OuterTransaction) => Promise<unknown>) => await work(transaction);
+        if (key === 'run') return async (work: (tx: OuterTransaction) => Promise<unknown>) => await work(transaction);
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as DatabaseOwner;
+  }
+
+  /**
+   * One repository as the graph states it: its facts, its as-is commit, its counts and its gaps. This is the graph's
+   * answer, never a page model of another store.
+   */
+  async repository(name: string): Promise<GraphRepositoryFacts | null> {
+    const facts = await repositoryFacts(this.storeOwner(), name);
+    if (facts === null) return null;
+    return {
+      nodeId: facts.nodeId, id: `code.repository:${facts.name}`, name: facts.name, url: facts.url,
+      defaultBranch: facts.defaultBranch, asIsCommit: facts.asIsCommit,
+      asIsHref: facts.asIsCommit === null ? null : entityAddress(`code.commit:${facts.asIsCommit}`),
+      counts: { files: facts.fileCount, commits: facts.commitCount, folders: facts.directoryCount },
+      gaps: facts.gaps, steps: { tree: facts.asIsCommit !== null, history: facts.commitCount > 0 },
+    };
+  }
+
+  /** Every repository the graph holds, in code point order of the names, each read as its page states it. */
+  async repositoryFactsAll(): Promise<GraphRepositoryFacts[]> {
+    const held = await listRepositories(this.storeOwner());
+    const out: GraphRepositoryFacts[] = [];
+    for (const one of held) {
+      const facts = await this.repository(one.name);
+      if (facts !== null) out.push(facts);
+    }
+    return out;
+  }
+
+  /** One page of a repository's files, for an agent's listing: the graph's own answer, never a checkout's. */
+  async files(repository: string, options: { readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
+    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
+  }
+
+  /** One file with its dates and authors, as the graph holds it. */
+  async file(repository: string, path: string): Promise<GraphFileFacts | null> {
+    const facts = await fileFacts(this.storeOwner(), repository, path);
+    if (facts === null) return null;
+    return {
+      repository, path, id: `code.file:${repository}/${path}`, href: entityAddress(`code.file:${repository}/${path}`),
+      mode: facts.mode, blob: facts.blob, bytes: facts.bytes, lines: facts.lines, form: facts.form, language: facts.language, candidates: [...facts.candidates],
+      created: facts.created === null ? null : { ...facts.created, href: entityAddress(`code.commit:${facts.created.commit}`) },
+      modified: facts.modified === null ? null : { ...facts.modified, href: entityAddress(`code.commit:${facts.modified.commit}`) },
+      commitCount: facts.commitCount, authors: [...facts.authors],
+    };
+  }
+
+  /** One page of the commits that touched a path. */
+  async fileHistory(repository: string, path: string, options: { readonly after?: { readonly walk: number; readonly commit: string }; readonly limit: number }): Promise<{ readonly rows: readonly FileHistoryRow[]; readonly next: { readonly walk: number; readonly commit: string } | null }> {
+    return await fileHistory(this.storeOwner(), { repository, path, limit: options.limit, ...(options.after === undefined ? {} : { after: options.after }) });
+  }
+
+  /** One commit of a repository with its author, dates, parents and changed paths. */
+  async commit(repository: string, hash: string): Promise<GraphCommitFacts | null> {
+    const facts = await commitWithPaths(this.storeOwner(), repository, hash);
+    if (facts === null) return null;
+    const hrefOf = (path: string): string | null => entityAddress(`code.file:${repository}/${path}`);
+    return {
+      repository, hash: facts.hash, href: entityAddress(`code.commit:${facts.hash}`), author: { name: facts.author.name, email: facts.author.email },
+      authorDate: facts.authorDate, authorOffsetMin: facts.authorOffsetMin, commitDate: facts.commitDate, commitOffsetMin: facts.commitOffsetMin,
+      subject: facts.subject, parents: [...facts.parents],
+      changed: facts.touched.map((one) => ({ path: one.path, change: one.change, added: one.added, removed: one.removed, previousPath: one.previousPath, href: one.change === 'deleted' ? null : hrefOf(one.path) })),
+    };
+  }
+
+  /** One folder's page: its own subfolders and one page of its files, bounded by the cursor the page carries. */
+  async folder(repository: string, folder: string, after: string | undefined, limit: number): Promise<GraphFolderFacts | null> {
+    const facts = await this.repository(repository);
+    if (facts === null || facts.asIsCommit === null) return null;
+    const directories = await listDirectories(this.storeOwner(), repository);
+    const found = folder === '' ? undefined : directories.find((one) => one.path === folder);
+    if (folder !== '' && found === undefined) return null;
+    const parent = folder === '' ? null : found?.parent ?? '';
+    const page = await folderFiles(this.storeOwner(), { repository, folder, limit, ...(after === undefined ? {} : { after }) });
+    const files: GraphFolderFile[] = page.rows.map((row) => ({
+      path: row.path, id: `code.file:${repository}/${row.path}`, href: entityAddress(`code.file:${repository}/${row.path}`),
+      mode: row.mode, blob: row.blob, bytes: row.bytes, lines: row.lines, form: row.form, language: row.language, candidates: [...row.candidates],
+    }));
+    const children = await folderChildrenOf(this.storeOwner(), repository, folder);
+    const id = folder === '' ? `code.repository:${repository}` : `code.directory:${repository}/${folder}`;
+    return {
+      repository, id, folder,
+      parent: parent === null || parent === '' ? null : { path: parent, href: entityAddress(`code.directory:${repository}/${parent}`) },
+      folders: [...children].sort(byCodePoint).map((path) => ({ path, href: entityAddress(`code.directory:${repository}/${path}`) })),
+      files,
+      nextHref: page.next === null ? null : `${entityAddress(id)}?after=${encodeURIComponent(page.next)}`,
+    };
   }
 
   async kindCounts(): Promise<{ kind: string; count: number }[]> {
@@ -473,7 +655,7 @@ export class GraphReader {
     });
   }
 
-  async byPrefix(kind: string, prefix: string, limit: number): Promise<{ total: number; rows: GraphEntity[] }> {
+  async byPrefix(kind: string, prefix: string, limit: number, after?: string): Promise<{ total: number; rows: GraphEntity[] }> {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
     const graphKind = graphKindOf(kind);
     if (graphKind === undefined || !this.holds(graphKind)) return { total: 0, rows: [] };
@@ -486,7 +668,8 @@ export class GraphReader {
       const matching = entities.filter((entity) => pathPrefix !== undefined
         ? String(entity.properties['path'] ?? '').startsWith(pathPrefix)
         : entity.key.startsWith(prefix)).sort((a, b) => byCodePoint(a.key, b.key));
-      return { total: matching.length, rows: matching.slice(0, limit) };
+      const tail = after === undefined ? matching : matching.filter((entity) => byCodePoint(entity.key, after) > 0);
+      return { total: matching.length, rows: tail.slice(0, limit) };
     });
   }
 

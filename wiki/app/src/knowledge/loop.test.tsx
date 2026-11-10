@@ -457,7 +457,7 @@ describe('the routes of the loop', () => {
     expect(wikiRouteOf('/problems')).toEqual({ name: 'problems' });
     expect(wikiRouteOf('/e/question%3Adiscount-percentage')).toEqual({ name: 'question', slug: 'discount-percentage' });
     expect(wikiRouteOf('/e/correction%3Ac')).toEqual({ name: 'problems' });
-    expect(wikiRouteOf('/e/domain%3Aorders')).toEqual({ name: 'entity', id: 'domain:orders' });
+    expect(wikiRouteOf('/e/domain%3Aorders')).toEqual({ name: 'entity', id: 'domain:orders', after: null });
     expect(addressOfQuestion('discount-percentage')).toBe('/questions/discount-percentage');
   });
 });

@@ -796,6 +796,46 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         })),
         ...(block.notes.length === 0 ? {} : { notes: block.notes.map((note) => (note.args === undefined ? note.key : `${note.key} (${Object.entries(note.args).map(([name, value]) => `${name}: ${value}`).join(', ')})`)) }),
       };
+    case 'repository': {
+      const data = block.data;
+      const lines = [
+        `${data.name}${data.defaultBranch === null ? '' : ` (${data.defaultBranch})`}`,
+        data.url,
+        `${data.counts.files} files · ${data.counts.commits} commits · ${data.counts.folders} folders`,
+        data.asIsCommit === null ? 'the tree pass has not run' : `as-is commit ${data.asIsCommit}`,
+        ...data.gaps.map((gap) => `gap: ${gap.what} — ${gap.reason}`),
+        ...(block.run === undefined ? [] : [`last run finished ${block.run.finishedAt} in ${block.run.wallMs} ms`]),
+        ...(block.unread ?? []).map((one) => `unread: ${one.repository} (${one.path}) — ${one.reason}`),
+      ];
+      return { title: block.title, type: 'text', text: lines.join('\n'), links: [] };
+    }
+    case 'folder': {
+      const data = block.data;
+      const lines = [
+        ...data.folders.map((folder) => `${folder.path}/`),
+        ...data.files.map((file) => `${file.path} — ${file.language ?? ''} · ${file.lines ?? '—'} lines · ${file.bytes ?? 0} bytes`),
+      ];
+      return { title: block.title, type: 'text', text: lines.join('\n'), links: data.files.map((file) => ({ title: file.path, url: at(file.href, prefix) })) };
+    }
+    case 'file': {
+      const data = block.data;
+      return {
+        title: block.title,
+        type: 'properties',
+        properties: [
+          { name: 'mode', label: 'Mode', value: data.mode ?? '—' },
+          { name: 'blob', label: 'Blob', value: data.blob ?? '—' },
+          { name: 'bytes', label: 'Bytes', value: String(data.bytes ?? 0) },
+          { name: 'lines', label: 'Lines', value: data.lines === null ? '—' : String(data.lines) },
+          { name: 'form', label: 'Form', value: data.form ?? '—' },
+          { name: 'language', label: 'Language', value: data.language ?? '—' },
+          { name: 'created', label: 'Created', value: data.created === null ? '—' : `${data.created.date} ${data.created.author} ${data.created.commit}` },
+          { name: 'modified', label: 'Modified', value: data.modified === null ? '—' : `${data.modified.date} ${data.modified.author} ${data.modified.commit}` },
+          { name: 'commitCount', label: 'Commits', value: String(data.commitCount) },
+          { name: 'authors', label: 'Authors', value: data.authors.join(', ') || '—' },
+        ],
+      };
+    }
     case 'problem':
       return {
         title: block.block,

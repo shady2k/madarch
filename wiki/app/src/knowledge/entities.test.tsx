@@ -801,15 +801,12 @@ describe('every route names its tab', () => {
     // A filled home whose page the server names.
     { address: '/', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
     // A filled home that is its repository's page (the demo's shape).
-    { address: '/', selector: '[data-testid=repository-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }) },
+    { address: '/', selector: '[data-testid=entity-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
     { address: '/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
     { address: '/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
     { address: '/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
     { address: '/src?repo=shop&path=a.ts&line=2', selector: '[data-testid=source-error]', expected: 'a.ts' },
-    { address: '/folder?path=docs', selector: '[data-testid=repository-refused]', expected: 'docs' },
-    { address: '/file?path=docs/x.md', selector: '[data-testid=entity-page]', expected: 'docs/x.md', page: pageModel('code.file:docs/x.md', 'docs/x.md') },
-    { address: '/commit?hash=abc123', selector: '[data-testid=repository-refused]', expected: 'abc123' },
-    { address: '/run', selector: '[data-testid=repository-refused]', expected: 'The run' },
+    { address: '/run', selector: '[data-testid=run-error]', expected: 'The run' },
     { address: '/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },
     { address: '/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
     { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },

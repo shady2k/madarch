@@ -86,7 +86,7 @@ describe('routes', () => {
   test('the wiki lives at the root, at a product\'s prefix too; anything else is not its route', () => {
     expect(wikiRouteOf('/')).toEqual({ name: 'home' });
     expect(wikiRouteOf('/products/shop/')).toEqual({ name: 'home' });
-    expect(wikiRouteOf('/products/shop/e/code.symbol%3Aa.ts%23f')).toEqual({ name: 'entity', id: 'code.symbol:a.ts#f' });
+    expect(wikiRouteOf('/products/shop/e/code.symbol%3Aa.ts%23f')).toEqual({ name: 'entity', id: 'code.symbol:a.ts#f', after: null });
     expect(wikiRouteOf('/kind/code.file')).toEqual({ name: 'kind', kind: 'code.file' });
     expect(wikiRouteOf('/src', '?repo=r&path=a%2Fb.ts&line=12')).toEqual({ name: 'source', repo: 'r', path: 'a/b.ts', line: 12 });
     expect(wikiRouteOf('/src', '?path=a.ts')).toEqual({ name: 'source', repo: null, path: 'a.ts', line: null });
@@ -620,7 +620,7 @@ describe('after the run', () => {
     const read = status({
       kinds: [{ kind: 'domain', source: 'markdown', count: 0, single: false, origins: [] }],
       writer: { state: 'idle', agent: null, units: [] },
-      repository: { name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
+      repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
     });
     const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');

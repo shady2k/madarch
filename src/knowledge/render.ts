@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
 import { graphBlock, treemapBlock } from './diagrams.js';
@@ -196,6 +196,9 @@ function isDrawn(block: Block): boolean {
     case 'callees': return block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== '');
     case 'refs': return (block.hideEmpty !== true || block.total > 0) && (block.rows.length > 0 || (block.emptyNote !== undefined && block.emptyNote.trim() !== ''));
     case 'properties': return block.rows.length > 0;
+    case 'repository': return block.data.steps.tree;
+    case 'folder': return block.data.files.length > 0 || block.data.folders.length > 0;
+    case 'file': return true;
     case 'members': return block.rows.length > 0;
     case 'graph': return block.neighborhood.nodes.length > 1 || block.neighborhood.edges.length > 0 || block.neighborhood.more.length > 0;
     case 'treemap': return block.files.some((file) => file.lines > 0);
@@ -275,6 +278,9 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'er':
     case 'sequence': return await diagramsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, name, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
+    case 'repository': return await repositoryBlock(ctx, subject, params, file, line);
+    case 'folder': return await folderBlock(ctx, subject, params, file, line);
+    case 'file': return await fileBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line, details, ctx.manifest.properties, lang ?? ctx.language);
     case 'members': return await membersBlock(ctx, subject, params, file, line, lang ?? ctx.language);
     case 'linkedfrom': return await linkedFromBlock(ctx, subject, params);
@@ -295,13 +301,9 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
 
 
 /**
- * The page of one file the store holds (madarch-8bdc.2.5, item 3): the facts the repository's own file page states —
- * the properties the manifest's `details:` names for the kind, in the manifest's words for this language — and the
- * file's text at the as-is commit. A kind whose entities are records holds no versioned graph, so this page draws no
- * relations, history or diagrams rather than empty sections of them, and the repository's own pages stand beside it.
- *
- * The facts come from the store's records and from nothing else (`repository-view.ts`), which is the reader the
- * catalogue and the repository pages use: a listing never names a file whose page this is not.
+ * The page of one file the graph holds (madarch-hsqs stage A): the facts its file block reads from the graph — the
+ * properties the manifest's `details:` names for the kind, in the manifest's words for this language — the file's
+ * block, its text and its history. The graph is the one source; there is no repository page model beside it.
  */
 // ---- listings ---------------------------------------------------------------------------------
 
@@ -460,21 +462,24 @@ export async function searchWiki(ctx: RenderContext, query: string, lang?: strin
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
   if (decl === undefined || decl.member !== undefined) return undefined;
-  // A file of the store this fill wrote is a record, not a version of the temporal graph: the kind `code.file` lists the
-  // record tables' paths, in code-point order, one bounded page at a time, and its page is the repository's file page.
-  if (kind === 'code.file' && ctx.records !== undefined) {
+  // The graph is the one source of a file listing too: its `code.file` entities carry their repository in the key, so
+  // two repositories' paths never collide, and each row links to the entity page the graph names.
+  if (kind === 'code.file') {
     const filter = options.q?.trim() ?? '';
-    const page = await ctx.records.files.page({ limit: options.limit, ...(options.after === undefined ? {} : { after: options.after }), ...(filter === '' ? {} : { prefix: filter }) });
+    const head = filter === '' ? 'code.file:' : `code.file:${filter}`;
+    const page = await ctx.graph.byPrefix('code.file', head, options.limit + 1, options.after);
+    const rows = page.rows.slice(0, options.limit);
     return {
-      kind, total: page.total, next: page.next,
-      rows: page.rows.map((file) => {
-        const web = ctx.webOf?.(file.repository, file.path, 1, 1);
-        const id = `code.file:${file.repository}/${file.path}`;
+      kind, total: page.total,
+      next: page.rows.length > options.limit ? rows[rows.length - 1]?.key ?? null : null,
+      rows: rows.map((entity) => {
+        const repository = String(entity.properties['repository'] ?? '');
+        const path = String(entity.properties['path'] ?? '');
+        const web = ctx.webOf?.(repository, path, 1, 1);
         return {
-          id, kind, label: file.path,
-          // A file's page is its entity page; the id carries its repository, so two repositories' paths never collide.
-          href: entityAddress(id),
-          location: { repo: file.repository, path: file.path, lineStart: 1, lineEnd: 1, href: sourceAddress(file.repository, file.path, 1), ...(web === undefined ? {} : { web }) },
+          id: entity.key, kind, label: entity.label,
+          href: entityAddress(entity.key),
+          location: { repo: repository, path, lineStart: 1, lineEnd: 1, href: sourceAddress(repository, path, 1), ...(web === undefined ? {} : { web }) },
         };
       }),
     };

@@ -119,7 +119,7 @@ them, as label.
 `,
   'file.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}\`{{ page.path }}\`{% endblock %}
-{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
+{% block details %}{% file title="Details" title-ru="Сведения" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this file", title_ru="Вокруг этого файла" %}{% endblock %}
 {% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
 {% block parts %}{% history title="Change history" title-ru="История изменений" %}
@@ -132,7 +132,8 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this file", title_ru="Страницы об этом файле" %}{% endblock %}
 `,
   'repository.liquid': `{% layout "./entity.liquid" %}
-{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
+{% block details %}{% repository title="Repository" title-ru="Репозиторий" %}{% endblock %}
+{% block lead %}{% folder title="Root" title-ru="Корень" %}{% endblock %}
 {% block parts %}{% history title="History" title-ru="История" %}
 {% treemap title="Files by size and change" title-ru="Файлы по размеру и изменчивости" %}
 {% related title="Files" title-ru="Файлы" relation="code.contains" depth=3 kind="code.file" limit=80 %}{% endblock %}
@@ -140,8 +141,8 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this repository", title_ru="Страницы об этом репозитории" %}{% endblock %}
 `,
   'directory.liquid': `{% layout "./entity.liquid" %}
-{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
-{% block parts %}{% related title="Files and folders" title-ru="Файлы и папки" relation="code.contains" direction="out" limit=200 %}{% endblock %}
+{% block details %}{% folder title="Files and folders" title-ru="Файлы и папки" %}{% endblock %}
+{% block parts %}{% related title="Around this folder" title-ru="Вокруг этой папки" direction="both" limit=40 %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this folder", title_ru="Вокруг этой папки" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this folder", title_ru="Страницы об этой папке" %}{% endblock %}
 `,
@@ -361,6 +362,13 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   path: { en: "Path", ru: "Путь", format: "path" },
   line: { en: "Line", ru: "Строка", format: "number" },
   lines: { en: "Lines", ru: "Строк", format: "number" },
+  mode: { en: "Mode", ru: "Режим", format: "text" },
+  blob: { en: "Blob", ru: "Blob", format: "code" },
+  bytes: { en: "Bytes", ru: "Байт", format: "number" },
+  form: { en: "Form", ru: "Форма", format: "text" },
+  candidates: { en: "Languages", ru: "Языки", format: "list" },
+  author: { en: "Author", ru: "Автор", format: "text" },
+  authorEmail: { en: "Author email", ru: "Почта автора", format: "text" },
   source: { en: "Source", ru: "Источник", format: "text" },
   readBy: { en: "Read by", ru: "Читает", format: "text" },
   function: { en: "Function", ru: "Функция", format: "text" },
@@ -502,7 +510,8 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.entry-point": ["file", "language", "service", "symbol", "starts"],
   "code.cycle": ["level", "size"],
   "code.debt": ["marker", "text", "path", "line"],
-  "code.file": ["lines", "commitCount", "authors"],
+  "code.directory": ["path"],
+  "code.file": ["mode", "blob", "bytes", "lines", "form", "language", "candidates", "commitCount", "authors"],
   "code.facet": ["language", "role", "authors", "commitCount", "parsed"],
   "code.input": ["name", "source"],
   "code.sql-build": [],
@@ -544,7 +553,7 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.newcomer-prerequisites": ["tools"],
   "code.newcomer-failure": ["symptom", "command", "fix", "port"],
   "code.test-case": ["name", "testKind", "framework", "language", "path", "skipped", "skipReason", "cases", "suite"],
-  "code.commit": ["subject", "authoredAt", "committedAt", "merge", "mergedBranch"],
+  "code.commit": ["author", "authorEmail", "subject", "authoredAt", "committedAt", "merge", "mergedBranch"],
   "code.snapshot": ["commit"],
 };
 

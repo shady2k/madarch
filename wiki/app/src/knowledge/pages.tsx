@@ -51,12 +51,12 @@ function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null 
 }
 
 /** One entity's page. A page read again after a commit keeps showing the old one until the new one arrives. */
-export function EntityPage({ id, version }: { id: string; version: number }): ReactElement {
+export function EntityPage({ id, after = null, version }: { id: string; after?: string | null; version: number }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const selectedHistory = currentHistory();
-  const { data: page, error } = useRead<PageModel>(`${id}\0${language}\0${JSON.stringify(selectedHistory)}`, version, (signal) => getPage(id, language, signal, (reason) => t('knowledge.pageNotRead', { id, reason })));
+  const { data: page, error } = useRead<PageModel>(`${id}\0${language}\0${after ?? ''}\0${JSON.stringify(selectedHistory)}`, version, (signal) => getPage(id, language, signal, (reason) => t('knowledge.pageNotRead', { id, reason }), after));
   const { role, roles } = useRole();
   useTabTitle(page?.title ?? (error !== null ? t('knowledge.noSuchPage') : null));
   // An old member address opens the parent's page at the member's fragment (madarch-m38l.21).

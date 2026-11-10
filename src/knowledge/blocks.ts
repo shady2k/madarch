@@ -36,17 +36,12 @@ export interface RenderContext {
   repositories: readonly string[];
   /** The same place on the repository's web page (GitHub, GitLab, ...), when the repository's address is known. */
   webOf?: (repo: string | null, path: string, lineStart: number, lineEnd: number) => { host: string; url: string } | undefined;
-  /**
-   * The store's record tables, asked the way the kind `code.file` needs them (madarch-8bdc.2.5): the files this fill
-   * published are paths in the record store, not versions in the temporal graph, so the kind's listing and its count
-   * are read here when the store answers them. The filter is a path prefix.
-   */
-  records?: {
-    readonly files: {
-      count: (prefix?: string) => Promise<number>;
-      page: (options: { readonly after?: string; readonly prefix?: string; readonly limit: number }) => Promise<{ total: number; rows: readonly { path: string; repository: string }[]; next: string | null }>;
-    };
-  };
+  /** The page's own cursor, for a block that shows one bounded page of a folder's files. */
+  pageAfter?: string;
+  /** The last run's end, for the repository block: operational state, never a fact of the graph. */
+  fillRun?: { readonly finishedAt: string; readonly wallMs: number };
+  /** The repositories the fill could not read, for the repository block. */
+  unreadRepositories?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
   /** What the index of the Markdown (madarch-m38l.8) knows: the statements that rely on a key, and the counts per page kind. */
   index?: {
     relyingOn: (key: string) => Promise<RelyingStatement[]>;
@@ -334,6 +329,44 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
     text: lines.slice(span.lineStart - 1, stop).join('\n'),
     truncated: stop < end,
   };
+}
+
+
+// ---- the repository's own blocks (madarch-hsqs stage A) ------------------------------------------
+
+/** The repository's facts as a block of its entity page: counts, as-is commit, gaps and what the graph holds. */
+export async function repositoryBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+  if (subject.source !== 'graph' || subject.entity.kind !== 'code.repository') return { type: 'problem', block: 'repository', file, line, message: 'the repository block shows a code.repository entity' };
+  const name = typeof subject.entity.properties['name'] === 'string' ? subject.entity.properties['name'] : subject.entity.label;
+  const data = await ctx.graph.repository(name);
+  if (data === null) return { type: 'problem', block: 'repository', file, line, message: `the graph holds no repository ${JSON.stringify(name)}` };
+  return { type: 'repository', title: params['title'] ?? 'Repository', data, ...(ctx.fillRun === undefined ? {} : { run: ctx.fillRun }), ...(ctx.unreadRepositories === undefined ? {} : { unread: ctx.unreadRepositories }) };
+}
+
+/** One page of a folder's subfolders and files, with each child's graph address. */
+export async function folderBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+  if (subject.source !== 'graph' || (subject.entity.kind !== 'code.directory' && subject.entity.kind !== 'code.repository')) {
+    return { type: 'problem', block: 'folder', file, line, message: 'the folder block shows a code.directory or code.repository entity' };
+  }
+  const repository = typeof subject.entity.properties['repository'] === 'string'
+    ? subject.entity.properties['repository']
+    : typeof subject.entity.properties['name'] === 'string' ? subject.entity.properties['name'] : '';
+  const folder = subject.entity.kind === 'code.repository' ? '' : String(subject.entity.properties['path'] ?? '');
+  const limit = toInt(params['limit'], 100, 1, 500);
+  const after = params['after'] ?? ctx.pageAfter;
+  const data = await ctx.graph.folder(repository, folder, after === '' ? undefined : after, limit);
+  if (data === null) return { type: 'problem', block: 'folder', file, line, message: `the graph holds no folder ${JSON.stringify(folder)} of ${repository}` };
+  return { type: 'folder', title: params['title'] ?? 'Files and folders', data };
+}
+
+/** One file's facts as a block: everything the graph holds of it, its dates and its authors. */
+export async function fileBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+  if (subject.source !== 'graph' || subject.entity.kind !== 'code.file') return { type: 'problem', block: 'file', file, line, message: 'the file block shows a code.file entity' };
+  const repository = String(subject.entity.properties['repository'] ?? '');
+  const path = String(subject.entity.properties['path'] ?? '');
+  const data = await ctx.graph.file(repository, path);
+  if (data === null) return { type: 'problem', block: 'file', file, line, message: `the graph holds no file ${JSON.stringify(path)} of ${repository}` };
+  return { type: 'file', title: params['title'] ?? 'File', data };
 }
 
 // ---- properties -------------------------------------------------------------------------------

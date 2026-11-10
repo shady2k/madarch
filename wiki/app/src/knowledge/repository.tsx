@@ -1,24 +1,19 @@
 /**
- * The repository pages of this step (madarch-8bdc.2.5, items 2, 3 and 4): the
- * repository the fill read, its folder tree, one file with every fact of it,
- * its text and its history, one commit and the run's trace. Every page is drawn from the server's answer
- * — the wiki holds no fact of its own — and every page names the as-is commit
- * it is true at.
- *
- * A page whose step has not run is not drawn: the server answers the step's
- * name, and the page says so rather than showing an empty list.
+ * The repository's entity-page blocks (madarch-hsqs stage A): a repository's facts, a folder's files and folders,
+ * and one file's facts. They are blocks of the graph's own entity pages now — the separate repository, folder, file
+ * and commit pages are gone — so every link they draw is the entity address the server put in the block, and the app
+ * composes no id. The run page stays here as the one operational page of this file.
  */
-import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
-import { CodeLines, KLink } from './blocks.js';
+import { KLink } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
-import { getCommit, getFile, getFileText, getFolder, getRun } from './api.js';
-import { addressOfCommit, addressOfFile, addressOfFolder, WIKI_RUN } from './routes.js';
-import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, SourceFile, WikiStatus } from './types.js';
+import { getRun } from './api.js';
+import { WIKI_RUN } from './routes.js';
+import type { FileBlockData, FillRunView, FolderBlockData, FolderFileData, RepositoryBlockData } from './types.js';
 
 /** A number of bytes as a reader reads it. */
 export function bytesText(bytes: number): string {
@@ -52,12 +47,9 @@ function clockIn(date: string): string {
 }
 
 /**
- * One git date as its own offset reads it: `2026-11-07 19:14:32 +03:00`.
- *
- * The record states a git date as `%aI` states it — the author's clock and the offset that clock
- * stood at — so the two are written side by side and the clock is never converted: converting it to
- * UTC and then appending the offset would say `16:14:32 +03:00`, a clock nobody wrote (review, item 1).
- * A date that carries no offset is shown as `UTC` where the record has none either.
+ * One git date as its own offset reads it: `2026-11-07 19:14:32 +03:00`. The record states a git date as `%aI`
+ * states it — the author's clock and the offset that clock stood at — so the two are written side by side and the
+ * clock is never converted.
  */
 export function instantText(date: string, offsetMin: number | null): string {
   const effective = offsetIn(date) ?? offsetMin;
@@ -68,29 +60,8 @@ export function instantText(date: string, offsetMin: number | null): string {
   return `${base} ${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** One path broken into the folder pages that lead to it, the repository first. */
-function Breadcrumb({ path }: { path: string }): React.ReactElement {
-  const segments = path === '' ? [] : path.split('/');
-  const crumbs = segments.map((segment, index) => ({ segment, path: segments.slice(0, index + 1).join('/') }));
-  return (
-    <nav aria-label="breadcrumb" className="mb-4 flex flex-wrap items-center gap-1 text-small" data-testid="breadcrumb">
-      <KLink href={addressOfFolder('')} testId="crumb-root">{segments.length === 0 ? '/' : 'repository'}</KLink>
-      {crumbs.map((crumb, index) => (
-        <span key={crumb.path} className="flex items-center gap-1">
-          <span aria-hidden="true" className="text-muted">/</span>
-          {index === crumbs.length - 1 && path !== '' && !crumb.path.includes('.') ? (
-            <span className="break-all text-ink">{crumb.segment}</span>
-          ) : (
-            <KLink href={addressOfFolder(crumb.path)}>{crumb.segment}</KLink>
-          )}
-        </span>
-      ))}
-    </nav>
-  );
-}
-
-/** One table of files: their name, language, lines and bytes. A file's row opens its page. */
-export function FileRows({ files }: { files: readonly PageFile[] }): React.ReactElement {
+/** One table of files: their name, language, lines and bytes. A file's row opens the graph entity page. */
+export function FolderFileTable({ files }: { files: readonly FolderFileData[] }): React.ReactElement {
   const { t } = useTranslation();
   return (
     <div className="table-wrap">
@@ -107,12 +78,12 @@ export function FileRows({ files }: { files: readonly PageFile[] }): React.React
         {files.map((file) => (
           <tr key={file.path} className="border-b border-line align-top last:border-b-0" data-testid="file-row" data-path={file.path}>
             <td className="py-1 pr-3">
-              <KLink href={addressOfFile(file.path)} testId="file-link">{file.path.slice(file.path.lastIndexOf('/') + 1)}</KLink>
+              <KLink href={file.href} testId="file-link">{file.path.slice(file.path.lastIndexOf('/') + 1)}</KLink>
               {file.form === 'binary' && <Badge variant="outline" className="ml-2">{t('knowledge.repository.binary')}</Badge>}
             </td>
             <td className="py-1 pr-3 text-muted" data-testid="file-language" title={file.candidates.join(', ')}>{file.language === 'ambiguous' ? file.candidates.join(' / ') : file.language}</td>
             <td className="py-1 text-right text-muted">{file.lines === null ? '—' : String(file.lines)}</td>
-            <td className="py-1 text-right text-muted">{bytesText(file.bytes)}</td>
+            <td className="py-1 text-right text-muted">{bytesText(file.bytes ?? 0)}</td>
           </tr>
         ))}
       </tbody>
@@ -121,227 +92,111 @@ export function FileRows({ files }: { files: readonly PageFile[] }): React.React
   );
 }
 
-/** One page the server refused, with the step it names. */
-function Refusal({ what, message }: { what: string; message: string }): React.ReactElement {
-  const { t } = useTranslation();
-  return (
-    <Alert variant="problem" data-testid="repository-refused">
-      <AlertTitle>{t('knowledge.repository.noPage', { what })}</AlertTitle>
-      <AlertDescription><p className="mb-0">{message}</p></AlertDescription>
-    </Alert>
-  );
-}
-
-/** The as-is commit a page is true at, and the repository it belongs to. */
-function AsIsLine({ repository, commit }: { repository: string; commit: string | null }): React.ReactElement | null {
+/** The as-is commit a block is true at, and the repository it belongs to. */
+function AsIsLine({ repository, commit, href }: { repository: string; commit: string | null; href: string | null }): React.ReactElement | null {
   const { t } = useTranslation();
   if (commit === null) return null;
   return (
     <p className="mb-4 mt-0 text-small text-muted" data-testid="as-is-commit">
-      {t('knowledge.repository.asIs', { repository })} <KLink href={addressOfCommit(commit)} testId="as-is-link"><code>{commit.slice(0, 12)}</code></KLink>
+      {t('knowledge.repository.asIs', { repository })} {href === null ? <code>{commit.slice(0, 12)}</code> : <KLink href={href} testId="as-is-link"><code>{commit.slice(0, 12)}</code></KLink>}
     </p>
   );
 }
 
-/** The repository's own page: its facts, its counts, its gaps and the root of its tree. */
-export function RepositoryPage({ status, version }: { status: WikiStatus; version: number }): React.ReactElement {
+/** The repository's facts as a block of its entity page: its URL, counts, as-is commit, gaps and what the graph holds. */
+export function RepositoryFactsBlock({ data, run, unread }: { data: RepositoryBlockData; run?: { finishedAt: string; wallMs: number }; unread?: { repository: string; path: string; reason: string }[] }): React.ReactElement {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
-  const repository = status.repository as RepositoryFactsView;
-  useTabTitle(repository.name);
-  const { data, error } = useRead<{ folder: FolderPageModel }>('repository-root', version, (signal) => getFolder('', null, signal));
-  const run = status.fill.run;
   const finished = run === undefined ? undefined : new Date(run.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
   return (
-    <section data-testid="repository-page" data-repository={repository.name}>
-      <header className="mb-6">
-        <h1 className="break-all">{repository.name}</h1>
-        <p className="mb-1 break-all text-small text-muted" data-testid="repository-url">{repository.url}</p>
-        <p className="mb-1 text-small text-muted" data-testid="repository-facts">
-          {t('knowledge.repository.branch', { branch: repository.defaultBranch ?? 'HEAD' })} ·{' '}
-          {t('knowledge.repository.counts', { files: repository.counts.files, commits: repository.counts.commits, folders: repository.counts.folders })}
-        </p>
-        <p className="mb-0 text-small text-muted" data-testid="repository-filled">
-          {repository.steps.tree ? t('knowledge.repository.treeRan') : t('knowledge.repository.treeNotRun')}
-          {' · '}
-          {repository.steps.history ? t('knowledge.repository.historyRan') : t('knowledge.repository.historyNotRun')}
-          {finished === undefined ? '' : ` · ${t('knowledge.repository.filledAt', { when: finished, wall: msText(run!.wallMs) })}`}
-        </p>
-        <p className="mt-2 mb-0 text-small"><KLink href={WIKI_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
-      </header>
-      <AsIsLine repository={repository.name} commit={repository.asIsCommit} />
-      {(status.fill.unread ?? []).length > 0 && (
+    <section data-testid="repository-block" data-repository={data.name}>
+      <p className="mb-1 break-all text-small text-muted" data-testid="repository-url">{data.url}</p>
+      <p className="mb-1 text-small text-muted" data-testid="repository-facts">
+        {t('knowledge.repository.branch', { branch: data.defaultBranch ?? 'HEAD' })} ·{' '}
+        {t('knowledge.repository.counts', { files: data.counts.files, commits: data.counts.commits, folders: data.counts.folders })}
+      </p>
+      <p className="mb-0 text-small text-muted" data-testid="repository-filled">
+        {data.steps.tree ? t('knowledge.repository.treeRan') : t('knowledge.repository.treeNotRun')}
+        {' · '}
+        {data.steps.history ? t('knowledge.repository.historyRan') : t('knowledge.repository.historyNotRun')}
+        {finished === undefined ? '' : ` · ${t('knowledge.repository.filledAt', { when: finished, wall: msText(run!.wallMs) })}`}
+      </p>
+      <p className="mt-2 mb-0 text-small"><KLink href={WIKI_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
+      <AsIsLine repository={data.name} commit={data.asIsCommit} href={data.asIsHref} />
+      {(unread ?? []).length > 0 && (
         <Alert className="mb-6" data-testid="repository-unread">
           <AlertTitle>{t('knowledge.repository.unreadTitle')}</AlertTitle>
           <AlertDescription>
             <ul className="mb-0 mt-1">
-              {(status.fill.unread ?? []).map((one) => (
-                <li key={one.repository} data-testid="repository-unread-row"><code className="break-all">{one.repository}</code> (<code className="break-all">{one.path}</code>) — {one.reason}</li>
+              {(unread ?? []).map((one) => (
+                <li key={`${one.repository}\u0000${one.path}`} data-testid="repository-unread-row"><code className="break-all">{one.repository}</code> (<code className="break-all">{one.path}</code>) — {one.reason}</li>
               ))}
             </ul>
           </AlertDescription>
         </Alert>
       )}
-      {repository.gaps.length > 0 && (
+      {data.gaps.length > 0 && (
         <Alert className="mb-6" data-testid="repository-gaps">
           <AlertTitle>{t('knowledge.repository.gapsTitle')}</AlertTitle>
           <AlertDescription>
             <ul className="mb-0 mt-1">
-              {repository.gaps.map((gap) => <li key={`${gap.what}\u0000${gap.reason}`} data-testid="repository-gap"><code className="break-all">{gap.what}</code> — {gap.reason}</li>)}
+              {data.gaps.map((gap) => <li key={`${gap.what}\u0000${gap.reason}`} data-testid="repository-gap"><code className="break-all">{gap.what}</code> — {gap.reason}</li>)}
             </ul>
           </AlertDescription>
         </Alert>
       )}
-      {!repository.steps.tree ? (
-        <p className="text-muted" data-testid="repository-empty">{t('knowledge.repository.notRun')}</p>
-      ) : data === null && error === null ? (
-        <PageSkeleton testId="repository-loading" rows />
-      ) : data === null ? (
-        <Refusal what={repository.name} message={error ?? ''} />
-      ) : (
-        <>
-          {data.folder.folders.length > 0 && (
-            <>
-              <h2 className="mb-2 mt-0">{t('knowledge.repository.folders')}</h2>
-              <ul className="m-0 mb-6 list-none p-0" data-testid="repository-folders">
-                {data.folder.folders.map((folder) => (
-                  <li key={folder} className="border-b border-line py-1.5 last:border-b-0" data-testid="folder-row">
-                    <KLink href={addressOfFolder(folder)} testId="folder-link"><code>{folder}/</code></KLink>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <h2 className="mb-2 mt-0">{t('knowledge.repository.files')}</h2>
-          <FileRows files={data.folder.files} />
-          {data.folder.next !== null && <p className="mt-2 text-small"><KLink href={addressOfFolder('', data.folder.next ?? undefined)}>{t('knowledge.repository.more')}</KLink></p>}
-        </>
-      )}
+      {!data.steps.tree && <p className="text-muted" data-testid="repository-empty">{t('knowledge.repository.notRun')}</p>}
     </section>
   );
 }
 
-/** One folder: its subfolders, its own files and the page of the next files. */
-export function FolderPage({ path, after, version }: { path: string; after: string | null; version: number }): React.ReactElement {
+/** One folder's subfolders and one page of its files, each row opening the graph entity page. */
+export function FolderBlock({ data }: { data: FolderBlockData }): React.ReactElement {
   const { t } = useTranslation();
-  useTabTitle(path === '' ? '/' : path);
-  const { data, error } = useRead<{ folder: FolderPageModel }>(`folder:${path}:${after ?? ''}`, version, (signal) => getFolder(path, after, signal));
-  if (data === null && error === null) return <PageSkeleton testId="folder-loading" rows />;
-  if (data === null) return <Refusal what={path === '' ? 'the root folder' : path} message={error ?? ''} />;
-  const folder = data.folder;
   return (
-    <section data-testid="folder-page" data-path={folder.folder}>
-      <Breadcrumb path={folder.folder} />
-      <header className="mb-4">
-        <h1 className="break-all">{folder.folder === '' ? '/' : folder.folder}</h1>
-        <AsIsLine repository={folder.repository} commit={folder.asIsCommit} />
-      </header>
-      {folder.parent !== null && <p className="mb-4 mt-0 text-small"><KLink href={addressOfFolder(folder.parent)} testId="folder-parent">{t('knowledge.repository.up')}</KLink></p>}
-      {folder.folders.length > 0 && (
+    <section data-testid="folder-block" data-path={data.folder}>
+      {data.parent !== null && <p className="mb-4 mt-0 text-small"><KLink href={data.parent.href} testId="folder-parent">{t('knowledge.repository.up')}</KLink></p>}
+      {data.folders.length > 0 && (
         <>
           <h2 className="mb-2 mt-0">{t('knowledge.repository.folders')}</h2>
           <ul className="m-0 mb-6 list-none p-0" data-testid="folder-children">
-            {folder.folders.map((child) => (
-              <li key={child} className="border-b border-line py-1.5 last:border-b-0" data-testid="folder-row">
-                <KLink href={addressOfFolder(child)} testId="folder-link"><code>{child.slice(child.lastIndexOf('/') + 1)}/</code></KLink>
+            {data.folders.map((child) => (
+              <li key={child.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="folder-row">
+                <KLink href={child.href} testId="folder-link"><code>{child.path.slice(child.path.lastIndexOf('/') + 1)}/</code></KLink>
               </li>
             ))}
           </ul>
         </>
       )}
-      {folder.files.length === 0 && folder.folders.length === 0 && <p className="text-muted" data-testid="folder-empty">{t('knowledge.repository.emptyFolder')}</p>}
-      {folder.files.length > 0 && (
+      {data.files.length === 0 && data.folders.length === 0 && <p className="text-muted" data-testid="folder-empty">{t('knowledge.repository.emptyFolder')}</p>}
+      {data.files.length > 0 && (
         <>
           <h2 className="mb-2 mt-0">{t('knowledge.repository.files')}</h2>
-          <FileRows files={folder.files} />
+          <FolderFileTable files={data.files} />
         </>
       )}
-      {folder.next !== null && <p className="mt-2 text-small"><KLink href={addressOfFolder(folder.folder, folder.next ?? undefined)}>{t('knowledge.repository.more')}</KLink></p>}
+      {data.nextHref !== null && <p className="mt-2 text-small"><KLink href={data.nextHref} testId="folder-more">{t('knowledge.repository.more')}</KLink></p>}
     </section>
   );
 }
 
-/**
- * The text of one file under its facts, before its history (madarch-8bdc.2.5, item 1): the source view the source page
- * draws, with the highlighter and the `#L12` anchors a reader already knows. The text is read at the as-is commit the
- * page names; a date the tab's address carries for a page of the history does not travel with the request. A binary
- * file says what it is and its size in one line and asks for no text, and a refused read states the server's words in
- * place of the text while the facts and the history stand around it.
- */
-function FileText({ repository, path, commit, file }: { repository: string; path: string; commit: string | null; file: PageFile }): React.ReactElement {
+/** One file's facts as a block: every fact the graph holds of it, its dates and its authors. */
+export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactElement {
   const { t } = useTranslation();
-  if (file.form === 'binary') {
-    return <p className="mb-8 mt-0 text-small text-muted" data-testid="file-binary" data-bytes={file.bytes}>{t('knowledge.repository.binaryFile', { size: bytesText(file.bytes) })}</p>;
-  }
-  return <FileTextView repository={repository} path={path} commit={commit} />;
-}
-
-/**
- * One text file's lines, read from the server and drawn by the wiki's one source view. The read is keyed by the commit
- * the page names, so a commit of the fill elsewhere asks for the file again only when that commit changes: a large file
- * is not read and drawn again for every commit of a running run. The component is memoized for the same reason — the
- * lines a commit holds never change, so the page re-renders around them without drawing them again.
- */
-const FileTextView = memo(function FileTextView({ repository, path, commit }: { repository: string; path: string; commit: string | null }): React.ReactElement {
-  const { t } = useTranslation();
-  const { data, error } = useRead<SourceFile>(`text:${repository}\u0000${path}\u0000${commit ?? ''}`, 0, (signal) => getFileText(repository, path, signal, (reason) => t('knowledge.repository.textNotRead', { path, reason })));
-  // The line an address names with `#L12` is reached once the text stands in the page, as the source page reaches the
-  // line it was opened at.
-  useEffect(() => {
-    if (data === null) return;
-    const line = /^#L(\d+)$/u.exec(window.location.hash);
-    if (line === null) return;
-    const wait = setTimeout(() => document.getElementById(`L${Number(line[1])}`)?.scrollIntoView?.({ block: 'center' }), 0);
-    return () => clearTimeout(wait);
-  }, [data]);
-  if (data === null && error === null) return <PageSkeleton testId="file-text-loading" rows />;
-  if (data === null) {
-    return (
-      <Alert variant="problem" className="mb-8" data-testid="file-text-refused">
-        <AlertTitle>{t('knowledge.repository.textMissing')}</AlertTitle>
-        <AlertDescription><p className="mb-0">{error}</p></AlertDescription>
-      </Alert>
-    );
-  }
-  return (
-    <section className="mb-8" data-testid="file-text" data-commit={data.commit ?? ''}>
-      <h2 className="mb-2 mt-0">{t('knowledge.repository.textTitle')}</h2>
-      <div className="source-view overflow-hidden rounded-[var(--radius-card)] border border-line">
-        <CodeLines text={data.text.endsWith('\n') ? data.text.slice(0, -1) : data.text} language={data.language} firstLine={1} />
-      </div>
-    </section>
-  );
-});
-
-/** One file: every fact the graph holds of it, its text, and the commits that touched it. */
-export function FilePage({ path, after, version }: { path: string; after: { walk: number; commit: string } | null; version: number }): React.ReactElement {
-  const { t } = useTranslation();
-  const key = `file:${path}:${after === null ? '' : `${after.walk}:${after.commit}`}`;
-  useTabTitle(path);
-  const { data, error } = useRead<{ file: FilePageModel }>(key, version, (signal) => getFile(path, after, signal));
-  if (data === null && error === null) return <PageSkeleton testId="file-loading" rows />;
-  if (data === null) return <Refusal what={path} message={error ?? ''} />;
-  const model = data.file;
-  const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
   const facts: [string, React.ReactNode][] = [
-    [t('knowledge.repository.mode'), <code key="mode">{model.file.mode}</code>],
-    [t('knowledge.repository.blob'), <code key="blob" className="break-all">{model.file.blob}</code>],
-    [t('knowledge.repository.bytes'), <span key="bytes">{model.file.bytes} ({bytesText(model.file.bytes)})</span>],
-    [t('knowledge.repository.lines'), <span key="lines">{model.file.lines === null ? '—' : String(model.file.lines)}</span>],
-    [t('knowledge.repository.form'), <span key="form">{model.file.form === 'binary' ? t('knowledge.repository.binary') : t('knowledge.repository.text')}</span>],
-    [t('knowledge.repository.language'), <span key="language" data-testid="file-languages">{model.file.language}{model.file.candidates.length > 1 || model.file.candidates[0] !== model.file.language ? ` (${model.file.candidates.join(', ')})` : ''}</span>],
-    [t('knowledge.repository.created'), model.created === null ? <span key="created">—</span> : <span key="created"><KLink href={addressOfCommit(model.created.commit)}><code>{model.created.commit.slice(0, 12)}</code></KLink> <time dateTime={model.created.date}>{instantText(model.created.date, model.created.offsetMin)}</time> · {model.created.author || t('knowledge.repository.unknownAuthor')}</span>],
-    [t('knowledge.repository.modified'), model.modified === null ? <span key="modified">—</span> : <span key="modified"><KLink href={addressOfCommit(model.modified.commit)}><code>{model.modified.commit.slice(0, 12)}</code></KLink> <time dateTime={model.modified.date}>{instantText(model.modified.date, model.modified.offsetMin)}</time> · {model.modified.author || t('knowledge.repository.unknownAuthor')}</span>],
-    [t('knowledge.repository.commitCount'), <span key="count">{model.commitCount}</span>],
-    [t('knowledge.repository.authors'), <span key="authors" data-testid="file-authors">{model.authors.length === 0 ? '—' : model.authors.join(', ')}</span>],
+    [t('knowledge.repository.mode'), <code key="mode">{data.mode}</code>],
+    [t('knowledge.repository.blob'), <code key="blob" className="break-all">{data.blob}</code>],
+    [t('knowledge.repository.bytes'), <span key="bytes">{data.bytes} ({bytesText(data.bytes ?? 0)})</span>],
+    [t('knowledge.repository.lines'), <span key="lines">{data.lines === null ? '—' : String(data.lines)}</span>],
+    [t('knowledge.repository.form'), <span key="form">{data.form === 'binary' ? t('knowledge.repository.binary') : t('knowledge.repository.text')}</span>],
+    [t('knowledge.repository.language'), <span key="language" data-testid="file-languages">{data.language}{data.candidates.length > 1 || data.candidates[0] !== data.language ? ` (${data.candidates.join(', ')})` : ''}</span>],
+    [t('knowledge.repository.created'), data.created === null ? <span key="created">—</span> : <span key="created"><KLink href={data.created.href}><code>{data.created.commit.slice(0, 12)}</code></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</span>],
+    [t('knowledge.repository.modified'), data.modified === null ? <span key="modified">—</span> : <span key="modified"><KLink href={data.modified.href}><code>{data.modified.commit.slice(0, 12)}</code></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</span>],
+    [t('knowledge.repository.commitCount'), <span key="count">{data.commitCount}</span>],
+    [t('knowledge.repository.authors'), <span key="authors" data-testid="file-authors">{data.authors.length === 0 ? '—' : data.authors.join(', ')}</span>],
   ];
   return (
-    <section data-testid="file-page" data-path={path}>
-      <Breadcrumb path={folder} />
-      <header className="mb-4">
-        <h1 className="break-all">{path}</h1>
-        <AsIsLine repository={model.repository} commit={model.asIsCommit} />
-      </header>
+    <section data-testid="file-block" data-path={data.path}>
       <div className="table-wrap mb-8">
       <table className="w-full border-collapse text-small" data-testid="file-facts">
         <tbody>
@@ -349,103 +204,6 @@ export function FilePage({ path, after, version }: { path: string; after: { walk
             <tr key={name} className="border-b border-line last:border-b-0">
               <th scope="row" className="w-40 py-1 pr-3 text-left font-normal text-muted">{name}</th>
               <td className="py-1 break-all">{value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      <FileText repository={model.repository} path={path} commit={model.asIsCommit} file={model.file} />
-      <h2 className="mb-2 mt-0">{t('knowledge.repository.history')}</h2>
-      {model.history.length === 0 ? (
-        <p className="text-muted" data-testid="file-history-empty">{t('knowledge.repository.noHistory')}</p>
-      ) : (
-        <div className="table-wrap">
-        <table className="w-full border-collapse text-small" data-testid="file-history">
-          <thead>
-            <tr className="border-b border-line text-left text-muted">
-              <th className="py-1 font-normal">{t('knowledge.repository.commit')}</th>
-              <th className="py-1 font-normal">{t('knowledge.repository.date')}</th>
-              <th className="py-1 font-normal">{t('knowledge.repository.change')}</th>
-              <th className="py-1 text-right font-normal">+</th>
-              <th className="py-1 text-right font-normal">−</th>
-              <th className="py-1 font-normal">{t('knowledge.repository.subject')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {model.history.map((row) => (
-              <tr key={`${row.commit}\u0000${row.walk}`} className="border-b border-line align-top last:border-b-0" data-testid="history-row" data-change={row.change}>
-                <td className="py-1 pr-3"><KLink href={addressOfCommit(row.commit)} testId="history-commit"><code>{row.commit.slice(0, 12)}</code></KLink></td>
-                <td className="py-1 pr-3 whitespace-nowrap text-muted"><time dateTime={row.date}>{instantText(row.date, row.offsetMin)}</time></td>
-                <td className="py-1 pr-3">{row.change}{row.previousPath === null ? '' : ` ← ${row.previousPath}`}</td>
-                <td className="py-1 text-right text-muted">{row.added === null ? '—' : `+${row.added}`}</td>
-                <td className="py-1 text-right text-muted">{row.removed === null ? '—' : `−${row.removed}`}</td>
-                <td className="py-1">{row.subject}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      )}
-      {model.next !== null && <p className="mt-2 text-small"><KLink href={addressOfFile(path, model.next)} testId="file-history-more">{t('knowledge.repository.more')}</KLink></p>}
-    </section>
-  );
-}
-
-/** One commit: its facts, its parents and the paths it changed. */
-export function CommitPage({ hash, version }: { hash: string; version: number }): React.ReactElement {
-  const { t } = useTranslation();
-  const { data, error } = useRead<{ commit: CommitPageModel }>(`commit:${hash}`, version, (signal) => getCommit(hash, signal));
-  useTabTitle(data === null ? (error === null ? null : hash) : data.commit.subject);
-  if (data === null && error === null) return <PageSkeleton testId="commit-loading" rows />;
-  if (data === null) return <Refusal what={hash} message={error ?? ''} />;
-  const commit = data.commit;
-  const facts: [string, React.ReactNode][] = [
-    [t('knowledge.repository.hash'), <code key="hash" className="break-all">{commit.hash}</code>],
-    [t('knowledge.repository.author'), <span key="author">{commit.author.name || t('knowledge.repository.unknownAuthor')}{commit.author.email === '' ? '' : ` <${commit.author.email}>`}</span>],
-    [t('knowledge.repository.authorDate'), <span key="authorDate">{instantText(commit.authorDate, commit.authorOffsetMin)}</span>],
-    [t('knowledge.repository.commitDate'), <span key="commitDate">{instantText(commit.commitDate, commit.commitOffsetMin)}</span>],
-    [t('knowledge.repository.subject'), <span key="subject">{commit.subject}</span>],
-    [t('knowledge.repository.parents'), commit.parents.length === 0 ? <span key="parents">—</span> : <span key="parents">{commit.parents.map((parent, index) => <span key={parent}>{index === 0 ? '' : ', '}<KLink href={addressOfCommit(parent)}><code>{parent.slice(0, 12)}</code></KLink></span>)}</span>],
-  ];
-  return (
-    <section data-testid="commit-page" data-hash={hash}>
-      <header className="mb-4">
-        <h1 className="break-all text-[22px]">{commit.subject}</h1>
-        <AsIsLine repository={commit.repository} commit={commit.asIsCommit} />
-      </header>
-      <div className="table-wrap mb-8">
-      <table className="w-full border-collapse text-small" data-testid="commit-facts">
-        <tbody>
-          {facts.map(([name, value]) => (
-            <tr key={name} className="border-b border-line last:border-b-0">
-              <th scope="row" className="w-40 py-1 pr-3 text-left font-normal text-muted">{name}</th>
-              <td className="py-1 break-all">{value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      <h2 className="mb-2 mt-0">{t('knowledge.repository.changed')}</h2>
-      <div className="table-wrap">
-      <table className="w-full border-collapse text-small" data-testid="commit-changed">
-        <thead>
-          <tr className="border-b border-line text-left text-muted">
-            <th className="py-1 font-normal">{t('knowledge.repository.path')}</th>
-            <th className="py-1 font-normal">{t('knowledge.repository.change')}</th>
-            <th className="py-1 text-right font-normal">+</th>
-            <th className="py-1 text-right font-normal">−</th>
-          </tr>
-        </thead>
-        <tbody>
-          {commit.changed.map((one) => (
-            <tr key={one.path} className="border-b border-line last:border-b-0" data-testid="changed-row" data-change={one.change}>
-              <td className="py-1 pr-3 break-all">
-                {one.change === 'deleted' ? <code>{one.path}</code> : <KLink href={addressOfFile(one.path)} testId="changed-file"><code>{one.path}</code></KLink>}
-                {one.previousPath === null ? '' : <span className="text-muted"> ← {one.previousPath}</span>}
-              </td>
-              <td className="py-1 pr-3">{one.change}</td>
-              <td className="py-1 text-right text-muted">{one.added === null ? '—' : `+${one.added}`}</td>
-              <td className="py-1 text-right text-muted">{one.removed === null ? '—' : `−${one.removed}`}</td>
             </tr>
           ))}
         </tbody>
@@ -462,7 +220,14 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
   useTabTitle(t('knowledge.run.title'));
   const { data, error } = useRead<{ run: FillRunView }>(`run:${named ?? ''}`, version, (signal) => getRun(named, signal));
   if (data === null && error === null) return <PageSkeleton testId="run-loading" rows />;
-  if (data === null) return <Refusal what={named ?? t('knowledge.run.title')} message={error ?? ''} />;
+  if (data === null) {
+    return (
+      <Alert variant="problem" data-testid="run-error">
+        <AlertTitle>{t('knowledge.repository.noPage', { what: named ?? t('knowledge.run.title') })}</AlertTitle>
+        <AlertDescription><p className="mb-0">{error ?? ''}</p></AlertDescription>
+      </Alert>
+    );
+  }
   const run = data.run;
   return (
     <section data-testid="run-page" data-run={run.runId}>

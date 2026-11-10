@@ -2,7 +2,7 @@ import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
@@ -14,7 +14,7 @@ export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJs
 export const getSearch = (query: string, lang: string, signal?: AbortSignal): Promise<SearchView> => readJson<SearchView>('search the wiki', `${API.search}?${new URLSearchParams({ q: query, lang: lang === 'ru' ? 'ru' : 'en' }).toString()}`, signal);
 
 /** One entity's page. */
-export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `${API.page}?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal, compose);
+export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string, after?: string | null): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `${API.page}?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${after === null || after === undefined ? '' : `&after=${encodeURIComponent(after)}`}${historyQuery()}`, signal, compose);
 
 /** The statement view of one sentence of a page. */
 export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `${API.statement}?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
@@ -32,17 +32,6 @@ export function getSource(repo: string | null, path: string, signal?: AbortSigna
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
   return readJson<SourceFile>(`read the source of ${path}`, `${API.source}?${query.toString()}${historyQuery()}`, signal);
-}
-
-/**
- * The text of one file at the as-is commit a file page names (madarch-8bdc.2.5, item 1): no date of the tab
- * travels with it. A file page's address carries `at` for the page of its history it walks, not for the file's
- * text, so `getSource`'s history query would ask another commit than the one the page is true at.
- */
-export function getFileText(repo: string | null, path: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<SourceFile> {
-  const query = new URLSearchParams({ path });
-  if (repo !== null) query.set('repo', repo);
-  return readJson<SourceFile>(`read the text of ${path}`, `${API.source}?${query.toString()}`, signal, compose);
 }
 
 /**
@@ -128,27 +117,6 @@ export const pauseRun = (): Promise<{ fill: FillState; writer: WriterState }> =>
  * one; the first answer is the server's refusal, naming the pages this run rewrote and that they stay.
  */
 export const stopRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('stop the run', API.stop, { confirm: true });
-
-/** One folder's page: its subfolders and one page of its own files. */
-export function getFolder(path: string, after: string | null, signal?: AbortSignal): Promise<{ folder: FolderPageModel }> {
-  const query = new URLSearchParams({ path });
-  if (after !== null) query.set('after', after);
-  return readJson(`read the folder ${path === '' ? 'at the root' : path}`, `${API.folder}?${query.toString()}`, signal);
-}
-
-/** One file's page: every fact of the file and one page of its history. */
-export function getFile(path: string, after: { walk: number; commit: string } | null, signal?: AbortSignal): Promise<{ file: FilePageModel }> {
-  const query = new URLSearchParams({ path });
-  if (after !== null) {
-    query.set('walk', String(after.walk));
-    query.set('at', after.commit);
-  }
-  return readJson(`read the file ${path}`, `${API.file}?${query.toString()}`, signal);
-}
-
-/** One commit's page: its facts and the paths it changed. */
-export const getCommit = (hash: string, signal?: AbortSignal): Promise<{ commit: CommitPageModel }> =>
-  readJson(`read the commit ${hash}`, `${API.commit}?hash=${encodeURIComponent(hash)}`, signal);
 
 /** The newest run's trace: per step its wall clock, its peak memory and its slowest names. */
 export const getRun = (run: string | null, signal?: AbortSignal): Promise<{ run: FillRunView }> =>

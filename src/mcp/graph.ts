@@ -19,7 +19,7 @@ import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-ow
 import { readProgress } from '../fill/orchestrator-store.js';
 import { runFill } from '../fill/run.js';
 import type { FillProgress } from '../obs/progress.js';
-import { repositoryFacts } from '../graph/index.js';
+import { GraphReader } from '../knowledge/graph-read.js';
 import { fillFolderIdentity, productRepositoryId } from '../product/identity.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
@@ -136,7 +136,7 @@ export function releaseFolderLock(folder: string, held: FolderLock): void {
 /** The commit the store's records name as-is for one repository, or null where the store holds none. */
 async function asIsCommitOf(owner: DatabaseOwner, repository: string): Promise<string | null> {
   try {
-    return (await repositoryFacts(owner, repository))?.asIsCommit ?? null;
+    return (await new GraphReader(owner, () => new Date().toISOString()).repository(repository))?.asIsCommit ?? null;
   } catch {
     // A store with no record tables yet is a store no fill wrote: it holds no commit, and the start fills it.
     return null;

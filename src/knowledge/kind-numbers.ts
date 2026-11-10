@@ -1,6 +1,6 @@
 /**
- * The numbers a kind's entities add up to (madarch-8bdc.2.5): the graph's entities per kind, the files the record store
- * published, and the statements the Markdown index holds. The navigation, a kind's listing and the catalogue page all
+ * The numbers a kind's entities add up to (madarch-8bdc.2.5): the graph's entities per kind and the statements the
+ * Markdown index holds. The graph is the one source: there is no second store to count the files from. The navigation, a kind's listing and the catalogue page all
  * state the same number, so it is read once here rather than counted three ways.
  */
 import type { RenderContext } from './blocks.js';
@@ -26,9 +26,6 @@ function tally(entities: Iterable<{ readonly kind: string }>): Map<string, numbe
 /** The counts every screen that names a kind's entities states, read once. */
 export async function kindNumbers(ctx: RenderContext): Promise<KindNumbers> {
   const graph = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count] as const));
-  // The record store's files are the kind `code.file`'s entities in a store this fill wrote (madarch-8bdc.2.5): the
-  // count the navigation and the catalogue show is the store's own, so the two never disagree about where the files are.
-  if (ctx.records !== undefined) graph.set('code.file', await ctx.records.files.count());
   const markdown = tally(ctx.markdown.values());
   // No stage of the fill writes the document kinds yet (decision 0033, item 1): the request-time reading is deleted, so a
   // document kind counts no entity until the stage that fills it exists.

@@ -13,11 +13,12 @@
  * The tools are read-only: nothing here writes a store, a file or a checkout.
  */
 import type { McpToolDefinition } from './types.js';
-import { RecordGap, commitWithPaths, fileFacts, fileHistory, listFiles, repositoryFacts } from '../graph/index.js';
+import { GraphReader } from '../knowledge/graph-read.js';
+import { RecordGap } from '../graph/index.js';
 import { withSpan } from '../obs/trace.js';
 
-/** The store the tools read: the graph store's own owner, as the reads name it. */
-type RecordOwner = Parameters<typeof listFiles>[0];
+/** The store the tools read: the graph store's own owner, read through the graph's one read API. */
+type RecordOwner = ConstructorParameters<typeof GraphReader>[0];
 
 /** The bounds one answer is cut by, named here so every answer states its own page. */
 export const RECORD_FILE_LIMIT = 200;
@@ -119,9 +120,12 @@ function fileRow(file: { readonly path: string; readonly mode: string | null; re
   };
 }
 
+/** The graph's one read API over the store the tools answer from. */
+const readerOf = (context: RecordContext): GraphReader => new GraphReader(context.owner, () => new Date().toISOString());
+
 /** The repository's own facts, or the refusal a store without one answers. */
-async function factsOf(context: RecordContext): Promise<{ ok: true; facts: NonNullable<Awaited<ReturnType<typeof repositoryFacts>>> } | { ok: false; answer: RecordToolAnswer }> {
-  const facts = await repositoryFacts(context.owner, context.repository);
+async function factsOf(context: RecordContext): Promise<{ ok: true; facts: NonNullable<Awaited<ReturnType<GraphReader['repository']>>> } | { ok: false; answer: RecordToolAnswer }> {
+  const facts = await readerOf(context).repository(context.repository);
   if (facts === null) return { ok: false, answer: notRun(context.repository, 'repository-tree', 'the store holds no repository node') };
   if (facts.asIsCommit === null) return { ok: false, answer: notRun(context.repository, 'repository-tree', 'the store holds the repository but no as-is commit') };
   return { ok: true, facts };
@@ -150,7 +154,7 @@ async function listFilesAnswer(context: RecordContext, args: Record<string, unkn
   const held = await factsOf(context);
   if (!held.ok) return held.answer;
   try {
-    const page = await listFiles(context.owner, { repository: context.repository, limit, ...(prefix === undefined ? {} : { prefix }), ...(language === undefined ? {} : { language }), ...(after === undefined ? {} : { after }) });
+    const page = await readerOf(context).files(context.repository, { limit, ...(prefix === undefined ? {} : { prefix }), ...(language === undefined ? {} : { language }), ...(after === undefined ? {} : { after }) });
     return {
       answer: {
         ...envelope(context, held.facts.gaps),
@@ -172,7 +176,7 @@ async function getFileAnswer(context: RecordContext, args: Record<string, unknow
   if (typeof path !== 'string') return path;
   const held = await factsOf(context);
   if (!held.ok) return held.answer;
-  const file = await fileFacts(context.owner, context.repository, path);
+  const file = await readerOf(context).file(context.repository, path);
   if (file === null) return fail('no-such-file', `the as-is commit ${held.facts.asIsCommit} holds no file ${JSON.stringify(path)}; list_files names the paths it holds (src/mcp/records.ts)`);
   return {
     answer: {
@@ -197,11 +201,11 @@ async function getFileHistoryAnswer(context: RecordContext, args: Record<string,
   const limit = pageLimit(args['limit'], RECORD_HISTORY_LIMIT);
   const held = await factsOf(context);
   if (!held.ok) return held.answer;
-  if (held.facts.commitCount === 0) {
-    const isFile = await fileFacts(context.owner, context.repository, path);
+  if (held.facts.counts.commits === 0) {
+    const isFile = await readerOf(context).file(context.repository, path);
     if (isFile !== null) return notRun(context.repository, 'repository-history', `the store holds the file ${JSON.stringify(path)} but no commit touched it`);
   }
-  const page = await fileHistory(context.owner, { repository: context.repository, path, limit, ...(after === undefined ? {} : { after: after.value }) });
+  const page = await readerOf(context).fileHistory(context.repository, path, { limit, ...(after === undefined ? {} : { after: after.value }) });
   return {
     answer: {
       ...envelope(context, held.facts.gaps),
@@ -223,8 +227,8 @@ async function getCommitAnswer(context: RecordContext, args: Record<string, unkn
   if (typeof hash !== 'string') return hash;
   const held = await factsOf(context);
   if (!held.ok) return held.answer;
-  if (held.facts.commitCount === 0) return notRun(context.repository, 'repository-history', 'the store holds no commit');
-  const commit = await commitWithPaths(context.owner, context.repository, hash);
+  if (held.facts.counts.commits === 0) return notRun(context.repository, 'repository-history', 'the store holds no commit');
+  const commit = await readerOf(context).commit(context.repository, hash);
   if (commit === null) return fail('no-such-commit', `the store holds no commit ${JSON.stringify(hash)} of ${context.repository}; get_file_history answers the hashes it holds (src/mcp/records.ts)`);
   return {
     answer: {
@@ -238,7 +242,7 @@ async function getCommitAnswer(context: RecordContext, args: Record<string, unkn
       commitOffsetMin: commit.commitOffsetMin,
       subject: commit.subject,
       parents: [...commit.parents],
-      changed: commit.touched.map((one) => ({
+      changed: commit.changed.map((one) => ({
         path: one.path, change: one.change, added: one.added, removed: one.removed,
         ...(one.previousPath === null ? {} : { previousPath: one.previousPath }),
       })),
@@ -249,7 +253,7 @@ async function getCommitAnswer(context: RecordContext, args: Record<string, unkn
 
 /** One repository and what the graph holds for it. */
 async function getRepositoryAnswer(context: RecordContext): Promise<RecordToolAnswer> {
-  const facts = await repositoryFacts(context.owner, context.repository);
+  const facts = await readerOf(context).repository(context.repository);
   if (facts === null) return notRun(context.repository, 'repository-tree', 'the store holds no repository node');
   return {
     answer: {
@@ -258,10 +262,10 @@ async function getRepositoryAnswer(context: RecordContext): Promise<RecordToolAn
       url: facts.url,
       defaultBranch: facts.defaultBranch,
       asIsCommit: facts.asIsCommit,
-      counts: { files: facts.fileCount, commits: facts.commitCount, folders: facts.directoryCount },
+      counts: facts.counts,
       steps: {
         'repository-tree': facts.asIsCommit !== null,
-        'repository-history': facts.commitCount > 0,
+        'repository-history': facts.counts.commits > 0,
       },
     },
     isError: false,
