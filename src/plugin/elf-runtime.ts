@@ -311,11 +311,17 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
     addFile(interpreter);
   }
   const nixLd = interpreter !== undefined && isNixLdShim(interpreter, resolvedInterpreter);
-  // The library folders a file names, in the loader's order: its runpath or rpath, then the host's LD_LIBRARY_PATH,
+  // nix-ld's shim puts NIX_LD_LIBRARY_PATH on the loader's search path (it hands the loader that path as its
+  // LD_LIBRARY_PATH), so the runtime's own names are resolved there too. The folder is read as it is given: its
+  // entries are symlinks into a store path each, and the name the loader opens is the one in the folder.
+  const nixLdFolders = nixLd ? (env['NIX_LD_LIBRARY_PATH'] ?? '').split(':').map((one) => one.trim()).filter((one) => one !== '') : [];
+  const searchPaths = [...hostPaths, ...nixLdFolders];
+  // The folders a file is searched in, in the loader's order: a DT_RPATH that stands alone, then the host's
+  // LD_LIBRARY_PATH and a nix-ld shim's NIX_LD_LIBRARY_PATH, then DT_RUNPATH (which replaces DT_RPATH when it stands),
   // then the loader's own folders. A name that is a path of its own is read where it stands.
   const foldersFor = (from: ElfDynamic, object: string): string[] => {
-    const stated = [...from.runpath, ...from.rpath].map((folder) => expandPath(folder, object, platform));
-    return [...stated, ...hostPaths, ...defaultLibraryFolders(platform)];
+    const expand = (folder: string): string => expandPath(folder, object, platform);
+    return [...from.rpath.map(expand), ...searchPaths, ...from.runpath.map(expand), ...defaultLibraryFolders(platform)];
   };
   const seen = new Set<string>();
   const resolveLibrary = (name: string, folders: readonly string[]): string | undefined => {
@@ -356,10 +362,20 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
   }
   if (nixLd) {
     const nixLdPath = env['NIX_LD']?.trim();
-    const nixLdFolders = (env['NIX_LD_LIBRARY_PATH'] ?? '').split(':').map((one) => one.trim()).filter((one) => one !== '');
     if (nixLdPath !== undefined && nixLdPath !== '') {
       environment['NIX_LD'] = nixLdPath;
+      // NIX_LD is a symlink to the loader: the folder of the name the shim opens, the folder of the file it names,
+      // and the loader's own needs, resolved through the search path above.
       addFile(nixLdPath);
+      const real = realOf(nixLdPath);
+      if (real !== undefined && real !== nixLdPath) {
+        addFolder(dirname(real));
+        try {
+          follow(readElfDynamic(real), real, 0);
+        } catch (error) {
+          problems.push((error as Error).message);
+        }
+      }
     } else {
       const problem = `the runtime ${JSON.stringify(runtime)} is run by nix-ld's shim, and this host's environment names no NIX_LD: the shim cannot find a loader inside the sandbox`;
       problems.push(problem);
@@ -368,9 +384,15 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
     if (nixLdFolders.length > 0) {
       environment['NIX_LD_LIBRARY_PATH'] = nixLdFolders.join(':');
       for (const folder of nixLdFolders) {
-        const held = folderOf(folder) ?? (realOf(folder) === undefined ? undefined : dirname(realOf(folder)!));
-        if (held === undefined) problems.push(`NIX_LD_LIBRARY_PATH names the folder ${JSON.stringify(folder)}, and it does not stand on this machine`);
-        else addFolder(held);
+        if (folderOf(folder) === undefined) {
+          problems.push(`NIX_LD_LIBRARY_PATH names the folder ${JSON.stringify(folder)}, and it does not stand on this machine`);
+          continue;
+        }
+        // The folder as given holds the names the loader opens (symlinks into one store path each); the folder it
+        // links to is bound too, and every library resolved through it has its own target's folder bound by follow.
+        addFolder(folder);
+        const real = realOf(folder);
+        if (real !== undefined) addFolder(real);
       }
     } else {
       const problem = `the runtime ${JSON.stringify(runtime)} is run by nix-ld's shim, and this host's environment names no NIX_LD_LIBRARY_PATH: the libraries it loads cannot be found inside the sandbox`;

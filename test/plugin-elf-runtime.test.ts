@@ -193,3 +193,75 @@ describe('a runtime run by nix-ld s shim', () => {
 function RuntimeOf(runtime: string) {
   return runtimeSandbox(runtime, {});
 }
+
+describe('nix-ld s folder of symlinks', () => {
+  test('each needed name is looked up in the folder as given, and its own target s folder is bound', () => {
+    // The shape NixOS leaves: NIX_LD_LIBRARY_PATH is a folder whose every entry is a symlink into a store path of its
+    // own (libc in one, libm in another), and NIX_LD is a symlink to the loader, which is in a third.
+    const root = scratch();
+    const store = join(root, 'store');
+    for (const folder of ['libc-1/lib', 'libm-1/lib', 'libdl-1/lib', 'glibc-1/lib', 'nix-ld-1/bin', 'alsa-lib-1/lib', 'ld-library-path/share/nix-ld/lib']) {
+      mkdirSync(join(store, folder), { recursive: true });
+    }
+    const farmFiles: [string, string][] = [['libc-1/lib', 'libc.so.6'], ['libm-1/lib', 'libm.so.6'], ['libdl-1/lib', 'libdl.so.2']];
+    for (const [folder, name] of farmFiles) {
+      writeFileSync(join(store, folder, name), elf64());
+    }
+    writeFileSync(join(store, 'glibc-1/lib/ld.so'), elf64());
+    writeFileSync(join(store, 'nix-ld-1/bin/nix-ld'), elf64());
+    writeFileSync(join(store, 'alsa-lib-1/lib/libasound.so'), elf64());
+    // The farm is itself a link, as `/run/current-system/sw/share/nix-ld/lib` is on NixOS.
+    symlinkSync(join(store, 'ld-library-path/share/nix-ld/lib'), join(root, 'farm'));
+    for (const [name, target] of farmFiles.map(([folder, name]) => [name, `${folder}/${name}`] as [string, string])) {
+      symlinkSync(join(store, target), join(store, 'ld-library-path/share/nix-ld/lib', name));
+    }
+    symlinkSync(join(store, 'glibc-1/lib/ld.so'), join(store, 'ld-library-path/share/nix-ld/lib/ld.so'));
+    // The shim: the interpreter the runtime names is /lib64/ld-linux-x86-64.so.2, a link to nix-ld's own binary.
+    mkdirSync(join(root, 'lib64'), { recursive: true });
+    symlinkSync(join(store, 'nix-ld-1/bin/nix-ld'), join(root, 'lib64', 'ld-linux-x86-64.so.2'));
+    const runtime = join(root, 'madarch');
+    writeFileSync(runtime, elf64({
+      interpreter: join(root, 'lib64', 'ld-linux-x86-64.so.2'),
+      needed: ['libc.so.6', 'libm.so.6', 'libdl.so.2'],
+      // A store path the runtime states for a library of its own: the trace's alsa-lib.
+      runpath: [join(store, 'alsa-lib-1/lib')],
+    }));
+    const env = { NIX_LD: join(root, 'farm', 'ld.so'), NIX_LD_LIBRARY_PATH: join(root, 'farm') };
+
+    const resolved = runtimeSandbox(runtime, env);
+    expect(resolved.nixLd).toBe(true);
+    // Every name is found through the farm: before the farm was on the search path, each one was "not found".
+    expect(resolved.problems).toEqual([]);
+    expect(resolved.mounts).toContain(join(root, 'farm'));
+    expect(resolved.mounts).toContain(join(store, 'ld-library-path/share/nix-ld/lib'));
+    for (const folder of ['libc-1/lib', 'libm-1/lib', 'libdl-1/lib']) expect(resolved.mounts).toContain(join(store, folder));
+    // NIX_LD's folder, and the loader's real folder: the shim opens the link, the link names the store file.
+    expect(resolved.mounts).toContain(join(store, 'glibc-1/lib'));
+    expect(resolved.environment['NIX_LD']).toBe(env.NIX_LD);
+    expect(resolved.environment['NIX_LD_LIBRARY_PATH']).toBe(env.NIX_LD_LIBRARY_PATH);
+
+    const list = args(spec(runtime), env);
+    const at = list.indexOf(join(root, 'farm'));
+    expect(at).toBeGreaterThan(0);
+    expect(list[at - 1]).toBe('--ro-bind');
+    expect(list[at + 1]).toBe(join(root, 'farm'));
+    expect(list[list.indexOf('NIX_LD_LIBRARY_PATH') + 1]).toBe(env.NIX_LD_LIBRARY_PATH);
+  });
+
+  test('a name the farm does not hold is still named as a problem, with the farm on the search path', () => {
+    const root = scratch();
+    const store = join(root, 'store');
+    mkdirSync(join(store, 'nix-ld-1/bin'), { recursive: true });
+    mkdirSync(join(store, 'ld-library-path/share/nix-ld/lib'), { recursive: true });
+    writeFileSync(join(store, 'nix-ld-1/bin/nix-ld'), elf64());
+    symlinkSync(join(store, 'ld-library-path/share/nix-ld/lib'), join(root, 'farm'));
+    symlinkSync(join(store, 'nix-ld-1/bin/nix-ld'), join(store, 'ld-library-path/share/nix-ld/lib/ld.so'));
+    mkdirSync(join(root, 'lib64'), { recursive: true });
+    symlinkSync(join(store, 'nix-ld-1/bin/nix-ld'), join(root, 'lib64', 'ld-linux-x86-64.so.2'));
+    const runtime = join(root, 'madarch');
+    writeFileSync(runtime, elf64({ interpreter: join(root, 'lib64', 'ld-linux-x86-64.so.2'), needed: ['libmadarch-test-gone.so.1'] }));
+    const resolved = runtimeSandbox(runtime, { NIX_LD: join(root, 'farm', 'ld.so'), NIX_LD_LIBRARY_PATH: join(root, 'farm') });
+    expect(resolved.problems.some((problem) => problem.includes('libmadarch-test-gone.so.1'))).toBe(true);
+    expect(resolved.problems.some((problem) => problem.includes(join(root, 'farm')))).toBe(true);
+  });
+});
