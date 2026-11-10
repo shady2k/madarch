@@ -16,7 +16,7 @@ const MANIFEST: KindsManifest = {
 
 export async function diagramAcceptanceCases(lang: string): Promise<{ name: string; views: ViewPayload[] }[]> {
   const table: GraphEntity = { key: 'code.table:orders/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
-  const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `${table.key}/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { type: 'uuid', primaryKey: index === 0 } }));
+  const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `code.column:${table.key.slice(table.key.indexOf(':') + 1)}/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { table: table.key.slice(table.key.indexOf(':') + 1), name: `column_${index}`, type: 'uuid', primary_key: index === 0 } }));
   const erGraph = {
     find: async () => [table],
     byPrefix: async (_kind: string, _prefix: string, limit: number) => ({ rows: columns.slice(0, limit), total: columns.length }),

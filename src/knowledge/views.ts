@@ -88,6 +88,8 @@ export interface ViewSpec {
   scope?: string;
   /** A sequence's entry point (a route or function key) when the subject is a page with several. */
   entry?: string;
+  /** How many elements the view draws before it says what it left out; the ER view's own bound when absent. */
+  limit?: number;
 }
 
 /** A refusal of a specification, naming what is wrong with it. */
@@ -115,6 +117,12 @@ export function parseSpec(query: URLSearchParams): ViewSpec {
   if (scope !== null && scope !== '') spec.scope = scope;
   const entry = query.get('entry');
   if (entry !== null && entry !== '') spec.entry = entry;
+  const limit = query.get('limit');
+  if (limit !== null && limit !== '') {
+    const asked = Number(limit);
+    if (!Number.isInteger(asked) || asked < 1 || asked > 200) throw new ViewRefusal(400, `"limit" is ${JSON.stringify(limit)}: a view draws 1 to 200 elements before it says what it left out`);
+    spec.limit = asked;
+  }
   return spec;
 }
 
@@ -123,6 +131,7 @@ function specQuery(spec: ViewSpec): string {
   const query = new URLSearchParams({ type: spec.type, subject: spec.subject });
   if (spec.scope !== undefined) query.set('scope', spec.scope);
   if (spec.entry !== undefined) query.set('entry', spec.entry);
+  if (spec.limit !== undefined) query.set('limit', String(spec.limit));
   return query.toString();
 }
 
@@ -1065,7 +1074,7 @@ export async function buildViews(view: ViewContext, spec: ViewSpec, subject?: Su
     case 'c4-context': return [await contextView(view.ctx, spec, w, view.productTitle)];
     case 'c4-container': return [await containerView(view.ctx, spec, w)];
     case 'c4-component': return [await componentView(view.ctx, spec, w)];
-    case 'er': return [await erView(view.ctx, spec, w, 12)];
+    case 'er': return [await erView(view.ctx, spec, w, spec.limit ?? 12)];
     case 'deployment': return [await deploymentView(view.ctx, spec, w)];
     case 'sequence': return await sequenceViews(view.ctx, spec, subject, w);
     case 'domain-map': return [await domainMapView(view.ctx, spec, w)];
@@ -1313,7 +1322,10 @@ export async function diagramsBlock(
     } else if (name === 'er') {
       if (graphSubject === undefined) return problem('the er block draws the tables of the graph; the entities of this kind are Markdown pages');
       if (erFormOf(view.ctx.manifest, graphSubject.kind) === undefined) return problem(declarationMissing(view.ctx.manifest, graphSubject.kind, '"er: tables" or "er: links"', `the er block draws an entity whose kind declares the ER view, and this is ${graphSubject.kind}`));
-      built.push(...(await buildViews(view, { type: 'er', subject: graphSubject.key }, subject)));
+      // The template says how many tables the picture holds before it says what it left out (`limit` of the er tag).
+      const askedLimit = Number(params['limit'] ?? '');
+      const limit = Number.isInteger(askedLimit) && askedLimit >= 1 && askedLimit <= 200 ? askedLimit : undefined;
+      built.push(...(await buildViews(view, { type: 'er', subject: graphSubject.key, ...(limit === undefined ? {} : { limit }) }, subject)));
     } else {
       built.push(...(await buildViews(view, { type: 'sequence', subject: graphSubject?.key ?? (subject.source === 'markdown' ? subject.entity.id : '') }, subject)));
     }
