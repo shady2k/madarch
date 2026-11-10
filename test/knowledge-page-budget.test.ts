@@ -53,7 +53,7 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-async function pageStats(path: string): Promise<{ statements: number; rows: number; elapsed: number }> {
+async function pageStats(path: string): Promise<{ statements: number; rows: number; elapsed: number; evidence: number }> {
   const file = join(knowledgeRootOf(home), 'traces', `server-${String(process.pid)}.jsonl`);
   const before = (() => { try { return readFileSync(file, 'utf8').split('\n').length; } catch { return 0; } })();
   const at = Date.now();
@@ -64,24 +64,26 @@ async function pageStats(path: string): Promise<{ statements: number; rows: numb
   const lines = readFileSync(file, 'utf8').split('\n').slice(before - 1).filter(Boolean);
   let statements = 0;
   let rows = 0;
+  let evidence = 0;
   for (const line of lines) {
     const span = JSON.parse(line) as { name: string; attributes?: { key: string; value: { intValue?: string } }[] };
+    if (span.name === 'wiki.history.evidence') evidence += 1;
     if (span.name !== 'db.transaction') continue;
     const attrs = new Map((span.attributes ?? []).map((one) => [one.key, one.value.intValue]));
     statements += Number(attrs.get('db.statements') ?? '0');
     rows += Number(attrs.get('db.rows') ?? '0');
   }
-  return { statements, rows, elapsed };
+  return { statements, rows, elapsed, evidence };
 }
 
-test('the four entity pages of a walk-size repository stay bounded', async () => {
+test('the four entity pages of a walk-size repository stay bounded, cold with no history cache', async () => {
   const hash = git(repository, 'rev-parse', 'HEAD');
   const email = git(repository, 'log', '-1', '--format=%ae');
   const pages = [
-    ['repository', `/products/shop/api/k/page?id=${encodeURIComponent('code.repository:big')}&full=1`, 100, 20_000, 2_000],
-    ['commit', `/products/shop/api/k/page?id=${encodeURIComponent(`code.commit:${hash}`)}&full=1`, 100, 20_000, 1_000],
-    ['file', `/products/shop/api/k/page?id=${encodeURIComponent('code.file:big/src/file-0000.ts')}&full=1`, 100, 20_000, 1_000],
-    ['author', `/products/shop/api/k/page?id=${encodeURIComponent(`code.author:${email}`)}&full=1`, 100, 20_000, 1_000],
+    ['repository', `/products/shop/api/k/page?id=${encodeURIComponent('code.repository:big')}&full=1`, 90, 16_000, 300],
+    ['commit', `/products/shop/api/k/page?id=${encodeURIComponent(`code.commit:${hash}`)}&full=1`, 55, 10_000, 200],
+    ['file', `/products/shop/api/k/page?id=${encodeURIComponent('code.file:big/src/file-0000.ts')}&full=1`, 30, 17_000, 200],
+    ['author', `/products/shop/api/k/page?id=${encodeURIComponent(`code.author:${email}`)}&full=1`, 20, 10_000, 200],
   ] as const;
   for (const [name, path, maxStatements, maxRows, maxMs] of pages) {
     const held = await pageStats(path);
@@ -89,5 +91,6 @@ test('the four entity pages of a walk-size repository stay bounded', async () =>
     expect(held.statements, name).toBeLessThan(maxStatements);
     expect(held.rows, name).toBeLessThan(maxRows);
     expect(held.elapsed, name).toBeLessThan(maxMs);
+    if (name === 'repository' || name === 'commit') expect(held.evidence, `${name} reads no whole history evidence`).toBe(0);
   }
 }, 120_000);

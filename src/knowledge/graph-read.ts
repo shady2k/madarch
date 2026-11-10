@@ -56,6 +56,8 @@ export interface RelationEdge {
 export interface HistoryEvidence {
   entities: GraphEntity[];
   edges: { from: string; to: string; relation: string; properties: Record<string, unknown> }[];
+  /** The coupled files a path page found, including those its bounded rows leave out. */
+  couplingTotal?: number;
 }
 
 type Raw = Record<string, unknown>;
@@ -523,7 +525,11 @@ export class GraphReader {
          WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
         [graph.kind, `{${ids.join(',')}}`],
       );
-      for (const row of found.rows) for (const entity of entities) if (entity.nodeIds.includes(row.node)) counts.set(entity.key, Number(row.n));
+      const byNode = new Map(entities.flatMap((entity) => entity.nodeIds.map((id) => [id, entity.key] as const)));
+      for (const row of found.rows) {
+        const key = byNode.get(row.node);
+        if (key !== undefined) counts.set(key, Number(row.n));
+      }
       return counts;
     });
   }
@@ -770,6 +776,93 @@ export class GraphReader {
             ...(row.position === null ? {} : { position: Number(row.position) }),
             ...(row.walk === null ? {} : { walk: Number(row.walk) }),
             ...(row.discriminator === '' ? {} : { discriminator: row.discriminator }),
+          } }];
+        }),
+      };
+    });
+  }
+
+  /**
+   * The evidence a file's or an author's history page needs, bounded to that page: the file's own commits and the
+   * files it changed with, or the author's commits and the files they touched. The whole repository's evidence is
+   * never read for these two shapes.
+   */
+  async historyEvidenceFor(subject: GraphEntity, shape: 'path' | 'author', limit: number): Promise<HistoryEvidence> {
+    if (this.declared !== undefined && this.declared.size === 0) return { entities: [], edges: [] };
+    return await this.run(async (tx) => {
+      const ids = `{${subject.nodeIds.join(',')}}`;
+      const edgeRows = shape === 'author'
+        ? await tx.query<Raw>(
+          `WITH authored AS (
+             SELECT e.to_node AS id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = ANY($1::bigint[])
+           ), touched AS (
+             SELECT e.id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             WHERE e.from_node IN (SELECT id FROM authored)
+               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+           )
+           SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
+                  e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk
+           FROM edge e JOIN kind rk ON rk.id = e.kind_id
+           LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+           WHERE (rk.name = '${GIT_KINDS.authored}' AND e.from_node = ANY($1::bigint[]))
+              OR (rk.name = '${GIT_KINDS.touched}' AND e.id IN (SELECT id FROM touched))`,
+          [ids],
+        )
+        : await tx.query<Raw>(
+          `WITH RECURSIVE focus AS (
+             SELECT unnest($1::bigint[]) AS id
+             UNION
+             SELECT CASE WHEN e.from_node = f.id THEN e.to_node ELSE e.from_node END
+             FROM focus f JOIN edge e ON e.from_node = f.id OR e.to_node = f.id
+             JOIN kind rk ON rk.id = e.kind_id AND rk.name = '${GIT_KINDS.renamedFrom}'
+           ), focus_commits AS (
+             SELECT DISTINCT e.from_node AS id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             WHERE e.to_node IN (SELECT id FROM focus)
+               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+           ), coupled_all AS (
+             SELECT e.to_node AS id, count(DISTINCT e.from_node) AS n FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             WHERE e.from_node IN (SELECT id FROM focus_commits) AND e.to_node NOT IN (SELECT id FROM focus)
+               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+             GROUP BY 1 HAVING count(DISTINCT e.from_node) >= 2
+           ), coupled AS (
+             SELECT id, n FROM coupled_all ORDER BY n DESC, id LIMIT $2
+           ), included AS (
+             SELECT id FROM focus UNION SELECT id FROM coupled
+           )
+           SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
+                  e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk,
+                  (SELECT count(*)::text FROM coupled_all) AS coupling_total
+           FROM edge e JOIN kind rk ON rk.id = e.kind_id
+           LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+           WHERE (rk.name = '${GIT_KINDS.touched}' AND e.to_node IN (SELECT id FROM included) AND e.from_node IN (SELECT id FROM focus_commits))
+              OR (rk.name = '${GIT_KINDS.authored}' AND e.to_node IN (SELECT id FROM focus_commits))
+              OR rk.name IN ('${GIT_KINDS.renamedFrom}', '${GIT_KINDS.contains}', 'imports')`,
+          [ids, limit],
+        );
+      const nodeIds = new Set<string>(subject.nodeIds);
+      for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
+      const entityRows = await tx.query<Raw>(`${ENTITY_SELECT} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
+      const entities = entityRows.rows.map(entityOf);
+      const byId = new Map(entityRows.rows.map((row) => [String(row['node_id']), entityOf(row)]));
+      const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];
+      return {
+        entities,
+        ...(typeof couplingTotal === 'string' ? { couplingTotal: Number(couplingTotal) } : {}),
+        edges: edgeRows.rows.flatMap((row) => {
+          const from = byId.get(String(row['from_node']));
+          const to = byId.get(String(row['to_node']));
+          if (from === undefined || to === undefined) return [];
+          return [{ from: from.key, to: to.key, relation: WIKI_RELATION[String(row['relation'])] ?? `code.${String(row['relation'])}`, properties: {
+            ...(row['change'] === null ? {} : { change: row['change'] }),
+            ...(row['added'] === null ? {} : { added: Number(row['added']) }),
+            ...(row['removed'] === null ? {} : { removed: Number(row['removed']) }),
+            ...(row['position'] === null ? {} : { position: Number(row['position']) }),
+            ...(row['walk'] === null ? {} : { walk: Number(row['walk']) }),
+            ...(row['discriminator'] === '' ? {} : { discriminator: row['discriminator'] }),
           } }];
         }),
       };

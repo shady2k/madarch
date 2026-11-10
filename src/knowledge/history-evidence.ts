@@ -121,8 +121,8 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
   const row = (entity: GraphEntity): HistoryRow => ({ text: entity.label, entity: ref(entity), figures: [] });
   const sections: HistorySection[] = [];
   const notes: HistoryNote[] = [];
-  const section = (role: HistorySection['role'], rows: HistoryRow[]): void => {
-    if (rows.length > 0) sections.push({ role, total: rows.length, rows: rows.slice(0, limit) });
+  const section = (role: HistorySection['role'], rows: HistoryRow[], total = rows.length): void => {
+    if (rows.length > 0) sections.push({ role, total, rows: rows.slice(0, limit) });
   };
   const commitRows = (keys: ReadonlySet<string>, identity?: string): HistoryRow[] => commits.filter((commit) => keys.has(commit.key))
     .sort((a, b) => byCodePoint(instant(b.properties[GIT_FIELDS.effectiveAt]), instant(a.properties[GIT_FIELDS.effectiveAt])) || byCodePoint(a.key, b.key))
@@ -184,7 +184,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
       coupled.push({ ...row(other), figures: [{ kind: 'both', value: String(both) }, { kind: 'onlyThis', value: String(own.size - both) }, { kind: 'onlyOther', value: String(changes.size - both) }] });
     }
     coupled.sort((a, b) => Number(b.figures[0]!.value) - Number(a.figures[0]!.value) || byCodePoint(a.entity!.id, b.entity!.id));
-    section('coupling', coupled);
+    section('coupling', coupled, evidence.couplingTotal ?? coupled.length);
     if (coupled.length > 0) {
       notes.push({ key: 'cochangeNotCause' });
       const coupledIdentities = new Set(coupled.map((one) => one.entity!.id));

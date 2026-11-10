@@ -16,6 +16,7 @@ import { GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
 import { projectHistory, projectHistoryAcross } from './history-evidence.js';
+import { withSpan } from '../obs/trace.js';
 
 /** The shape of the history page a kind declares (`history:` of its declaration), or none. */
 function historyShapeOf(ctx: RenderContext, kind: string): HistoryShape | undefined {
@@ -154,10 +155,6 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
   // A task's story is the commits that name it, and a commit's own rows (the files it changed) stand before its
   // projection; every other shape is the projection alone.
   const rows = shape === 'task' ? await taskRows(ctx, entity, limit) : shape === 'commit' ? await commitRows(ctx, entity, limit) : { sections: [], notes: [] };
-  const evidence = await (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(entity.scope);
-  const authorOf = new Map(evidence.edges.filter((edge) => edge.relation === GIT_WIKI.authored).map((edge) => [edge.to, edge.from]));
-  const evidenceEntities = new Map(evidence.entities.map((one) => [one.key, one]));
-  const authorEntity = (commitKey: string): GraphEntity | undefined => evidenceEntities.get(authorOf.get(commitKey) ?? '');
   let projected: { sections: HistorySection[]; notes: HistoryNote[] };
   if (shape === 'repositories') {
     const held = await ctx.graph.repositoryHistory(entity.scope, limit);
@@ -167,18 +164,17 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
       { kind: 'firstParent', value: String(held.firstParent) },
       { kind: 'merges', value: String(held.merges) },
       { kind: 'nonMerge', value: String(held.nonMerge) },
-      { kind: 'authors', value: String(new Set(authorOf.values()).size) },
+      { kind: 'authors', value: String(held.authors) },
       ...(held.since === undefined || held.until === undefined ? [] : [{ kind: 'since' as const, value: held.since }, { kind: 'until' as const, value: held.until }]),
     ] }] });
     if (held.hotspots.length > 0) sections.push({ role: 'hotspots', total: held.hotspotsTotal, rows: held.hotspots.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), figures: [{ kind: 'commits', value: String(one.commits) }] })) });
-    const authors = evidence.entities.filter((one) => one.kind === GIT_WIKI.author).map((one) => ({ entity: one, commits: [...authorOf.values()].filter((key) => key === one.key).length }));
-    if (authors.length > 0) sections.push({ role: 'authors', total: authors.length, rows: authors.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), figures: [{ kind: 'commits', value: String(one.commits) }] })) });
+    if (held.authorRows.length > 0) sections.push({ role: 'authors', total: held.authorsTotal, rows: held.authorRows.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), figures: [{ kind: 'commits', value: String(one.commits) }] })) });
     projected = { sections, notes: [{ key: 'population' }] };
   } else if (shape === 'commit') {
     const parents = await ctx.graph.commitParents(entity);
     const parentRows: HistoryRow[] = parents.map((one) => ({
       text: one.entity.label, entity: refOfGraph(ctx, one.entity), when: one.when,
-      ...(authorEntity(one.entity.key) === undefined ? {} : { who: String(authorEntity(one.entity.key)!.properties['name'] ?? authorEntity(one.entity.key)!.label) }),
+      ...(one.who === undefined ? {} : { who: one.who }),
       figures: [
         { kind: 'files', value: String(one.files) },
         ...(one.added === 0 ? [] : [{ kind: 'added' as const, value: String(one.added) }]),
@@ -194,10 +190,15 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
     projected = { sections: [
       ...(parentRows.length === 0 ? [] : [{ role: 'parents' as const, total: parentRows.length, rows: parentRows }]),
       { role: 'summary' as const, total: 1, rows: [summary] },
-      ...(branches.length === 0 ? [] : [{ role: 'branches' as const, total: branches.length, rows: branches.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), when: one.when, ...(authorEntity(one.entity.key) === undefined ? {} : { who: String(authorEntity(one.entity.key)!.properties['name'] ?? authorEntity(one.entity.key)!.label) }), figures: [] })) }]),
+      ...(branches.length === 0 ? [] : [{ role: 'branches' as const, total: branches.length, rows: branches.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), when: one.when, ...(one.who === undefined ? {} : { who: one.who }), figures: [] })) }]),
     ], notes };
   } else {
-    projected = shape === 'task' ? { sections: [], notes: [] } : projectHistory(await (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(entity.scope), entity, shape, limit, (one) => refOfGraph(ctx, one));
+    projected = shape === 'task' ? { sections: [], notes: [] } : projectHistory(
+      shape === 'path' || shape === 'author'
+        ? await ctx.graph.historyEvidenceFor(entity, shape, limit)
+        : await withSpan('wiki.history.evidence', { 'wiki.history.scope': entity.scope }, async () => await (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(entity.scope)),
+      entity, shape, limit, (one) => refOfGraph(ctx, one),
+    );
   }
   const built: { sections: HistorySection[]; notes: HistoryNote[] } = { sections: [...rows.sections, ...projected.sections], notes: [...rows.notes, ...projected.notes] };
   const kept = keptSections(built.sections, params['sections']);
