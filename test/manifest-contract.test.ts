@@ -41,8 +41,8 @@ ${depends}`;
 const VALID = `groups:
   g: { en: Group, ru: Группа, short: { en: Group, ru: Группа } }
 kinds:
-${KIND('a', '    fields:\n      - { name: name, type: text, role: authoritative, producers: [git] }', '    key: [name]', '    depends-on: []')}
-${KIND('b', '    fields:\n      - { name: name, type: text, role: authoritative, producers: [git] }\n      - { name: note, type: text, role: claimed, producers: [agent] }', '    key: [name]', '    depends-on: [a]')}
+${KIND('a', '    fields:\n      - { name: name, type: text, producers: [git] }', '    key: [name]', '    depends-on: []')}
+${KIND('b', '    fields:\n      - { name: name, type: text, producers: [git] }\n      - { name: note, type: text, producers: [agent] }', '    key: [name]', '    depends-on: [a]')}
 plugins:
   - { id: git, version: 1, path: plugins/git, inputs: [a], outputs: [a, b], closure: [plugins/git/contract.json] }
 `;
@@ -54,8 +54,16 @@ describe('the manifest contract preflight', () => {
     expect(findings(VALID)).toEqual([]);
   });
 
+  test('a field that still says role is refused, naming the file and the line and saying the word is gone', () => {
+    const text = VALID.replace("      - { name: note, type: text, producers: [agent] }", "      - { name: note, type: text, role: authoritative, producers: [agent] }");
+    const read = parseKinds(text, 'madarch/kinds.yaml', root);
+    const line = text.split('\n').findIndex((one) => one.includes('role: authoritative')) + 1;
+    // The refusal names the file and the line the field stands on, and says the word is gone.
+    expect(read.findings).toContainEqual({ file: 'madarch/kinds.yaml', line, message: expect.stringContaining('"role" is gone: no field is authoritative and none is claimed') });
+  });
+
   test('a field with no producer is refused, naming the kind and the field', () => {
-    const text = VALID.replace("      - { name: note, type: text, role: claimed, producers: [agent] }", '      - { name: note, type: text, role: claimed }');
+    const text = VALID.replace("      - { name: note, type: text, producers: [agent] }", '      - { name: note, type: text }');
     expect(findings(text)).toContainEqual(expect.stringContaining('kind "b": field "note" names no producer'));
   });
 

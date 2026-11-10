@@ -1,6 +1,6 @@
 /**
  * The contract a manifest's field bindings make (decision 0035, items 17 and 18): the columns a kind's table gets, the
- * claimed fields that get none, the agent's own binding, and the types a reader reads.
+ * fields that name a producer, the agent's own binding, and the types a reader reads.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -46,7 +46,7 @@ const MANIFEST = [
   '      - { name: definition, type: text, binding: "g@1.definition" }',
   '      - { name: rank, type: integer, nullable: true, binding: "g@1.rank" }',
   '      - { name: note, type: text, nullable: true, binding: { agent: "the note a person writes" } }',
-  '      - { name: strict, type: text, role: authoritative, binding: { agent: "a word the agent settles" } }',
+  '      - { name: strict, type: text, binding: { agent: "a word the agent settles" } }',
   '    key: [name]',
   '    depends-on: []',
   'plugins:',
@@ -61,7 +61,7 @@ describe('a kind\'s table comes from the manifest', () => {
     expect(read.findings).toEqual([]);
     const contract = manifestContractOf(read);
     expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term']);
-    // A3 of the 2026-11-10 amendment: no field is authoritative, so every bound field — a claimed one and the agent's
+    // A3 of the 2026-11-10 amendment: no field is authoritative, so every bound field — a plugin's and the agent's
     // own included — is a column of the kind's opinion table; the key is the vertex's, never a column.
     expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
     expect(contract.vertex[0]?.key).toEqual(['name']);
