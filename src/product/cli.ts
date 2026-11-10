@@ -41,6 +41,8 @@ import { runGit } from './git.js';
 import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
 import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
+import { readKinds } from '../knowledge/kinds.js';
+import { readFillTargets } from '../knowledge/fill-targets.js';
 import { createDatabaseOwner } from '../adapters/database-owner.js';
 import { graphKindCounts } from '../graph/index.js';
 import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
@@ -91,16 +93,18 @@ function commandHelp(command: string): string {
     // The fill's own usage: the probe is part of it, and it takes no agent of its own (the product's fill runs the
     // stages its workflow names; an agent's choice belongs to the wiki's wizard).
     return [
-      'usage: madarch fill [--product <folder>] [--home <folder>] [--workers <n>] [--json] [--probe-acp]',
+      'usage: madarch fill [--product <folder>] [--home <folder>] [--entity <kind>]... [--vertex <entity id>] [--workers <n>] [--json] [--probe-acp]',
       '',
       'Options:',
       '  --home <folder>       Products home',
       '  --product <folder>    Product folder',
+      '  --entity <kind>       Fill this entity of the catalogue, the kinds it needs and the kinds that need it; repeat it',
+      '  --vertex <entity id>  Rewrite only this one entity, such as doc.term:Fill',
       '  --workers <n>         Units the run holds in hand at once (16 by default)',
       '  --json                Print one object of machine-readable facts',
       '  --probe-acp           Report the agents on this machine that speak the Agent Client Protocol, and fill nothing',
       '',
-      'Example: madarch fill',
+      'Example: madarch fill --entity doc.term   (the glossary terms, with the files they read)',
     ].join('\n');
   }
   const positionals = command === 'repo' ? ' add <name> <url>' : spec.positionals.length === 0 ? '' : ` ${spec.positionals.map((word) => `<${word}>`).join(' ')}`;
@@ -148,7 +152,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean; entity?: boolean; vertex?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -164,7 +168,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   'fill-stages': { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, run: true, workers: true, steps: true } },
   // One product's knowledge store, filled by the one orchestrator (decision 0033, item 1): the same fill the
   // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
-  fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true, probe: true, agent: true } },
+  fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true, probe: true, agent: true, entity: true, vertex: true } },
   // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
   trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
@@ -201,6 +205,10 @@ interface Parsed {
   store: string | undefined;
   probe: boolean;
   agent: string | undefined;
+  /** `--entity`, repeated: the kinds a selective fill was asked for (madarch-stm0.6). */
+  entities?: readonly string[];
+  /** `--vertex`: the one entity a vertex fill rewrites, as `<kind>:<key values>`. */
+  vertex?: string;
   json: boolean;
 }
 
@@ -221,6 +229,8 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.store ? ['--store'] : []),
     ...(flags.probe ? ['--probe-acp'] : []),
     ...(flags.agent ? ['--agent'] : []),
+    ...(flags.entity ? ['--entity'] : []),
+    ...(flags.vertex ? ['--vertex'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -259,7 +269,8 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
     // A value flag takes one value: a second occurrence would silently move
     // the first (a repeated --product can redirect the whole command), so it
     // is refused the way an unknown option is.
-    if (name !== '--no-open' && seen.has(name)) {
+    // `--entity` is a list and is the one option a command may give more than once (madarch-stm0.6).
+    if (name !== '--no-open' && name !== '--entity' && seen.has(name)) {
       console.error(`repeated option "${arg}": ${name.slice(2)} is given once`);
       console.error('run madarch --help for help');
       return 2;
@@ -356,6 +367,28 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--agent', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.agent = value!.trim();
+      continue;
+    }
+    if (name === '--entity') {
+      if (!spec.flags.entity) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--entity', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      const kinds = value!.split(',').map((kind) => kind.trim()).filter((kind) => kind !== '');
+      if (kinds.length === 0) {
+        console.error(`--entity ${JSON.stringify(value ?? '')} names no entity: it takes a kind the product's manifest declares, such as doc.term`);
+        console.error('run madarch --help for help');
+        return 2;
+      }
+      parsed.entities = [...(parsed.entities ?? []), ...kinds];
+      continue;
+    }
+    if (name === '--vertex') {
+      if (!spec.flags.vertex) return unknownOption(arg, flags);
+      const value = flagValue();
+      const problem = valueProblem('--vertex', value);
+      if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
+      parsed.vertex = value!.trim();
       continue;
     }
     if (name === '--steps') {
@@ -843,9 +876,27 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
   const storeFolder = productStoreFolder(folder, knowledgeRootOf(resolvedHome));
   const runId = `fill-${new Date().toISOString().replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+  // A selective fill (madarch-stm0.6, decision 0035 items 11 and 31): the entities the person named, the kinds they need
+  // and the kinds that need them, in the dependency order the manifest declares. The command names what the request
+  // added before the run starts, so a press that fills more than it was asked for says so.
+  let targets: { kinds: readonly string[]; vertex?: string } | undefined;
+  if (parsed.entities !== undefined || parsed.vertex !== undefined) {
+    const kinds = readKinds(folder);
+    if (!kinds.present) { console.error(`${kinds.file}:1: the product ${displayPath(folder)} has no manifest, so it declares no entity to fill: madarch new writes one`); return 1; }
+    const read = readFillTargets(kinds.manifest, { ...(parsed.entities === undefined ? {} : { entities: parsed.entities }), ...(parsed.vertex === undefined ? {} : { vertex: parsed.vertex }) });
+    if (!read.ok) { console.error(read.message); return 1; }
+    for (const entry of read.targets.entries) {
+      if (entry.reason === 'dependency') console.log(`Also filling ${entry.kind}, needed by ${entry.namedBy}.`);
+      if (entry.reason === 'dependant') console.log(`Also filling ${entry.kind}, which depends on ${entry.namedBy}.`);
+    }
+    console.log(read.targets.vertex === undefined
+      ? `Filling in dependency order: ${read.targets.order.join(', ')}.`
+      : `Rewriting only ${read.targets.vertex}, and nothing else.`);
+    targets = { kinds: read.targets.order, ...(read.targets.vertex === undefined ? {} : { vertex: read.targets.vertex }) };
+  }
   let run;
   try {
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;
@@ -864,7 +915,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   return 0;
 }
 
-const FILL_USAGE = 'usage: madarch fill [--product <folder>] [--home <folder>] [--workers <n>] [--json] [--probe-acp]';
+const FILL_USAGE = 'usage: madarch fill [--product <folder>] [--home <folder>] [--entity <kind>]... [--vertex <entity id>] [--workers <n>] [--json] [--probe-acp]';
 
 function displayPath(folder: string): string {
   const home = process.env.HOME;

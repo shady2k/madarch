@@ -41,6 +41,12 @@ export interface PluginTurnWiring {
   readonly contract: GraphContract;
   /** The release closures trusted without approval; the build's own unless a test names its own. */
   readonly releaseHashes?: readonly string[];
+  /**
+   * The kinds this fill was asked for (decision 0035, items 11 and 31; madarch-stm0.6): their turns only, in this
+   * dependency order, and with a vertex, the one entity of that kind's unit whose answer is published. Absent, the
+   * fill takes every kind the manifest binds a plugin to, as a whole fill does.
+   */
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
   /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
@@ -68,9 +74,13 @@ export function pluginKindsOf(manifest: KindsManifest): KindDecl[] {
     .sort((left, right) => byCodePoint(left.name, right.name));
 }
 
-/** One unit's id: its plugin and its kind, so a worker of any process derives it again. */
-export function pluginTurnUnitId(plugin: string, kind: string): string {
-  return `${plugin}:${kind}`;
+/**
+ * One unit's id: its plugin and its kind, so a worker of any process derives it again. A vertex fill is a unit of its own
+ * (`<plugin>:<kind>@<entity id>`): it publishes one entity, and a later whole fill of the kind must not find it in its
+ * own place and take the one entity for the kind's whole answer (madarch-stm0.6).
+ */
+export function pluginTurnUnitId(plugin: string, kind: string, vertex?: string): string {
+  return `${plugin}:${kind}${vertex === undefined ? '' : `@${vertex}`}`;
 }
 
 /**
@@ -83,8 +93,14 @@ export function pluginTurnUnitId(plugin: string, kind: string): string {
  * product repository, and so moved the unit's inputs — has its old facts taken out by the very turn that reads the new
  * declaration. A plan that skipped such a kind planned nothing, and the graph kept what the old declaration produced.
  */
+/** The order the manifest's own declarations give the units' kinds, for a fill asked for a set of them. */
+function targetOrder(wiring: PluginTurnWiring): ReadonlyMap<string, number> {
+  return new Map((wiring.targets?.kinds ?? []).map((kind, at) => [kind, at] as const));
+}
+
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
-  const kinds = pluginKindsOf(wiring.manifest);
+  const asked = wiring.targets === undefined ? undefined : new Set(wiring.targets.kinds);
+  const kinds = pluginKindsOf(wiring.manifest).filter((kind) => asked === undefined || asked.has(kind.name));
   if (kinds.length === 0) return [];
   // The units stand on the file vertices the tree pass publishes: a plan made before they stand finds nothing, and the
   // run plans this stage again once the tree published (decision 0027's re-planning of a stage that found nothing).
@@ -97,17 +113,23 @@ export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginT
     for (const plugin of [...(wiring.manifest.plugins?.values() ?? [])].sort((left, right) => byCodePoint(left.id, right.id))) {
       const lock = wiring.locks.get(plugin.id);
       if (lock === undefined || !fills(plugin, kind)) continue;
-      units.push({ id: pluginTurnUnitId(plugin.id, kind.name), plugin, kind, lock, pattern });
+      units.push({ id: pluginTurnUnitId(plugin.id, kind.name, wiring.targets?.vertex), plugin, kind, lock, pattern });
     }
   }
-  return units.sort((left, right) => byCodePoint(left.id, right.id));
+  // The kinds' dependency order first (item 11): a kind's plugins run before the plugins of the kinds that depend on it,
+  // so a turn that a later turn reads has published by then. Ties keep the plugin's id and the kind's name in code point
+  // order, so two runs of one request plan the same units in the same order.
+  const rank = targetOrder(wiring);
+  return units.sort((left, right) => (rank.get(left.kind.name) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.kind.name) ?? Number.MAX_SAFE_INTEGER) || byCodePoint(left.id, right.id));
 }
 
 /** The unit a worker re-derives from its id, against the manifest it reads itself. */
 function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
   const cut = id.indexOf(':');
   if (cut < 0) throw new Error(`src/fill/plugin-turns.ts:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind>`);
-  const kindName = id.slice(cut + 1);
+  const rest = id.slice(cut + 1);
+  const at = rest.indexOf('@');
+  const kindName = at < 0 ? rest : rest.slice(0, at);
   const kind = wiring.manifest.kinds.get(kindName);
   const plugin = wiring.manifest.plugins?.get(id.slice(0, cut));
   const lock = plugin === undefined ? undefined : wiring.locks.get(plugin.id);
@@ -128,6 +150,14 @@ function draftEvidence(evidence: { readonly repository?: string; readonly commit
     ...(evidence.lineStart === undefined ? {} : { lineStart: evidence.lineStart }),
     ...(evidence.lineEnd === undefined ? {} : { lineEnd: evidence.lineEnd }),
   };
+}
+
+/** One drafted vertex as the graph names the entity: `<kind>:<its key values in the contract's order, joined by /">`. */
+function entityIdOf(wiring: PluginTurnWiring, kind: string, key: Readonly<Record<string, string | number>>): string | undefined {
+  const vertex = wiring.contract.vertex.find((held) => held.name === kind);
+  if (vertex === undefined) return undefined;
+  const values = vertex.key.map((field) => String(key[field] ?? ''));
+  return `${kind}:${values.join('/')}`;
 }
 
 /** The one key of a vertex, rendered one way everywhere: its key fields in code point order with their values. */
@@ -187,9 +217,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       const outcome = await session.runUnit({ unitId: id, kind: unit.kind.name, key: { pattern: unit.pattern }, inputs: { pattern: unit.pattern } });
       if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
       const answered = new Set<string>();
+      // A vertex fill rewrites exactly the entity it names (madarch-stm0.6): the plugin's other answers are dropped, and
+      // nothing is removed, because the person asked for one value and not for the kind.
+      const only = wiring.targets?.vertex;
+      const stated = only === undefined || outcome.result.vertices.some((vertex) => entityIdOf(wiring, vertex.kind, vertex.key) === only);
       for (const vertex of outcome.result.vertices) {
         if (vertex.kind !== unit.kind.name) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}`);
         answered.add(canonicalKey(vertex.key));
+        if (only !== undefined && entityIdOf(wiring, vertex.kind, vertex.key) !== only) continue;
         draft.write({ kind: 'vertex', evidence: unit.kind.name, value: {
           kind: vertex.kind,
           key: vertex.key,
@@ -199,22 +234,29 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           producerVersion: unit.lock.version,
         } });
       }
-      for (const edge of outcome.result.edges ?? []) {
-        draft.write({ kind: 'edge', evidence: unit.kind.name, value: {
-          kind: edge.kind,
-          from: edge.from,
-          to: edge.to,
-          ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
-          ...(edge.values === undefined ? {} : { values: edge.values }),
-          ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
-          producer: unit.plugin.id,
-          producerVersion: unit.lock.version,
-        } });
+      if (only !== undefined && !stated) {
+        // The plugin answered no entity of that id: the reader asked for a value the plugin no longer states. Failing the
+        // unit says so; answering an empty draft would be a silently smaller result.
+        throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered no entity ${JSON.stringify(only)} in the unit ${unit.id}: the plugin states no such value at the commit this fill read, and nothing was rewritten`);
+      }
+      if (only === undefined) {
+        for (const edge of outcome.result.edges ?? []) {
+          draft.write({ kind: 'edge', evidence: unit.kind.name, value: {
+            kind: edge.kind,
+            from: edge.from,
+            to: edge.to,
+            ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
+            ...(edge.values === undefined ? {} : { values: edge.values }),
+            ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
+            producer: unit.plugin.id,
+            producerVersion: unit.lock.version,
+          } });
+        }
       }
       // The unit's entry names its author and, under the debug setting, every request it made with its answer's size.
       // It is a draft like the rest, so it lands in the publication's own transaction.
       draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author: `${unit.plugin.id}@${unit.lock.version}`, ...(reads === undefined ? {} : { reads }) } });
-      if (outcome.result.end.state === 'complete') {
+      if (only === undefined && outcome.result.end.state === 'complete') {
         for (const held of await producerEntities(wiring.owner, wiring.contract, unit.kind.name, unit.plugin.id)) {
           if (answered.has(canonicalKey(held.key))) continue;
           draft.write({ kind: 'vertex-removal', evidence: unit.kind.name, value: { kind: unit.kind.name, key: held.key, producer: unit.plugin.id } });
