@@ -17,11 +17,44 @@
  * strong model writes and analyses, a weak model or jev classifies).
  */
 import { mkdirSync } from 'node:fs';
+import { basename } from 'node:path';
 import { runFill } from '../fill/run.js';
 import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
-import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
+import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
+import { readChain, readRun } from '../fill/state-store.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
+import { readProduct } from '../product/manifest.js';
 
+
+/**
+ * The refusals that mean a fill of this product already runs, and nothing is wrong with the product (madarch-8bdc.2.18):
+ * the chain of runs follows a live run (`fill-orchestrator/chain-active`, `chain-held`), or the step the new run asked of
+ * the chain has no transition from what the chain stands in — the same thing read one step later, which is how the
+ * reader used to meet `fill-chain/no-transition`. A fill of this product runs one at a time (decision 0027).
+ */
+const ALREADY_RUNNING = ['fill-orchestrator/chain-active', 'fill-orchestrator/chain-held'];
+
+/** Whether one refusal means a fill of this product is already running. */
+export function fillAlreadyRunning(code: string): boolean {
+  return ALREADY_RUNNING.includes(code) || code.startsWith('fill-chain/');
+}
+
+/**
+ * What a refusal to start a fill says to the reader who asked for it. One that means the product's fill already runs says
+ * so in the reader's own terms — since when, which run — and how to follow it, never with an internal code: nothing in the
+ * product needs fixing. Any other refusal keeps its code, because there the code names what to fix in the product's own
+ * files or what the machine lacks.
+ */
+async function refusalWords(owner: StoreOwner, productFolder: string, refusal: RefusedFillRun): Promise<string> {
+  if (!fillAlreadyRunning(refusal.code)) return `${refusal.code}: ${refusal.reason}`;
+  const identity = readProduct(productFolder);
+  const name = identity.ok ? identity.product.name : basename(productFolder);
+  const held = identity.ok ? await readChain(owner, name) : null;
+  const live = held?.context.activeRunId == null ? null : await readRun(owner, held.context.activeRunId);
+  const follow = 'Follow it in the wiki — `madarch serve`, then the fill page (/fill) — or read the run\'s steps with `madarch trace --run <the run\'s id>`.';
+  if (live === null) return `a fill of ${name} is already running: another run holds the product, and it names no run this store holds. This fill started nothing. ${follow}`;
+  return `a fill of ${name} is already running: run ${live.runId}, which stands ${live.state}, started ${new Date(live.createdAt).toISOString()}. This fill started nothing. ${follow.replace("<the run's id>", live.runId)}`;
+}
 
 /**
  * The store's owner, as the orchestrator host names it: the type is derived from the host's own options, so this module
@@ -70,6 +103,11 @@ export interface KnowledgeFillResult {
   readonly state: string;
   /** Why a run that did not end was refused or failed, in the run's own words. */
   readonly message?: string;
+  /**
+   * True when the run never started, which is what a product whose fill already runs answers: the words say why and how
+   * to follow the running fill, and no unit of this press was ever planned (madarch-8bdc.2.18).
+   */
+  readonly refused?: boolean;
   /** The units the run planned. */
   readonly units: number;
   /** The declared repositories the run could not read, each with its path and the state it is in. */
@@ -218,7 +256,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             },
           }),
         });
-        if (!result.ok) return { ok: false, state: 'failed', message: `${result.code}: ${result.reason}`, units: 0 };
+        if (!result.ok) return { ok: false, state: 'failed', refused: true, message: await refusalWords(owner, options.productFolder, result), units: 0 };
         if (!result.settled || result.state !== 'succeeded') {
           // The run's own durable events name why a unit did not publish: the stage's error, with the
           // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
