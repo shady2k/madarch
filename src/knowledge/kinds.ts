@@ -1265,7 +1265,11 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     const structure = decl['structure'];
     if (structure !== undefined && !names2(structure)) problem(['structure'], '"structure" is a list of the sections a section of the kind holds, such as [Status, Context, Decision, Consequences]');
     if (source === 'document' && identifier === undefined && terms === undefined && headings === undefined && semantics === undefined) problem([], 'a document kind names "identifier" (the sections that open with an identifier), "headings" (the headings whose sections are entities of the kind), "terms" (the documents whose bold terms are entities) or "semantics" (the passages the classifier reads of a general kind)');
-    if (source !== 'document' && (identifier !== undefined || terms !== undefined || headings !== undefined || structure !== undefined || semantics !== undefined)) {
+    // A graph kind whose producer reads documents names them in `terms` and nothing else of the document vocabulary:
+    // db-schema reads every TypeScript source, so a product that holds none plans no unit for it.
+    const producerBound = Array.isArray(decl['fields']) && (decl['fields'] as unknown[]).some((field) => field !== null && typeof field === 'object' && 'binding' in (field as Record<string, unknown>));
+    const termsOfAGraphKind = source === 'graph' && producerBound && terms !== undefined && identifier === undefined && headings === undefined && structure === undefined && semantics === undefined;
+    if (source !== 'document' && !termsOfAGraphKind && (identifier !== undefined || terms !== undefined || headings !== undefined || structure !== undefined || semantics !== undefined)) {
       const field = identifier !== undefined ? 'identifier' : terms !== undefined ? 'terms' : headings !== undefined ? 'headings' : structure !== undefined ? 'structure' : 'semantics';
       problem([field], `"${field}" belongs to a document kind`);
     }

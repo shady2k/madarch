@@ -14,7 +14,8 @@ for (const lang of ['en', 'ru']) test(`fixed rendered fixtures preserve all ER64
   const cases = await diagramAcceptanceCases(lang);
   expect(cases.map(item => item.name)).toEqual(['case-er64', 'case-roots45', 'case-one-group45']);
   const er = cases[0]!.views[0]!;
-  expect(er.renderers).toEqual(['mermaid']);
+  // The ER view is drawn by all three engines (the owner's addendum of 2026-11-10): the chosen renderer first.
+  expect(er.renderers).toEqual(['mermaid', 'likec4', 'archify']);
   expect(er.elements[0]!.columns).toHaveLength(64);
   expect(er.elements[0]!.href).not.toBeNull();
   expect(er.mermaidSource).toContain('uuid column_0 PK,FK');
