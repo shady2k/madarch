@@ -9,8 +9,8 @@ import { presentedKey, spanFromProvenance } from '../src/knowledge/graph-read.js
 
 describe('the key a record is presented by', () => {
   test('a file is named by its path, whichever producer wrote it', () => {
-    expect(presentedKey('code.file', { recordKey: 'code.file:src/a.ts', path: 'src/a.ts' })).toBe('code.file:src/a.ts');
-    expect(presentedKey('code.file', { recordKey: 'file:9f2c', path: 'src/a.ts' })).toBe('code.file:src/a.ts');
+    expect(presentedKey('code.file', { recordKey: 'code.file:src/a.ts', repository: 'repo', path: 'src/a.ts' })).toBe('code.file:repo/src/a.ts');
+    expect(presentedKey('code.file', { recordKey: 'file:9f2c', repository: 'repo', path: 'src/a.ts' })).toBe('code.file:repo/src/a.ts');
   });
 
   test('every other kind is named by its record key, unchanged', () => {

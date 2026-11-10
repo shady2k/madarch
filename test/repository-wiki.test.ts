@@ -327,4 +327,22 @@ git(folder,'commit','-qm','the nested file moves');
       await server.stop();
     }
   }, 300_000);
+
+  test('a fill that ends does not validate the graph through a closed owner', async () => {
+    product('validated', (folder) => {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      writeFileSync(join(folder, 'docs', 'index.md'), '# Index\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-qm', 'one file');
+    });
+    const errors: string[] = [];
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
+    try {
+      await press(server, 'validated');
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(errors.filter((line) => line.includes('could not validate the graph after the fill'))).toEqual([]);
+    } finally {
+      await server.stop();
+    }
+  }, 300_000);
 });

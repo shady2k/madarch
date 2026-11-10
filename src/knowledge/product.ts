@@ -1223,8 +1223,11 @@ export class KnowledgeProduct {
     const file = graphVerdictFile(this.storeFolder());
     const state = readGraphVerdictState(file);
     const roles = this.modelRoles();
-    const owner = await this.open();
-    const snapshot = await loadGraphSnapshot(owner);
+    // The validation owns its connection for the snapshot: the reader's owner may be closed as idle after the fill,
+    // while this validation is still starting (the fill role and the api role have different lifetimes).
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), btreeGist: true });
+    let snapshot: Awaited<ReturnType<typeof loadGraphSnapshot>>;
+    try { snapshot = await loadGraphSnapshot(owner); } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;
     const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
       env: this.env,

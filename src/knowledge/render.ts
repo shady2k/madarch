@@ -464,10 +464,11 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
       kind, total: page.total, next: page.next,
       rows: page.rows.map((file) => {
         const web = ctx.webOf?.(file.repository, file.path, 1, 1);
+        const id = `code.file:${file.repository}/${file.path}`;
         return {
-          id: `code.file:${file.path}`, kind, label: file.path,
-          // A file's page is the repository's own (`/k/file`), the only page this step draws of one.
-          href: `/k/file?${new URLSearchParams({ path: file.path }).toString()}`,
+          id, kind, label: file.path,
+          // A file's page is its entity page; the id carries its repository, so two repositories' paths never collide.
+          href: entityAddress(id),
           location: { repo: file.repository, path: file.path, lineStart: 1, lineEnd: 1, href: sourceAddress(file.repository, file.path, 1), ...(web === undefined ? {} : { web }) },
         };
       }),

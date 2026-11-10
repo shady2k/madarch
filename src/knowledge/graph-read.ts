@@ -112,8 +112,9 @@ export function spanOf(value: unknown): SourceSpan | undefined {
 }
 
 export function presentedKey(kind: string, properties: Record<string, unknown>): string {
-  if (kind === 'code.file' && typeof properties['path'] === 'string') return `code.file:${properties['path']}`;
-  if (kind === 'code.directory' && typeof properties['path'] === 'string') return `code.directory:${properties['path']}`;
+  if (kind === 'code.file' && typeof properties['path'] === 'string') return `code.file:${String(properties['repository'] ?? '')}/${properties['path']}`;
+  if (kind === 'code.directory' && typeof properties['path'] === 'string') return `code.directory:${String(properties['repository'] ?? '')}/${properties['path']}`;
+  if (kind === 'code.gitlink' && typeof properties['path'] === 'string') return `code.gitlink:${String(properties['repository'] ?? '')}/${properties['path']}`;
   if (kind === 'code.repository' && typeof properties['name'] === 'string') return `code.repository:${properties['name']}`;
   if (kind === 'code.commit' && typeof properties['hash'] === 'string') return `code.commit:${properties['hash']}`;
   if ((kind === 'code.author' || kind === 'code.signature') && typeof properties['email'] === 'string') return `code.author:${properties['email']}`;
@@ -129,7 +130,7 @@ function gitDateOf(localClock: string | null, offsetMin: number | null): string 
 }
 
 const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
-  r.name AS repository_name, r.url AS repository_url, r.default_branch,
+  r.name AS repository_name, r.url AS repository_url, r.default_branch, rr.name AS scope_repository_name,
   p.text AS path, f.mode, b.hash AS blob, b.bytes::text AS bytes, b.form, b.lines::text AS lines,
   c.hash AS commit_hash, c.subject,
   to_char(c.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_clock, c.author_offset_min,
@@ -147,6 +148,7 @@ const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
  LEFT JOIN ${GIT_TABLES.directory} d ON d.node_id = n.id
  LEFT JOIN ${GIT_TABLES.file} f ON f.node_id = n.id
  LEFT JOIN ${GIT_TABLES.gitlink} g ON g.node_id = n.id
+ LEFT JOIN ${GIT_TABLES.repository} rr ON rr.node_id = coalesce(d.repository_node, f.repository_node, g.repository_node)
  LEFT JOIN ${GIT_TABLES.path} p ON p.id = coalesce(d.path_id, f.path_id, g.path_id)
  LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
  LEFT JOIN ${GIT_TABLES.commit} c ON c.node_id = n.id
@@ -155,8 +157,9 @@ const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
 function keyOf(row: Raw): string {
   const kind = String(row['kind']);
   if (kind === `${GIT_KINDS.repository}`) return `code.repository:${String(row['repository_name'])}`;
-  if (kind === `${GIT_KINDS.directory}`) return `code.directory:${String(row['path'])}`;
-  if (kind === `${GIT_KINDS.file}`) return `code.file:${String(row['path'])}`;
+  if (kind === `${GIT_KINDS.directory}`) return `code.directory:${String(row['scope_repository_name'])}/${String(row['path'])}`;
+  if (kind === `${GIT_KINDS.file}`) return `code.file:${String(row['scope_repository_name'])}/${String(row['path'])}`;
+  if (kind === `${GIT_KINDS.gitlink}`) return `code.gitlink:${String(row['scope_repository_name'])}/${String(row['path'])}`;
   if (kind === `${GIT_KINDS.commit}`) return `code.commit:${String(row['commit_hash'])}`;
   if (kind === `${GIT_KINDS.signature}`) return `code.author:${String(row['email'])}`;
   return `${kind}:${String(row['node_id'])}`;
@@ -179,7 +182,8 @@ function entityOf(row: Raw): GraphEntity {
     properties['name'] = row['repository_name'];
     properties['url'] = row['repository_url'];
     properties['defaultBranch'] = row['default_branch'];
-  } else if (graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}`) {
+  } else if (graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`) {
+    properties['repository'] = row['scope_repository_name'];
     properties['path'] = row['path'];
     if (graphKind === `${GIT_KINDS.file}`) {
       properties['mode'] = row['mode'];
@@ -269,8 +273,16 @@ export class GraphReader {
     const graphKind = graphKindOf(prefix);
     if (graphKind === undefined || !this.holds(graphKind)) return [];
     return await this.run(async (tx) => {
-      const condition = graphKind === `${GIT_KINDS.repository}` ? 'r.name = $2' : graphKind === `${GIT_KINDS.commit}` ? 'c.hash = $2' : graphKind === `${GIT_KINDS.signature}` ? 's.email = $2' : 'p.text = $2';
-      const found = await tx.query<Raw>(`${ENTITY_SELECT} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, [graphKind, tail]);
+      const referenceKind = graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`;
+      const slash = referenceKind ? tail.indexOf('/') : -1;
+      const repository = slash < 0 ? '' : tail.slice(0, slash);
+      const path = slash < 0 ? tail : tail.slice(slash + 1);
+      const condition = graphKind === `${GIT_KINDS.repository}` ? 'r.name = $2'
+        : graphKind === `${GIT_KINDS.commit}` ? 'c.hash = $2'
+          : graphKind === `${GIT_KINDS.signature}` ? 's.email = $2'
+            : referenceKind && repository !== '' ? 'rr.name = $2 AND p.text = $3' : 'p.text = $2';
+      const params = referenceKind && repository !== '' ? [graphKind, repository, path] : [graphKind, referenceKind ? path : tail];
+      const found = await tx.query<Raw>(`${ENTITY_SELECT} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
       return this.scoped(found.rows.map(entityOf));
     });
   }
@@ -465,7 +477,13 @@ export class GraphReader {
     if (graphKind === undefined || !this.holds(graphKind)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
       const entities = await this.entitiesOfKinds(tx, [graphKind]);
-      const matching = entities.filter((entity) => entity.key.startsWith(prefix)).sort((a, b) => byCodePoint(a.key, b.key));
+      const referenceKind = graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`;
+      const head = `code.${graphKind}:`;
+      const rest = prefix.startsWith(head) ? prefix.slice(head.length) : '';
+      const pathPrefix = referenceKind && rest !== '' && rest.includes('/') ? rest : undefined;
+      const matching = entities.filter((entity) => pathPrefix !== undefined
+        ? String(entity.properties['path'] ?? '').startsWith(pathPrefix)
+        : entity.key.startsWith(prefix)).sort((a, b) => byCodePoint(a.key, b.key));
       return { total: matching.length, rows: matching.slice(0, limit) };
     });
   }
