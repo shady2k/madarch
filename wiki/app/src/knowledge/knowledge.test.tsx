@@ -18,6 +18,7 @@ import { FillCard, Overview } from './pages.js';
 import { WriterLine } from './writer.js';
 import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
+import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import { KindLabels } from './kind-names.js';
 import { KindPage } from './pages.js';
 import { addressOfDocument, wikiRouteOf, kindPlural, kindWord } from './routes.js';
@@ -813,117 +814,6 @@ describe('document links', () => {
   });
 });
 
-describe('the sync button', () => {
-  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
-  });
-  /** The top bar, so the button is proven where the reader sees it, not only as a component of its own. */
-  const bar = (state: WikiStatus, refresh: () => void): ReturnType<typeof createElement> => createElement(Toolbar, { status: state, route: { name: 'home' }, menu: null, refresh, products: [], current: 'shop' });
-
-  test('the top bar has a visible Sync button that runs the wiki\'s one refresh, once, and when the run ends lists the changed pages as links', async () => {
-    const calls: string[] = [];
-    stubFetch(calls);
-    let refreshed = 0;
-    const container = into(bar(status(), () => { refreshed += 1; }));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    const button = container.querySelector('[data-testid=sync]') as HTMLButtonElement;
-    expect(button.textContent).toBe('Sync');
-    expect(button.disabled).toBe(false);
-    // The whole sentence is the button's name, and its icon stands beside the words: below a phone's width the words go
-    // and the name stays (madarch-m38l.23).
-    expect(button.getAttribute('aria-label')).toBe('Sync');
-    expect(button.querySelector('.sync-words')!.textContent).toBe('Sync');
-    expect(button.querySelector('.sync-icon')).not.toBeNull();
-    button.click();
-    await until(() => refreshed === 1, 'the refresh');
-    // The press is the refresh the fill menu makes: the same request, the agent saved for the product named.
-    expect(calls.filter((call) => call.startsWith('POST '))).toEqual(['POST /api/fill {"agent":null}']);
-    // While it runs the button is spent and says so.
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z', commit: 3, commits: 9 } }), () => { refreshed += 1; }));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    expect(container.querySelector('[data-testid=sync]')!.textContent).toBe('Syncing…');
-    expect(container.querySelector('[data-testid=sync]')!.getAttribute('aria-label')).toBe('Syncing…');
-    // When it ends the changed pages open by themselves, each one a link to its page.
-    rendered!.render(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:12:00.000Z', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }, { id: 'domain:payment', title: 'Payment' }] } }), () => { refreshed += 1; }));
-    await until(() => container.querySelector('[data-testid=sync-changed]') !== null, 'the changed pages');
-    const links = [...container.querySelectorAll('[data-testid=sync-changed] a')].map((anchor) => [anchor.textContent, anchor.getAttribute('href')]);
-    expect(links).toEqual([
-      ['a.ts', appPath(`/e/${encodeURIComponent('code.file:src/a.ts')}`)],
-      ['Payment', appPath(`/e/${encodeURIComponent('domain:payment')}`)],
-    ]);
-    expect(container.querySelector('[data-testid=sync-count]')!.textContent).toBe('Changed pages: 2');
-    // The reader closes it; it stays closed.
-    (container.querySelector('[data-testid=sync-close]') as HTMLButtonElement).click();
-    await until(() => container.querySelector('[data-testid=sync-result]') === null, 'the closed result');
-  });
-
-  test('a run that changed no page says so, in one line', async () => {
-    stubFetch([]);
-    const container = into(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z', changed: [] } }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    rendered!.render(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:12:00.000Z', changed: [] } }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync-nothing]') !== null, 'the empty result');
-    expect(container.querySelector('[data-testid=sync-nothing]')!.textContent).toBe('Nothing changed');
-    expect(container.querySelector('[data-testid=sync-changed]')).toBeNull();
-  });
-
-  test('the button stands only where a refresh can run: not on the product read as itself, not before a manifest, not over no repository', async () => {
-    for (const over of [
-      { own: true },
-      { manifest: 'no-manifest' as const },
-      { filled: false },
-      { repositories: [] },
-    ]) {
-      const container = into(bar(status(over), () => undefined));
-      await until(() => container.querySelector('header') !== null, 'the top bar');
-      expect(container.querySelector('[data-testid=sync]')).toBeNull();
-    }
-  });
-
-  test('a run whose enrichment failed shows the writer\'s failure, not an unavailable change list', async () => {
-    stubFetch([]);
-    const container = into(bar(status(), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    // The code fill completed; the agent's stage failed. The changed-page list was not recorded, and that is not
-    // a reason to tell the reader it could not be listed: the failure is what happened.
-    rendered!.render(bar(status({
-      fill: { state: 'done', startedAt: '2026-10-27T09:10:00.000Z', finishedAt: '2026-10-27T09:12:00.000Z' },
-      writer: { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'failed' }], code: 'units', message: 'the product page was not written: the agent refused 5 writes' },
-    }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync-result]') !== null, 'the ended result');
-    const note = container.querySelector('[data-testid=sync-writer-failed]')!;
-    expect(note.querySelector('[data-testid=failure-note]')!.getAttribute('data-code')).toBe('units');
-    (note.querySelector('[data-testid=failure-details]') as HTMLButtonElement).click();
-    await until(() => note.querySelector('[data-testid=failure-detail]') !== null, 'the failure detail');
-    expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toContain('the agent refused 5 writes');
-    expect(container.querySelector('[data-testid=sync-unknown]')).toBeNull();
-  });
-
-  test('a run that failed opens with its failure and no list', async () => {
-    stubFetch([]);
-    const container = into(bar(status(), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    rendered!.render(bar(status({ fill: { state: 'failed', startedAt: '2026-10-27T09:10:00.000Z', finishedAt: '2026-10-27T09:12:00.000Z', code: 'worker-exit', message: 'the fill worker ended with exit code 2' } }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync-result]') !== null, 'the failed result');
-    const note = container.querySelector('[data-testid=sync-failed]')!;
-    expect(note.querySelector('[data-testid=failure-note]')!.getAttribute('data-code')).toBe('worker-exit');
-    (note.querySelector('[data-testid=failure-details]') as HTMLButtonElement).click();
-    await until(() => note.querySelector('[data-testid=failure-detail]') !== null, 'the failure detail');
-    expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toContain('the fill worker ended with exit code 2');
-    expect(container.querySelector('[data-testid=sync-changed]')).toBeNull();
-    expect(container.querySelector('[data-testid=sync-nothing]')).toBeNull();
-  });
-});
-
 describe('the badge and the panel it opens', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
@@ -936,6 +826,20 @@ describe('the badge and the panel it opens', () => {
         { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
       ],
     },
+  });
+
+  test('the top bar carries one fill button with the status dot, not a second Sync button beside it', async () => {
+    await setWikiLanguage('en');
+    stubFetch([]);
+    const line = into(createElement(Toolbar, { status: status(), route: { name: 'home' }, menu: null, refresh: () => undefined, products: [], current: 'shop' }));
+    await until(() => line.querySelector('[data-testid=fill-chip]') !== null, 'the fill button');
+    expect(line.querySelectorAll('[data-testid=fill-chip]').length).toBe(1);
+    expect(line.querySelector('[data-testid=sync]')).toBeNull();
+    const dot = line.querySelector('[data-testid=fill-chip] [data-testid=fill-dot]');
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute('title')).toContain('Files');
+    expect(dot!.getAttribute('title')).toContain('Commits');
+    expect(localeKeyIn(renderedText(line))).toBeUndefined();
   });
 
   test('a product with a repository and no fill yet offers Fill in the top bar, and its press opens the panel', async () => {
@@ -982,12 +886,28 @@ describe('the badge and the panel it opens', () => {
     expect(panel.querySelector('[data-testid=fill-side-sections]')).not.toBeNull();
     expect(panel.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
     expect(panel.querySelector('[data-testid=fill-side-catalogue]')).not.toBeNull();
+    expect(localeKeyIn(renderedText(panel))).toBeUndefined();
     // The languages are reachable and offered: both radios are enabled with nothing running.
     expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([false, false]);
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await until(() => container.querySelector('[data-testid=fill-side-panel]') === null, 'the panel to close');
     expect(document.activeElement).toBe(chip);
     expect(chip.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('after a finished run the panel lists the pages the run changed, as links', async () => {
+    stubFetch([]);
+    const changed = status({ fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }, { id: 'domain:payment', title: 'Payment' }] } });
+    const container = into(createElement(FillMenu, { status: changed, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    (container.querySelector('[data-testid=fill-chip]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=fill-side-changed]') !== null, 'the changed pages');
+    const links = [...container.querySelectorAll('[data-testid=fill-side-changed] a')].map((anchor) => [anchor.textContent, anchor.getAttribute('href')]);
+    expect(links).toEqual([
+      ['a.ts', appPath(`/e/${encodeURIComponent('code.file:src/a.ts')}`)],
+      ['Payment', appPath(`/e/${encodeURIComponent('domain:payment')}`)],
+    ]);
+    expect(container.querySelector('[data-testid=fill-side-changed]')!.textContent).toContain('Changed pages: 2');
   });
 
   test('the panel comes from the right over the page, full height, and scrolls its own words', async () => {

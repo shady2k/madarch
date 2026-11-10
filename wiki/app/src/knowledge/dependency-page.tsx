@@ -62,6 +62,18 @@ export function graphLayers(kinds: readonly CatalogKindView[]): { nodes: GraphNo
   return { nodes, layers, cycles: [...cycles].sort() };
 }
 
+/**
+ * The catalogue split for the page: only the kinds that take part in a dependency — one that declares `depends-on`, or
+ * one another kind needs — are laid out as a graph. The rest are independent and listed by section below (madarch-stm0.6,
+ * the owner 2026-11-10: 510 boxes in one column are a wall a reader scrolls past).
+ */
+export function dependencySplit(kinds: readonly CatalogKindView[]): { nodes: GraphNode[]; layers: string[][]; cycles: string[]; independent: CatalogKindView[] } {
+  const needed = new Set(kinds.flatMap((kind) => kind.dependsOn ?? []));
+  const participating = kinds.filter((kind) => (kind.dependsOn ?? []).length > 0 || needed.has(kind.kind));
+  const shown = new Set(participating.map((kind) => kind.kind));
+  return { ...graphLayers(participating), independent: kinds.filter((kind) => !shown.has(kind.kind)) };
+}
+
 /** What one entity's fill shows on the graph: the run's own step where it has one, the graph's outcome otherwise. */
 export type GraphState = 'waiting' | 'running' | 'done' | 'partial' | 'failed' | 'never';
 
@@ -108,7 +120,19 @@ export function DependencyPage({ version, status }: { version: number; status: W
   if (data === null) return <PageSkeleton testId="dependencies-loading" rows />;
   const filling = status.fill.state === 'running';
   const progress = status.fill.progress;
-  const { nodes, layers, cycles } = graphLayers(data.kinds);
+  const { nodes, layers, cycles, independent } = dependencySplit(data.kinds);
+  const stateOrder: GraphState[] = ['done', 'partial', 'never', 'waiting', 'running', 'failed'];
+  const countWords = (kinds: readonly CatalogKindView[]): string => {
+    const counts = new Map<GraphState, number>();
+    for (const kind of kinds) counts.set(graphStateOf(kind, filling), (counts.get(graphStateOf(kind, filling)) ?? 0) + 1);
+    return stateOrder.filter((state) => (counts.get(state) ?? 0) > 0)
+      .map((state) => t(`knowledge.dependencies.stateCounts.${state}`, { count: counts.get(state) ?? 0 }))
+      .join(' · ');
+  };
+  const sectionLabel = (area: string): string => area === '' ? t('knowledge.groupOther') : (data.groups.find((group) => group.group === area)?.labels[language] ?? area);
+  const independentSections = [...new Set(independent.map((kind) => kind.area))]
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+    .map((area) => ({ area, label: sectionLabel(area), kinds: independent.filter((kind) => kind.area === area) }));
   const place = new Map(nodes.map((node) => {
     const column = layers[node.depth]!;
     return [node.kind.kind, { x: node.depth * COLUMN + 8, y: column.indexOf(node.kind.kind) * (BOX_HEIGHT + GAP) + 8 }] as const;
@@ -122,6 +146,7 @@ export function DependencyPage({ version, status }: { version: number; status: W
         <h1>{t('knowledge.dependencies.title')}</h1>
         <p className="mb-1">{t('knowledge.dependencies.intro')}</p>
         <p className="mt-0 text-small text-muted" data-testid="dependencies-total">{t('knowledge.dependencies.count', { kinds: nodes.length, layers: layers.length })} <KLink href={addressOfCatalogue()} testId="dependencies-catalogue">{t('knowledge.dependencies.catalogue')}</KLink></p>
+        {independent.length > 0 && <p className="m-0 text-small text-muted" data-testid="dependencies-independent-note">{t('knowledge.dependencies.independentNote', { count: independent.length })}</p>}
         {cycles.length > 0 && <p className="m-0 text-small" role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</p>}
         {filling && (
           <p className="m-0 mt-2 text-small" data-testid="dependencies-progress">
@@ -175,6 +200,28 @@ export function DependencyPage({ version, status }: { version: number; status: W
           ))}
         </div>
       </div>
+      {independentSections.length > 0 && (
+        <section className="mt-6" data-testid="dependencies-independent">
+          <h2 className="mb-2 mt-0 text-[15px] font-semibold text-ink">{t('knowledge.dependencies.independent')}</h2>
+          {independentSections.map((section) => (
+            <details key={section.area} className="mb-1 border-b border-line pb-1 last:border-b-0" data-testid="dependencies-independent-section" data-area={section.area}>
+              <summary className="cursor-pointer py-1 text-small">
+                <span className="font-medium text-ink">{section.label}</span>
+                <span className="text-muted"> · {t('knowledge.catalogueKinds', { count: section.kinds.length })} · </span>
+                <span className="text-muted" data-testid="dependencies-independent-counts">{countWords(section.kinds)}</span>
+              </summary>
+              <ul className="m-0 list-none p-0 pl-4 text-small" data-testid="dependencies-independent-list">
+                {section.kinds.map((kind) => (
+                  <li key={kind.kind} className="flex items-baseline justify-between gap-2 py-0.5" data-kind={kind.kind} data-state={graphStateOf(kind, filling)}>
+                    <KLink href={addressOfKind(kind.kind)} className="truncate text-ink">{name(kind)}</KLink>
+                    <span className="shrink-0 text-muted">{t(`knowledge.catalogueState.${graphStateOf(kind, filling)}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ))}
+        </section>
+      )}
     </section>
   );
 }

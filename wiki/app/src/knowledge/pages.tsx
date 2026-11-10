@@ -23,6 +23,7 @@ import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
+import { fillWithOf } from './producers.js';
 import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
@@ -687,10 +688,16 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   /** The kind's name in the reader's language; a language the declaration leaves out is marked, never filled with English. */
   const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
   const translated = (kind: CatalogKindView): boolean => kind.labels?.[language] !== undefined;
-  // Who fills a kind, in the manifest's own words: the plugins its fields bind, or the agent (madarch-stm0.6).
-  const producerWords = (kind: CatalogKindView): string => (kind.plugins ?? []).length > 0
-    ? t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') })
-    : t('knowledge.catalogueByAgent');
+  // Who fills a kind, in the manifest's own words: the plugins its fields bind, the built-in pass that reads it, the
+  // person who wrote it, or the general agent plugin (madarch-stm0.6, the owner 2026-11-10).
+  const producerWords = (kind: CatalogKindView): string => {
+    if ((kind.plugins ?? []).length > 0) return t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') });
+    if (kind.producer === 'extract') return t('knowledge.catalogueStage.extract');
+    if (kind.producer === 'documents') return t('knowledge.catalogueStage.documents');
+    if (kind.producer === 'history') return t('knowledge.catalogueStage.history');
+    if (fillWithOf(kind) === 'person') return t('knowledge.catalogueByPerson');
+    return t('knowledge.catalogueByAgent');
+  };
   const stateWords = (kind: CatalogKindView): string => t(`knowledge.catalogueState.${kind.state}`);
   /** Whether a kind may be unchecked: only when no checked kind needs it. */
   const needed = (kind: string): string | undefined => added.get(kind);
@@ -750,9 +757,9 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
               </TableCell>
               <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted" data-testid="catalogue-no-description">{t('knowledge.catalogueNoTranslation')}</span>}</TableCell>
               <TableCell className="align-top" data-testid="catalogue-count">{kind.count}{kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}</TableCell>
-              <TableCell className="align-top" data-testid="catalogue-stage" data-stage={(kind.plugins ?? []).length > 0 ? 'plugin' : 'agent'}>
+              <TableCell className="align-top" data-testid="catalogue-stage" data-stage={fillWithOf(kind)}>
                 {producerWords(kind)}
-                {on && agent === null && (kind.plugins ?? []).length === 0 && <span className="block text-small text-muted" data-testid="catalogue-waiting">{t('knowledge.catalogueWaitingForAgent')}</span>}
+                {on && agent === null && fillWithOf(kind) === 'agent' && <span className="block text-small text-muted" data-testid="catalogue-waiting">{t('knowledge.catalogueWaitingForAgent')}</span>}
               </TableCell>
               <TableCell className="align-top" data-testid="catalogue-states">{badge(kind)}</TableCell>
             </TableRow>
@@ -773,14 +780,14 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   };
   const agentChosen = agents?.find((entry) => entry.id === agent);
   const cost = estimateOf(all, chosen, added);
-  // How many selected entities have no plugin of their own and therefore wait for an agent (the owner, 2026-11-10).
-  const waiting = all.filter((kind) => (chosen.has(kind.kind) || added.has(kind.kind)) && (kind.plugins ?? []).length === 0).length;
+  // How many selected entities no own producer fills and therefore wait for an agent (the owner, 2026-11-10).
+  const waiting = all.filter((kind) => (chosen.has(kind.kind) || added.has(kind.kind)) && fillWithOf(kind) === 'agent').length;
   return (
     <section data-testid="catalogue-page" className="pb-40">
       <header className="mb-6">
         <h1>{t('knowledge.catalogue')}</h1>
         <p className="mb-1">{t('knowledge.catalogueIntro')}</p>
-        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueEntities', { count: entities })} {t('knowledge.catalogueKinds', { count: all.length })}</p>
+        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: entities })}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="catalogue-checks">
           <Button variant="default" size="default" data-testid="catalogue-check-all" onClick={() => setMany(all.map((kind) => kind.kind), false)}>{t('knowledge.catalogueCheckAll')}</Button>
           <Button variant="default" size="default" data-testid="catalogue-uncheck-all" onClick={() => { setChecked(new Set()); setFailure(null); }}>{t('knowledge.catalogueUncheckAll')}</Button>
@@ -826,14 +833,14 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
           </p>
           <label className="grid gap-1 text-small" htmlFor="catalogue-agent">
             <span className="text-secondary">{t('knowledge.catalogueAgent')}</span>
-            <select id="catalogue-agent" data-testid="catalogue-agent" className="w-36 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" value={agent ?? ''} onChange={(event) => setAgent(event.target.value === '' ? null : event.target.value)}>
+            <select id="catalogue-agent" data-testid="catalogue-agent" className="w-56 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" value={agent ?? ''} onChange={(event) => setAgent(event.target.value === '' ? null : event.target.value)}>
               <option value="">{t('knowledge.catalogueAgentNone')}</option>
               {(agents ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
             </select>
           </label>
           <label className="grid gap-1 text-small" htmlFor="catalogue-cap">
             <span className="text-secondary">{t('knowledge.catalogueTokenCap')}</span>
-            <input id="catalogue-cap" data-testid="catalogue-token-cap" className="w-24 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" inputMode="numeric" placeholder={t('knowledge.catalogueTokenCapNone')} value={cap} onChange={(event) => setCap(event.target.value.replace(/[^0-9]/gu, ''))} />
+            <input id="catalogue-cap" data-testid="catalogue-token-cap" className="w-36 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" inputMode="numeric" placeholder={t('knowledge.catalogueTokenCapNone')} value={cap} onChange={(event) => setCap(event.target.value.replace(/[^0-9]/gu, ''))} />
           </label>
           <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" data-testid="catalogue-fill" disabled={busy || chosen.size === 0} onClick={fill}>{busy ? t('knowledge.catalogueFilling') : t('knowledge.catalogueFillSelected')}</Button>
           <Button variant="default" size="default" data-testid="catalogue-save" disabled={busy} onClick={save}>{t('knowledge.catalogueSave')}</Button>

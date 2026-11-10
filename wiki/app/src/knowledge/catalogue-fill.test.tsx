@@ -10,6 +10,9 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { CataloguePage, addedByDependency, estimateOf } from './pages.js';
+import { panelSections } from './fill-panel.js';
+import { fillWithOf } from './producers.js';
+import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import type { CatalogView, FillSelectionView } from './types.js';
 
 beforeAll(async () => {
@@ -88,6 +91,11 @@ describe('the catalogue page\'s selective fill', () => {
     expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.textContent).toBe('Never filled');
     // A product whose selection was never written starts with every entity checked (the owner, 2026-11-10).
     expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('3 selected');
+    // The catalogue entry is an entity, an instance is a record (the owner, 2026-11-10), and no raw key reached the page.
+    expect(page.querySelector('[data-testid="catalogue-total"]')!.textContent).toBe('3 entities, 15 records');
+    expect(page.querySelector('thead')!.textContent).toContain('Entity');
+    expect(page.querySelector('[data-testid="catalogue-intro"]')?.textContent ?? page.querySelector('header p')!.textContent).toContain('Every entity');
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
     expect(page.querySelector('[data-testid="catalogue-added-count"]')).toBeNull();
     // Nothing checked is the person's first thought; then checking the term kind checks its file kind too.
     (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
@@ -181,6 +189,21 @@ describe('the catalogue page\'s selective fill', () => {
     await until(() => page.querySelector('[data-testid="catalogue-selected-count"]') !== null, 'the panel');
     expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('0 selected');
     expect((page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).checked).toBe(false);
+  });
+
+  test('the panel counts the product our own producers as own: plugins and the built-in passes, not only plugins', () => {
+    const kinds = [
+      { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], producer: 'extract' as const, state: 'filled' as const, estimate: { volume: 12, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+      { kind: 'code.commit', area: 'code', subgroup: '', count: 72, page: true, filled: true, producer: 'history' as const, state: 'filled' as const, estimate: { volume: 72, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+      { kind: 'doc.term', area: 'code', subgroup: '', count: 3, page: true, filled: true, plugins: ['glossary'], state: 'partial' as const, estimate: { volume: 3, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+      { kind: 'doc.faq', area: 'code', subgroup: '', count: 0, page: true, filled: false, state: 'never' as const, estimate: { volume: 0, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+      { kind: 'doc.note', area: 'code', subgroup: '', count: 1, page: true, filled: false, producer: 'person' as const, state: 'partial' as const, estimate: { volume: 1, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+    ];
+    expect(kinds.map(fillWithOf)).toEqual(['own', 'own', 'own', 'agent', 'person']);
+    const sections = panelSections({ product: { name: 'shop', id: 'p' }, language: 'en', groups: [], kinds, findings: [] }, 'en');
+    expect(sections).toHaveLength(1);
+    expect([sections[0]!.own, sections[0]!.agent, sections[0]!.person]).toEqual([3, 1, 1]);
+    expect(sections[0]!.count).toBe(88);
   });
 
   test('the dependency closure and the estimate are a function of the kinds alone', () => {

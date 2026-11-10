@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -30,7 +30,7 @@ import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfEntity, addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -360,11 +360,11 @@ function pagesOf(status: WikiStatus): number {
 }
 
 /**
- * The fill's state in the toolbar: while it runs, how far it is; after it, a quiet line saying when it ended and how many
- * pages the wiki holds. The badge opens the one popover of the run (madarch-m38l.23): the whole sentence, what is being
- * written now, the way to the fill page, and the language the pages are written in. The popover carries no refresh of
- * its own: the top bar's «Синхронизировать» is the wiki's one refresh (madarch-u3vw.2), and choosing the pages' language
- * is the one request left here — it starts the run that writes them in it.
+ * The fill's state in the toolbar and the wiki's one fill control (madarch-stm0.6): the badge carries the status dot
+ * and opens the panel from the right, where the sections, the agent and the cap are chosen and the fill is pressed. The
+ * badge has no second Sync button beside it; while a run works it says how far it is, and after it, when it ended and how
+ * many pages the wiki holds. Choosing the pages' language stays the one request of the badge itself — it starts the run
+ * that writes them in it.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
@@ -575,80 +575,6 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   );
 }
 
-/**
- * «Синхронизировать» in the top bar (madarch-u3vw2): the wiki's one refresh, the fill, pressed without opening the fill
- * menu. When the run it started ends, the pages it changed open by themselves, each one a link to its page; a run that
- * changed no page says so in one line, and one that failed says why. The button is spent while a run is under way.
- */
-function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
-  const { t } = useTranslation();
-  const [starting, setStarting] = useState(false);
-  const [pressed, setPressed] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-  const fill = status.fill;
-  const writer = status.writer;
-  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
-  // The press remembers the run that was on record when it was made: the first end that is not that run is this one.
-  const ended = (fill.state === 'done' || fill.state === 'failed') && !busy && pressed !== null && (fill.finishedAt ?? '') !== pressed;
-  useEffect(() => {
-    if (!ended) return;
-    setPressed(null);
-    setOpen(true);
-  }, [ended]);
-  if (status.own === true || status.manifest !== 'ok' || !status.filled || status.repositories.length === 0) return null;
-  const press = (): void => {
-    setStarting(true);
-    setRefused(null);
-    setOpen(false);
-    const before = fill.finishedAt ?? '';
-    startFill(status.chosenAgent?.id ?? null).then(
-      () => { setStarting(false); setPressed(before); refresh(); },
-      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
-  const changed = fill.changed;
-  return (
-    <span className="sync-control relative flex items-center">
-      {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
-      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={fillDotTitle(status, t)} data-testid="sync">
-        <FillDot status={status} />
-        <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />
-        <span className="sync-words">{busy ? t('knowledge.syncRunning') : t('knowledge.sync')}</span>
-      </Button>
-      {open && (
-        <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] wiki-modal-layer w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-small font-medium text-ink">{t('knowledge.syncResult')}</span>
-            <button type="button" className="cursor-pointer rounded p-1 text-muted hover:text-ink" aria-label={t('knowledge.syncClose')} data-testid="sync-close" onClick={() => setOpen(false)}>
-              <XIcon aria-hidden="true" className="size-4" />
-            </button>
-          </div>
-          {fill.state === 'failed' ? (
-            <div className="text-small" data-testid="sync-failed"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>
-          ) : writer.state === 'failed' ? (
-            <div className="text-small" data-testid="sync-writer-failed"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>
-          ) : changed === undefined ? (
-            <p className="m-0 text-small text-muted" data-testid="sync-unknown">{t('knowledge.syncUnknown')}</p>
-          ) : changed.length === 0 ? (
-            <p className="m-0 text-small" data-testid="sync-nothing">{t('knowledge.syncNothing')}</p>
-          ) : (
-            <>
-              <p className="mb-1 mt-0 text-small text-muted" data-testid="sync-count">{t('knowledge.syncChanged', { count: changed.length })}</p>
-              <ul className="m-0 max-h-[50vh] list-none overflow-auto p-0 text-small" data-testid="sync-changed">
-                {changed.map((page) => (
-                  <li key={page.id} className="py-0.5"><KLink href={addressOfEntity(page.id)} className="text-ink hover:underline">{page.title}</KLink></li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-      {refused !== null && <p className="absolute right-0 top-[calc(100%+8px)] wiki-modal-layer m-0 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-2 text-small shadow-lg" role="alert" data-testid="sync-refused">{refused}</p>}
-    </span>
-  );
-}
-
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
@@ -667,7 +593,6 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
           </KLink>
         )}
         {menu}
-        <SyncButton status={status} refresh={refresh} />
         {status.own !== true && <FillMenu status={status} refresh={refresh} />}
         <RoleMenu />
         <HelpLink products={products} current={current} />

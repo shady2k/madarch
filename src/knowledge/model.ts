@@ -377,6 +377,12 @@ export interface CatalogKindView {
   page: boolean;
   /** What produces the kind today, from its declaration; absent when nothing does. */
   producer?: KindProducer;
+  /**
+   * Who fills the kind (madarch-stm0.6): `own` when a producer the product itself runs does it — a plugin its fields
+   * bind, or the built-in code, documents or history pass — `person` when a page is written by a person, and `agent`
+   * for everything else, which the general agent plugin fills.
+   */
+  fillWith?: 'own' | 'agent' | 'person';
   /** Whether a stage of the fill produces the kind today: `producer` is not a person and exists. */
   filled: boolean;
   /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */

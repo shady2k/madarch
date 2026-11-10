@@ -96,6 +96,10 @@ export async function catalogKinds(ctx: RenderContext, turns: {
   const row = (kind: string, area: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
     const producer = producerOf(decl, entry, extractorMark);
     const plugins = pluginsOf(decl);
+    // Who fills the kind: a plugin the declaration binds or a built-in pass the product runs is its own producer; a
+    // person's page is the person's; everything else is the general agent plugin's (madarch-stm0.6).
+    const ownProducer = plugins.length > 0 || producer === 'extract' || producer === 'documents' || producer === 'history';
+    const fillWith: CatalogKindView['fillWith'] = ownProducer ? 'own' : producer === 'person' ? 'person' : 'agent';
     const count = numbers.count(kind, decl?.source);
     const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
     const turn = turns.turnOf?.(kind);
@@ -107,6 +111,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       ...(numbers.statements.has(kind) ? { statements: numbers.statements.get(kind)! } : {}),
       page,
       ...(producer === undefined ? {} : { producer }),
+      fillWith,
       filled: producer !== undefined && producer !== 'person',
       ...(plugins.length === 0 ? {} : { plugins }),
       ...(dependsOn.length === 0 ? {} : { dependsOn }),

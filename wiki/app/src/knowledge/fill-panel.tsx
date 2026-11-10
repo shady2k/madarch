@@ -15,7 +15,8 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { getAgents, getCatalog, getFillSelection, fillSelected } from './api.js';
 import { KLink } from './blocks.js';
-import { WIKI_CATALOGUE, WIKI_FILL } from './routes.js';
+import { fillWithOf } from './producers.js';
+import { addressOfEntity, WIKI_CATALOGUE, WIKI_FILL } from './routes.js';
 import type { AgentOffer, CatalogKindView, CatalogView, FillSelectionView, WikiStatus } from './types.js';
 
 /** One section of the catalogue as the panel lists it: its name, its kinds and what they add up to. */
@@ -24,8 +25,9 @@ export interface PanelSection {
   readonly name: string;
   readonly kinds: readonly CatalogKindView[];
   readonly count: number;
-  readonly plugins: number;
+  readonly own: number;
   readonly agent: number;
+  readonly person: number;
   readonly volume: number;
   readonly tokens: number | null;
   readonly seconds: number | null;
@@ -33,8 +35,9 @@ export interface PanelSection {
 }
 
 /**
- * The catalogue's sections with what each one adds up to: entities, how many of them their own plugins fill and how many
- * the agent does, the volume the graph measures and the cost where every kind of the section declares a per-unit figure.
+ * The catalogue's sections with what each one adds up to: entities, how many of them their own producers fill, how many
+ * the general agent plugin does and how many a person does, the volume the graph measures and the cost where every kind
+ * of the section declares a per-unit figure.
  * The grouping is the catalogue's own (its groups, its areas and its subgroups), never a list of kinds held here.
  */
 export function panelSections(catalog: CatalogView, language: string): PanelSection[] {
@@ -58,8 +61,9 @@ export function panelSections(catalog: CatalogView, language: string): PanelSect
       name: known.has(area) ? label(area) : area,
       kinds,
       count: kinds.reduce((sum, kind) => sum + kind.count, 0),
-      plugins: kinds.filter((kind) => (kind.plugins ?? []).length > 0).length,
-      agent: kinds.filter((kind) => (kind.plugins ?? []).length === 0).length,
+      own: kinds.filter((kind) => fillWithOf(kind) === 'own').length,
+      agent: kinds.filter((kind) => fillWithOf(kind) === 'agent').length,
+      person: kinds.filter((kind) => fillWithOf(kind) === 'person').length,
       volume: kinds.reduce((sum, kind) => sum + (kind.estimate.volume ?? 0), 0),
       tokens: unknown > 0 ? null : tokens,
       seconds: unknown > 0 ? null : seconds,
@@ -161,6 +165,16 @@ export function FillSidePanel({ status, refresh, onClose, id, extra }: { status:
             <p className="m-0 mt-1 text-small text-muted">{t('knowledge.fillPanel.closingKeeps')}</p>
           </section>
         )}
+        {!running && status.fill.state === 'done' && (status.fill.changed?.length ?? 0) > 0 && (
+          <section className="mt-3 rounded-[var(--radius-card)] border border-line p-3" data-testid="fill-side-changed">
+            <p className="m-0 font-medium text-ink">{t('knowledge.fillPanel.changed', { count: status.fill.changed!.length })}</p>
+            <ul className="m-0 mt-1 max-h-48 list-none overflow-auto p-0 text-small">
+              {status.fill.changed!.map((page) => (
+                <li key={page.id} className="py-0.5"><KLink href={addressOfEntity(page.id)} className="text-ink hover:underline">{page.title}</KLink></li>
+              ))}
+            </ul>
+          </section>
+        )}
         {reading && <p className="mt-3 text-muted" data-testid="fill-side-loading">{t('knowledge.loading')}</p>}
         {!reading && (
           <section className="mt-3" data-testid="fill-side-sections">
@@ -182,7 +196,8 @@ export function FillSidePanel({ status, refresh, onClose, id, extra }: { status:
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium text-ink">{section.name} <span className="text-small font-normal text-muted">{section.count}</span></span>
-                      <span className="block text-small text-muted" data-testid="fill-side-who">{t('knowledge.fillPanel.who', { plugins: section.plugins, agent: section.agent })}</span>
+                      <span className="block text-small text-muted" data-testid="fill-side-who">{t('knowledge.fillPanel.who', { own: section.own, agent: section.agent })}</span>
+                      {section.person > 0 && <span className="block text-small text-muted" data-testid="fill-side-person">{t('knowledge.fillPanel.whoPerson', { count: section.person })}</span>}
                       <span className="block text-small text-muted" data-testid="fill-side-estimate">
                         {section.tokens === null ? t('knowledge.fillPanel.unknown') : t('knowledge.fillPanel.cost', { tokens: section.tokens, seconds: Math.round(section.seconds ?? 0) })}
                       </span>
@@ -207,7 +222,7 @@ export function FillSidePanel({ status, refresh, onClose, id, extra }: { status:
           </label>
           <label className="grid gap-1" htmlFor="fill-side-cap">
             <span className="text-secondary">{t('knowledge.fillPanel.cap')}</span>
-            <input id="fill-side-cap" data-testid="fill-side-cap" className="w-32 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" inputMode="numeric" placeholder={t('knowledge.fillPanel.noCap')} value={cap} onChange={(event) => setCap(event.target.value.replace(/[^0-9]/gu, ''))} />
+            <input id="fill-side-cap" data-testid="fill-side-cap" className="w-40 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" inputMode="numeric" placeholder={t('knowledge.fillPanel.noCap')} value={cap} onChange={(event) => setCap(event.target.value.replace(/[^0-9]/gu, ''))} />
           </label>
           <p className="m-0 text-small text-muted">{t('knowledge.fillPanel.capNote')}</p>
         </section>

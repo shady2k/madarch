@@ -182,6 +182,8 @@ export type CatalogKindView = {
   statements?: number;
   page: boolean;
   producer?: KindProducer;
+  /** Who fills the kind: its own producer (plugin or built-in pass), a person, or the general agent plugin. */
+  fillWith?: 'own' | 'agent' | 'person';
   filled: boolean;
   /** The plugins the manifest binds this kind's fields to: the fillers that need no model. */
   plugins?: string[];

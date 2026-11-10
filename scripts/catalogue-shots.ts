@@ -202,6 +202,23 @@ try {
           panel: panel === undefined || panel === null ? null : { left: Math.round(panel.left), right: Math.round(panel.right), width: Math.round(panel.width), top: Math.round(panel.top), bottom: Math.round(panel.bottom), height: Math.round(panel.height) },
           fill: fill?.textContent ?? null,
           rows,
+          fit: (() => {
+            const ctx = document.createElement('canvas').getContext('2d');
+            const measure = (selector: string, text: string): number | null => {
+              const node = document.querySelector<HTMLElement>(selector);
+              if (node === null || ctx === null) return null;
+              ctx.font = getComputedStyle(node).font;
+              return Math.ceil(ctx.measureText(text).width);
+            };
+            const agent = document.querySelector<HTMLSelectElement>('[data-testid="catalogue-agent"]');
+            const cap = document.querySelector<HTMLInputElement>('[data-testid="catalogue-token-cap"]');
+            return {
+              agentWidth: agent?.clientWidth ?? 0,
+              agentText: agent === null || agent === undefined ? 0 : measure('[data-testid="catalogue-agent"]', agent.options[agent.selectedIndex]?.text ?? ''),
+              capWidth: cap?.clientWidth ?? 0,
+              capText: cap === null || cap === undefined ? 0 : measure('[data-testid="catalogue-token-cap"]', cap.getAttribute('placeholder') ?? ''),
+            };
+          })(),
         };
       });
       // The top bar's fill panel is the second surface: it opens from the right over the same page.
@@ -228,11 +245,33 @@ try {
             names: [...document.querySelectorAll('[data-testid="fill-side-section"]')].slice(0, 6).map((section) => section.querySelector('span')?.textContent?.replace(/\s+/gu, ' ').trim() ?? ''),
             panelText: (document.querySelector('[data-testid="fill-side-panel"]')?.innerText ?? '').replace(/\s+/gu, ' ').trim().slice(0, 400),
             russian: /[А-Яа-я]/u.test(document.querySelector('[data-testid="fill-side-panel"]')?.textContent ?? ''),
+            fit: (() => {
+              const ctx = document.createElement('canvas').getContext('2d');
+              const measure = (selector: string, text: string): number | null => {
+                const node = document.querySelector<HTMLElement>(selector);
+                if (node === null || ctx === null) return null;
+                ctx.font = getComputedStyle(node).font;
+                return Math.ceil(ctx.measureText(text).width);
+              };
+              const agent = document.querySelector<HTMLSelectElement>('[data-testid="fill-side-agent"]');
+              const cap = document.querySelector<HTMLInputElement>('[data-testid="fill-side-cap"]');
+              return {
+                agentWidth: agent?.clientWidth ?? 0,
+                agentText: agent === null || agent === undefined ? 0 : measure('[data-testid="fill-side-agent"]', agent.options[agent.selectedIndex]?.text ?? ''),
+                capWidth: cap?.clientWidth ?? 0,
+                capText: cap === null || cap === undefined ? 0 : measure('[data-testid="fill-side-cap"]', cap.getAttribute('placeholder') ?? ''),
+              };
+            })(),
           };
         });
+        const panelText = await page.evaluate(() => {
+          const part = (title: string, selector: string): string => `## ${title}\n${(document.querySelector(selector)?.innerText ?? '(absent)').trim()}`;
+          return [part('panel', '[data-testid="fill-side-panel"]'), part('page', '[data-testid="catalogue-page"]')].join('\n\n');
+        });
+        writeFileSync(join(out, `fill-panel-${String(width)}.txt`), `${panelText}\n`);
         const panelInk = inkOf(panelShot);
         console.log(`fill panel at ${String(width)} px: ${JSON.stringify({ ...panelSize, pixels: panelInk })} → ${panelFile}`);
-        if (panelSize.document > panelSize.viewport || !panelSize.russian || panelSize.sections < 2 || panelInk.distinct < 20) {
+        if (panelSize.document > panelSize.viewport || !panelSize.russian || panelSize.sections < 2 || panelSize.fit.agentText + 30 > panelSize.fit.agentWidth || panelSize.fit.capText + 24 > panelSize.fit.capWidth || panelInk.distinct < 20) {
           console.error(`the fill panel's shot at ${String(width)} px is not the panel it should be: ${JSON.stringify({ ...panelSize, pixels: panelInk })}`);
           process.exitCode = 1;
         }
@@ -241,9 +280,14 @@ try {
       const file = join(out, `catalogue-${String(width)}.png`);
       const shot = await page.screenshot({ fullPage: false });
       writeFileSync(file, shot);
+      const catalogueText = await page.evaluate(() => {
+        const part = (title: string, selector: string): string => `## ${title}\n${(document.querySelector(selector)?.innerText ?? '(absent)').trim()}`;
+        return [part('top bar', '[data-testid="shell-fixed"]'), part('page', '[data-testid="catalogue-page"]'), part('panel', '[data-testid="catalogue-panel"]')].join('\n\n');
+      });
+      writeFileSync(join(out, `catalogue-${String(width)}.txt`), `${catalogueText}\n`);
       const ink = inkOf(shot);
       console.log(`catalogue at ${String(width)} px: ${JSON.stringify({ ...sizes, ...covered, pixels: ink })} → ${file}`);
-      if (covered.roleCard || !covered.headingVisible || !covered.russian || covered.oldWords || covered.stages.length < 1 || covered.visibleRows < 1 || !covered.bottomIsPanel || ink.distinct < 20 || ink.inkFraction < 0.01) {
+      if (covered.roleCard || !covered.headingVisible || !covered.russian || covered.oldWords || covered.stages.length < 1 || covered.visibleRows < 1 || !covered.bottomIsPanel || sizes.fit.agentText + 30 > sizes.fit.agentWidth || sizes.fit.capText + 24 > sizes.fit.capWidth || ink.distinct < 20 || ink.inkFraction < 0.01) {
         console.error(`the shot at ${String(width)} px is not the catalogue page it should be: ${JSON.stringify(covered)} ${JSON.stringify(ink)}`);
         process.exitCode = 1;
       }
@@ -269,6 +313,11 @@ try {
       const graphShot = await graphPage.screenshot({ fullPage: false });
       const graphFile = join(out, `dependencies-${String(width)}.png`);
       writeFileSync(graphFile, graphShot);
+      const graphText = await graphPage.evaluate(() => {
+        const part = (title: string, selector: string): string => `## ${title}\n${(document.querySelector(selector)?.innerText ?? '(absent)').trim()}`;
+        return [part('top bar', '[data-testid="shell-fixed"]'), part('page', '[data-testid="dependency-page"]')].join('\n\n');
+      });
+      writeFileSync(join(out, `dependencies-${String(width)}.txt`), `${graphText}\n`);
       const graphSize = await graphPage.evaluate(() => {
         const frame = document.querySelector('[data-testid="dependencies-graph"]');
         const heading = document.querySelector('[data-testid="dependency-page"] h1')?.getBoundingClientRect();
@@ -281,6 +330,8 @@ try {
           roleCard: document.querySelector('[data-testid="role-card"]') !== null,
           headingVisible: heading !== undefined && heading !== null && heading.top >= 0 && heading.bottom <= window.innerHeight && heading.height > 0,
           nodes: nodes.length,
+          independentSections: document.querySelectorAll('[data-testid="dependencies-independent-section"]').length,
+          independentOpen: [...document.querySelectorAll('[data-testid="dependencies-independent-section"]')].filter((node) => (node as HTMLDetailsElement).open).length,
           states,
           visible: nodes.filter((node) => { const rect = node.getBoundingClientRect(); return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth; }).slice(0, 10).map((node) => `${node.getAttribute('data-kind')}:${node.getAttribute('data-state')}`),
           total: document.querySelector('[data-testid="dependencies-total"]')?.textContent ?? null,
@@ -291,7 +342,7 @@ try {
       });
       const graphInk = inkOf(graphShot);
       console.log(`dependencies at ${String(width)} px: ${JSON.stringify({ ...graphSize, pixels: graphInk })} → ${graphFile}`);
-      if (graphSize.document > graphSize.viewport || graphSize.roleCard || !graphSize.headingVisible || !graphSize.russian || graphSize.nodes < 3 || Object.keys(graphSize.states).length < 1 || graphInk.distinct < 20 || graphInk.inkFraction < 0.01) {
+      if (graphSize.document > graphSize.viewport || graphSize.roleCard || !graphSize.headingVisible || !graphSize.russian || graphSize.nodes < 3 || graphSize.independentSections < 1 || graphSize.independentOpen > 0 || Object.keys(graphSize.states).length < 1 || graphInk.distinct < 20 || graphInk.inkFraction < 0.01) {
         console.error(`the dependency page's shot at ${String(width)} px is not the graph it should be: ${JSON.stringify({ ...graphSize, pixels: graphInk })}`);
         process.exitCode = 1;
       }
