@@ -171,7 +171,7 @@ async function serve(product: string): Promise<{ pid: number; url: string; child
   const url = `http://127.0.0.1:${String(port)}`;
   const deadline = Date.now() + 60_000;
   for (;;) {
-    const answered = await fetch(`${url}/api/k/status`).then((response) => response.ok, () => false);
+    const answered = await fetch(`${url}/api/status`).then((response) => response.ok, () => false);
     if (answered) break;
     if (Date.now() > deadline) throw new Error(`the server printed no answer at ${url}; it said: ${await new Response(server.stderr).text().catch(() => '')}`);
     await Bun.sleep(50);
@@ -250,12 +250,12 @@ test('a killed server takes a fill role running a fill, and the store\'s Postgre
   let child = running.child();
   while (child === undefined && Date.now() < deadline) { await Bun.sleep(20); child = running.child(); }
   expect(child).toBeDefined();
-  const pressed = await fetch(`${running.url}/api/k/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
+  const pressed = await fetch(`${running.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
   expect(pressed.status).toBe(202);
   // The fill stands running when the server dies: the role is inside a run, not between passes.
   let state = '';
   while (state !== 'running' && Date.now() < deadline) {
-    const status = await (await fetch(`${running.url}/api/k/status`)).json() as { fill?: { state?: string } };
+    const status = await (await fetch(`${running.url}/api/status`)).json() as { fill?: { state?: string } };
     state = status.fill?.state ?? '';
     if (state !== 'running') await Bun.sleep(20);
   }

@@ -22,34 +22,34 @@ const home = { state: 'ok' as const, target: 'madarch:domain:home', kind: 'domai
 describe('a page written for an agent keeps every address it holds', () => {
   test('an ordinary wiki link is written at the product mount, and the Markdown and the JSON name the same address', () => {
     const model = page({
-      blocks: [{ type: 'markdown', markdown: 'See [Home](/k/e/domain%3Ahome) and [Shop](https://example.com/shop).' }],
+      blocks: [{ type: 'markdown', markdown: 'See [Home](/e/domain%3Ahome) and [Shop](https://example.com/shop).' }],
     });
     const markdown = pageFileMarkdown(model, prefix);
-    expect(markdown).toContain('[Home](/products/shop/k/e/domain%3Ahome)');
+    expect(markdown).toContain('[Home](/products/shop/e/domain%3Ahome)');
     expect(markdown).toContain('[Shop](https://example.com/shop)');
-    expect(markdown).not.toContain('](/k/');
+    expect(markdown).not.toContain('](/e/');
     const document = pageFileDocument(model, prefix);
     expect(document.sections[0]!.links).toEqual([
-      { title: 'Home', url: '/products/shop/k/e/domain%3Ahome' },
+      { title: 'Home', url: '/products/shop/e/domain%3Ahome' },
       { title: 'Shop', url: 'https://example.com/shop' },
     ]);
     // A body that already carries the mount is not mounted twice.
-    const mounted = page({ blocks: [{ type: 'markdown', markdown: '[Here](/products/shop/k/e/domain%3Ahome)' }] });
-    expect(pageFileMarkdown(mounted, prefix)).toContain('[Here](/products/shop/k/e/domain%3Ahome)');
+    const mounted = page({ blocks: [{ type: 'markdown', markdown: '[Here](/products/shop/e/domain%3Ahome)' }] });
+    expect(pageFileMarkdown(mounted, prefix)).toContain('[Here](/products/shop/e/domain%3Ahome)');
   });
 
   test('a reference link and an autolink are resolved through the definitions and written as the addresses they name', () => {
     const markdown = ['See [Home][h] and <madarch:domain:home>.', '', '[h]: madarch:domain:home'].join('\n');
     const model = page({ resolutions: { 'madarch:domain:home': home }, blocks: [{ type: 'markdown', markdown }] });
     const written = pageFileMarkdown(model, prefix);
-    expect(written).toContain('[Home](/products/shop/k/e/domain%3Ahome)');
-    expect(written).toContain('[madarch:domain:home](/products/shop/k/e/domain%3Ahome)');
+    expect(written).toContain('[Home](/products/shop/e/domain%3Ahome)');
+    expect(written).toContain('[madarch:domain:home](/products/shop/e/domain%3Ahome)');
     expect(written).not.toContain('](madarch:');
     expect(written).not.toContain('[h]: madarch:');
     const document = pageFileDocument(model, prefix);
     expect(document.sections[0]!.links).toEqual([
-      { title: 'Home', url: '/products/shop/k/e/domain%3Ahome', kind: 'domain', id: 'domain:home' },
-      { title: 'madarch:domain:home', url: '/products/shop/k/e/domain%3Ahome', kind: 'domain', id: 'domain:home' },
+      { title: 'Home', url: '/products/shop/e/domain%3Ahome', kind: 'domain', id: 'domain:home' },
+      { title: 'madarch:domain:home', url: '/products/shop/e/domain%3Ahome', kind: 'domain', id: 'domain:home' },
     ]);
     // A reference with no definition is text, not a link, and stays as the author wrote it.
     const dangling = page({ blocks: [{ type: 'markdown', markdown: '[Nope][x]\n\n[x]: https://example.com/x' }] });
@@ -86,13 +86,13 @@ describe('a page written for an agent keeps every address it holds', () => {
   });
 
   test('a destination holds no parenthesis that would end the link', () => {
-    const odd = { id: 'domain:a)', kind: 'domain', label: 'Odd', href: '/k/e/domain%3Aa)' };
+    const odd = { id: 'domain:a)', kind: 'domain', label: 'Odd', href: '/e/domain%3Aa)' };
     const model = page({ blocks: [{ type: 'related', title: 'Related', groups: [{ relation: 'calls', direction: 'out', total: 1, rows: [{ entity: odd, count: 1 }] }] }] });
     const markdown = pageFileMarkdown(model, prefix);
-    expect(markdown).toContain('(/products/shop/k/e/domain%3Aa%29)');
-    expect(pageFileDocument(model, prefix).sections[0]!.groups![0]!.items[0]!.url).toBe('/products/shop/k/e/domain%3Aa)');
+    expect(markdown).toContain('(/products/shop/e/domain%3Aa%29)');
+    expect(pageFileDocument(model, prefix).sections[0]!.groups![0]!.items[0]!.url).toBe('/products/shop/e/domain%3Aa)');
     // A product folder whose name holds one is mounted the same way.
-    expect(pageFileMarkdown(page({ blocks: [{ type: 'markdown', markdown: '[Home](/k/e/domain%3Ahome)' }] }), '/products/shop)')).toContain('(/products/shop%29/k/e/domain%3Ahome)');
+    expect(pageFileMarkdown(page({ blocks: [{ type: 'markdown', markdown: '[Home](/e/domain%3Ahome)' }] }), '/products/shop)')).toContain('(/products/shop%29/e/domain%3Ahome)');
   });
 
   test('a member reader names the place it reads at, as the JSON does', () => {
@@ -100,8 +100,8 @@ describe('a page written for an agent keeps every address it holds', () => {
       id: 'code.symbol:src/a.ts#use',
       kind: 'code.symbol',
       label: 'use',
-      href: '/k/e/code.symbol%3Asrc%2Fa.ts%23use',
-      location: { repo: null, path: 'src/a.ts', lineStart: 4, lineEnd: 4, href: '/k/src?repo=&path=src%2Fa.ts&line=4' },
+      href: '/e/code.symbol%3Asrc%2Fa.ts%23use',
+      location: { repo: null, path: 'src/a.ts', lineStart: 4, lineEnd: 4, href: '/src?repo=&path=src%2Fa.ts&line=4' },
     };
     const model = page({
       blocks: [{
@@ -110,27 +110,27 @@ describe('a page written for an agent keeps every address it holds', () => {
       }],
     });
     const markdown = pageFileMarkdown(model, prefix);
-    expect(markdown).toContain('Read by: [use](/products/shop/k/e/code.symbol%3Asrc%2Fa.ts%23use) — at [src/a.ts:4](/products/shop/k/src?repo=&path=src%2Fa.ts&line=4)');
+    expect(markdown).toContain('Read by: [use](/products/shop/e/code.symbol%3Asrc%2Fa.ts%23use) — at [src/a.ts:4](/products/shop/src?repo=&path=src%2Fa.ts&line=4)');
     const document = pageFileDocument(model, prefix);
     expect(document.sections[0]!.members![0]!.readers[0]).toMatchObject({
       title: 'use',
-      url: '/products/shop/k/e/code.symbol%3Asrc%2Fa.ts%23use',
-      place: { path: 'src/a.ts', line: 4, url: '/products/shop/k/src?repo=&path=src%2Fa.ts&line=4' },
+      url: '/products/shop/e/code.symbol%3Asrc%2Fa.ts%23use',
+      place: { path: 'src/a.ts', line: 4, url: '/products/shop/src?repo=&path=src%2Fa.ts&line=4' },
     });
   });
 
   test('an id that ends in .md or .json keeps its own HTML address, apart from the file suffix', () => {
     const model = page({ id: 'domain:a.md' });
     const document = pageFileDocument(model, prefix);
-    expect(document.address).toBe('/products/shop/k/e/domain%3Aa%2Emd');
-    expect(document.markdown).toBe('/products/shop/k/e/domain%3Aa%2Emd.md');
-    expect(document.json).toBe('/products/shop/k/e/domain%3Aa%2Emd.json');
-    expect(pageFileMarkdown(model, prefix)).toContain('](/products/shop/k/e/domain%3Aa%2Emd)');
+    expect(document.address).toBe('/products/shop/e/domain%3Aa%2Emd');
+    expect(document.markdown).toBe('/products/shop/e/domain%3Aa%2Emd.md');
+    expect(document.json).toBe('/products/shop/e/domain%3Aa%2Emd.json');
+    expect(pageFileMarkdown(model, prefix)).toContain('](/products/shop/e/domain%3Aa%2Emd)');
     // The file routes read the two apart: the HTML address is not a file, and each file names its own entity.
-    expect(pageFileAt('/k/e/domain%3Aa%2Emd')).toBeUndefined();
-    expect(pageFileAt('/k/e/domain%3Aa%2Emd.md')).toEqual({ name: 'domain:a.md', format: 'markdown' });
-    expect(pageFileAt('/k/e/domain%3Aa.md')).toEqual({ name: 'domain:a', format: 'markdown' });
-    expect(entityAddress('domain:a')).toBe('/k/e/domain%3Aa');
+    expect(pageFileAt('/e/domain%3Aa%2Emd')).toBeUndefined();
+    expect(pageFileAt('/e/domain%3Aa%2Emd.md')).toEqual({ name: 'domain:a.md', format: 'markdown' });
+    expect(pageFileAt('/e/domain%3Aa.md')).toEqual({ name: 'domain:a', format: 'markdown' });
+    expect(entityAddress('domain:a')).toBe('/e/domain%3Aa');
   });
 });
 

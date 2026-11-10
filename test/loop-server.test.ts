@@ -61,16 +61,16 @@ const get = async (path: string): Promise<{ status: number; body: any }> => {
 
 /** Every problem through the page's three levels: categories, the sources of each, then the items of each source. */
 const allProblems = async (): Promise<any> => {
-  const categories = (await get('/api/k/problems')).body;
+  const categories = (await get('/api/problems')).body;
   const problems: any[] = [];
   for (const category of categories.categories) {
     let after: string | undefined;
     for (;;) {
-      const sources = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`)).body;
+      const sources = (await get(`/api/problems?rule=${encodeURIComponent(category.rule)}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`)).body;
       for (const source of sources.sources) {
         let cursor: string | undefined;
         for (;;) {
-          const items = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`)).body;
+          const items = (await get(`/api/problems?rule=${encodeURIComponent(category.rule)}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`)).body;
           problems.push(...items.problems);
           if (items.next === null) break;
           cursor = items.next;
@@ -111,7 +111,7 @@ beforeAll(async () => {
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  await fetch(`${server.url}/products/orders-shop/api/k/status`);
+  await fetch(`${server.url}/products/orders-shop/api/status`);
 }, 60_000);
 
 afterAll(async () => {
@@ -121,72 +121,72 @@ afterAll(async () => {
 
 describe('the questions', () => {
   test('are listed from their files, and the status counts the ones waiting', async () => {
-    const listing = await get('/api/k/questions');
+    const listing = await get('/api/questions');
     expect(listing.status).toBe(200);
     expect(listing.body).toMatchObject({ open: 1, answered: 0, closed: 0, problems: [] });
     expect(listing.body.rows).toEqual([{ slug: 'discount-percentage', id: 'question:discount-percentage', title: QUESTION.title, type: 'contradiction', state: 'open', askedIn: 'domain:orders', askedAt: '2026-10-23T10:00:00.000Z', about: ['domain:orders'], answeredBy: null, answeredAt: null, closedBy: [] }]);
-    const problems = await get('/api/k/problems');
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
+    const problems = await get('/api/problems');
+    expect((await get('/api/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 
   test('a question comes with both sides, its grounds resolved against what the wiki holds, and the reason a ground does not resolve', async () => {
-    const detail = await get('/api/k/question?id=discount-percentage');
+    const detail = await get('/api/question?id=discount-percentage');
     expect(detail.status).toBe(200);
     expect(detail.body).toMatchObject({ slug: 'discount-percentage', state: 'open', file: 'docs/questions/discount-percentage.md', question: 'Which discount does an order get?', why: 'A shopper is told one number and charged another.', answer: null });
     expect(detail.body.sides.map((side: { claim: string }) => side.claim)).toEqual(['The README says every order gets ten percent.', 'The code applies the percentage its caller passes.']);
     // Nothing is filled yet: the graph key does not resolve, and the answer says why in words; the page it is about does.
     expect(detail.body.resolutions['code.file\u003asrc/a.ts']).toMatchObject({ state: 'broken' });
-    expect(detail.body.resolutions['domain:orders']).toMatchObject({ state: 'ok', kind: 'domain', href: '/k/e/domain%3Aorders' });
+    expect(detail.body.resolutions['domain:orders']).toMatchObject({ state: 'ok', kind: 'domain', href: '/e/domain%3Aorders' });
   });
 
   test('a question that is not there is a 404 that names the file; an id that is none is a 400', async () => {
-    const missing = await get('/api/k/question?id=no-such-question');
+    const missing = await get('/api/question?id=no-such-question');
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toBe('there is no question no-such-question: docs/questions/no-such-question.md is not in the product repository');
-    expect((await get('/api/k/question?id=Bad%20One')).status).toBe(400);
-    expect((await get('/api/k/question')).status).toBe(400);
+    expect((await get('/api/question?id=Bad%20One')).status).toBe(400);
+    expect((await get('/api/question')).status).toBe(400);
   });
 
   test('an answer lands in the file, is committed as the person, and is refused where it should be', async () => {
-    const foreign = await post('/api/k/answer', { question: 'discount-percentage', text: 'Ten percent.' }, { 'sec-fetch-site': 'cross-site' });
+    const foreign = await post('/api/answer', { question: 'discount-percentage', text: 'Ten percent.' }, { 'sec-fetch-site': 'cross-site' });
     expect(foreign.status).toBe(403);
     expect(foreign.body.error.message).toContain('made from another site');
-    expect((await post('/api/k/answer', 'not json')).status).toBe(400);
-    expect((await post('/api/k/answer', { text: 'x' })).body.error.field).toBe('question');
-    expect((await post('/api/k/answer', { question: 'discount-percentage' })).body.error.field).toBe('text');
-    const plain = await fetch(`${server.url}/products/orders-shop/api/k/answer`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ question: 'discount-percentage', text: 'Ten.' }) });
+    expect((await post('/api/answer', 'not json')).status).toBe(400);
+    expect((await post('/api/answer', { text: 'x' })).body.error.field).toBe('question');
+    expect((await post('/api/answer', { question: 'discount-percentage' })).body.error.field).toBe('text');
+    const plain = await fetch(`${server.url}/products/orders-shop/api/answer`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ question: 'discount-percentage', text: 'Ten.' }) });
     expect(plain.status).toBe(415);
-    const empty = await post('/api/k/answer', { question: 'discount-percentage', text: '  ' });
+    const empty = await post('/api/answer', { question: 'discount-percentage', text: '  ' });
     expect(empty.status).toBe(400);
     expect(empty.body.error.message).toContain('the answer is empty');
-    const done = await post('/api/k/answer', { question: 'discount-percentage', text: 'Ten percent for every order.' });
+    const done = await post('/api/answer', { question: 'discount-percentage', text: 'Ten percent for every order.' });
     expect(done.status).toBe(200);
     expect(done.body).toMatchObject({ question: 'discount-percentage', state: 'answered', committed: true, by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' } });
     expect(git(folder, 'log', '-1', '--format=%an <%ae>|%s').trim()).toBe('Ada Reader <ada@example.test>|Answer the question discount-percentage');
     expect(readFileSync(join(folder, 'docs/questions/discount-percentage.md'), 'utf8')).toContain('> Ten percent for every order.');
-    const again = await post('/api/k/answer', { question: 'discount-percentage', text: 'Twelve.' });
+    const again = await post('/api/answer', { question: 'discount-percentage', text: 'Twelve.' });
     expect(again.status).toBe(409);
     expect(again.body.error.message).toContain('already answered');
-    const detail = await get('/api/k/question?id=discount-percentage');
+    const detail = await get('/api/question?id=discount-percentage');
     expect(detail.body).toMatchObject({ state: 'answered', answer: { text: 'Ten percent for every order.', by: { name: 'Ada Reader' } } });
-    const problems = await get('/api/k/problems');
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 0, questionsAnswered: 1, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
+    const problems = await get('/api/problems');
+    expect((await get('/api/status')).body.loop).toEqual({ questionsOpen: 0, questionsAnswered: 1, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 });
 
 describe('the corrections and the problems', () => {
   test('a correction is a file of the product, committed as the person, and listed with who fixes it', async () => {
-    expect((await post('/api/k/correction', { statement: 'domain:orders#ten-percent-discount', reason: 'x' }, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
-    expect((await post('/api/k/correction', { reason: 'x' })).body.error.field).toBe('statement');
-    expect((await post('/api/k/correction', { statement: 'domain:orders#ten-percent-discount' })).body.error.field).toBe('reason');
-    const missing = await post('/api/k/correction', { statement: 'domain:orders#no-such-statement', reason: 'wrong' });
+    expect((await post('/api/correction', { statement: 'domain:orders#ten-percent-discount', reason: 'x' }, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await post('/api/correction', { reason: 'x' })).body.error.field).toBe('statement');
+    expect((await post('/api/correction', { statement: 'domain:orders#ten-percent-discount' })).body.error.field).toBe('reason');
+    const missing = await post('/api/correction', { statement: 'domain:orders#no-such-statement', reason: 'wrong' });
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toContain('the product has no statement domain:orders#no-such-statement');
-    const done = await post('/api/k/correction', { statement: CORRECTION_STATEMENT, reason: CORRECTION_REASON });
+    const done = await post('/api/correction', { statement: CORRECTION_STATEMENT, reason: CORRECTION_REASON });
     expect(done.status).toBe(201);
     expect(done.body).toMatchObject({ correction: CORRECTION_SLUG, id: `correction:${CORRECTION_SLUG}`, file: CORRECTION_FILE, committed: true, by: { name: 'Ada Reader' } });
     expect(git(folder, 'log', '-1', '--format=%an <%ae>').trim()).toBe('Ada Reader <ada@example.test>');
-    expect((await get('/api/k/status')).body.loop.correctionsOpen).toBe(1);
+    expect((await get('/api/status')).body.loop.correctionsOpen).toBe(1);
     const problems = await allProblems();
     const correction = problems.problems.find((p: { kind: string }) => p.kind === 'correction');
     expect(correction).toMatchObject({ fixer: 'agent', closed: false, page: 'domain:orders', statement: 'ten-percent-discount', sentence: CORRECTION_SENTENCE, reason: CORRECTION_REASON, file: CORRECTION_FILE, by: { name: 'Ada Reader' } });
@@ -231,7 +231,7 @@ describe('the corrections and the problems', () => {
     expect(wiki.id).toBe('wiki.broken-link\u0000domain:orders\u0000ten-percent-discount\u0000doc:README.md#discounts');
     const onEntity = problems.problems.filter((row: { entity: { key: string } | null }) => row.entity?.key === 'domain:orders').length;
     expect(onEntity).toBeGreaterThan(0);
-    const entityPage = (await get('/api/k/page?id=domain%3Aorders&lang=en')).body;
+    const entityPage = (await get('/api/page?id=domain%3Aorders&lang=en')).body;
     expect(entityPage.problems).toBe(onEntity);
   });
 
@@ -239,7 +239,7 @@ describe('the corrections and the problems', () => {
     const before = await allProblems();
     const broken = before.problems.find((row: { rule: string }) => row.rule === 'wiki.broken-link');
     expect(broken).toBeDefined();
-    const done = await post('/api/k/problem-dismiss', { id: broken.id, reason: 'The README section is written by the fill itself.' });
+    const done = await post('/api/problem-dismiss', { id: broken.id, reason: 'The README section is written by the fill itself.' });
     expect(done.status).toBe(201);
     expect(done.body).toMatchObject({ committed: true });
     expect(done.body.file).toStartWith('docs/problems/');
@@ -252,7 +252,7 @@ describe('the corrections and the problems', () => {
     expect(after.problems.some((row: { id: string }) => row.id === broken.id)).toBe(false);
     expect(after.dismissed).toBe(1);
     expect(after.sections.wiki).toBe(before.sections.wiki - 1);
-    const again = await post('/api/k/problem-dismiss', { id: broken.id, reason: 'Still not a problem.' });
+    const again = await post('/api/problem-dismiss', { id: broken.id, reason: 'Still not a problem.' });
     expect(again.status).toBe(404);
     expect(again.body.error.message).toContain('there is no problem');
   });
@@ -261,19 +261,19 @@ describe('the corrections and the problems', () => {
     const listing = await allProblems();
     const contradiction = listing.problems.find((row: { rule: string }) => row.rule === 'document.contradiction');
     expect(contradiction.scope).toEqual({ type: 'file', path: 'docs/questions/discount-percentage.md' });
-    const created = await post('/api/k/problem-task', { id: contradiction.id });
+    const created = await post('/api/problem-task', { id: contradiction.id });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ state: 'created' });
     const taskTitle = 'Fix document.contradiction in docs/questions/discount-percentage.md:1';
     const expectedTask = taskSlug(taskTitle, [{ type: 'file', path: 'docs/questions/discount-percentage.md' }]);
     expect(expectedTask).toMatch(/^[0-9a-f]{12}$/);
     expect(created.body.task.slug).toBe(expectedTask);
-    const tasks = (await get('/api/k/tasks')).body;
+    const tasks = (await get('/api/tasks')).body;
     const row = tasks.tasks.find((task: { slug: string }) => task.slug === created.body.task.slug);
     expect(row).toMatchObject({ title: taskTitle });
     expect(row.problemId).toBe(contradiction.id);
     expect(row.scope.map((one: { scope: { type: string; path?: string } }) => [one.scope.type, one.scope.path])).toEqual([['file', 'docs/questions/discount-percentage.md']]);
-    const taskPage = (await get(`/api/k/task?id=${encodeURIComponent(created.body.task.id)}`)).body;
+    const taskPage = (await get(`/api/task?id=${encodeURIComponent(created.body.task.id)}`)).body;
     expect(taskPage.problemId).toBe(contradiction.id);
     expect(taskPage.question).toBe('');
   });
@@ -285,7 +285,7 @@ describe('the corrections and the problems', () => {
       const unreadable = problems.problems.find((p: { kind: string; file: string }) => p.kind === 'unreadable-file' && p.file === 'docs/questions/broken-one.md');
       expect(unreadable).toMatchObject({ fixer: 'person', line: 1 });
       expect(unreadable.reason).toContain('the file has no front matter');
-      expect((await get('/api/k/questions')).body.problems).toEqual(['docs/questions/broken-one.md:1: the file has no front matter: it starts with --- , its fields, ---']);
+      expect((await get('/api/questions')).body.problems).toEqual(['docs/questions/broken-one.md:1: the file has no front matter: it starts with --- , its fields, ---']);
     } finally {
       rmSync(join(folder, 'docs/questions/broken-one.md'));
     }
@@ -294,17 +294,17 @@ describe('the corrections and the problems', () => {
 
 describe('the refresh plan', () => {
   test('before anything is read it says so; after the fill it says which pages the refresh will touch and why, and what it leaves alone', async () => {
-    const before = await get('/api/k/refresh-plan');
+    const before = await get('/api/refresh-plan');
     expect(before.body).toEqual({ available: false, reason: 'nothing has been read from the code yet: start the fill once to read it' });
-    expect((await get('/api/k/refresh-plan?language=de')).status).toBe(400);
-    expect((await post('/api/k/fill', {})).status).toBe(202);
-    let status = (await get('/api/k/status')).body;
+    expect((await get('/api/refresh-plan?language=de')).status).toBe(400);
+    expect((await post('/api/fill', {})).status).toBe(202);
+    let status = (await get('/api/status')).body;
     for (let tries = 0; tries < 1200 && status.fill.state === 'running'; tries += 1) {
       await new Promise((rest) => setTimeout(rest, 100));
-      status = (await get('/api/k/status')).body;
+      status = (await get('/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
-    const after = await get('/api/k/refresh-plan');
+    const after = await get('/api/refresh-plan');
     expect(after.status).toBe(200);
     expect(after.body.available).toBe(true);
     // There is no product page: it is missing. The domain page has a correction waiting and an answered question about it.
@@ -315,7 +315,7 @@ describe('the refresh plan', () => {
     expect(after.body.plan.unchanged).toEqual([]);
     expect(after.body.language).toEqual({ from: 'en', to: 'en', changed: false });
     expect(after.body.commitsNotRead).toBe(0);
-    const russian = (await get('/api/k/refresh-plan?language=ru')).body;
+    const russian = (await get('/api/refresh-plan?language=ru')).body;
     expect(russian.language).toEqual({ from: 'en', to: 'ru', changed: true });
     expect(russian.plan.pages.find((p: { path: string }) => p.path === 'docs/domains/orders.md').reasons.map((r: { kind: string }) => r.kind)).toContain('language');
   }, 300_000);

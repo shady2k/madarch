@@ -75,7 +75,7 @@ runDescribe('the catalogue in the built app (real server and Chromium)', () => {
       errorLog: (line) => console.error(line),
     });
     // The first answer seeds the starter set the catalogue lists.
-    const seeded = await fetch(`${server.url}/api/k/status`);
+    const seeded = await fetch(`${server.url}/api/status`);
     if (seeded.status !== 200) throw new Error(`the status answer was ${seeded.status}`);
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox'] });
   }, 120_000);
@@ -94,7 +94,7 @@ runDescribe('the catalogue in the built app (real server and Chromium)', () => {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
     await page.evaluateOnNewDocument(() => localStorage.setItem('madarch-wiki-language', 'ru'));
-    await page.goto(`${server!.url}/k/catalogue`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${server!.url}/catalogue`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid=catalogue-page]', { timeout: 30_000 });
     return page;
   }

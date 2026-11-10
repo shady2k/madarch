@@ -266,7 +266,7 @@ export interface HistoryNote {
  * every entity of a kind, and the words the link says it in. The block names no kind of its own; the template does.
  */
 interface HistoryMore {
-  /** The wiki address of the kind's listing, `/k/kind/<kind>`. */
+  /** The wiki address of the kind's listing, `/kind/<kind>`. */
   href: string;
   /** The link's words, in the reader's language: the template's `more`, else the manifest's name for the kind. */
   label: string;

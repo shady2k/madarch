@@ -156,7 +156,7 @@ function serveLive(args: string[], overrides: Record<string, string>, cwd?: stri
 }
 
 /** Waits until the run has printed its address and its server answers one path over HTTP. */
-async function whenServing(serve: LiveServe & { raw: Bun.Subprocess }, urlPath = '/api/k/products'): Promise<string> {
+async function whenServing(serve: LiveServe & { raw: Bun.Subprocess }, urlPath = '/api/products'): Promise<string> {
   const start = Date.now();
   for (;;) {
     if (serve.address !== undefined) {
@@ -252,7 +252,7 @@ describe('madarch serve: an existing product served', () => {
     const before = readdirSync(folder);
     const live = serveLive(['serve', '--port', '0', '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, folder);
     await whenServing(live);
-    const status = await fetch(`${live.address}/api/k/status`);
+    const status = await fetch(`${live.address}/api/status`);
     expect(status.status).toBe(500);
     expect(JSON.stringify(await status.json())).toContain('workspace.yaml');
     expect(readdirSync(folder)).toEqual(before);
@@ -268,7 +268,7 @@ describe('madarch serve: an existing product served', () => {
     const before = readdirSync(folder);
     const live = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'], { MADARCH_HOME: base, MADARCH_APP: app }, base);
     await whenServing(live);
-    expect((await fetch(`${live.address}/api/k/status`)).status).toBe(500);
+    expect((await fetch(`${live.address}/api/status`)).status).toBe(500);
     expect(readdirSync(folder)).toEqual(before);
     await live.finish();
   }, 30_000);
@@ -377,9 +377,9 @@ describe('madarch serve: an existing product served', () => {
     const serve = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
     const address = await whenServing(serve);
-    const body = (await (await fetch(`${address}/api/k/product`)).json()) as { id: string; name: string };
+    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body).toEqual({ id: 'demo-id', name: 'named' });
-    const vision = (await (await fetch(`${address}/api/k/document?path=docs/vision.md`)).json()) as { title: string; markdown: string };
+    const vision = (await (await fetch(`${address}/api/document?path=docs/vision.md`)).json()) as { title: string; markdown: string };
     expect(vision.title).toBe('Vision');
     expect(vision.markdown).toBe('# Vision\n\nWhat it is for.\n');
     // The app's files come from the built app, and the page route answers through index.html.
@@ -388,7 +388,7 @@ describe('madarch serve: an existing product served', () => {
     const asset = await (await fetch(`${address}/assets/app.js`)).text();
     expect(asset).toContain('export const x = 1;');
     // The app's own routes answer through index.html; the old page route is no route any more.
-    const documentsRoute = await (await fetch(`${address}/k/docs`)).text();
+    const documentsRoute = await (await fetch(`${address}/docs`)).text();
     expect(documentsRoute).toContain('<!doctype html>');
     expect((await fetch(`${address}/p/docs/vision.md`)).status).toBe(404);
     await Bun.sleep(500);
@@ -410,10 +410,10 @@ describe('madarch serve: an existing product served', () => {
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });
     const address = await whenServing(serve);
-    const body = (await (await fetch(`${address}/api/k/product`)).json()) as { id: string; name: string };
+    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body.id).toBe('8f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
     expect(body.name).toBe('leftover-listings');
-    const documents = (await (await fetch(`${address}/api/k/documents`)).json()) as { documents: { repo: string | null; path: string }[] };
+    const documents = (await (await fetch(`${address}/api/documents`)).json()) as { documents: { repo: string | null; path: string }[] };
     const paths = documents.documents.map((document) => document.path);
     expect(paths).toContain('docs/vision.md');
     expect(paths).toContain('docs/requirements/FR-001-list-in-a-minute.md');
@@ -503,7 +503,7 @@ describe('madarch serve: an existing product served', () => {
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_BROWSER: openerCommand });
     // The whole wait is the point: the server must answer while the opener is alive.
     const address = await whenServing(serve);
-    const answer = await fetch(`${address}/api/k/products`);
+    const answer = await fetch(`${address}/api/products`);
     expect(answer.ok).toBeTrue();
     await serve.finish();
   }, 30_000);
@@ -561,7 +561,7 @@ describe('madarch new serving the draft it just created', () => {
     expect(lines.some((line) => line.startsWith('Next:'))).toBeTrue();
     const url = lines.find((line) => line.startsWith('The wiki is running at '))!.match(/(https?:\/\/\S+)/)![1];
     expect(url).toBe(`http://127.0.0.1:${port}/products/${basename(lines[0]!.match(/ in (.+)$/)?.[1]!)}/`);
-    const body = (await (await fetch(`${url}api/k/product`)).json()) as { name: string };
+    const body = (await (await fetch(`${url}api/product`)).json()) as { name: string };
     expect(body.name).toStartWith('idea-');
     expect(stopDaemon({ home: base })).toBe(0);
   }, 30_000);

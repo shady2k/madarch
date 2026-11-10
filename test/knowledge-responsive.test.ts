@@ -44,16 +44,16 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
   test('every page answers within 300 ms during the fill of the training repository, and the files it counts are listed', async () => {
     const base = `${server.url}/products/shop`;
     // The wiki is open before the press, as it is in a reader's browser: the reader of the store has started.
-    for (const path of ['/api/k/status', '/api/k/entities?kind=code.file&limit=100', `/api/k/page?id=${encodeURIComponent(PAY)}`]) await fetch(base + path);
-    const press = await fetch(`${base}/api/k/fill`, { method: 'POST' });
+    for (const path of ['/api/status', '/api/entities?kind=code.file&limit=100', `/api/page?id=${encodeURIComponent(PAY)}`]) await fetch(base + path);
+    const press = await fetch(`${base}/api/fill`, { method: 'POST' });
     expect(press.status).toBe(202);
     const paths = [
-      '/api/k/status',
-      '/api/k/entities?kind=code.file&limit=100',
-      '/api/k/entities?kind=code.symbol&limit=100',
-      `/api/k/page?id=${encodeURIComponent(PAY)}`,
-      `/api/k/page?id=${encodeURIComponent(['code.file:services', 'payments', 'src/providers/factory.ts'].join('/'))}`,
-      '/api/k/documents',
+      '/api/status',
+      '/api/entities?kind=code.file&limit=100',
+      '/api/entities?kind=code.symbol&limit=100',
+      `/api/page?id=${encodeURIComponent(PAY)}`,
+      `/api/page?id=${encodeURIComponent(['code.file:services', 'payments', 'src/providers/factory.ts'].join('/'))}`,
+      '/api/documents',
     ];
     const samples: { path: string; ms: number; running: boolean; at: number; phase: string }[] = [];
     let phase = 'none';
@@ -66,8 +66,8 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
       const response = await fetch(base + path);
       const body = await response.text();
       const ms = performance.now() - at;
-      if (path === '/api/k/status' && response.ok) { const fill = (JSON.parse(body) as { fill: { state: string; phase?: string } }).fill; running = fill.state === 'running'; phase = fill.phase ?? fill.state; }
-      if (path.startsWith('/api/k/entities?kind=code.file')) {
+      if (path === '/api/status' && response.ok) { const fill = (JSON.parse(body) as { fill: { state: string; phase?: string } }).fill; running = fill.state === 'running'; phase = fill.phase ?? fill.state; }
+      if (path.startsWith('/api/entities?kind=code.file')) {
         const files = response.ok ? JSON.parse(body) as {total: number; rows: unknown[]} : undefined;
         if (files !== undefined) lastFiles = files.rows.length;
         recentFiles.push({at: Math.round(Date.now() - started), status: response.status,
@@ -82,14 +82,14 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
       await Promise.all([ask(paths[2]!), ask(paths[4]!), ask(paths[5]!)]);
       await new Promise((rest) => setTimeout(rest, 60));
     }
-    const terminalStatus = await (await fetch(`${base}/api/k/status`)).json() as {fill: {state: string; message?: string; code?: string; phase?: string}};
+    const terminalStatus = await (await fetch(`${base}/api/status`)).json() as {fill: {state: string; message?: string; code?: string; phase?: string}};
     console.log(`terminal fill before list assertions: ${JSON.stringify(terminalStatus.fill)}`);
     // Diagnose publication independently of the last parallel sample. Never
     // overwrite lastFiles: the during-fill list assertion below stays intact.
-    const postDoneFilesResponse = await fetch(`${base}/api/k/entities?kind=code.file&limit=100`);
+    const postDoneFilesResponse = await fetch(`${base}/api/entities?kind=code.file&limit=100`);
     const postDoneFiles = postDoneFilesResponse.ok
       ? await postDoneFilesResponse.json() as {total: number; rows: unknown[]} : undefined;
-    const postDoneStatusResponse = await fetch(`${base}/api/k/status`);
+    const postDoneStatusResponse = await fetch(`${base}/api/status`);
     const postDoneStatus = postDoneStatusResponse.ok
       ? await postDoneStatusResponse.json() as {fill: {state: string}; kinds: {kind: string; count: number}[]} : undefined;
     console.log(`Files publication diagnostic: ${JSON.stringify({lastFiles, recentFiles,
@@ -117,9 +117,9 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
     expect(slowest.ms, `the slowest answer during the fill was ${Math.round(slowest.ms)} ms (${slowest.path})`).toBeLessThan(WORST_MS);
     // The Files list shows files while the count says how many there are (the empty list of the owner's walk).
     expect(lastFiles).toBeGreaterThan(0);
-    const status = await (await fetch(`${base}/api/k/status`)).json() as { fill: { state: string }; kinds: { kind: string; count: number }[] };
+    const status = await (await fetch(`${base}/api/status`)).json() as { fill: { state: string }; kinds: { kind: string; count: number }[] };
     expect(status.fill.state).toBe('done');
-    const files = await (await fetch(`${base}/api/k/entities?kind=code.file&limit=100`)).json() as { total: number; rows: unknown[] };
+    const files = await (await fetch(`${base}/api/entities?kind=code.file&limit=100`)).json() as { total: number; rows: unknown[] };
     expect(files.total).toBe(status.kinds.find((kind) => kind.kind === 'code.file')!.count);
     expect(files.rows.length).toBe(Math.min(100, files.total));
   }, 1_500_000);

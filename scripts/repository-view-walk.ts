@@ -192,7 +192,7 @@ try {
   browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, protocolTimeout: 900_000, args: ['--no-sandbox'] });
   const page = await browser.newPage();
   await page.setViewport({ width, height });
-  const base = `${server.url}/products/view/k`;
+  const base = `${server.url}/products/view/`;
 
   // 1. The empty wiki: what the page says before anything is read, and the press.
   await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 60_000 });

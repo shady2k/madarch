@@ -79,8 +79,8 @@ const page = (file: FilePageModel['file']): FilePageModel => ({
 function servingFile(file: FilePageModel, text: { status: number; body: unknown } | null): { reads: URL[] } {
   const reads: URL[] = [];
   (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-    if (url.includes('/api/k/file')) return new Response(JSON.stringify({ file }));
-    if (url.includes('/api/k/source')) {
+    if (url.includes('/api/file')) return new Response(JSON.stringify({ file }));
+    if (url.includes('/api/source')) {
       reads.push(new URL(url, 'http://localhost'));
       if (text === null) return new Response(JSON.stringify({ message: 'a binary file has no text to read' }), { status: 415 });
       return new Response(JSON.stringify(text.body), { status: text.status });
@@ -132,7 +132,7 @@ describe('the numbers and names a page writes', () => {
 describe('the repository page', () => {
   test('states its facts, its counts and the root of its tree, with every link to the pages it leads to', async () => {
     const folder: FolderPageModel = { repository: 'code', asIsCommit: 'b'.repeat(40), folder: '', parent: null, folders: ['assets', 'src'], files: [FILE], next: null };
-    answer('/api/k/folder', { folder });
+    answer('/api/folder', { folder });
     const container = into(createElement(RepositoryPage, { status: status(), version: 0 }));
     await until(() => container.querySelector('[data-testid=file-rows]') !== null, 'the root files');
     expect(container.querySelector('[data-testid=repository-url]')!.textContent).toBe('file:///work/code');
@@ -148,7 +148,7 @@ describe('the repository page', () => {
 
   test('a gap the fill recorded is stated, with what it is and why', async () => {
     const folder: FolderPageModel = { repository: 'code', asIsCommit: 'b'.repeat(40), folder: '', parent: null, folders: [], files: [], next: null };
-    answer('/api/k/folder', { folder });
+    answer('/api/folder', { folder });
     const held = status();
     const container = into(createElement(RepositoryPage, { status: status({ repository: { ...held.repository!, gaps: [{ what: 'code at abc', reason: 'shallow-history' }] } }), version: 0 }));
     await until(() => container.querySelector('[data-testid=repository-gaps]') !== null, 'the gaps');
@@ -157,7 +157,7 @@ describe('the repository page', () => {
 
   test('a repository the fill could not read is named with its path and its reason', async () => {
     const folder: FolderPageModel = { repository: 'code', asIsCommit: 'b'.repeat(40), folder: '', parent: null, folders: [], files: [], next: null };
-    answer('/api/k/folder', { folder });
+    answer('/api/folder', { folder });
     const held = status({ fill: { state: 'done', unread: [{ repository: 'empty-code', path: '/work/products/shop/repos/empty-code', reason: 'the checkout holds no commit yet' }] } });
     const container = into(createElement(RepositoryPage, { status: held, version: 0 }));
     await until(() => container.querySelector('[data-testid=repository-unread]') !== null, 'the unread note');
@@ -176,7 +176,7 @@ describe('the repository page', () => {
 describe('a folder and a file', () => {
   test('a folder lists its subfolders and its files, links one up and offers the next page', async () => {
     const folder: FolderPageModel = { repository: 'code', asIsCommit: 'b'.repeat(40), folder: 'src', parent: '', folders: ['src/nested'], files: [FILE], next: 'src/z.ts' };
-    answer('/api/k/folder', { folder });
+    answer('/api/folder', { folder });
     const container = into(createElement(FolderPage, { path: 'src', after: null, version: 0 }));
     await until(() => container.querySelector('[data-testid=file-rows]') !== null, 'the folder');
     expect(container.querySelector('[data-testid=folder-parent]')!.textContent).toBe('Up one folder');
@@ -193,7 +193,7 @@ describe('a folder and a file', () => {
       history: HISTORY,
       next: null,
     };
-    answer('/api/k/file', { file });
+    answer('/api/file', { file });
     const container = into(createElement(FilePage, { path: 'src/a.ts', after: null, version: 0 }));
     await until(() => container.querySelector('[data-testid=file-facts]') !== null, 'the facts');
     const text = container.textContent ?? '';
@@ -284,7 +284,7 @@ describe('a folder and a file', () => {
         { path: 'src/gone.ts', change: 'deleted', added: 0, removed: 3, previousPath: null },
       ],
     };
-    answer('/api/k/commit', { commit });
+    answer('/api/commit', { commit });
     const container = into(createElement(CommitPage, { hash: 'b'.repeat(40), version: 0 }));
     await until(() => container.querySelector('[data-testid=commit-changed]') !== null, 'the changed paths');
     const links = [...container.querySelectorAll('[data-testid=changed-file]')].map((link) => link.textContent);
@@ -305,7 +305,7 @@ describe('the run page', () => {
         { step: 'repository-history', wallMs: 500, peakRssBytes: 220 * 1024 * 1024, startRssBytes: 200 * 1024 * 1024, slowest: [{ name: 'fill.unit', count: 1, selfMs: 300 }] },
       ],
     };
-    answer('/api/k/run', { run });
+    answer('/api/run', { run });
     const container = into(createElement(RunPage, { run: null, version: 0 }));
     await until(() => container.querySelector('[data-testid=run-steps]') !== null, 'the steps');
     const firstStep: FillStepView = run.steps[0]!;

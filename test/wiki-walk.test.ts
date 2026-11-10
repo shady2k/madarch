@@ -41,11 +41,11 @@ const STATUS = {
 
 const ROWS: Record<string, EntityRef[]> = {
   [KIND_SERVICE]: [
-    { id: 'code.service:orders', kind: KIND_SERVICE, label: 'orders', href: '/products/fixture/k/e/code.service%3Aorders' },
-    { id: 'code.service:payments', kind: KIND_SERVICE, label: 'payments', href: '/products/fixture/k/e/code.service%3Apayments' },
+    { id: 'code.service:orders', kind: KIND_SERVICE, label: 'orders', href: '/products/fixture/e/code.service%3Aorders' },
+    { id: 'code.service:payments', kind: KIND_SERVICE, label: 'payments', href: '/products/fixture/e/code.service%3Apayments' },
   ],
   [KIND_PRODUCT]: [
-    { id: 'product:shop', kind: KIND_PRODUCT, label: 'Shop', href: '/products/fixture/k/e/product%3Ashop' },
+    { id: 'product:shop', kind: KIND_PRODUCT, label: 'Shop', href: '/products/fixture/e/product%3Ashop' },
   ],
 };
 
@@ -65,8 +65,8 @@ function cleanBlocks(language: string): Block[] {
       neighborhood: {
         center: 'code.service:orders',
         nodes: [
-          { id: 'code.service:orders', kind: KIND_SERVICE, label: 'orders', href: '/products/fixture/k/e/code.service%3Aorders', hops: 0 },
-          { id: 'code.service:payments', kind: KIND_SERVICE, label: 'payments', href: '/products/fixture/k/e/code.service%3Apayments', hops: 1 },
+          { id: 'code.service:orders', kind: KIND_SERVICE, label: 'orders', href: '/products/fixture/e/code.service%3Aorders', hops: 0 },
+          { id: 'code.service:payments', kind: KIND_SERVICE, label: 'payments', href: '/products/fixture/e/code.service%3Apayments', hops: 1 },
         ],
         edges: [{ from: 'code.service:orders', to: 'code.service:payments', relation: 'code.depends-on', count: 1 }],
         more: [],
@@ -90,7 +90,7 @@ function cleanBlocks(language: string): Block[] {
       views: [{
         spec: { type: 'c4-context', subject: 'code.service:orders' },
         title: word(language, 'Context', 'Контекст'), label: word(language, 'Context', 'Контекст'),
-        elements: [{ id: 'code.service:orders', label: 'orders', kind: 'container', href: '/products/fixture/k/e/code.service%3Aorders', dashed: false }],
+        elements: [{ id: 'code.service:orders', label: 'orders', kind: 'container', href: '/products/fixture/e/code.service%3Aorders', dashed: false }],
         edges: [], notes: [], empty: null, marker: null,
         renderers: ['likec4'], mermaidSource: '', query: 'type=c4-context&subject=code.service%3Aorders',
       }],
@@ -150,16 +150,16 @@ function startStub(options: { pages: Pages; fail?: string; documents?: unknown }
       const base = '/products/fixture';
       if (!url.pathname.startsWith(base)) return new Response('not found', { status: 404 });
       const route = url.pathname.slice(base.length);
-      if (route === '/api/k/status') return Response.json(STATUS);
-      if (route === '/api/k/questions') return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
-      if (route === '/api/k/documents') return Response.json(stub.documents ?? { documents: [], truncated: [] });
-      if (route === '/api/k/entities') {
+      if (route === '/api/status') return Response.json(STATUS);
+      if (route === '/api/questions') return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
+      if (route === '/api/documents') return Response.json(stub.documents ?? { documents: [], truncated: [] });
+      if (route === '/api/entities') {
         const kind = url.searchParams.get('kind') ?? '';
         const rows = ROWS[kind];
         if (rows === undefined) return new Response(`no kind ${kind}`, { status: 404 });
         return Response.json({ kind, total: rows.length, rows, next: null });
       }
-      if (route === '/api/k/page') {
+      if (route === '/api/page') {
         const id = url.searchParams.get('id') ?? '';
         if (stub.fail === id) return new Response('the store is busy', { status: 500 });
         const language = url.searchParams.get('lang') ?? 'en';
@@ -291,9 +291,9 @@ describe('the walk fails instead of reporting fewer pages', () => {
       port: 0,
       fetch(request): Response {
         const url = new URL(request.url);
-        if (url.pathname.endsWith('/api/k/status')) return Response.json(STATUS);
-        if (url.pathname.endsWith('/api/k/questions')) return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
-        if (url.pathname.endsWith('/api/k/entities')) return Response.json({ kind: KIND_SERVICE, total: 3, rows: ROWS[KIND_SERVICE], next: null });
+        if (url.pathname.endsWith('/api/status')) return Response.json(STATUS);
+        if (url.pathname.endsWith('/api/questions')) return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
+        if (url.pathname.endsWith('/api/entities')) return Response.json({ kind: KIND_SERVICE, total: 3, rows: ROWS[KIND_SERVICE], next: null });
         return new Response('no', { status: 404 });
       },
     });
@@ -546,7 +546,7 @@ describe('a label is the entity own name, and punctuation ends an id', () => {
   test('a file whose name is also its id is not a raw id', () => {
     // The input the review cites: the entity's id and its visible label are
     // both the file's path.
-    const rows = [{ id: 'src/main.ts', kind: 'code.file', label: 'src/main.ts', href: '/products/fixture/k/e/src%2Fmain.ts' }];
+    const rows = [{ id: 'src/main.ts', kind: 'code.file', label: 'src/main.ts', href: '/products/fixture/e/src%2Fmain.ts' }];
     const options = inspectOptions('en', new Set(['src/main.ts']));
     expect(inspectCatalogue('code.file', rows, options)).toEqual([]);
     const findings = inspectPage({

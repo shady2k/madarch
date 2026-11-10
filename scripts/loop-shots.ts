@@ -120,7 +120,7 @@ async function waited(page: Page, what: string, work: () => Promise<unknown>): P
     await work();
   } catch (error) {
     const body = await page.evaluate(() => document.body.innerText.slice(0, 1500)).catch(() => '');
-    const status = await fetch(api('/api/k/status')).then((response) => response.text()).catch((failure) => String(failure));
+    const status = await fetch(api('/api/status')).then((response) => response.text()).catch((failure) => String(failure));
     await page.screenshot({ path: join(out, `failed-${lang}-${what.replace(/\W+/g, '-')}.png`) }).catch(() => undefined);
     console.error(`${what} did not happen: ${(error as Error).message}\npage: ${body}\nstatus: ${status.slice(0, 1500)}`);
     await browser.close();
@@ -143,15 +143,15 @@ const idle = (): boolean => document.querySelector('[data-testid=writer-card]') 
   await waited(page, 'the first run to end', () => page.waitForFunction(idle, { timeout: 3_000_000, polling: 2000 }));
   await page.close();
 }
-const status = await json('/api/k/status');
+const status = await json('/api/status');
 console.log(`${lang}: first run ${status.writer.state}: ${status.writer.message ?? ''}`);
 
 // ---- the questions, one question, the answer ---------------------------------------------------
 {
-  const page = await open('/products/training-shop/k/questions', 1440, 1500);
+  const page = await open('/products/training-shop/questions', 1440, 1500);
   await waited(page, 'the questions', () => page.waitForSelector('[data-testid=question-row]', { timeout: 60_000 }));
   await shoot(page, '01-questions');
-  await page.goto(`${server.url}/products/training-shop/k/questions/${paymentSlug}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/questions/${paymentSlug}`, { waitUntil: 'domcontentloaded' });
   await page.setViewport({ width: 1440, height: 1500 });
   await waited(page, 'the question', () => page.waitForSelector('[data-testid=answer-form]', { timeout: 60_000 }));
   await shoot(page, '02-question-open');
@@ -166,7 +166,7 @@ console.log(`${lang}: the answer was committed as ${gitIn(product, 'log', '-1', 
 // ---- the refresh: the plan before the press, the plan while the units run, the question closed -----------
 {
   useScript(refreshScript(lang, 6_000));
-  const page = await open('/products/training-shop/k/questions', 1440, 1100);
+  const page = await open('/products/training-shop/questions', 1440, 1100);
   await waited(page, 'the fill chip', () => page.waitForSelector('[data-testid=fill-chip]', { timeout: 60_000 }));
   await page.click('[data-testid=fill-chip]');
   await waited(page, 'the plan before the press', () => page.waitForSelector('[data-testid=refresh-preview] [data-testid=plan-page]', { timeout: 60_000 }));
@@ -176,10 +176,10 @@ console.log(`${lang}: the answer was committed as ${gitIn(product, 'log', '-1', 
   await waited(page, 'the plan while the agent works', () => page.waitForSelector('[data-testid=writer-card] [data-testid=writer-plan] [data-testid=plan-page]', { timeout: 600_000 }));
   await shoot(page, '05-refresh-running');
   await waited(page, 'the refresh to end', () => page.waitForFunction(idle, { timeout: 600_000, polling: 1000 }));
-  await page.goto(`${server.url}/products/training-shop/k/questions/${paymentSlug}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/questions/${paymentSlug}`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the question closed', () => page.waitForSelector('[data-testid=answer-closed]', { timeout: 60_000 }));
   await shoot(page, '06-question-closed');
-  await page.goto(`${server.url}/products/training-shop/k/questions`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/questions`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the questions after the rewrite', () => page.waitForSelector('[data-testid=questions-group][data-state=closed]', { timeout: 60_000 }));
   await shoot(page, '07-questions-after');
   await page.close();
@@ -194,13 +194,13 @@ console.log(`${lang}: the payments page after the refresh holds ${readFileSync(j
   gitIn(repository, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'The shopper of a declined payment is told by e-mail');
   const ordering = readKnowledgePages(product).pages.find((candidate) => candidate.id === 'domain:ordering')!;
   const statement = ordering.statements[0]!;
-  const corrected = await post('/api/k/correction', { statement: `domain:ordering#${statement.id}`, reason: lang === 'en' ? 'A declined payment also cancels the order; the sentence leaves it out.' : 'Отклонённый платёж ещё и отменяет заказ, а в предложении этого нет.' });
+  const corrected = await post('/api/correction', { statement: `domain:ordering#${statement.id}`, reason: lang === 'en' ? 'A declined payment also cancels the order; the sentence leaves it out.' : 'Отклонённый платёж ещё и отменяет заказ, а в предложении этого нет.' });
   console.log(`${lang}: the correction ${corrected.id} was committed: ${corrected.committed}`);
-  const page = await open('/products/training-shop/k/problems', 1440, 1300);
+  const page = await open('/products/training-shop/problems', 1440, 1300);
   await waited(page, 'the problems', () => page.waitForSelector('[data-testid=problem-row]', { timeout: 60_000 }));
   await shoot(page, '08-problems-open');
   useScript(groundRefreshScript(lang, 5_000));
-  await page.goto(`${server.url}/products/training-shop/k/questions`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/questions`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the fill chip', () => page.waitForSelector('[data-testid=fill-chip]', { timeout: 60_000 }));
   await page.click('[data-testid=fill-chip]');
   await waited(page, 'the plan before the press', () => page.waitForSelector('[data-testid=refresh-preview] [data-testid=plan-commits]', { timeout: 60_000 }));
@@ -210,7 +210,7 @@ console.log(`${lang}: the payments page after the refresh holds ${readFileSync(j
   await waited(page, 'the plan once the code is read', () => page.waitForSelector('[data-testid=writer-card] [data-testid=writer-plan] [data-kind=ground-changed]', { timeout: 900_000 }));
   await shoot(page, '10-refresh-running-grounds');
   await waited(page, 'the refresh to end', () => page.waitForFunction(idle, { timeout: 600_000, polling: 1000 }));
-  await page.goto(`${server.url}/products/training-shop/k/problems`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/problems`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the problems after the rewrite', () => page.waitForSelector('[data-testid=problems-closed]', { timeout: 60_000 }));
   await shoot(page, '11-problems-fixed');
   await page.close();
@@ -218,11 +218,11 @@ console.log(`${lang}: the payments page after the refresh holds ${readFileSync(j
 
 // ---- the phone and the dark scheme ---------------------------------------------------------------------------
 {
-  const phone = await open(`/products/training-shop/k/questions/${paymentSlug}`, 390, 1700);
+  const phone = await open(`/products/training-shop/questions/${paymentSlug}`, 390, 1700);
   await waited(phone, 'the question on a phone', () => phone.waitForSelector('[data-testid=question-page]', { timeout: 60_000 }));
   await shoot(phone, '12-question-phone');
   await phone.close();
-  const dark = await open('/products/training-shop/k/questions', 1440, 1300, 'dark');
+  const dark = await open('/products/training-shop/questions', 1440, 1300, 'dark');
   await waited(dark, 'the questions in the dark scheme', () => dark.waitForSelector('[data-testid=question-row]', { timeout: 60_000 }));
   await shoot(dark, '13-questions-dark');
   await dark.close();

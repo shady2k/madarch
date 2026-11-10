@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblemCategories, getProblemItems, getProblemSources, getQuestion, getQuestions, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
-import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, K_QUESTIONS, K_TASKS } from './routes.js';
+import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, WIKI_QUESTIONS, WIKI_TASKS } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
@@ -173,7 +173,7 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
   return (
     <article data-testid="question-page" data-question={question.slug} data-state={question.state}>
       <header className="mb-6">
-        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={K_QUESTIONS}>{t('loop.questionsTitle')}</KLink></nav>
+        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_QUESTIONS}>{t('loop.questionsTitle')}</KLink></nav>
         <div className="mb-2 flex items-center gap-2">
           <Badge>{t(`loop.type.${question.type}`)}</Badge>
           <Badge variant={question.state === 'open' ? 'solid' : 'outline'} data-testid="question-state">{t(STATE_KEY[question.state])}</Badge>
@@ -875,7 +875,7 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
   return (
     <article data-testid="task-page" data-task={task.id} data-state={task.status}>
       <header className="mb-6">
-        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={K_TASKS}>{t('loop.tasksTitle')}</KLink></nav>
+        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_TASKS}>{t('loop.tasksTitle')}</KLink></nav>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Badge variant={task.status === 'open' ? 'solid' : 'outline'} data-testid="task-page-state">{task.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
           <code className="text-small text-muted">{task.file}</code>

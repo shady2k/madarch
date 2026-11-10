@@ -8,7 +8,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { JournalPage } from './journal.js';
-import { addressOfJournal, kRouteOf } from './routes.js';
+import { addressOfJournal, wikiRouteOf } from './routes.js';
 import type { JournalRecord, PageJournal } from './types.js';
 
 beforeAll(async () => {
@@ -66,7 +66,7 @@ describe('the journal page', () => {
 
   test('counts the calls and the refusals from the rows, and draws each row with its tool, outcome and duration', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      expect(String(url)).toContain('/api/k/journal?id=domain%3Apayments');
+      expect(String(url)).toContain('/api/journal?id=domain%3Apayments');
       return json(journal(records));
     };
     const page = into(createElement(JournalPage, { id: 'domain:payments', run: null, version: 0 }));
@@ -132,7 +132,7 @@ describe('the journal page', () => {
     (globalThis as { fetch?: unknown }).fetch = async () => json(journal([record(1)], { runs: ['run-a', 'run-20261023T123100000Z-ab12'] }));
     page = into(createElement(JournalPage, { id: 'domain:payments', run: null, version: 0 }));
     await until(() => page.querySelector('[data-testid=journal-runs]') !== null, 'the runs');
-    expect(page.querySelector('[data-testid=journal-runs] a')!.getAttribute('href')).toBe('/k/journal?id=domain%3Apayments&run=run-a');
+    expect(page.querySelector('[data-testid=journal-runs] a')!.getAttribute('href')).toBe('/journal?id=domain%3Apayments&run=run-a');
   });
 
   test('a read that fails says what failed', async () => {
@@ -155,8 +155,8 @@ describe('the journal page', () => {
 
 describe('the journal address', () => {
   test('is a route of its own', () => {
-    expect(addressOfJournal('domain:payments')).toBe('/k/journal?id=domain%3Apayments');
-    expect(kRouteOf('/k/journal', '?id=domain%3Apayments&run=run-a')).toEqual({ name: 'journal', id: 'domain:payments', run: 'run-a' });
-    expect(kRouteOf('/k/journal', '')).toEqual({ name: 'home' });
+    expect(addressOfJournal('domain:payments')).toBe('/journal?id=domain%3Apayments');
+    expect(wikiRouteOf('/journal', '?id=domain%3Apayments&run=run-a')).toEqual({ name: 'journal', id: 'domain:payments', run: 'run-a' });
+    expect(wikiRouteOf('/journal', '')).toEqual({ name: 'home' });
   });
 });

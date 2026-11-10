@@ -37,8 +37,8 @@ function add(language: 'en' | 'ru', stage: string, route: string, ready: string,
   for (const theme of ['light', 'dark'] as const) for (const width of [1150, 390] as const) {
     const key = `${language}-${stage}-${theme}-${width}`;
     requireWalk(!plan.some((shot) => shot.key === key), `duplicate planned observation ${key}`);
-    const entity = route.includes('/k/e/') ? decodeURIComponent(route.split('/k/e/')[1]!) : stage.endsWith('-home') && !stage.startsWith('empty-') ? 'product:training-shop' : undefined;
-    const question = route.includes('/k/questions/') ? decodeURIComponent(route.split('/k/questions/')[1]!) : undefined;
+    const entity = route.includes('/e/') ? decodeURIComponent(route.split('/e/')[1]!) : stage.endsWith('-home') && !stage.startsWith('empty-') ? 'product:training-shop' : undefined;
+    const question = route.includes('/questions/') ? decodeURIComponent(route.split('/questions/')[1]!) : undefined;
     plan.push(Object.freeze({ key, language, stage, route, ready, theme, width, entity, question, ...(dialog === undefined ? {} : { dialog: true, ...dialog }) }));
   }
 }
@@ -46,23 +46,23 @@ for (const language of languages) {
   const base = '/products/training-shop';
   const term = ONCE_QUESTIONS.find((question) => question.item === 'open.term')!;
   const contradiction = ONCE_QUESTIONS.find((question) => question.item === 'open.contradiction')!;
-  add(language, 'prefill-zero-counts', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 0 });
-  add(language, 'first-questions', `${base}/k/questions`, '[data-testid=question-row]');
-  for (const question of [contradiction, term]) add(language, `first-question-${questionSlug(question, language)}`, `${base}/k/questions/${questionSlug(question, language)}`, '[data-testid=question-page]');
-  add(language, 'first-page-domain-ordering', `${base}/k/e/domain%3Aordering`, '[data-testid=entity-page]');
+  add(language, 'prefill-zero-counts', `${base}/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 0 });
+  add(language, 'first-questions', `${base}/questions`, '[data-testid=question-row]');
+  for (const question of [contradiction, term]) add(language, `first-question-${questionSlug(question, language)}`, `${base}/questions/${questionSlug(question, language)}`, '[data-testid=question-page]');
+  add(language, 'first-page-domain-ordering', `${base}/e/domain%3Aordering`, '[data-testid=entity-page]');
   for (const stage of ['answered', 'closed']) {
-    add(language, `${stage}-questions`, `${base}/k/questions`, '[data-testid=question-row]');
-    add(language, `${stage}-question-${questionSlug(term, language)}`, `${base}/k/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
-    add(language, `${stage}-page-domain-payments`, `${base}/k/e/domain%3Apayments`, '[data-testid=entity-page]');
+    add(language, `${stage}-questions`, `${base}/questions`, '[data-testid=question-row]');
+    add(language, `${stage}-question-${questionSlug(term, language)}`, `${base}/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
+    add(language, `${stage}-page-domain-payments`, `${base}/e/domain%3Apayments`, '[data-testid=entity-page]');
   }
-  add(language, 'correction-applied-page', `${base}/k/e/domain%3Aordering`, '[data-testid=entity-page]');
-  add(language, 'reset-nonzero-counts', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 7, retained: 1 });
-  add(language, 'empty-questions', `${base}/k/questions`, '[data-testid=question-row]');
-  add(language, 'empty-answer', `${base}/k/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
-  add(language, 'empty-zero-removed-counts', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 1 });
-  add(language, 'refilled-questions', `${base}/k/questions`, '[data-testid=question-row]');
-  add(language, `refilled-question-${questionSlug(term, language)}`, `${base}/k/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
-  add(language, 'refilled-page-domain-payments', `${base}/k/e/domain%3Apayments`, '[data-testid=entity-page]');
+  add(language, 'correction-applied-page', `${base}/e/domain%3Aordering`, '[data-testid=entity-page]');
+  add(language, 'reset-nonzero-counts', `${base}/settings`, '[data-testid=danger-fresh-open]', { removed: 7, retained: 1 });
+  add(language, 'empty-questions', `${base}/questions`, '[data-testid=question-row]');
+  add(language, 'empty-answer', `${base}/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
+  add(language, 'empty-zero-removed-counts', `${base}/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 1 });
+  add(language, 'refilled-questions', `${base}/questions`, '[data-testid=question-row]');
+  add(language, `refilled-question-${questionSlug(term, language)}`, `${base}/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
+  add(language, 'refilled-page-domain-payments', `${base}/e/domain%3Apayments`, '[data-testid=entity-page]');
 }
 requireWalk(plan.length === 152, `touched-page matrix requires 152 planned screenshots, got ${plan.length}`);
 validateOnceKey();
@@ -142,7 +142,7 @@ try {
     let listening = false;
     const listenUntil = performance.now() + 60_000;
     for (let attempt = 0; attempt < 120 && performance.now() < listenUntil; attempt += 1) {
-      try { await evidence.json(`${base}/api/k/status`, undefined, Math.max(1, Math.min(5_000, listenUntil - performance.now()))); listening = true; break; } catch { if (server.exitCode !== null) throw new Error(`${product}: daemon exited ${server.exitCode}`); }
+      try { await evidence.json(`${base}/api/status`, undefined, Math.max(1, Math.min(5_000, listenUntil - performance.now()))); listening = true; break; } catch { if (server.exitCode !== null) throw new Error(`${product}: daemon exited ${server.exitCode}`); }
       await new Promise((done) => setTimeout(done, 500));
     }
     requireWalk(listening, `${product}: server did not listen`);
@@ -155,7 +155,7 @@ try {
     const settled = async (start: any, what: string): Promise<any> => {
       let seen = start.fill?.state === 'running'; const began = performance.now();
       while (performance.now() - began < fillMinutes * 60_000) {
-        const status = await evidence.json(`${base}/api/k/status`, undefined, Math.max(1, Math.min(HTTP_MS, fillMinutes * 60_000 - (performance.now() - began))));
+        const status = await evidence.json(`${base}/api/status`, undefined, Math.max(1, Math.min(HTTP_MS, fillMinutes * 60_000 - (performance.now() - began))));
         const active = status.fill.state === 'running' || ['running', 'waiting'].includes(status.writer.state);
         seen ||= active;
         requireWalk(status.fill.state !== 'failed' && status.writer.state !== 'failed', `${product}: ${what} failed: ${JSON.stringify(status)}`);
@@ -165,7 +165,7 @@ try {
       throw new Error(`${product}: ${what} exceeded PLAN first estimate ${fillMinutes} minutes; incomplete, never silently smaller`);
     };
     const checkQuestions = async (ids: readonly string[], counts: [number, number, number]): Promise<any> => {
-      const listing = await get('/api/k/questions');
+      const listing = await get('/api/questions');
       requireWalk(Array.isArray(listing.problems) && Array.isArray(listing.rows) && [listing.open, listing.answered, listing.closed].every((count) => Number.isInteger(count) && count >= 0), `${product}/docs/questions: unknown listing schema`);
       requireWalk(listing.problems.length === 0 && listing.rows.length === new Set(listing.rows.map((row: any) => row.id)).size, `${product}/docs/questions: unreadable/duplicate questions`);
       requireWalk(JSON.stringify(listing.rows.map((row: any) => row.id).sort(compareCodePoint)) === JSON.stringify([...ids].sort(compareCodePoint)), `${product}/docs/questions: expected exact question set ${JSON.stringify(ids)}, got ${JSON.stringify(listing)}`);
@@ -179,7 +179,7 @@ try {
     const payment = ONCE_QUESTIONS.find((q) => q.item === 'open.term')!; const slug = questionSlug(payment, language); const keptId = `question:${slug}`;
     const kindsFile = join(product, 'madarch/kinds.yaml');
     const kindsBefore = hashFiles([kindsFile]); const kindsValueBefore = parseYaml(readFileSync(kindsFile, 'utf8'));
-    await post('/api/k/product-settings', { language });
+    await post('/api/product-settings', { language });
     const kindsValueAfter = parseYaml(readFileSync(kindsFile, 'utf8'));
     requireWalk(isDeepStrictEqual({ ...kindsValueBefore, language }, kindsValueAfter), `${kindsFile}: language action changed unexpected manifest fields`);
     let kindsExpected = hashFiles([kindsFile]);
@@ -188,17 +188,17 @@ try {
     inputChecks.push(() => { const after = hashFiles(templatePaths); evidence.immutable(`${language}-templates-after.json`, after); assertHashes(templatesBefore, after, `${language}: held templates`); }); evidence.observe('intentional-kinds-language-transition', { language, before: kindsBefore, after: kindsExpected });
     inputChecks.push(() => { const after = hashFiles([kindsFile]); evidence.immutable(`${language}-kinds-after.json`, after); assertHashes(kindsExpected, after, kindsFile); });
     await capture('prefill-');
-    await post('/api/k/agent', { agent: 'claude-code', install: false });
-    const first = await settled(await post('/api/k/fill', { agent: 'claude-code', language }), 'first fill');
+    await post('/api/agent', { agent: 'claude-code', install: false });
+    const first = await settled(await post('/api/fill', { agent: 'claude-code', language }), 'first fill');
     requireWalk(first.writer.state === 'done' && first.writer.asked === EXPECTED_FIRST_QUESTIONS, `${product}: first fill must ask exactly eight distinct questions`);
     requireWalk(first.writer.units.filter((unit: any) => /^(product|domain):/.test(unit.unit)).length === 3 && first.writer.units.filter((unit: any) => /^(product|domain):/.test(unit.unit)).every((unit: any) => unit.state === 'written'), `${product}: every product/domain unit must be written, not partial`);
     await checkQuestions(allIds, [8, 0, 0]);
     // The three retention asks span ordering/payments; a separate schedule question remains distinct.
     const retention = ONCE_QUESTIONS.find((q) => q.item === 'open.contradiction')!;
-    const retainedDetail = await get(`/api/k/question?id=${questionSlug(retention, language)}`);
+    const retainedDetail = await get(`/api/question?id=${questionSlug(retention, language)}`);
     requireWalk(['domain:ordering', 'domain:payments'].every((id) => retainedDetail.about.includes(id)), `${product}: retention paraphrases lost cross-unit association`);
 await capture('first-');
-    await post('/api/k/answer', { question: slug, text: ANSWER_TEXT[language] });
+    await post('/api/answer', { question: slug, text: ANSWER_TEXT[language] });
     await checkQuestions(allIds, [7, 1, 0]);
 await capture('answered-');
     const bodyBytes = (file: string): Buffer => { const bytes = readFileSync(file); const marker = Buffer.from('\n---\n'); const at = bytes.indexOf(marker, 3); requireWalk(at >= 0, `${file}: missing frontmatter terminator`); return bytes.subarray(at + marker.length); };
@@ -207,14 +207,14 @@ await capture('answered-');
     evidence.immutable(`${language}-human-answer-before.bin.json`, { file: answerFile, bodyBase64: answerBody.toString('base64'), answer });
     const assertAnswer = (): void => { requireWalk(bodyBytes(answerFile).equals(answerBody), `${answerFile}: human answer body bytes changed`); requireWalk(JSON.stringify(parseQuestion(answerFile, readFileSync(answerFile, 'utf8')).answer) === JSON.stringify(answer), `${answerFile}: human answer authorship/text/time changed`); };
     setScript(onceRefreshScript(language));
-    const refreshed = await settled(await post('/api/k/fill', { agent: 'claude-code' }), 'answered reuse refresh');
+    const refreshed = await settled(await post('/api/fill', { agent: 'claude-code' }), 'answered reuse refresh');
     requireWalk(refreshed.writer.state === 'done' && refreshed.writer.asked === 0, `${product}: answer reuse must create zero questions`);
     requireWalk(readFileSync(join(product, 'docs/domains/payments.md'), 'utf8').includes(`[^payment-token-means-cardtoken]: [the answer](madarch:question:${slug})`), `${product}/docs/domains/payments.md: rewritten statement has no retained-answer ground`);
     assertAnswer(); await checkQuestions(allIds, [7, 0, 1]);
 await capture('closed-');
     const ordering = readKnowledgePages(product).pages.find((page) => page.id === 'domain:ordering');
     requireWalk(ordering?.statements[0], `${product}/docs/domains/ordering.md: no statement to correct`);
-    const corrected = await post('/api/k/correction', { statement: `domain:ordering#${ordering.statements[0].id}`, reason: language === 'ru' ? 'Отклонённый платёж ещё и отменяет заказ, а в предложении этого нет.' : 'A declined payment also cancels the order; the sentence leaves it out.' });
+    const corrected = await post('/api/correction', { statement: `domain:ordering#${ordering.statements[0].id}`, reason: language === 'ru' ? 'Отклонённый платёж ещё и отменяет заказ, а в предложении этого нет.' : 'A declined payment also cancels the order; the sentence leaves it out.' });
     const correctionSlug = String(corrected.id).replace(/^correction:/, ''); const correctionFile = join(product, `docs/corrections/${correctionSlug}.md`);
     const correctionBody = bodyBytes(correctionFile); const correction = parseCorrection(correctionFile, readFileSync(correctionFile, 'utf8'));
     requireWalk(correction.status === 'open' && correction.resolvedBy.length === 0 && correction.resolvedAt === null, `${correctionFile}: new correction is not pending`);
@@ -230,7 +230,7 @@ await capture('closed-');
     const orderingAfter = orderingBefore.replace(originalSentence, correctedSentence).replace(definition, `${definition}, [the correction](madarch:correction:${correctionSlug})`);
     requireWalk(orderingAfter.includes(`[the correction](madarch:correction:${correctionSlug})`), `${orderingFile}: scripted correction has no correction ground`);
     setScript({ byPrompt: [{ matches: `(madarch:correction:${correctionSlug})`, steps: [{ call: { tool: 'write_page', arguments: { markdown: orderingAfter } } }, { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] });
-    const applied = await settled(await post('/api/k/fill', { agent: 'claude-code' }), 'apply reader correction before reset');
+    const applied = await settled(await post('/api/fill', { agent: 'claude-code' }), 'apply reader correction before reset');
     requireWalk(applied.writer.state === 'done' && applied.writer.asked === 0 && JSON.stringify(applied.writer.plan.pages.map((page: any) => page.path)) === JSON.stringify(['docs/domains/ordering.md']), `${product}: correction must rewrite exactly ordering and ask zero questions`);
     requireWalk(readFileSync(orderingFile, 'utf8').includes(correctedSentence), `${orderingFile}: correction rewrite did not contain the exact corrected sentence`);
     const appliedCorrection = parseCorrection(correctionFile, readFileSync(correctionFile, 'utf8'));
@@ -240,7 +240,7 @@ await capture('closed-');
     await capture('correction-applied-');
 
     const assertHumans = (): void => { assertAnswer(); requireWalk(bodyBytes(correctionFile).equals(correctionBody), `${correctionFile}: correction body bytes changed`); const after = parseCorrection(correctionFile, readFileSync(correctionFile, 'utf8')); requireWalk(JSON.stringify([after.reason, after.statement, after.by, after.at]) === JSON.stringify([correction.reason, correction.statement, correction.by, correction.at]), `${correctionFile}: correction human fields changed`); };
-    const preview = await get('/api/k/reset');
+    const preview = await get('/api/reset');
     requireWalk(preview.unansweredQuestions.length === 7 && preview.keptAnswers.length === 1 && preview.agentPages.length === 3, `${product}: nonzero reset preview counts disagree`);
     await capture('reset-');
     // Freeze exact reset-derived exceptions BEFORE deleting the graph/pages. No empty-stage exemption.
@@ -251,7 +251,7 @@ await capture('closed-');
       const parsed = parseTarget(target.startsWith('madarch:') ? target : `madarch:${target}`);
       if (parsed.kind !== 'doc' || value.state !== 'ok') return [];
       const href = new URL(value.href, 'http://fixture.test');
-      const repo = href.pathname === '/k/doc' ? href.searchParams.get('repo') : typeof value.entity === 'string' ? /^doc:@([^/]+)\//.exec(value.entity)?.[1] : undefined;
+      const repo = href.pathname === '/doc' ? href.searchParams.get('repo') : typeof value.entity === 'string' ? /^doc:@([^/]+)\//.exec(value.entity)?.[1] : undefined;
       if (!repo) return [];
       requireWalk(!parsed.path.split('/').includes('..') && !repo.includes('/') && !repo.includes('..'), `invalid document proof path: ${target}`);
       const hash = resetRepositoryDocument(product, repo, parsed.path); documentHashes.push(hash);
@@ -259,17 +259,17 @@ await capture('closed-');
     });
     const absence: Record<string, ResetAbsence[string]> = {};
     for (const [id, file] of [[keptId, answerFile], [`correction:${correctionSlug}`, correctionFile]]) {
-      const pageBefore = await get(`/api/k/page?${new URLSearchParams({ id: id!, lang: language, full: '1' })}`);
+      const pageBefore = await get(`/api/page?${new URLSearchParams({ id: id!, lang: language, full: '1' })}`);
       requireWalk(pageBefore.id === id && Array.isArray(pageBefore.findings) && pageBefore.findings.length === 0, `${file}: pre-reset page is not clean/exact`);
       const resolutions = [...resetMissingTargets(preview, removedPages, pageBefore.resolutions, documentSources(pageBefore.resolutions))];
       if (id === keptId) {
-        const detailBefore = await get(`/api/k/question?id=${slug}`);
+        const detailBefore = await get(`/api/question?id=${slug}`);
         resolutions.push(...resetMissingTargets(preview, removedPages, detailBefore.resolutions, documentSources(detailBefore.resolutions)));
       }
       absence[id!] = Object.freeze({ resolutions: Object.freeze(resolutions), findings: Object.freeze([]) });
     }
     evidence.immutable(`${language}-reset-expected-missing.json`, { preview, removedPages, retained: absence, documentProofs, documentHashes });
-    const reset = await post('/api/k/reset', { preview });
+    const reset = await post('/api/reset', { preview });
     requireWalk(JSON.stringify(reset) === JSON.stringify(preview), `${product}: reset result differs from preview`);
     assertResetStoreRemoved(preview.store);
     for (const path of [...preview.agentPages, ...preview.unansweredQuestions]) requireWalk(!existsSync(join(product, path)), `${join(product, path)}: reset did not remove planned file`);
@@ -303,10 +303,10 @@ await capture('empty-');
     const page = await deadline('settings page creation', HTTP_MS, () => browser!.newPage()); evidence.watch(page); await evidence.stream(page);
     const confirmation = await deadline('complete settings browser confirmation', 240_000, async () => {
       await page.evaluateOnNewDocument((value) => localStorage.setItem('madarch-wiki-language', value), language);
-      await page.goto(`${base}/k/settings`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${base}/settings`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 120_000 }); await page.click('[data-testid=danger-fresh-open]');
       await page.waitForSelector('[data-testid=danger-confirm]', { timeout: 60_000 });
-      const response = page.waitForResponse((reply) => reply.url().endsWith('/api/k/start-fresh') && reply.request().method() === 'POST', { timeout: HTTP_MS });
+      const response = page.waitForResponse((reply) => reply.url().endsWith('/api/start-fresh') && reply.request().method() === 'POST', { timeout: HTTP_MS });
       await page.click('[data-testid=danger-confirm]'); const confirmed = await response;
       requireWalk(confirmed.ok(), `${product}: settings confirmation refused HTTP ${confirmed.status()}`);
       const confirmation = await deadline('settings confirmation HTTP body', HTTP_MS, () => confirmed.json()); requireWalk(confirmation.ok === true && confirmation.plan?.unansweredQuestions?.length === 0 && confirmation.plan?.keptAnswers?.length === 1, `${product}: settings confirmation result shape/count mismatch`); evidence.observe('settings-confirmed', { language, confirmation });

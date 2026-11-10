@@ -46,12 +46,12 @@ describe('the kind code.file over the store’s records', () => {
     expect(listing?.total).toBe(2);
     expect(listing?.rows).toEqual([
       {
-        id: 'code.file:shop-forward/src/a.ts', kind: 'code.file', label: 'src/a.ts', href: '/k/e/code.file%3Ashop-forward%2Fsrc%2Fa.ts',
-        location: { repo: 'shop-forward', path: 'src/a.ts', lineStart: 1, lineEnd: 1, href: `/k/src?repo=shop-forward&path=src%2Fa.ts&line=1` },
+        id: 'code.file:shop-forward/src/a.ts', kind: 'code.file', label: 'src/a.ts', href: '/e/code.file%3Ashop-forward%2Fsrc%2Fa.ts',
+        location: { repo: 'shop-forward', path: 'src/a.ts', lineStart: 1, lineEnd: 1, href: `/src?repo=shop-forward&path=src%2Fa.ts&line=1` },
       },
       {
-        id: 'code.file:shop-forward/src/nested/b.ts', kind: 'code.file', label: 'src/nested/b.ts', href: '/k/e/code.file%3Ashop-forward%2Fsrc%2Fnested%2Fb.ts',
-        location: { repo: 'shop-forward', path: 'src/nested/b.ts', lineStart: 1, lineEnd: 1, href: `/k/src?repo=shop-forward&path=src%2Fnested%2Fb.ts&line=1` },
+        id: 'code.file:shop-forward/src/nested/b.ts', kind: 'code.file', label: 'src/nested/b.ts', href: '/e/code.file%3Ashop-forward%2Fsrc%2Fnested%2Fb.ts',
+        location: { repo: 'shop-forward', path: 'src/nested/b.ts', lineStart: 1, lineEnd: 1, href: `/src?repo=shop-forward&path=src%2Fnested%2Fb.ts&line=1` },
       },
     ]);
     // The page is the store's own: the cursor it was asked for, and no filter when the reader typed none.

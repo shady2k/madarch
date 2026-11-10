@@ -160,7 +160,7 @@ export function createKnowledgePart(
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });
       const asked = new URL(request.url).searchParams.get('lang');
       // The diagrams read the graph at length: the page answers at once with a place for each (`deferred`), and the app asks
-      // for each by its line (`/api/k/block`). `full=1` asks for the whole page in one answer.
+      // for each by its line (`/api/block`). `full=1` asks for the whole page in one answer.
       const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined, { defer: new URL(request.url).searchParams.get('at') === null && new URL(request.url).searchParams.get('full') !== '1', ...(new URL(request.url).searchParams.has('at') ? { history: { repo: new URL(request.url).searchParams.get('repo') ?? '', at: new URL(request.url).searchParams.get('at')! } } : {}) });
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       const format = new URL(request.url).searchParams.get('format');

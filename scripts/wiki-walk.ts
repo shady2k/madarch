@@ -722,7 +722,7 @@ async function readCatalogue(fetcher: (url: string) => Promise<Response>, endpoi
   let after: string | null = null;
   let total: number | null = null;
   for (;;) {
-    const url = new URL(`${endpoint}/api/k/entities`);
+    const url = new URL(`${endpoint}/api/entities`);
     url.searchParams.set('kind', kind);
     url.searchParams.set('limit', '200');
     if (after !== null) url.searchParams.set('after', after);
@@ -741,7 +741,7 @@ async function readCatalogue(fetcher: (url: string) => Promise<Response>, endpoi
     if (after !== null && listing.next === after) throw new Error(`${url.href}: the catalogue's next page is the page just read (${listing.next})`);
     after = listing.next;
   }
-  if (rows.length !== total) throw new Error(`${endpoint}/api/k/entities?kind=${encodeURIComponent(kind)}: the catalogue names ${total} rows and answered ${rows.length}`);
+  if (rows.length !== total) throw new Error(`${endpoint}/api/entities?kind=${encodeURIComponent(kind)}: the catalogue names ${total} rows and answered ${rows.length}`);
   return rows;
 }
 
@@ -894,16 +894,16 @@ export async function walkWiki(options: WalkOptions): Promise<WalkResult> {
   const started = performance.now();
   const fetcher = options.fetcher ?? ((url: string) => fetch(url));
   const endpoint = withoutTrailingSlashes(options.endpoint);
-  const status = await getJson<WikiStatus>(fetcher, `${endpoint}/api/k/status`);
+  const status = await getJson<WikiStatus>(fetcher, `${endpoint}/api/status`);
   if (status.manifest !== 'ok') {
-    throw new Error(`${endpoint}/api/k/status: the product has no kinds manifest (${status.manifestFile}), so it has no pages to walk`);
+    throw new Error(`${endpoint}/api/status: the product has no kinds manifest (${status.manifestFile}), so it has no pages to walk`);
   }
   const languages = [...(options.languages ?? declaredLanguages(status))];
-  if (languages.length === 0) throw new Error(`${endpoint}/api/k/status: the product declares no interface language`);
+  if (languages.length === 0) throw new Error(`${endpoint}/api/status: the product declares no interface language`);
   for (const language of languages) {
     if (language !== 'en' && language !== 'ru') throw new Error(`${endpoint}: the interface language ${JSON.stringify(language)} is not one this walk judges; the wiki speaks en and ru`);
   }
-  const questions = await getJson<{ rows: { id: string }[] }>(fetcher, `${endpoint}/api/k/questions`);
+  const questions = await getJson<{ rows: { id: string }[] }>(fetcher, `${endpoint}/api/questions`);
   const ids = new Set<string>();
   const namespaces = new Set<string>(['madarch']);
   for (const kind of status.kinds) namespaces.add(kind.kind);
@@ -933,7 +933,7 @@ export async function walkWiki(options: WalkOptions): Promise<WalkResult> {
     for (const row of catalogue.rows) for (const language of languages) work.push({ kind: catalogue.kind, id: row.id, language });
   }
   await pool(work, options.concurrency ?? 4, async (item) => {
-    const url = new URL(`${endpoint}/api/k/page`);
+    const url = new URL(`${endpoint}/api/page`);
     url.searchParams.set('id', item.id);
     url.searchParams.set('lang', item.language);
     url.searchParams.set('full', '1');
@@ -944,17 +944,17 @@ export async function walkWiki(options: WalkOptions): Promise<WalkResult> {
     }));
   });
 
-  const listing = await getJson<DocumentListing>(fetcher, `${endpoint}/api/k/documents`);
+  const listing = await getJson<DocumentListing>(fetcher, `${endpoint}/api/documents`);
   // A truncated listing names documents it does not send, and no route pages
   // through the rest: reading the listing's part would report fewer documents
   // than the product holds, so the walk stops and names what is missing.
   if (listing.truncated.length > 0) {
     const first = listing.truncated[0]!;
-    throw new Error(`${endpoint}/api/k/documents: the listing omits documents of ${first.repo === null ? 'the product repository' : JSON.stringify(first.repo)} (${first.shown} of ${first.total} listed), so it cannot be read whole`);
+    throw new Error(`${endpoint}/api/documents: the listing omits documents of ${first.repo === null ? 'the product repository' : JSON.stringify(first.repo)} (${first.shown} of ${first.total} listed), so it cannot be read whole`);
   }
   let documentsRead = 0;
   for (const document of listing.documents) {
-    const url = new URL(`${endpoint}/api/k/document`);
+    const url = new URL(`${endpoint}/api/document`);
     url.searchParams.set('path', document.path);
     if (document.repo !== null) url.searchParams.set('repo', document.repo);
     const page = await getJson<DocumentPage>(fetcher, url.href);

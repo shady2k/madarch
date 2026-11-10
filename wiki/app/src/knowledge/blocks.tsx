@@ -30,7 +30,7 @@ import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
-import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
+import { addressOfDocument, addressOfStatement, addressOfTask, isWikiAddress, WIKI_PROBLEMS } from './routes.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements } from './statements.js';
@@ -199,7 +199,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
         if (resolution.href === null) return <><span data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindName(resolution.kind, 'one') })}>{children}</span>{place}</>;
         return <><KLink href={resolution.href} title={resolution.note}>{children}</KLink>{place}</>;
       }
-      if (href.startsWith('/k/') || href === '/k') return <KLink href={href} {...(className === undefined ? {} : { className })} {...(title === undefined ? {} : { title })}>{children}</KLink>;
+      if (isWikiAddress(href)) return <KLink href={href} {...(className === undefined ? {} : { className })} {...(title === undefined ? {} : { title })}>{children}</KLink>;
       if (inDocument !== undefined) {
         // In a document: a link to another Markdown document of the same repository is a page of the wiki, a link to a
         // section of this one scrolls to it, and a link to another site opens it in a tab of its own.
@@ -813,7 +813,7 @@ export function Findings({ findings, scope = 'page' }: { findings: readonly { fi
       <AlertTitle>{t('knowledge.findings', { count: visible.length })}</AlertTitle>
       <AlertDescription>
         <p data-testid="findings-help">{scope === 'manifest' ? t('knowledge.manifestFindingsHelp') : t('knowledge.findingsHelp')}</p>
-        {scope === 'manifest' && <p className="mt-1"><KLink href={K_PROBLEMS}>{t('errors.problems')}</KLink></p>}
+        {scope === 'manifest' && <p className="mt-1"><KLink href={WIKI_PROBLEMS}>{t('errors.problems')}</KLink></p>}
         <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
           {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
         </button>

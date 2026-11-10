@@ -176,10 +176,10 @@ writeFileSync(join(home, 'settings.json'), JSON.stringify({ role: 'everything', 
 
 if (runPhase === 'all' || runPhase === 'prepare') {
 enterPhase('fill');
-const started = await fetch(`${base}/products/${name}/api/k/fill`, { method: 'POST' });
+const started = await fetch(`${base}/products/${name}/api/fill`, { method: 'POST' });
 if (!started.ok) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
 for (const until = Date.now() + 900_000; ; ) {
-  const status = (await (await fetch(`${base}/products/${name}/api/k/status`)).json()) as { fill: { state: string; message?: string } };
+  const status = (await (await fetch(`${base}/products/${name}/api/status`)).json()) as { fill: { state: string; message?: string } };
   if (status.fill.state === 'done') break;
   if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
   if (Date.now() > until) throw new Error('the fill did not finish in 15 minutes');
@@ -190,7 +190,7 @@ for (const until = Date.now() + 900_000; ; ) {
 // Read every declared page through JSON before taking pictures. Keep every response and every failure, not a sample.
 if (runPhase === 'all' || runPhase === 'prepare' || runPhase === 'json') {
 enterPhase('json-discovery');
-const statusResponse = await fetch(`${base}/products/${name}/api/k/status`);
+const statusResponse = await fetch(`${base}/products/${name}/api/status`);
 if (!statusResponse.ok) throw new Error(`${resolve(import.meta.dir, 'diagram-shots.ts')} [status]: status HTTP ${statusResponse.status}`);
 const wikiStatus = await statusResponse.json() as { kinds: { kind: string }[] };
 const pageIds = new Set<string>(frozenPlan?.ids ?? []);
@@ -199,7 +199,7 @@ for (const kind of (frozenPlan ? [] : [...wikiStatus.kinds]).sort((a,b) => a.kin
   let after: string | null = null;
   do {
     const query = new URLSearchParams({kind:kind.kind,limit:'500', ...(after === null ? {} : {after})});
-    const listingResponse = await fetch(`${base}/products/${name}/api/k/entities?${query}`);
+    const listingResponse = await fetch(`${base}/products/${name}/api/entities?${query}`);
     if (!listingResponse.ok) throw new Error(`${resolve(import.meta.dir, 'diagram-shots.ts')} [entity-list]: kind ${kind.kind}: HTTP ${listingResponse.status}`);
     const listing = await listingResponse.json() as { rows: { id: string }[]; next: string | null };
     for (const row of listing.rows) { if (pageIds.has(row.id)) throw new Error(`duplicate discovered entity ${row.id} in ${kind.kind}`); pageIds.add(row.id); }
@@ -213,7 +213,7 @@ if (runPhase === 'prepare') frozenPlan = { ids: [...pageIds].sort(), pages: [], 
 if (runPhase !== 'prepare') {
 enterPhase('json-pages');
 for (const id of [...pageIds].sort()) for (const lang of ['en','ru']) {
-      const response = await fetch(`${base}/products/${name}/api/k/page?${new URLSearchParams({id:id,lang,full:'1'})}`);
+      const response = await fetch(`${base}/products/${name}/api/page?${new URLSearchParams({id:id,lang,full:'1'})}`);
       const raw = await response.text();
       let body: { id?: string; blocks?: { type: string; file?: string; line?: number; message?: string }[]; message?: string };
       try { body = JSON.parse(raw); } catch (error) { writeFileSync(join(out, 'pages', `${String(apiPages.length).padStart(5, '0')}-${lang}-invalid.txt`), raw); throw new Error(`JSON page ${id} ${lang}: ${error instanceof Error ? error.stack : String(error)}`); }
@@ -233,12 +233,12 @@ sameKeys([...pageIds].flatMap(id => ['en', 'ru'].map(lang => JSON.stringify([id,
 }
 
 const encode = encodeURIComponent;
-const at = (id: string): string => `/products/${name}/k/e/${encode(id)}`;
+const at = (id: string): string => `/products/${name}/e/${encode(id)}`;
 const key = (kind: string, rest: string): string => `${kind}:${rest}`;
 const pages: { name: string; url: string; wait: string; fixture?: unknown }[] = [
-  { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'home', url: `/products/${name}/`, wait: '[data-diagram=views] [data-testid=view]' },
   // The domain list: the map of the domains with the services behind them (the owner's first ask).
-  { name: 'domain-list', url: `/products/${name}/k/kind/domain`, wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'domain-list', url: `/products/${name}/kind/domain`, wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=views] [data-testid=view]' },
@@ -251,7 +251,7 @@ const pages: { name: string; url: string; wait: string; fixture?: unknown }[] = 
 ];
 if (runPhase === 'prepare') {
   // These named synthetic cases use the real app. They never replace any of the eleven training pages.
-  const templateResponse = await fetch(`${base}/products/${name}/api/k/page?${new URLSearchParams({ id: 'code.database:orders', full: '1', lang: 'en' })}`);
+  const templateResponse = await fetch(`${base}/products/${name}/api/page?${new URLSearchParams({ id: 'code.database:orders', full: '1', lang: 'en' })}`);
   if (!templateResponse.ok) throw new Error(`fixture template: HTTP ${templateResponse.status}`);
   const template = await templateResponse.json() as Record<string, unknown>;
   for (const item of await diagramAcceptanceCases('en')) pages.push({ name: item.name, url: at('code.database:orders'), wait: '[data-diagram=views] [data-testid=view]', fixture: { ...template, blocks: [{ type: 'diagrams', title: item.name, renderer: 'likec4', views: item.views }] } });
@@ -264,8 +264,8 @@ async function installFixture(page: Page, fixture: unknown): Promise<void> {
   await page.setRequestInterception(true);
   page.on('request', request => {
     const url = new URL(request.url());
-    if (url.pathname.endsWith('/api/k/page')) void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
-    else if (url.pathname.endsWith('/api/k/view-frame')) {
+    if (url.pathname.endsWith('/api/page')) void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture) });
+    else if (url.pathname.endsWith('/api/view-frame')) {
       const query = new URLSearchParams(url.search); const renderer = query.get('renderer'); query.delete('renderer'); query.delete('lang');
       const response = data.acceptanceFrames[`${query.toString()}|${renderer}`];
       if (!response) { failure('fixture-frame', `unplanned fixture frame ${url}`); void request.respond({ status: 500, body: `Unplanned fixture frame ${url}` }); }
@@ -320,13 +320,13 @@ if (runPhase === 'prepare') {
       const originalViews = new Map<string, string[]>();
       let payloadViews: (AdjacentView & { query: string; renderers: string[] })[];
       if (entry.name === 'domain-list') {
-        const response = await fetch(`${base}/products/${name}/api/k/view?${new URLSearchParams({ type: 'domain-map', subject: 'domain', lang })}`);
+        const response = await fetch(`${base}/products/${name}/api/view?${new URLSearchParams({ type: 'domain-map', subject: 'domain', lang })}`);
         if (!response.ok) throw new Error(`plan domain-map payload HTTP ${response.status}`);
         payloadViews = (await response.json() as { views: (AdjacentView & { query: string; renderers: string[] })[] }).views;
       } else {
-        const status = entry.name === 'home' ? await (await fetch(`${base}/products/${name}/api/k/status`)).json() as { home: string | null } : null;
-        const id = status?.home ?? decodeURIComponent(entry.url.split('/k/e/')[1] ?? '');
-        const response = fixture === undefined ? await fetch(`${base}/products/${name}/api/k/page?${new URLSearchParams({ id, lang, full: '1' })}`) : null;
+        const status = entry.name === 'home' ? await (await fetch(`${base}/products/${name}/api/status`)).json() as { home: string | null } : null;
+        const id = status?.home ?? decodeURIComponent(entry.url.split('/e/')[1] ?? '');
+        const response = fixture === undefined ? await fetch(`${base}/products/${name}/api/page?${new URLSearchParams({ id, lang, full: '1' })}`) : null;
         if (response && !response.ok) throw new Error(`plan ${entry.name} payload HTTP ${response.status}`);
         const originalBlocks = fixture ?? await response!.json();
         payloadViews = (originalBlocks as { blocks?: { views?: (AdjacentView & { query: string; renderers: string[] })[] }[] }).blocks?.flatMap(block => block.views ?? []) ?? [];

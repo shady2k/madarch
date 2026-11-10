@@ -1,4 +1,5 @@
 import { currentAddress } from './tabs.js';
+import { ENTITY_ADDRESS_PREFIX } from './routes.js';
 
 export function currentHistory(): { repo: string; at: string } | undefined {
   const address = currentAddress();
@@ -9,8 +10,8 @@ export function currentHistory(): { repo: string; at: string } | undefined {
 
 /** Only code pages and source links inherit the selected date. Product prose is not historical evidence. */
 export function historyAddress(href: string, history = currentHistory()): string {
-  if (history === undefined || !/^\/k\/(?:e\/|src(?:\?|$))/.test(href)) return href;
-  if (href.startsWith('/k/e/') && !decodeURIComponent(href.slice('/k/e/'.length).split('?')[0]!).startsWith('code.')) return href;
+  if (history === undefined || !/^\/(?:e\/|src(?:\?|$))/.test(href)) return href;
+  if (href.startsWith(ENTITY_ADDRESS_PREFIX) && !decodeURIComponent(href.slice(ENTITY_ADDRESS_PREFIX.length).split('?')[0]!).startsWith('code.')) return href;
   const url = new URL(href, 'https://wiki.invalid');
   url.searchParams.set('repo', history.repo);
   url.searchParams.set('at', history.at);

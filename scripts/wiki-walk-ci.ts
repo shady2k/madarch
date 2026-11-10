@@ -87,22 +87,22 @@ const server = await startServer({
 const endpoint = `${server.url}/products/${PRODUCT}`;
 
 const status = async (): Promise<{ fill: { state: string; message?: string }; filled?: boolean }> => {
-  const response = await fetch(`${endpoint}/api/k/status`);
-  if (!response.ok) throw new Error(`${endpoint}/api/k/status: HTTP ${response.status}`);
+  const response = await fetch(`${endpoint}/api/status`);
+  if (!response.ok) throw new Error(`${endpoint}/api/status: HTTP ${response.status}`);
   return await response.json() as { fill: { state: string; message?: string }; filled?: boolean };
 };
 
 try {
   console.log(`wiki-walk-ci: filling ${endpoint}`);
-  const began = await fetch(`${endpoint}/api/k/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  if (began.status !== 202) throw new Error(`${endpoint}/api/k/fill: HTTP ${began.status}: ${await began.text()}`);
+  const began = await fetch(`${endpoint}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  if (began.status !== 202) throw new Error(`${endpoint}/api/fill: HTTP ${began.status}: ${await began.text()}`);
   const fillBegan = Date.now();
   const fillDeadline = fillBegan + FILL_MS;
   for (;;) {
     const state = await status();
     if (state.fill.state === 'done') break;
-    if (state.fill.state === 'failed') throw new Error(`${endpoint}/api/k/status: the fill failed: ${state.fill.message ?? 'no reason given'}`);
-    if (Date.now() > fillDeadline) throw new Error(`${endpoint}/api/k/status: the fill did not finish in ${FILL_MS / 1000} s (state ${state.fill.state})`);
+    if (state.fill.state === 'failed') throw new Error(`${endpoint}/api/status: the fill failed: ${state.fill.message ?? 'no reason given'}`);
+    if (Date.now() > fillDeadline) throw new Error(`${endpoint}/api/status: the fill did not finish in ${FILL_MS / 1000} s (state ${state.fill.state})`);
     await Bun.sleep(500);
   }
   console.log(`wiki-walk-ci: filled in ${((Date.now() - fillBegan) / 1000).toFixed(1)} s; walking ${languages?.join(', ') ?? 'the manifest languages'}`);

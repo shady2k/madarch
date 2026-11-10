@@ -60,7 +60,7 @@ afterAll(async () => {
 });
 
 test('two repositories sharing docs have two directory ids, each naming its repository', async () => {
-  const answer = await fetch(`${server!.url}/products/shop/api/k/entities?kind=code.directory&limit=200`, { headers: { accept: 'application/json' } });
+  const answer = await fetch(`${server!.url}/products/shop/api/entities?kind=code.directory&limit=200`, { headers: { accept: 'application/json' } });
   expect(answer.status).toBe(200);
   const body = (await answer.json()) as { rows: { id: string; label: string }[]; total: number };
   const ids = body.rows.map((row) => row.id);

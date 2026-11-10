@@ -37,11 +37,11 @@ const get = async (path: string): Promise<{ status: number; body: any }> => {
 
 /** Presses the refresh the Sync button presses and waits for its end; answers the status it ended on. */
 async function refresh(product: string): Promise<any> {
-  const press = await fetch(`${server.url}/products/${product}/api/k/fill`, { method: 'POST' });
+  const press = await fetch(`${server.url}/products/${product}/api/fill`, { method: 'POST' });
   expect(press.status).toBe(202);
   let status: any;
   for (let tries = 0; tries < 900; tries += 1) {
-    status = (await get(`/products/${product}/api/k/status`)).body;
+    status = (await get(`/products/${product}/api/status`)).body;
     if (status.fill.state !== 'running' && status.writer.state !== 'running' && status.writer.state !== 'waiting') break;
     await new Promise((rest) => setTimeout(rest, 250));
   }
@@ -49,7 +49,7 @@ async function refresh(product: string): Promise<any> {
   // The pages the run changed are recorded when it ends, in a notify of their own: wait a little for the status that has them.
   for (let grace = 0; grace < 40 && status.fill.state === 'done' && status.fill.changed === undefined; grace += 1) {
     await new Promise((rest) => setTimeout(rest, 250));
-    status = (await get(`/products/${product}/api/k/status`)).body;
+    status = (await get(`/products/${product}/api/status`)).body;
   }
   return status;
 }
@@ -82,7 +82,7 @@ Checkout asks the payment service to take the card's amount.[^1]
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  await fetch(`${server.url}/products/shop/api/k/status`);
+  await fetch(`${server.url}/products/shop/api/status`);
 }, 120_000);
 
 afterAll(async () => {
@@ -105,7 +105,7 @@ describe('the sync of the training product', () => {
     const missing: string[] = [];
     for (const page of firstChanged) {
       expect(page.title.length).toBeGreaterThan(0);
-      if ((await get(`/products/shop/api/k/page?id=${encodeURIComponent(page.id)}`)).status !== 200) missing.push(page.id);
+      if ((await get(`/products/shop/api/page?id=${encodeURIComponent(page.id)}`)).status !== 200) missing.push(page.id);
     }
     expect(missing).toEqual([]);
 
@@ -141,7 +141,7 @@ describe('the sync of the training product', () => {
     expect(changed.length).toBeLessThan(total);
     // Every page the button lists opens at its address, with the title the list shows.
     for (const page of changed) {
-      const opened = await get(`/products/shop/api/k/page?id=${encodeURIComponent(page.id)}`);
+      const opened = await get(`/products/shop/api/page?id=${encodeURIComponent(page.id)}`);
       expect(opened.status).toBe(200);
       expect(opened.body.title).toBe(page.title);
     }

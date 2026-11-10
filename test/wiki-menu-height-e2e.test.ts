@@ -48,7 +48,7 @@ function buildLongPage(): { root: string; product: string; path: string } {
   }
   const paragraphs = Array.from({ length: 160 }, (_unused, at) => `Paragraph ${at + 1} of the long page says enough words to take a line or two at the reading width, so the document runs well past the window.`);
   writeFileSync(join(product, 'docs', 'long.md'), `# A long page\n\n${paragraphs.join('\n\n')}\n`);
-  return { root, product, path: '/k/doc?path=docs%2Flong.md' };
+  return { root, product, path: '/doc?path=docs%2Flong.md' };
 }
 
 runDescribe('the menu ground on a long page (built app and Chromium)', () => {
@@ -95,7 +95,7 @@ runDescribe('the menu ground on a long page (built app and Chromium)', () => {
     // measurement that does not wait for the document reads the skeleton's height, not the long page's.
     await page.setRequestInterception(true);
     page.on('request', (request) => {
-      if (!request.url().includes('/api/k/document?')) { void request.continue(); return; }
+      if (!request.url().includes('/api/document?')) { void request.continue(); return; }
       setTimeout(() => { void request.continue(); }, 1200);
     });
   });

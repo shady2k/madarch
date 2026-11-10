@@ -50,12 +50,12 @@ const json = async (server: StartedServer, product: string, path: string): Promi
 
 /** Presses the fill and waits for the run to end; answers the status that says how it ended. */
 async function press(server: StartedServer, name: string): Promise<Record<string, unknown>> {
-  const pressed = await fetch(`${server.url}/products/${name}/api/k/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
+  const pressed = await fetch(`${server.url}/products/${name}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
   expect(pressed.status).toBe(202);
   for (let attempt = 0; attempt < 1200; attempt++) {
-    const status = await json(server, name, '/api/k/status');
+    const status = await json(server, name, '/api/status');
     const fill = status.body['fill'] as Record<string, unknown> | undefined;
-    if (fill === undefined) throw new Error(`/api/k/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
+    if (fill === undefined) throw new Error(`/api/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
     if (fill['state'] !== 'running') return status.body;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -91,11 +91,11 @@ git(folder,'commit','-qm','the nested file moves');
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty state: the manifest reads, the store holds no repository and no trace.
-      const empty = await json(server, 'walk', '/api/k/status');
+      const empty = await json(server, 'walk', '/api/status');
       expect(empty.status).toBe(200);
       expect(empty.body['repository']).toBeUndefined();
       expect((empty.body['fill'] as Record<string, unknown>)['state']).toBe('idle');
-      const noRepository = await json(server, 'walk', '/api/k/repository');
+      const noRepository = await json(server, 'walk', '/api/repository');
       expect(noRepository.status).toBe(404);
       expect(String((noRepository.body['message'] ?? (noRepository.body['error'] as Record<string, unknown> | undefined)?.['message']))).toContain('repository-tree');
 
@@ -121,28 +121,28 @@ git(folder,'commit','-qm','the nested file moves');
       }
 
       // The repository page, its tree, one file, one commit and the run.
-      const repositoryPage = await json(server, 'walk', '/api/k/repository');
+      const repositoryPage = await json(server, 'walk', '/api/repository');
       expect(repositoryPage.status).toBe(200);
       expect((repositoryPage.body['repository'] as Record<string, unknown>)['name']).toBe('walk-code');
-      const rootFolder = await json(server, 'walk', '/api/k/folder?path=');
+      const rootFolder = await json(server, 'walk', '/api/folder?path=');
       expect(rootFolder.status).toBe(200);
       const rootModel = rootFolder.body['folder'] as Record<string, unknown>;
       expect(rootModel['folders']).toEqual(['assets', 'src']);
       expect((rootModel['files'] as { path: string }[]).map((file) => file.path)).toEqual(['README.md']);
-      const nested = await json(server, 'walk', '/api/k/folder?path=src%2Fnested');
+      const nested = await json(server, 'walk', '/api/folder?path=src%2Fnested');
       expect(nested.status).toBe(200);
       expect((nested.body['folder'] as Record<string, unknown>)['parent']).toBe('src');
       expect(((nested.body['folder'] as Record<string, unknown>)['files'] as { path: string }[]).map((file) => file.path)).toEqual(['src/nested/c.ts']);
-      const file = await json(server, 'walk', '/api/k/file?path=src%2Fnested%2Fc.ts');
+      const file = await json(server, 'walk', '/api/file?path=src%2Fnested%2Fc.ts');
       expect(file.status).toBe(200);
       const fileModel = file.body['file'] as Record<string, unknown>;
       expect((fileModel['file'] as Record<string, unknown>)['form']).toBe('text');
       expect((fileModel['history'] as { change: string; previousPath: string | null }[]).map((row) => [row.change, row.previousPath])).toEqual([['renamed', 'src/nested/b.ts'], ['added', null]]);
       const hash = (fileModel['history'] as { commit: string }[])[0]!.commit;
-      const commit = await json(server, 'walk', `/api/k/commit?hash=${hash}`);
+      const commit = await json(server, 'walk', `/api/commit?hash=${hash}`);
       expect(commit.status).toBe(200);
       expect((commit.body['commit'] as Record<string, unknown>)['subject']).toBe('the nested file moves');
-      const runPage = await json(server, 'walk', '/api/k/run');
+      const runPage = await json(server, 'walk', '/api/run');
       expect(runPage.status).toBe(200);
       const runModel = runPage.body['run'] as Record<string, unknown>;
       expect(runModel['runId']).toBe(run['runId'] as string);
@@ -172,20 +172,20 @@ git(folder,'commit','-qm','the nested file moves');
       const ended = await press(server, 'many');
       const facts = ended['repository'] as Record<string, unknown>;
       expect((facts['counts'] as Record<string, unknown>)['files']).toBe(2000);
-      const root = await json(server, 'many', '/api/k/folder?path=');
+      const root = await json(server, 'many', '/api/folder?path=');
       expect(root.status).toBe(200);
       const rootModel = root.body['folder'] as Record<string, unknown>;
       expect(rootModel['folders']).toEqual(['files']);
       // The root holds one folder and no file: the page is small whatever the tree holds.
       expect(rootModel['files']).toEqual([]);
-      const deep = await json(server, 'many', '/api/k/folder?path=files%2Fdeep');
+      const deep = await json(server, 'many', '/api/folder?path=files%2Fdeep');
       const deepModel = deep.body['folder'] as Record<string, unknown>;
       const page = deepModel['files'] as unknown[];
       expect(page.length).toBe(100);
       expect(deepModel['next']).toBe('files/deep/f0099.txt');
       // The whole answer is a page, not the repository: two thousand rows would be tens of thousands of bytes.
       expect(JSON.stringify(deep.body).length).toBeLessThan(60_000);
-      const second = await json(server, 'many', '/api/k/folder?path=files%2Fdeep&after=files%2Fdeep%2Ff0099.txt');
+      const second = await json(server, 'many', '/api/folder?path=files%2Fdeep&after=files%2Fdeep%2Ff0099.txt');
       expect(((second.body['folder'] as Record<string, unknown>)['files'] as { path: string }[])[0]!.path).toBe('files/deep/f0100.txt');
     } finally {
       await server.stop();
@@ -209,23 +209,23 @@ git(folder,'commit','-qm','the nested file moves');
     writeFileSync(join(folder, 'docs', 'use-cases.md'), ['# Use cases', '', '- **UC-1 Place order.** A shopper submits a cart.', ''].join('\n'));
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
-      const empty = await json(server, 'docs', '/api/k/status');
+      const empty = await json(server, 'docs', '/api/status');
       expect(empty.status).toBe(200);
       // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
       expect(empty.body['findingCount']).toBe(0);
       expect((empty.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).map((kind) => kind.count)).toEqual([0, 0, 0, 0, 0]);
-      const glossary = await json(server, 'docs', '/api/k/glossary');
+      const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
-      const useCases = await json(server, 'docs', '/api/k/entities?kind=doc.use-case');
+      const useCases = await json(server, 'docs', '/api/entities?kind=doc.use-case');
       expect(useCases.body).toMatchObject({ total: 0, rows: [], next: null });
       // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.
       const ended = await press(server, 'docs');
       const fill = ended['fill'] as Record<string, unknown>;
       expect(fill['state']).toBe('done');
-      const after = await json(server, 'docs', '/api/k/status');
+      const after = await json(server, 'docs', '/api/status');
       expect((after.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).every((kind) => kind.count === 0)).toBe(true);
-      expect((await json(server, 'docs', '/api/k/file?path=src%2Fa.ts')).status).toBe(200);
-      expect((await json(server, 'docs', '/api/k/entities?kind=doc.use-case')).body).toMatchObject({ total: 0, rows: [] });
+      expect((await json(server, 'docs', '/api/file?path=src%2Fa.ts')).status).toBe(200);
+      expect((await json(server, 'docs', '/api/entities?kind=doc.use-case')).body).toMatchObject({ total: 0, rows: [] });
     } finally {
       await server.stop();
     }
@@ -255,20 +255,20 @@ git(folder,'commit','-qm','the nested file moves');
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty wiki answers: no 500, the repository listed, and a finding that names its path.
-      const emptyStatus = await json(server, 'half', '/api/k/status');
+      const emptyStatus = await json(server, 'half', '/api/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
       // The finding now lives on the Problems page: its category, then the source the repository is,
       // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
-      const categories = await json(server, 'half', '/api/k/problems');
+      const categories = await json(server, 'half', '/api/problems');
       expect(categories.status).toBe(200);
       const unreadable = (categories.body['categories'] as { rule: string }[]).find((category) => category.rule === 'wiki.unreadable-file');
       expect(unreadable).toBeDefined();
-      const sources = await json(server, 'half', `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
+      const sources = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
       expect(sources.status).toBe(200);
       const emptySource = (sources.body['sources'] as { key: string }[]).find((source) => source.key === join(folder, 'repos', 'empty-code'));
       expect(emptySource).toBeDefined();
-      const items = await json(server, 'half', `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
+      const items = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
       expect(items.status).toBe(200);
       const item = (items.body['problems'] as { reason: string; source?: string }[]).find((problem) => problem.reason.includes('holds no commit yet'));
       expect(item).toBeDefined();
@@ -282,9 +282,9 @@ git(folder,'commit','-qm','the nested file moves');
       const counts = (ended['repository'] as Record<string, unknown>)['counts'] as Record<string, unknown>;
       expect(counts['files']).toBe(1);
       // The pages of the committed repository answer; the product's wiki stands.
-      const file = await json(server, 'half', '/api/k/file?path=src%2Fa.ts');
+      const file = await json(server, 'half', '/api/file?path=src%2Fa.ts');
       expect(file.status).toBe(200);
-      const after = await json(server, 'half', '/api/k/status');
+      const after = await json(server, 'half', '/api/status');
       expect(after.status).toBe(200);
     } finally {
       await server.stop();
@@ -311,16 +311,16 @@ git(folder,'commit','-qm','the nested file moves');
     }
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
-      const status = await json(server, 'treeonly', '/api/k/status');
+      const status = await json(server, 'treeonly', '/api/status');
       const repository = status.body['repository'] as Record<string, unknown>;
       expect(repository['steps']).toEqual({ 'tree': true, 'history': false });
       // The file page stands, with no history: the history step has not run.
-      const file = await json(server, 'treeonly', '/api/k/file?path=src%2Fa.ts');
+      const file = await json(server, 'treeonly', '/api/file?path=src%2Fa.ts');
       expect(file.status).toBe(200);
       expect(((file.body['file'] as Record<string, unknown>)['history'] as unknown[])).toEqual([]);
       expect(((file.body['file'] as Record<string, unknown>)['commitCount'] as number)).toBe(0);
       // No commit has a page: the step that would have made it is named.
-      const commit = await json(server, 'treeonly', '/api/k/commit?hash=0000000000000000000000000000000000000000');
+      const commit = await json(server, 'treeonly', '/api/commit?hash=0000000000000000000000000000000000000000');
       expect(commit.status).toBe(404);
       expect(String(commit.body['message'])).toContain('repository-history');
     } finally {

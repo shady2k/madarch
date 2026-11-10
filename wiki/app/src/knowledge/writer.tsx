@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/card.js';
 import { chooseAgent, getAgents, startFill } from './api.js';
 import { KLink } from './blocks.js';
 import { kindNameOf } from './kind-names.js';
-import { K_FILL } from './routes.js';
+import { WIKI_FILL } from './routes.js';
 import { runIsPaused, runIsStopped } from './run-controls.js';
 import { FailureNote } from './errors.js';
 import { unitLimitWords } from './unit-bounds.js';
@@ -169,7 +169,7 @@ export function WriterLine({ status, refresh }: { status: WikiStatus; refresh: (
   // How many pages the run means to write, as the writer counted them: not the pages it has merely taken up, which
   // would make «1 из 2» look nearly done at the very start. Until the count comes, the line says only the count.
   const total = writer.total;
-  const open = <KLink href={K_FILL} className="text-small" testId="writer-line-open">{t('knowledge.fillPage.open')}</KLink>;
+  const open = <KLink href={WIKI_FILL} className="text-small" testId="writer-line-open">{t('knowledge.fillPage.open')}</KLink>;
   if (writer.state === 'failed') {
     const retry = (): void => {
       setRetrying(true);

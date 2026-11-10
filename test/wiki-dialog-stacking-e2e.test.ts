@@ -72,7 +72,7 @@ runDescribe('a first-visit dialog over a diagram (built app and Chromium)', () =
     test(`the last role choice is the topmost thing under the LikeC4 panel at ${viewport.width} px`, async () => {
       page = await browser!.newPage();
       await page.setViewport(viewport);
-      await page.goto(`${server!.url}/products/training/k`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${server!.url}/products/training/`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('[data-testid=role-card]', { timeout: 20_000 });
       // The diagram is drawn by a web component: wait for the panel inside its shadow root, not just the page shell.
       await page.waitForFunction(() => {

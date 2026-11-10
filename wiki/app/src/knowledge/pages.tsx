@@ -21,7 +21,7 @@ import { HistoryBar } from './history-bar.js';
 import { AgentChoice, useAgentChoice, WriterLine } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
-import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
+import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DOCS, WIKI_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
@@ -90,7 +90,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
           {page.planned?.entity != null && <PlannedBadge mark={page.planned.entity} />}
-          {(page.problems ?? 0) > 0 && <span data-testid="page-problems"><KLink href="/k/problems"><Badge variant="solid">{t('knowledge.pageProblems', { count: page.problems })}</Badge></KLink></span>}
+          {(page.problems ?? 0) > 0 && <span data-testid="page-problems"><KLink href={WIKI_PROBLEMS}><Badge variant="solid">{t('knowledge.pageProblems', { count: page.problems })}</Badge></KLink></span>}
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
@@ -544,7 +544,7 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
   return (
     <article data-testid="document-page" data-path={page.path} data-repo={page.repo ?? ''} data-planned={String((page.planned ?? []).length)}>
       <header className="mb-6">
-        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href="/k/docs">{t('knowledge.documents')}</KLink><span aria-hidden="true">/</span><span>{page.repo ?? t('knowledge.productRepository')}</span></nav>
+        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_DOCS}>{t('knowledge.documents')}</KLink><span aria-hidden="true">/</span><span>{page.repo ?? t('knowledge.productRepository')}</span></nav>
         <div className="mb-2 flex items-center gap-2">
           <Badge>{t('knowledge.documentBadge')}</Badge>
           <code className="min-w-0 truncate text-small text-muted" title={page.path}>{page.path}</code>
@@ -768,7 +768,7 @@ function CorrectionBox({ page, name }: { page: string; name: string | null }): R
       {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="correction-refused">{refused}</p>}
       {done !== null && (
         <p className="mb-0 mt-3 text-small" role="status" data-testid="correction-done">
-          {t('knowledge.statementCorrectionDone', { file: done.file })} {done.committed ? '' : (done.note ?? '')} <KLink href="/k/problems">{t('loop.problemsTitle')}</KLink>
+          {t('knowledge.statementCorrectionDone', { file: done.file })} {done.committed ? '' : (done.note ?? '')} <KLink href={WIKI_PROBLEMS}>{t('loop.problemsTitle')}</KLink>
         </p>
       )}
     </section>
@@ -821,7 +821,7 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
             <TableBody>
               {statement.relying.map((other) => (
                 <TableRow key={`${other.page}:${other.line}:${other.text}`}>
-                  <TableCell className="align-top"><KLink href={`/k/e/${encodeURIComponent(other.page)}`}>{other.pageTitle}</KLink></TableCell>
+                  <TableCell className="align-top"><KLink href={addressOfEntity(other.page)}>{other.pageTitle}</KLink></TableCell>
                   <TableCell className="max-w-[30rem] align-top">{other.sentence === undefined ? other.text : <KLink href={addressOfStatement(other.page, other.sentence, other.turn ?? 0)}>{other.text}</KLink>}</TableCell>
                   <TableCell className="align-top">{other.ground}</TableCell>
                 </TableRow>

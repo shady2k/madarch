@@ -208,7 +208,7 @@ async function waited(page: Page, what: string, work: () => Promise<unknown>): P
     await work();
   } catch (error) {
     const body = await page.evaluate(() => document.body.innerText.slice(0, 1500)).catch(() => '');
-    const status = await fetch(`${server.url}${new URL(page.url()).pathname.replace(/\/k.*$/, '')}/api/k/status`).then((response) => response.text()).catch((failure) => String(failure));
+    const status = await fetch(`${server.url}${new URL(page.url()).pathname.replace(/\/(?:e|kind|src|doc|folder|file|commit|run|docs|catalogue|glossary|questions|problems|settings|journal|fill|tasks|task|statement)(?:\/.*)?$/, '').replace(/\/$/, '')}/api/status`).then((response) => response.text()).catch((failure) => String(failure));
     await page.screenshot({ path: join(out, `failed-${what}.png`) }).catch(() => undefined);
     console.error(`${what} did not happen: ${(error as Error).message}\npage: ${body}\nstatus: ${status.slice(0, 1500)}`);
     throw error;
@@ -239,7 +239,7 @@ if (only === '' || only === 'fresh') {
   });
   console.log(`fill card: ${seen.slice(-3).join(' | ')}`);
   await shoot(page, '02-filling');
-  await page.goto(`${server.url}/products/fresh/k/kind/code.file`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/fresh/kind/code.file`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid=kind-page]');
   await shoot(page, '03-filling-files');
   await page.close();
@@ -253,13 +253,13 @@ if (only === '' || only === 'agent') {
   await shoot(page, '30-agent-choice');
   await page.click('[data-testid=fill-start]');
   await waited(page, 'the domain unit writing', () => page.waitForSelector('[data-testid=writer-unit][data-unit="domain:ordering"][data-state=writing]', { timeout: 1_500_000 }));
-  await page.goto(`${server.url}/products/training-shop/k`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the home page while a unit writes', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
   await page.waitForSelector('[data-testid=writer-unit][data-state=writing]', { timeout: 60_000 });
   await shoot(page, '31-unit-in-progress');
   await waited(page, 'the pages written', () => page.waitForSelector('[data-testid=writer-card][data-state=done]', { timeout: 300_000 }));
   await shoot(page, '32-home-after-write');
-  await page.goto(`${server.url}/products/training-shop/k/e/${encodeURIComponent('domain:payments')}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}/products/training-shop/e/${encodeURIComponent('domain:payments')}`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the payments domain page', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
   await shoot(page, '33-domain-payments');
   await page.close();
@@ -276,17 +276,17 @@ if (only === '' || only === 'shop' || only === 'remarks' || only === 'entities' 
   await probe.close();
 }
 const encode = encodeURIComponent;
-const at = (id: string): string => `/products/shop/k/e/${encode(id)}`;
+const at = (id: string): string => `/products/shop/e/${encode(id)}`;
 const pages: { name: string; url: string; width?: number; height?: number; scheme?: 'light' | 'dark'; wait?: (page: Page) => Promise<unknown> }[] = [
-  { name: '10-home', url: '/products/shop/k', wait: (page) => page.waitForSelector('[data-testid=entity-page]') },
+  { name: '10-home', url: '/products/shop/', wait: (page) => page.waitForSelector('[data-testid=entity-page]') },
   { name: '11-domain-payment', url: at('domain:payment'), wait: (page) => page.waitForSelector('[data-testid=ungrounded]') },
   { name: '12-service-payments', url: at(PAYMENTS_SERVICE), width: 1440, height: 1500, wait: diagrams(1) },
   { name: '13-function-pay', url: at(PAY), width: 1440, height: 2200, wait: diagrams(1) },
   { name: '14-function-pay-dark', url: at(PAY), width: 1440, height: 2200, scheme: 'dark', wait: diagrams(1) },
   { name: '15-factory-class', url: at(FACTORY), width: 1440, height: 1500, wait: (page) => page.waitForSelector('[data-testid=entity-page] [data-block=source]') },
   { name: '16-file-factory', url: at(recordKey('code.file', 'services/payments/src/providers/factory.ts')), width: 1440, height: 1500 },
-  { name: '17-kind-symbols', url: '/products/shop/k/kind/code.symbol', wait: (page) => page.waitForSelector('[data-testid=kind-total]') },
-  { name: '18-source-at-line', url: '/products/shop/k/src?repo=training&path=services%2Fpayments%2Fsrc%2Fdomain%2Fpayment-service.ts&line=46', wait: (page) => page.waitForSelector('.source-line-focus') },
+  { name: '17-kind-symbols', url: '/products/shop/kind/code.symbol', wait: (page) => page.waitForSelector('[data-testid=kind-total]') },
+  { name: '18-source-at-line', url: '/products/shop/src?repo=training&path=services%2Fpayments%2Fsrc%2Fdomain%2Fpayment-service.ts&line=46', wait: (page) => page.waitForSelector('.source-line-focus') },
   { name: '19-function-pay-phone', url: at(PAY), width: 390, height: 1800, wait: diagrams(1) },
 ];
 for (const entry of only === '' || only === 'shop' ? pages : []) {
@@ -298,7 +298,7 @@ for (const entry of only === '' || only === 'shop' ? pages : []) {
 // contract with its definition in its own format, in both schemes and at a phone's width.
 if (only === '' || only === 'shop' || only === 'graph') {
   const firstOf = async (kind: string): Promise<string | null> => {
-    const response = await fetch(`${server.url}${'/products/shop'}/api/k/entities?kind=${encodeURIComponent(kind)}&limit=1`);
+    const response = await fetch(`${server.url}${'/products/shop'}/api/entities?kind=${encodeURIComponent(kind)}&limit=1`);
     const body = (await response.json()) as {rows?: {id: string}[]};
     return body.rows?.[0]?.id ?? null;
   };
@@ -327,7 +327,7 @@ if (only === '' || only === 'shop' || only === 'graph') {
 }
 
 if (only === '' || only === 'shop') {
-  const page = await open('/products/shop/k', 1440, 700);
+  const page = await open('/products/shop/', 1440, 700);
   await page.waitForSelector('[data-testid=product-selector]');
   await page.click('[data-testid=product-selector]');
   await page.waitForSelector('[data-testid=product-choice]');
@@ -346,7 +346,7 @@ if (only === 'remarks') {
     return Math.round(performance.now() - started);
   };
   // Start from an empty product: the same "start over" the wiki offers.
-  await fetch(api('/api/k/reset'), { method: 'POST' });
+  await fetch(api('/api/reset'), { method: 'POST' });
   // Remark 1: the root opens a product's wiki; no list of products stands in front of it.
   {
     const page = await open('/', 1440, 900);
@@ -366,11 +366,11 @@ if (only === 'remarks') {
   await waited(page, 'the fill running', () => page.waitForFunction(() => { const bar = document.querySelector('[data-testid=fill-card] [role=progressbar]'); return Number(bar?.getAttribute('aria-valuenow') ?? 0) >= 10; }, { timeout: 600_000, polling: 1000 }));
   const samples: number[] = [];
   for (let round = 0; round < 12; round += 1) {
-    for (const path of ['/api/k/status', '/api/k/entities?kind=code.file&limit=100', '/api/k/entities?kind=code.symbol&limit=100', `/api/k/page?id=${encodeURIComponent(PAY)}`]) samples.push(await timed(path));
+    for (const path of ['/api/status', '/api/entities?kind=code.file&limit=100', '/api/entities?kind=code.symbol&limit=100', `/api/page?id=${encodeURIComponent(PAY)}`]) samples.push(await timed(path));
     await new Promise((rest) => setTimeout(rest, 150));
   }
   console.log(`${lang}: ${samples.length} answers during the fill, slowest ${Math.max(...samples)} ms, median ${[...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)]} ms`);
-  const filling = await open(`${product}/k/kind/code.file`, 1440, 900);
+  const filling = await open(`${product}/kind/code.file`, 1440, 900);
   const loadStarted = performance.now();
   await waited(filling, 'the Files list during the fill', () => filling.waitForSelector('[data-testid=kind-page] table tbody tr', { timeout: 30_000 }));
   console.log(`${lang}: the Files list showed rows ${Math.round(performance.now() - loadStarted)} ms after the page opened`);
@@ -386,40 +386,40 @@ if (only === 'remarks') {
   await shoot(page, `${lang}-r8-refresh-menu`);
   await page.keyboard.press('Escape');
   // Remark 4: the documents are pages of the wiki, and a document ground opens its page at its section.
-  await page.goto(`${server.url}${product}/k/docs`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}${product}/docs`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the documents', () => page.waitForSelector('[data-testid=documents-group]', { timeout: 60_000 }));
   await shoot(page, `${lang}-r4-documents`);
-  await page.goto(`${server.url}${product}/k/e/${encodeURIComponent('domain:ordering')}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}${product}/e/${encodeURIComponent('domain:ordering')}`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the ordering domain page', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
-  const ground = await page.$('a[href*="/k/doc?"]');
+  const ground = await page.$('a[href*="/doc?"]');
   if (ground === null) throw new Error('the ordering page holds no ground that opens a document');
   await ground.click();
   await waited(page, 'the document at its section', () => page.waitForSelector('[data-testid=document-page] .anchor-hit', { timeout: 30_000 }));
   await shoot(page, `${lang}-r4-ground-opens-its-section`);
   // Remark 6: a tall window uses all of its height.
   await page.setViewport({ width: 1400, height: 2000 });
-  await page.goto(`${server.url}${product}/k/kind/code.symbol`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${server.url}${product}/kind/code.symbol`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the symbols', () => page.waitForSelector('[data-testid=kind-page] table tbody tr', { timeout: 60_000 }));
   await shoot(page, `${lang}-r6-tall-window`);
   await page.setViewport({ width: 1440, height: 900 });
   // Remark 9: the code is colored, light and dark.
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
-    await page.goto(`${server.url}${product}/k/src?repo=training&path=services%2Fpayments%2Fsrc%2Fdomain%2Fpayment-service.ts&line=46`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${server.url}${product}/src?repo=training&path=services%2Fpayments%2Fsrc%2Fdomain%2Fpayment-service.ts&line=46`, { waitUntil: 'domcontentloaded' });
     await waited(page, 'the colored source', () => page.waitForSelector('[data-testid=source-code][data-colored=true]', { timeout: 60_000 }));
     await shoot(page, `${lang}-r9-source-${scheme}`);
   }
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
   // Remark 10: while a page loads, the skeleton of a page stands where it will be.
   await page.setRequestInterception(true);
-  page.on('request', (request) => { if (request.url().includes('/api/k/page')) setTimeout(() => request.continue().catch(() => undefined), 4_000); else request.continue().catch(() => undefined); });
-  await page.goto(`${server.url}${product}/k/e/${encodeURIComponent('domain:payments')}`, { waitUntil: 'domcontentloaded' });
+  page.on('request', (request) => { if (request.url().includes('/api/page')) setTimeout(() => request.continue().catch(() => undefined), 4_000); else request.continue().catch(() => undefined); });
+  await page.goto(`${server.url}${product}/e/${encodeURIComponent('domain:payments')}`, { waitUntil: 'domcontentloaded' });
   await waited(page, 'the skeleton', () => page.waitForSelector('[data-testid=page-loading]', { timeout: 30_000 }));
   await shoot(page, `${lang}-r10-skeleton`);
   await page.close();
   // Remark 11: the problems box says in plain words what it means and who puts it right.
   {
-    const found = await open('/products/shop/k/e/domain%3Apayment', 1440, 1500);
+    const found = await open('/products/shop/e/domain%3Apayment', 1440, 1500);
     await waited(found, 'the findings box', () => found.waitForSelector('[data-testid=findings]', { timeout: 60_000 }));
     await found.evaluate(() => document.querySelector('[data-testid=findings]')?.scrollIntoView({ block: 'center' }));
     await shoot(found, `${lang}-r11-findings`);
@@ -427,7 +427,7 @@ if (only === 'remarks') {
   }
   // Remark 12 (moved by madarch-m38l.11 from the product menu to the settings page): the settings say what goes and what stays before anything is removed.
   {
-    const menu = await open(`${product}/k/settings`, 1440, 900);
+    const menu = await open(`${product}/settings`, 1440, 900);
     await waited(menu, 'the danger block', () => menu.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 60_000 }));
     await menu.click('[data-testid=danger-fresh-open]');
     await waited(menu, 'the confirmation', () => menu.waitForSelector('[data-testid=danger-dialog] [data-testid=danger-pages]', { timeout: 30_000 }));
@@ -446,19 +446,19 @@ if (only === 'entities') {
   // The index of the pages is published after the code is read: wait until the wiki counts the statements.
   let counted = { kinds: [] as { kind: string; statements?: number }[] };
   for (let tries = 0; tries < 60; tries += 1) {
-    counted = (await (await fetch(`${server.url}${shop}/api/k/status`)).json()) as typeof counted;
+    counted = (await (await fetch(`${server.url}${shop}/api/status`)).json()) as typeof counted;
     if (counted.kinds.some((kind) => kind.statements !== undefined)) break;
     await new Promise((rest) => setTimeout(rest, 2000));
   }
   console.log(`index statements: ${JSON.stringify(counted.kinds.filter((kind) => kind.statements !== undefined).map((kind) => [kind.kind, kind.statements]))}`);
   const firstOf = async (kind: string, match?: string): Promise<string> => {
-    const response = await fetch(`${server.url}${shop}/api/k/entities?kind=${encode(kind)}&limit=100${match === undefined ? '' : `&q=${encode(match)}`}`);
+    const response = await fetch(`${server.url}${shop}/api/entities?kind=${encode(kind)}&limit=100${match === undefined ? '' : `&q=${encode(match)}`}`);
     const listing = (await response.json()) as { rows?: { id: string }[]; message?: string };
     const row = listing.rows?.[0];
     if (row === undefined) throw new Error(`the product holds no entity of kind ${kind}${match === undefined ? '' : ` matching ${match}`}: ${listing.message ?? 'the list is empty'}`);
     return row.id;
   };
-  const wiki = (id: string): string => `${shop}/k/e/${encode(id)}`;
+  const wiki = (id: string): string => `${shop}/e/${encode(id)}`;
   const ready = (page: Page) => page.waitForSelector('[data-testid=entity-page] h1', { timeout: 60_000 });
   const family: { name: string; id: string; height?: number }[] = [
     { name: 'uc-2', id: 'doc:@training/docs/requirements.md#uc-2' },
@@ -483,7 +483,7 @@ if (only === 'entities') {
     { name: 'commit', id: await firstOf('code.commit') },
   ];
   {
-    const page = await open(`${shop}/k/catalogue`, 1440, 1500);
+    const page = await open(`${shop}/catalogue`, 1440, 1500);
     await waited(page, 'the catalogue', () => page.waitForSelector('[data-testid=catalogue-group]', { timeout: 60_000 }));
     // Every group of the navigation is opened so the shot shows each group with its count.
     for (const group of await page.$$('[data-testid=nav-group][aria-expanded=false]')) await group.click();
@@ -497,7 +497,7 @@ if (only === 'entities') {
     await page.close();
   }
   {
-    const page = await open(`${shop}/k/kind/doc.use-case`, 1440, 900);
+    const page = await open(`${shop}/kind/doc.use-case`, 1440, 900);
     await waited(page, 'the use cases', () => page.waitForSelector('[data-testid=kind-page] table tbody tr', { timeout: 60_000 }));
     await shoot(page, `${lang}-e30-use-cases`);
     await page.close();
@@ -513,7 +513,7 @@ if (only === 'entities') {
     await page.click('[data-testid=grounds-switch] input');
     await page.waitForFunction(() => document.querySelector('section[data-footnotes]') === null);
     // A control click opens a link in a new tab; a click on a sentence opens its statement.
-    const link = await page.$('a[href*="/k/e/"]');
+    const link = await page.$('a[href*="/e/"]');
     if (link === null) throw new Error('the domain page holds no link to an entity');
     await page.keyboard.down('Control');
     await link.click();
@@ -544,7 +544,7 @@ if (only === 'entities') {
     await page.close();
   }
   {
-    const page = await open(`${shop}/k/docs`, 1440, 900);
+    const page = await open(`${shop}/docs`, 1440, 900);
     await waited(page, 'the documents', () => page.waitForSelector('[data-testid=documents-group]', { timeout: 60_000 }));
     await shoot(page, `${lang}-e37-documents`);
     await page.close();
@@ -578,13 +578,13 @@ if (only === 'truth') {
   const expectedShots:string[]=[];
   const completedShots:string[]=[];
   const persistCompletion=()=>writeFileSync(join(out,'truth-shot-completion.json'),JSON.stringify({complete:false,expected:expectedShots,completed:completedShots},null,2));
-  for(const language of ['en','ru'])for(const width of [1150,390])for(const scheme of ['light','dark'] as const)progressPages.push({page:await open(`${product}/k`,width,1200,scheme,language,true),name:`truth-rebuild-progress-${language}-${width}-${scheme}`,language,scheme});
+  for(const language of ['en','ru'])for(const width of [1150,390])for(const scheme of ['light','dark'] as const)progressPages.push({page:await open(`${product}/`,width,1200,scheme,language,true),name:`truth-rebuild-progress-${language}-${width}-${scheme}`,language,scheme});
   for(const entry of progressPages)expectedShots.push(entry.name);
   writeFileSync(join(out,'truth-progress-shot-plan.json'),JSON.stringify({expected:[...expectedShots]},null,2));persistCompletion();
-  const began=await fetch(`${server.url}${product}/api/k/fill`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})});if(began.status!==202)throw new Error(`rebuild did not start ${began.status}: ${await began.text()}`);
+  const began=await fetch(`${server.url}${product}/api/fill`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})});if(began.status!==202)throw new Error(`rebuild did not start ${began.status}: ${await began.text()}`);
 
   let seenRebuild=false;const rebuildUntil=Date.now()+180_000;
-  for(;;){const state=await(await fetch(`${server.url}${product}/api/k/status`)).json() as {fill:{state:string;rebuilt?:string}};if(state.fill.state==='running'||state.fill.rebuilt!==undefined)seenRebuild=true;if(seenRebuild&&state.fill.state!=='running'){if(state.fill.state!=='done')throw new Error(`rebuild not done ${JSON.stringify(state)}`);break;}if(Date.now()>rebuildUntil)throw new Error('rebuild did not complete');await new Promise((resolve)=>setTimeout(resolve,200));}
+  for(;;){const state=await(await fetch(`${server.url}${product}/api/status`)).json() as {fill:{state:string;rebuilt?:string}};if(state.fill.state==='running'||state.fill.rebuilt!==undefined)seenRebuild=true;if(seenRebuild&&state.fill.state!=='running'){if(state.fill.state!=='done')throw new Error(`rebuild not done ${JSON.stringify(state)}`);break;}if(Date.now()>rebuildUntil)throw new Error('rebuild did not complete');await new Promise((resolve)=>setTimeout(resolve,200));}
 
   for(const {page,name,language,scheme} of progressPages){
     await page.waitForFunction(()=>/Graph rebuilt: extractors changed|Граф перестроен: экстракторы изменились/.test(document.body.innerText),{timeout:120_000});
@@ -602,7 +602,7 @@ if (only === 'truth') {
     if (!response.ok) throw new Error(`${resolve(import.meta.path)}: graph truth API ${path}: HTTP ${response.status}: ${JSON.stringify(body)}`);
     return body;
   };
-  const status = await request('/api/k/status') as {kinds: {kind: string}[]};
+  const status = await request('/api/status') as {kinds: {kind: string}[]};
   const kinds = [...new Set(status.kinds.map((entry) => entry.kind))].sort();
   const walked: {kind: string; id: string; language: string; blocks: number; bytes: number; file: string}[] = [];
   const failures: {kind: string; id: string; language: string; error: string}[] = [];
@@ -616,7 +616,7 @@ if (only === 'truth') {
     const cursors=new Set<string>();
     let total: number | undefined;
     do {
-      const listing = await request(`/api/k/entities?kind=${encode(kind)}&limit=500${after === null ? '' : `&after=${encode(after)}`}`) as {rows: {id: string}[]; total: number; next: string | null};
+      const listing = await request(`/api/entities?kind=${encode(kind)}&limit=500${after === null ? '' : `&after=${encode(after)}`}`) as {rows: {id: string}[]; total: number; next: string | null};
       if(!Number.isSafeInteger(listing.total)||listing.total<0||!Array.isArray(listing.rows))throw new Error(`${kind}: malformed listing ${JSON.stringify(listing)}`);
       total ??= listing.total;
       if (listing.total !== total) throw new Error(`${kind}: entity count changed during the walk`);
@@ -637,7 +637,7 @@ if (only === 'truth') {
     const base = expectedPages.length - jobs.length;
     const results = await walkConcurrent(jobs,4,async({row,language},index)=>{
       try {
-        const body = await request(`/api/k/page?id=${encode(row.id)}&lang=${language}&full=1`) as {id?:string;blocks?: {type?:string;file?:string;line?:number;message?:string}[]};
+        const body = await request(`/api/page?id=${encode(row.id)}&lang=${language}&full=1`) as {id?:string;blocks?: {type?:string;file?:string;line?:number;message?:string}[]};
         if(body.id!==row.id)throw new Error(`requested ${row.id}, received ${String(body.id)}`);
         if (!Array.isArray(body.blocks)) throw new Error(`page has no block list: ${JSON.stringify(body)}`);
         const problems=body.blocks.filter((block)=>block.type==='problem');
@@ -703,12 +703,12 @@ if (only === '' || only === 'tasks') {
     rmSync(join(home, 'training-shop'), { recursive: true, force: true });
     makeProduct(home, 'training-shop', repository);
     writeFileSync(join(work, 'agent-script.json'), JSON.stringify(firstRunScript()));
-    const status = await api('/api/k/agent', { agent: 'claude-code', install: false });
+    const status = await api('/api/agent', { agent: 'claude-code', install: false });
     if (!status.ok) throw new Error(`the agent could not be chosen: ${status.status} ${await status.text()}`);
-    const started = await api('/api/k/fill', { agent: 'claude-code' });
+    const started = await api('/api/fill', { agent: 'claude-code' });
     if (started.status !== 202) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
     for (let tries = 0; ; tries += 1) {
-      const state = (await (await api('/api/k/status')).json()) as { fill: { state: string }; writer: { state: string } };
+      const state = (await (await api('/api/status')).json()) as { fill: { state: string }; writer: { state: string } };
       if (state.fill.state !== 'running' && state.writer.state !== 'running' && state.writer.state !== 'waiting') {
         if (state.fill.state !== 'done') throw new Error(`the fill ended as ${state.fill.state}`);
         break;
@@ -718,7 +718,7 @@ if (only === '' || only === 'tasks') {
     }
   }
   // The question the walk answers, by the title the agent gave it: its id is the agent's own slug, not the title's.
-  const listing = (await (await api('/api/k/questions')).json()) as { rows: { slug: string; title: string }[] };
+  const listing = (await (await api('/api/questions')).json()) as { rows: { slug: string; title: string }[] };
   const found = listing.rows.find((row) => row.title === retention.text.en.title);
   if (found === undefined) throw new Error(`the questions of the training repository hold none titled ${JSON.stringify(retention.text.en.title)}: the fill did not ask it, so there is no answer to give`);
   const slug = found.slug;
@@ -729,9 +729,9 @@ if (only === '' || only === 'tasks') {
   const tasksFolder = join(home, 'training-shop', 'docs', 'tasks');
   if (existsSync(tasksFolder) && readdirSync(tasksFolder).length > 0) throw new Error(`${tasksFolder} already holds ${readdirSync(tasksFolder).length} task file(s): the walk starts from a product with no task, so run it with a new --work folder`);
   // The answer is a file of the product, committed as the reader: written once, and read by every walk below.
-  const answered = await api('/api/k/answer', { question: slug, text: ANSWER });
+  const answered = await api('/api/answer', { question: slug, text: ANSWER });
   if (!answered.ok) throw new Error(`the answer to ${slug} could not be saved: ${answered.status} ${await answered.text()}`);
-  const saved = (await (await api(`/api/k/question?id=${encodeURIComponent(slug)}`)).json()) as { state: string };
+  const saved = (await (await api(`/api/question?id=${encodeURIComponent(slug)}`)).json()) as { state: string };
   if (saved.state === 'open') throw new Error(`the answer to ${slug} was saved but the question still reads open`);
 
   // Every language, scheme and width; `--task-combos` names a few of them as `<lang>-<scheme>-<width>`, comma separated.
@@ -744,7 +744,7 @@ if (only === '' || only === 'tasks') {
   // for is the order walked, so a Russian walk's pictures carry the Russian title.
   const combos = onlyCombos.length === 0 ? all : onlyCombos.map((name) => all.find((combo) => `${combo.lang}-${combo.scheme}-${combo.width}` === name)).filter((combo): combo is (typeof all)[number] => combo !== undefined);
   const tag = (combo: { lang: string; scheme: string; width: number }): string => `${combo.lang}-${combo.scheme}-${combo.width}`;
-  const question = `${product}/k/questions/${encodeURIComponent(slug)}`;
+  const question = `${product}/questions/${encodeURIComponent(slug)}`;
 
   // Before the task is confirmed, in every language, scheme and width: the saved answer, the choice «Прав код, документ
   // устарел», the filled proposal and the pages and statements it reaches.
@@ -793,11 +793,11 @@ if (only === '' || only === 'tasks') {
       await waited(page, `${what} (${tag(combo)})`, () => page.waitForSelector(ready, { timeout: 120_000 }));
       return page;
     };
-    const readme = await at(`${product}/k/doc?repo=training&path=${encodeURIComponent('README.md')}#what-it-does`, 'the README section badge', '[data-testid=planned-badge]', combo.width === 390 ? 1500 : 1300);
+    const readme = await at(`${product}/doc?repo=training&path=${encodeURIComponent('README.md')}#what-it-does`, 'the README section badge', '[data-testid=planned-badge]', combo.width === 390 ? 1500 : 1300);
     await readme.evaluate(() => document.querySelector('[data-testid=planned-badge]')?.scrollIntoView({ block: 'center' }));
     await shoot(readme, `${tag(combo)}-k02-badge-on-the-readme-section`);
     await readme.close();
-    const ordering = await at(`${product}/k/e/${encodeURIComponent('domain:ordering')}`, 'the dependent statement badge', '[data-testid=statement][data-planned]', combo.width === 390 ? 1900 : 1600);
+    const ordering = await at(`${product}/e/${encodeURIComponent('domain:ordering')}`, 'the dependent statement badge', '[data-testid=statement][data-planned]', combo.width === 390 ? 1900 : 1600);
     await ordering.evaluate(() => document.querySelector('[data-testid=statement][data-planned]')?.scrollIntoView({ block: 'center' }));
     await shoot(ordering, `${tag(combo)}-k03-badge-on-the-dependent-statement`);
     await ordering.close();
@@ -805,7 +805,7 @@ if (only === '' || only === 'tasks') {
     await fixing.evaluate(() => document.querySelector('[data-testid=task-card]')?.scrollIntoView({ block: 'start' }));
     await shoot(fixing, `${tag(combo)}-k04-fix-the-pages-now`);
     await fixing.close();
-    const tasks = await at(`${product}/k/tasks`, 'the tasks page', '[data-testid=task-row]', combo.width === 390 ? 1400 : 1000);
+    const tasks = await at(`${product}/tasks`, 'the tasks page', '[data-testid=task-row]', combo.width === 390 ? 1400 : 1000);
     await shoot(tasks, `${tag(combo)}-k05-tasks`);
     await tasks.close();
   }
@@ -839,16 +839,16 @@ if (only === 'localized') {
   const manifest = join(folder, 'madarch', 'kinds.yaml');
   writeFileSync(manifest, `${readFileSync(manifest, 'utf8')}language: ru\n`);
   writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript({}, { product: `product:${name}` })));
-  const chosen = await api('/api/k/agent', { agent: 'claude-code', install: false });
+  const chosen = await api('/api/agent', { agent: 'claude-code', install: false });
   if (!chosen.ok) throw new Error(`the agent could not be chosen: ${chosen.status} ${await chosen.text()}`);
-  const started = await api('/api/k/fill', { agent: 'claude-code' });
+  const started = await api('/api/fill', { agent: 'claude-code' });
   if (started.status !== 202) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
   // The press answers at once: the run is seen running before its end is waited for, so a status read that still
   // shows the empty product is not mistaken for a finished fill.
   const until = Date.now() + 15 * 60_000;
   let seen = false;
   for (;;) {
-    const state = (await (await api('/api/k/status')).json()) as { language: string; fill: { state: string }; writer: { state: string; message?: string; units: { unit: string; state: string; message?: string }[] } };
+    const state = (await (await api('/api/status')).json()) as { language: string; fill: { state: string }; writer: { state: string; message?: string; units: { unit: string; state: string; message?: string }[] } };
     const running = state.fill.state === 'running' || state.writer.state === 'running' || state.writer.state === 'waiting';
     // A run too quick for a poll is told by the units it wrote.
     if (running || state.writer.units.length > 0) seen = true;
@@ -865,7 +865,7 @@ if (only === 'localized') {
   // and the place it is stated at (requirement: the place loses the repository's name when the product has
   // one repository).
   {
-    const glossary = (await (await api('/api/k/glossary')).json()) as { terms: { title: string; definition: string; repo: string | null; path: string; line: number; single: boolean; source?: { document: string } }[] };
+    const glossary = (await (await api('/api/glossary')).json()) as { terms: { title: string; definition: string; repo: string | null; path: string; line: number; single: boolean; source?: { document: string } }[] };
     console.log(`the glossary of ${name} holds ${glossary.terms.length} term(s)`);
     if (glossary.terms.length !== 7) throw new Error(`the glossary should hold all seven training terms, not ${glossary.terms.length}`);
     for (const term of glossary.terms) {
@@ -873,7 +873,7 @@ if (only === 'localized') {
       if (languageOf(term.definition) !== 'ru' || term.source === undefined || !term.single || term.source.document.startsWith('repos/')) throw new Error(`the term ${term.title} has no Russian definition, original, or single-repository place: ${JSON.stringify(term)}`);
     }
   }
-  const wiki = (id: string): string => `${product}/k/e/${encodeURIComponent(id)}`;
+  const wiki = (id: string): string => `${product}/e/${encodeURIComponent(id)}`;
   const combos: { scheme: 'light' | 'dark'; width: number }[] = [];
   for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) combos.push({ scheme, width });
   for (const combo of combos) {
@@ -881,7 +881,7 @@ if (only === 'localized') {
     const height = combo.width === 390 ? 2600 : 1900;
     // (a) The glossary: every term keeps its name, its definition is Russian, and the English original stands
     // collapsed under «В источнике» — first as the reader finds it, then with the originals opened.
-    const glossary = await open(`${product}/k/glossary`, combo.width, height, combo.scheme, 'ru');
+    const glossary = await open(`${product}/glossary`, combo.width, height, combo.scheme, 'ru');
     await waited(glossary, `the glossary (${tag})`, () => glossary.waitForSelector('[data-testid=glossary-term]', { timeout: 60_000 }));
     await shoot(glossary, `${tag}-l01-glossary`);
     const opened = await glossary.evaluate(() => {
@@ -894,7 +894,7 @@ if (only === 'localized') {
     await shoot(glossary, `${tag}-l02-glossary-source-open`);
     await glossary.close();
     // (d) The place a term is stated at, alone on the page and readable at both widths.
-    const place = await open(`${product}/k/glossary`, combo.width, combo.width === 390 ? 900 : 800, combo.scheme, 'ru');
+    const place = await open(`${product}/glossary`, combo.width, combo.width === 390 ? 900 : 800, combo.scheme, 'ru');
     await waited(place, `the place of a term (${tag})`, () => place.waitForSelector('[data-testid=term-ground]', { timeout: 60_000 }));
     const placeText = await place.evaluate(() => {
       const row = document.querySelector('[data-testid=term-ground]');

@@ -89,8 +89,8 @@ beforeAll(async () => {
   writeFileSync(join(app, 'fonts', 'Face.woff2'), 'face');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   // The first page of a product waits for its reader to start (a process of its own): the suite's first test does not.
-  await fetch(`${server.url}/products/tiny/api/k/status`);
-  await fetch(`${server.url}/products/unconnected/api/k/status`);
+  await fetch(`${server.url}/products/tiny/api/status`);
+  await fetch(`${server.url}/products/unconnected/api/status`);
 }, 60_000);
 
 afterAll(async () => {
@@ -100,26 +100,26 @@ afterAll(async () => {
 
 describe('an empty product', () => {
   test('a product without a manifest is given the starter set and then reads as any empty product; one with a manifest and no graph says what to do: connect a repository, or start the fill', async () => {
-    const bare = await get('/products/bare/api/k/status');
+    const bare = await get('/products/bare/api/status');
     expect(bare.body).toMatchObject({ manifest: 'ok', filled: false, home: null });
     expect(bare.body.seeded).toEqual(['madarch/kinds.yaml', 'madarch/workflows.yaml']);
     expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'doc.use-case', 'code.service', 'code.file', 'code.symbol', 'code.route', 'code.table']));
     // The kinds carry their names in both languages, from the manifest.
     expect(bare.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.file').labels).toEqual({ en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } });
-    const tiny = await get('/products/tiny/api/k/status');
+    const tiny = await get('/products/tiny/api/status');
     expect(tiny.body).toMatchObject({ manifest: 'ok', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
     expect(tiny.body.kinds.map((kind: { kind: string; count: number }) => kind.count)).toEqual(tiny.body.kinds.map(() => 0));
     expect(tiny.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'code.service', 'code.file', 'code.symbol']));
-    const unconnected = await get('/products/unconnected/api/k/status');
+    const unconnected = await get('/products/unconnected/api/status');
     expect(unconnected.body.repositories).toEqual([]);
   });
 
   test('the catalogue lists every kind the manifest declares, with a zero count for one nothing filled, and its own answer stays under the size bound', async () => {
-    const status = await get('/products/bare/api/k/status');
+    const status = await get('/products/bare/api/status');
     // The status still names the kinds with pages (and a member's row), and holds no catalogue of its own.
     expect(status.body.kinds.length).toBe(67);
     expect(status.body.catalog).toBeUndefined();
-    const response = await fetch(`${server.url}/products/bare/api/k/catalog`);
+    const response = await fetch(`${server.url}/products/bare/api/catalog`);
     const text = await response.text();
     expect(response.status).toBe(200);
     const catalog = JSON.parse(text) as { kinds: any[]; groups: any[]; findings: any[] };
@@ -148,7 +148,7 @@ describe('an empty product', () => {
     // madarch-8bdc.13: the code section ran every rule of the manifest, so each documents and wiki rule of the starter set
     // was "a predicate the engine does not implement" — ten notes on a fresh product. The code section judges the code's
     // rules, the documents and wiki sections judge theirs, and a predicate no section implements is said once.
-    const listing = await get('/products/bare/api/k/problems');
+    const listing = await get('/products/bare/api/problems');
     expect(listing.status).toBe(200);
     const notes = (listing.body as { notes?: { message: string; textKey?: string }[] }).notes ?? [];
     expect(notes.filter((note) => note.textKey === 'ruleUnimplemented')).toEqual([]);
@@ -156,17 +156,17 @@ describe('an empty product', () => {
   }, 30_000);
 
   test('the fill is refused in words where it cannot start: no repository', async () => {
-    const none = await fetch(`${server.url}/products/unconnected/api/k/fill`, { method: 'POST' });
+    const none = await fetch(`${server.url}/products/unconnected/api/fill`, { method: 'POST' });
     expect(none.status).toBe(409);
     expect((await none.json() as { message: string }).message).toBe('the product declares no code repository: connect one with "madarch repo add <name> <url>", then start the fill');
   });
 
   test('a page that does not exist is a 404 that names why, and an id is required', async () => {
-    const missing = await get(`/products/tiny/api/k/page?id=${encodeURIComponent('code.symbol:nothing')}`);
+    const missing = await get(`/products/tiny/api/page?id=${encodeURIComponent('code.symbol:nothing')}`);
     expect(missing.status).toBe(404);
     expect(missing.body.message).toBe('no entity "code.symbol:nothing" in the graph or among the product\'s Markdown pages');
-    expect((await get('/products/tiny/api/k/page')).status).toBe(400);
-    expect((await get('/products/tiny/api/k/entities?kind=nothing')).status).toBe(404);
+    expect((await get('/products/tiny/api/page')).status).toBe(400);
+    expect((await get('/products/tiny/api/entities?kind=nothing')).status).toBe(404);
   });
 });
 
@@ -174,12 +174,12 @@ describe('the products and the app', () => {
   test('the selector is offered the home\'s products at the root and each product alone under its prefix', async () => {
     const all = await get('/api/products');
     expect(all.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'tiny', 'unconnected']);
-    const one = await get('/products/tiny/api/k/products');
+    const one = await get('/products/tiny/api/products');
     expect(one.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'tiny', 'unconnected']);
   });
 
-  test('the app answers /k and its pages at a product\'s prefix, and the app\'s fonts are served at the home\'s root', async () => {
-    for (const path of ['/products/tiny/k', '/products/tiny/k/', '/products/tiny/k/e/x', '/products/tiny/k/kind/code.symbol', '/products/tiny/k/src?path=a']) {
+  test('the app answers its home and its pages at a product\'s prefix, and the app\'s fonts are served at the home\'s root', async () => {
+    for (const path of ['/products/tiny', '/products/tiny/', '/products/tiny/e/x', '/products/tiny/kind/code.symbol', '/products/tiny/src?path=a']) {
       const answer = await fetch(`${server.url}${path}`);
       expect(answer.status).toBe(200);
       expect(await answer.text()).toContain('<div id="root">');
@@ -218,16 +218,16 @@ describe('the fill the reader watches', () => {
     await new Promise((rest) => setTimeout(rest, 700));
     const opened = revisions.length;
     expect(opened).toBe(1);
-    const first = await fetch(`${server.url}/products/tiny/api/k/fill`, { method: 'POST' });
+    const first = await fetch(`${server.url}/products/tiny/api/fill`, { method: 'POST' });
     expect(first.status).toBe(202);
     expect((await first.json() as { fill: { state: string } }).fill.state).toBe('running');
-    const second = await fetch(`${server.url}/products/tiny/api/k/fill`, { method: 'POST' });
+    const second = await fetch(`${server.url}/products/tiny/api/fill`, { method: 'POST' });
     expect(second.status).toBe(409);
     expect((await second.json() as { message: string }).message).toBe('a fill of this product is already running');
-    let status: { fill: { state: string; commit?: number; commits?: number } } = (await get('/products/tiny/api/k/status')).body;
+    let status: { fill: { state: string; commit?: number; commits?: number } } = (await get('/products/tiny/api/status')).body;
     for (let tries = 0; tries < 1200 && status.fill.state === 'running'; tries += 1) {
       await new Promise((rest) => setTimeout(rest, 100));
-      status = (await get('/products/tiny/api/k/status')).body;
+      status = (await get('/products/tiny/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
     await new Promise((rest) => setTimeout(rest, 700));
@@ -241,14 +241,14 @@ describe('the fill the reader watches', () => {
     expect(new Set(revisions).size).toBe(revisions.length);
     expect(revisions[revisions.length - 1]).toMatch(/\+\d+$/);
 
-    const final = await get('/products/tiny/api/k/status');
+    const final = await get('/products/tiny/api/status');
     expect(final.body).toMatchObject({ filled: true, fill: { state: 'done' }, repositories: [{ name: 'tiny', filled: true }] });
     expect(existsSync(join(work, 'store', final.body.product.id, 'graph'))).toBe(true);
   }, 300_000);
 
   test('after the fill the function page shows its callees and the exact lines of its source, and the file is read at the commit the graph holds', async () => {
     const key = sym('src/a.ts#root');
-    const page = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(key)}`);
+    const page = await get(`/products/tiny/api/page?id=${encodeURIComponent(key)}`);
     expect(page.status).toBe(200);
     const source = page.body.blocks.find((block: { type: string }) => block.type === 'source');
     expect(source.location).toMatchObject({ repo: 'tiny', path: 'src/a.ts', lineStart: 5, lineEnd: 7 });
@@ -263,76 +263,76 @@ describe('the fill the reader watches', () => {
     // the page. A block is known by that identity, never by the line of a template (decision 0032 section 8).
     const deferred = page.body.blocks.filter((block: { type: string }) => block.type === 'deferred');
     expect(deferred.map((block: { block: string }) => block.block)).toEqual(['graph', 'modules', 'sequence']);
-    const drawn = await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&block=${encodeURIComponent(deferred[2].id)}`);
+    const drawn = await get(`/products/tiny/api/block?id=${encodeURIComponent(key)}&block=${encodeURIComponent(deferred[2].id)}`);
     expect(drawn.status).toBe(200);
     expect(drawn.body.type).toBe('diagrams');
-    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}`)).status).toBe(400);
-    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&block=sequence-000000000000`)).status).toBe(404);
-    const whole = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(key)}&full=1`);
+    expect((await get(`/products/tiny/api/block?id=${encodeURIComponent(key)}`)).status).toBe(400);
+    expect((await get(`/products/tiny/api/block?id=${encodeURIComponent(key)}&block=sequence-000000000000`)).status).toBe(404);
+    const whole = await get(`/products/tiny/api/page?id=${encodeURIComponent(key)}&full=1`);
     expect(whole.body.blocks.map((block: { type: string }) => block.type)).toContain('graph');
     // The chain of this function has no step to draw, so the empty section is not on the page (madarch-m38l.21).
     expect(whole.body.blocks.map((block: { type: string }) => block.type)).not.toContain('diagrams');
-    const neighbours = await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&limit=3`);
+    const neighbours = await get(`/products/tiny/api/neighborhood?id=${encodeURIComponent(key)}&limit=3`);
     expect(neighbours.status).toBe(200);
     expect(neighbours.body.center).toBe(key);
-    expect((await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&direction=sideways`)).status).toBe(400);
+    expect((await get(`/products/tiny/api/neighborhood?id=${encodeURIComponent(key)}&direction=sideways`)).status).toBe(400);
 
-    const file = await get(`/products/tiny/api/k/source?repo=tiny&path=${encodeURIComponent('src/b.ts')}`);
+    const file = await get(`/products/tiny/api/source?repo=tiny&path=${encodeURIComponent('src/b.ts')}`);
     expect(file.body).toMatchObject({ repo: 'tiny', path: 'src/b.ts', language: 'typescript', commit: git(repository, 'rev-parse', 'HEAD').trim(), text: B_TS });
-    expect((await get('/products/tiny/api/k/source?repo=tiny&path=..%2Fsecret')).status).toBe(400);
-    expect((await get('/products/tiny/api/k/source?repo=other&path=src/a.ts')).status).toBe(404);
-    expect((await get('/products/tiny/api/k/source?repo=tiny&path=src/none.ts')).status).toBe(404);
-    const historicalGap = await get('/products/tiny/api/k/source?repo=tiny&path=src/a.ts&at=not-a-date');
+    expect((await get('/products/tiny/api/source?repo=tiny&path=..%2Fsecret')).status).toBe(400);
+    expect((await get('/products/tiny/api/source?repo=other&path=src/a.ts')).status).toBe(404);
+    expect((await get('/products/tiny/api/source?repo=tiny&path=src/none.ts')).status).toBe(404);
+    const historicalGap = await get('/products/tiny/api/source?repo=tiny&path=src/a.ts&at=not-a-date');
     expect(historicalGap.status).toBe(409);
     expect(historicalGap.body.error).toMatchObject({ field: 'at', message: 'historical structure is unknown for tiny at not-a-date; no current source is substituted' });
     expect(historicalGap.body.text).toBeUndefined();
-    const unknownRepository = await get('/products/tiny/api/k/source?repo=other&path=src/a.ts&at=2026-03-02');
+    const unknownRepository = await get('/products/tiny/api/source?repo=other&path=src/a.ts&at=2026-03-02');
     expect(unknownRepository.status).toBe(409);
     expect(unknownRepository.body.error.message).toContain('unknown for other at 2026-03-02');
     expect(unknownRepository.body.text).toBeUndefined();
     // The product repository's own files open too, its git folder and dotfiles never.
-    const manifest = await get('/products/tiny/api/k/source?path=madarch%2Fkinds.yaml');
+    const manifest = await get('/products/tiny/api/source?path=madarch%2Fkinds.yaml');
     expect(manifest.status).toBe(200);
     expect(manifest.body).toMatchObject({ repo: null, path: 'madarch/kinds.yaml', language: 'yaml', commit: null });
-    expect((await get('/products/tiny/api/k/source?path=.git%2Fconfig')).status).toBe(404);
-    expect((await get('/products/tiny/api/k/source?path=.gitignore')).status).toBe(404);
+    expect((await get('/products/tiny/api/source?path=.git%2Fconfig')).status).toBe(404);
+    expect((await get('/products/tiny/api/source?path=.gitignore')).status).toBe(404);
     // The gitignored checkouts are read as the repository the graph was filled from, at that commit, never as the product's own files.
-    expect((await get('/products/tiny/api/k/source?path=repos%2Ftiny%2Fsrc%2Fa.ts')).status).toBe(404);
+    expect((await get('/products/tiny/api/source?path=repos%2Ftiny%2Fsrc%2Fa.ts')).status).toBe(404);
   });
 
   test('production fill publishes repository first/tag/last trees for dated pages and exact source', async () => {
     const key = sym('src/a.ts#root');
     for (const at of ['2026-03-01', 'refs/tags/baseline-read', 'first']) {
       const selected = new URLSearchParams({ id: key, repo: 'tiny', at });
-      const page = await get(`/products/tiny/api/k/page?${selected}`);
+      const page = await get(`/products/tiny/api/page?${selected}`);
       expect(page.status).toBe(200);
       expect(page.body.history).toMatchObject({ coverage: 'covered', commit: firstCommit });
       expect(page.body.historicalAbsent).not.toBe(true);
-      const source = await get(`/products/tiny/api/k/source?${new URLSearchParams({ repo: 'tiny', path: 'src/a.ts', at })}`);
+      const source = await get(`/products/tiny/api/source?${new URLSearchParams({ repo: 'tiny', path: 'src/a.ts', at })}`);
       expect(source.status).toBe(200);
       expect(source.body).toMatchObject({ text: FIRST_A_TS, commit: firstCommit, history: { coverage: 'covered', landmarks: { offered: 2, covered: 2, limit: 64, omitted: 0, overflow: false } } });
     }
-    const absent = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: sym('src/b.ts#entry'), repo: 'tiny', at: '2026-03-01' })}`);
+    const absent = await get(`/products/tiny/api/page?${new URLSearchParams({ id: sym('src/b.ts#entry'), repo: 'tiny', at: '2026-03-01' })}`);
     expect(absent.body).toMatchObject({ historicalAbsent: true, history: { coverage: 'covered', commit: firstCommit } });
-    const tip = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: sym('src/b.ts#entry'), repo: 'tiny', at: 'last' })}`);
+    const tip = await get(`/products/tiny/api/page?${new URLSearchParams({ id: sym('src/b.ts#entry'), repo: 'tiny', at: 'last' })}`);
     expect(tip.body.history).toMatchObject({ coverage: 'covered', commit: git(repository, 'rev-parse', 'HEAD').trim() });
     for (const lang of ['en', 'ru']) {
-      const unfilled = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: key, repo: 'tiny', at: '2026-03-02', lang })}`);
+      const unfilled = await get(`/products/tiny/api/page?${new URLSearchParams({ id: key, repo: 'tiny', at: '2026-03-02', lang })}`);
       expect(unfilled.body).toMatchObject({ blocks: [], history: { coverage: 'unfilled', landmarks: { offered: 2, covered: 2 } } });
-      const sourceGap = await get(`/products/tiny/api/k/source?${new URLSearchParams({ repo: 'tiny', path: 'src/a.ts', at: '2026-03-02' })}`);
+      const sourceGap = await get(`/products/tiny/api/source?${new URLSearchParams({ repo: 'tiny', path: 'src/a.ts', at: '2026-03-02' })}`);
       expect(sourceGap.status).toBe(409); expect(sourceGap.body.text).toBeUndefined();
     }
-    const before = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: key, repo: 'tiny', at: '2026-02-28' })}`);
+    const before = await get(`/products/tiny/api/page?${new URLSearchParams({ id: key, repo: 'tiny', at: '2026-02-28' })}`);
     expect(before.body.history.coverage).toBe('before');
   }, 20_000);
 
   test('repository landmarks have bilingual routed pages with the actual commit and held files', async () => {
-    const listed = await get('/products/tiny/api/k/entities?kind=code.snapshot');
+    const listed = await get('/products/tiny/api/entities?kind=code.snapshot');
     expect(listed.status).toBe(200);
     const names = ['first', 'last', 'refs/tags/baseline-read'];
     expect(listed.body.total).toBe(names.length);
     expect(listed.body.rows.map((row: { id: string }) => row.id).sort()).toEqual(names.map((name) => recordKey('code.snapshot', name)).sort());
-    const status = await get('/products/tiny/api/k/status');
+    const status = await get('/products/tiny/api/status');
     expect(status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot')).toMatchObject({ group: 'history.work', count: names.length, origins: ['history'], labels: { en: { one: 'Repository landmark', many: 'Repository landmarks' }, ru: { one: 'Ориентир репозитория', many: 'Ориентиры репозитория' } } });
     const declaration = status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot');
     expect(declaration.descriptions.en).toBe('A repository landmark read from Git, with its commit and the files held by that tree.');
@@ -342,7 +342,7 @@ describe('the fill the reader watches', () => {
       const expectedCommit = name === 'last' ? git(repository, 'rev-parse', 'HEAD').trim() : firstCommit;
       const expectedFiles = (name === 'last' ? ['package.json', 'src/a.ts', 'src/b.ts'] : ['package.json', 'src/a.ts']).map((path) => recordKey('code.file', path)).sort();
       for (const lang of ['en', 'ru']) {
-        const page = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id, lang, full: '1' })}`);
+        const page = await get(`/products/tiny/api/page?${new URLSearchParams({ id, lang, full: '1' })}`);
         expect(page.status).toBe(200);
         expect(page.body.findings).toEqual([]);
         const blocks: Block[] = page.body.blocks;
@@ -363,11 +363,11 @@ describe('the fill the reader watches', () => {
         for (const row of held.rows) {
           expect(row.entity.href).toBeTruthy();
           expect(row.entity.broken).toBeUndefined();
-          const target = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: row.entity.id, lang })}`);
+          const target = await get(`/products/tiny/api/page?${new URLSearchParams({ id: row.entity.id, lang })}`);
           expect(target.status).toBe(200);
           expect(target.body.findings).toEqual([]);
         }
-        const neighbors = await get(`/products/tiny/api/k/neighborhood?${new URLSearchParams({ id, lang })}`);
+        const neighbors = await get(`/products/tiny/api/neighborhood?${new URLSearchParams({ id, lang })}`);
         expect(neighbors.status).toBe(200);
         expect(neighbors.body.nodes.map((node: { id: string }) => node.id)).toEqual(expect.arrayContaining(expectedFiles));
       }
@@ -375,36 +375,36 @@ describe('the fill the reader watches', () => {
   }, 30_000);
 
   test('a kind is listed from the graph in key order, filtered by text', async () => {
-    const all = await get('/products/tiny/api/k/entities?kind=code.symbol');
+    const all = await get('/products/tiny/api/entities?kind=code.symbol');
     expect(all.body.rows.map((row: { id: string }) => row.id)).toEqual([sym('src/a.ts#leaf'), sym('src/a.ts#root'), sym('src/b.ts#entry')]);
     expect(all.body.total).toBe(3);
-    const some = await get('/products/tiny/api/k/entities?kind=code.symbol&q=ent');
+    const some = await get('/products/tiny/api/entities?kind=code.symbol&q=ent');
     expect(some.body.rows.map((row: { id: string }) => row.id)).toEqual([sym('src/b.ts#entry')]);
   });
 
   test('a domain map accepts the manifest kind scope rather than looking for an entity with that id', async () => {
-    const map = await get('/products/tiny/api/k/view?type=domain-map&subject=domain&lang=en');
+    const map = await get('/products/tiny/api/view?type=domain-map&subject=domain&lang=en');
     expect(map.status).toBe(200);
     expect(map.body.views[0]).toMatchObject({ spec: { type: 'domain-map', subject: 'domain' }, empty: expect.any(String) });
   });
 
   test('filling again an unchanged repository is done at once and changes no page', async () => {
-    const before = (await get(`/products/tiny/api/k/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
-    const started = await fetch(`${server.url}/products/tiny/api/k/fill`, { method: 'POST' });
+    const before = (await get(`/products/tiny/api/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
+    const started = await fetch(`${server.url}/products/tiny/api/fill`, { method: 'POST' });
     expect(started.status).toBe(202);
     for (let tries = 0; tries < 400; tries += 1) {
-      const status = (await get('/products/tiny/api/k/status')).body;
+      const status = (await get('/products/tiny/api/status')).body;
       if (status.fill.state !== 'running') break;
       await new Promise((rest) => setTimeout(rest, 250));
     }
-    const after = (await get(`/products/tiny/api/k/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
+    const after = (await get(`/products/tiny/api/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
     expect(after).toEqual(before);
   }, 120_000);
 });
 
 describe('the pages for agents', () => {
   const prefix = '/products/tiny';
-  const pageAddress = (id: string): string => `${prefix}/k/e/${encodeURIComponent(id)}`;
+  const pageAddress = (id: string): string => `${prefix}/e/${encodeURIComponent(id)}`;
 
   test("a page is Markdown and JSON at its .md and .json siblings, and its HTML names the Markdown", async () => {
     const id = sym('src/a.ts#root');
@@ -413,7 +413,7 @@ describe('the pages for agents', () => {
     expect(html.type).toContain('text/html');
     expect(html.body).toContain(`<link rel="alternate" type="text/markdown" href="${pageAddress(id)}.md">`);
 
-    const page = (await get(`/products/tiny/api/k/page?id=${encodeURIComponent(id)}&full=1`)).body;
+    const page = (await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}&full=1`)).body;
     const markdown = await get(`${pageAddress(id)}.md`);
     expect(markdown.status).toBe(200);
     expect(markdown.type).toContain('text/markdown');
@@ -478,7 +478,7 @@ describe('the pages for agents', () => {
     const ids = [recordKey('code.author', 'Fixture'), recordKey('code.module', 'src')];
     const countedOf = new Map<string, { kind: string; value: string }[]>();
     for (const id of ids) {
-      const page = (await get(`/products/tiny/api/k/page?${new URLSearchParams({ id, lang: 'en', full: '1' })}`)).body;
+      const page = (await get(`/products/tiny/api/page?${new URLSearchParams({ id, lang: 'en', full: '1' })}`)).body;
       const figures = (page.blocks as Block[]).flatMap((block) => block.type === 'history' ? block.sections.flatMap((section) => section.rows.flatMap((row) => row.figures)) : []);
       const counted = figures.filter((figure) => isCountedFigure(figure.kind));
       expect(counted.length).toBeGreaterThan(0);
@@ -508,10 +508,10 @@ describe('the pages for agents', () => {
   });
 
   test('a kind is Markdown and JSON at its .md and .json siblings, every entity of the kind', async () => {
-    const status = (await get('/products/tiny/api/k/status')).body;
+    const status = (await get('/products/tiny/api/status')).body;
     expect(status.kinds.length).toBeGreaterThan(0);
     for (const kind of status.kinds) {
-      const address = `${prefix}/k/kind/${encodeURIComponent(kind.kind)}`;
+      const address = `${prefix}/kind/${encodeURIComponent(kind.kind)}`;
       const html = await get(address);
       expect(html.status).toBe(200);
       expect(html.body).toContain(`<link rel="alternate" type="text/markdown" href="${address}.md">`);
@@ -527,39 +527,39 @@ describe('the pages for agents', () => {
       expect(document.body.total).toBeGreaterThanOrEqual(kind.count);
       for (const entry of document.body.entries) {
         if (entry.url === null) continue;
-        expect(entry.url.startsWith(`${prefix}/k/e/`)).toBe(true);
+        expect(entry.url.startsWith(`${prefix}/e/`)).toBe(true);
         expect(markdown.body).toContain(`](${entry.url})`);
       }
     }
-    const symbols = (await get(`${prefix}/k/kind/code.symbol.json`)).body;
+    const symbols = (await get(`${prefix}/kind/code.symbol.json`)).body;
     expect(symbols.entries.map((entry: { id: string }) => entry.id).sort()).toEqual([sym('src/a.ts#leaf'), sym('src/a.ts#root'), sym('src/b.ts#entry')].sort());
     expect(symbols.entries.length).toBe(symbols.total);
-    expect((await get(`${prefix}/k/kind/no.such.kind.json`)).status).toBe(404);
+    expect((await get(`${prefix}/kind/no.such.kind.json`)).status).toBe(404);
   }, 60_000);
 
   test("the product's llms.txt lists every declared kind and the addresses of its lists", async () => {
-    const status = (await get('/products/tiny/api/k/status')).body;
+    const status = (await get('/products/tiny/api/status')).body;
     const llms = await get(`${prefix}/llms.txt`);
     expect(llms.status).toBe(200);
     expect(llms.type).toContain('text/plain');
     expect(llms.body).toContain(`# ${status.product.name}`);
     for (const kind of status.kinds) {
       expect(llms.body).toContain(`kind \`${kind.kind}\``);
-      expect(llms.body).toContain(`${prefix}/k/kind/${encodeURIComponent(kind.kind)}.md`);
-      expect(llms.body).toContain(`${prefix}/k/kind/${encodeURIComponent(kind.kind)}.json`);
+      expect(llms.body).toContain(`${prefix}/kind/${encodeURIComponent(kind.kind)}.md`);
+      expect(llms.body).toContain(`${prefix}/kind/${encodeURIComponent(kind.kind)}.json`);
     }
-    expect(llms.body).toContain(`${prefix}/k/e/<id>.md`);
+    expect(llms.body).toContain(`${prefix}/e/<id>.md`);
     expect(llms.body).toContain(`${prefix}/llms.txt`);
   });
 
   test('a file address that names nothing is refused with the address it was asked for', async () => {
-    const empty = await get(`${prefix}/k/e/.md`);
+    const empty = await get(`${prefix}/e/.md`);
     expect(empty.status).toBe(400);
-    expect(empty.body.error.message).toContain('/k/e/.md');
-    const missing = await get(`${prefix}/k/e/${encodeURIComponent('no.such#entity')}.md`);
+    expect(empty.body.error.message).toContain('/e/.md');
+    const missing = await get(`${prefix}/e/${encodeURIComponent('no.such#entity')}.md`);
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toContain('no.such#entity');
-    const badEscape = await get(`${prefix}/k/e/%ZZ.md`);
+    const badEscape = await get(`${prefix}/e/%ZZ.md`);
     expect(badEscape.status).toBe(400);
     expect(badEscape.body.error.message).toContain('%ZZ.md');
   });
@@ -568,11 +568,11 @@ describe('the pages for agents', () => {
 describe('what a refresh changed', () => {
   /** Presses the fill and waits for its end: the status the Sync button reads when it opens its result. */
   const refresh = async (): Promise<any> => {
-    const press = await fetch(`${server.url}/products/tiny/api/k/fill`, { method: 'POST' });
+    const press = await fetch(`${server.url}/products/tiny/api/fill`, { method: 'POST' });
     expect(press.status).toBe(202);
     let status: any;
     for (let tries = 0; tries < 400; tries += 1) {
-      status = (await get('/products/tiny/api/k/status')).body;
+      status = (await get('/products/tiny/api/status')).body;
       if (status.fill.state !== 'running') break;
       await new Promise((rest) => setTimeout(rest, 250));
     }
@@ -580,7 +580,7 @@ describe('what a refresh changed', () => {
     // The pages the run changed are recorded when it ends, in a notify of their own: wait a little for the status that has them.
     for (let grace = 0; grace < 40 && status.fill.state === 'done' && status.fill.changed === undefined; grace += 1) {
       await new Promise((rest) => setTimeout(rest, 250));
-      status = (await get('/products/tiny/api/k/status')).body;
+      status = (await get('/products/tiny/api/status')).body;
     }
     return status;
   };
@@ -601,7 +601,7 @@ describe('what a refresh changed', () => {
     expect(ids).toContain(sym('src/a.ts#extra'));
     expect(ids).not.toContain(recordKey('code.file', 'src/b.ts'));
     for (const page of changed) {
-      const opened = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(page.id)}`);
+      const opened = await get(`/products/tiny/api/page?id=${encodeURIComponent(page.id)}`);
       expect(opened.status).toBe(200);
       expect(opened.body.title).toBe(page.title);
     }

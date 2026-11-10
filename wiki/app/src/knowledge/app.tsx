@@ -28,7 +28,7 @@ import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_FILL, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
+import { addressOfEntity, addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -56,7 +56,7 @@ function BrandMark(): ReactElement {
  * the loop's pages and the settings are other places, so a fill that runs, fails or waits for a press is not drawn above
  * them (the top bar's chip says the same everywhere). The overview, which has no home page, draws the card itself.
  */
-export function showsProgress(route: KRoute, status: WikiStatus): boolean {
+export function showsProgress(route: WikiRoute, status: WikiStatus): boolean {
   // The repository page is the home once the store holds a repository (madarch-8bdc.2.5, item 3); a
   // fill that runs there, or fails there, still draws its card, so the press and its progress stay
   // where the reader is. With no store the home is the introduction, which draws its own fill card:
@@ -70,7 +70,7 @@ const inLoop = (kind: KindSummary): boolean => kind.nav === 'loop';
 
 /** The choices the selector offers: each product's wiki address, and which one is open. */
 export function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
-  return products.map((product) => ({ name: product.name, folder: product.folder, href: `/products/${encodeURIComponent(product.folder)}${K_HOME}`, here: product.folder === current }));
+  return products.map((product) => ({ name: product.name, folder: product.folder, href: `/products/${encodeURIComponent(product.folder)}${WIKI_HOME}`, here: product.folder === current }));
 }
 
 /** The product at the top left: its name, and the other products of this server to choose from. */
@@ -110,7 +110,7 @@ export function ProductSelector({ name, products, current }: { name: string; pro
                   if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
                   if (here) {
                     event.preventDefault();
-                    navigateTo(appPath(K_HOME));
+                    navigateTo(appPath(WIKI_HOME));
                   }
                 }}
               >
@@ -185,7 +185,7 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
     .filter((entry) => entry.kinds.length > 0);
 }
 
-function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: KRoute; onNavigate?: () => void }): ReactElement {
+function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: WikiRoute; onNavigate?: () => void }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -237,29 +237,29 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   };
   return (
     <>
-      <a href={appPath(K_HOME)} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" {...pick(K_HOME)}>
+      <a href={appPath(WIKI_HOME)} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" {...pick(WIKI_HOME)}>
         <BrandMark />
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
       <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} own={status.own === true} />
       <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4 pr-2 [scrollbar-gutter:stable]" data-testid="nav-scroll">
-        <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(K_HOME)}>
+        <a href={appPath(WIKI_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(WIKI_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.home')}</span>
         </a>
-        <a href={appPath(K_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(K_CATALOGUE)}>
+        <a href={appPath(WIKI_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
         </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
-          {waitingLink('nav-questions', K_QUESTIONS, HelpCircleIcon, t('loop.questionsTitle'), questionsOpen, route.name === 'questions' || route.name === 'question')}
-          {waitingLink('nav-tasks', K_TASKS, CheckIcon, t('loop.tasksTitle'), tasksOpen, route.name === 'tasks' || route.name === 'task')}
-          {waitingLink('nav-problems', K_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
+          {waitingLink('nav-questions', WIKI_QUESTIONS, HelpCircleIcon, t('loop.questionsTitle'), questionsOpen, route.name === 'questions' || route.name === 'question')}
+          {waitingLink('nav-tasks', WIKI_TASKS, CheckIcon, t('loop.tasksTitle'), tasksOpen, route.name === 'tasks' || route.name === 'task')}
+          {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </div>
         {terms.length > 0 && (
-          <a href={appPath(K_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(K_GLOSSARY)}>
+          <a href={appPath(WIKI_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
             <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
             <span className="min-w-0 flex-1">{t('knowledge.glossary.title')}</span>
             <span className="text-small text-muted">{terms.length}</span>
@@ -302,12 +302,12 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         })}
       </nav>
       <div className="border-t border-line py-2" data-testid="nav-foot">
-        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
+        <a href={appPath(WIKI_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(WIKI_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
         {status.own !== true && (
-          <a href={appPath(K_SETTINGS)} className={link(route.name === 'settings')} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(K_SETTINGS)}>
+          <a href={appPath(WIKI_SETTINGS)} className={link(route.name === 'settings')} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(WIKI_SETTINGS)}>
             <SettingsIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
             <span className="min-w-0 flex-1">{t('settings.nav')}</span>
           </a>
@@ -550,7 +550,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
             <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
               <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
               {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
-              <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+              <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
               <RunControls status={status} refresh={refresh} where="menu" />
             </div>
           )}
@@ -559,11 +559,11 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
             // up again or end it (madarch-m38l.17).
             <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
               <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-              <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+              <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
               <RunControls status={status} refresh={refresh} where="menu" />
             </div>
           )}
-          {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
+          {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
           {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
           {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
           {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
@@ -662,20 +662,20 @@ function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => vo
   );
 }
 
-export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
+export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'folder' ? t('knowledge.repository.folders') : route.name === 'file' ? t('knowledge.repository.file') : route.name === 'commit' ? t('knowledge.repository.commit') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-        <KLink href={K_HOME} className="text-muted no-underline hover:text-ink">{status.product.name}</KLink>
+        <KLink href={WIKI_HOME} className="text-muted no-underline hover:text-ink">{status.product.name}</KLink>
         {where !== null && <><span aria-hidden="true" className="px-2 text-muted">/</span><span className="text-ink">{where}</span></>}
       </span>
       <span className="flex shrink-0 items-center gap-1">
         <SearchBox />
         {status.loop !== undefined && status.loop.questionsAnswered > 0 && (
-          <KLink href={K_QUESTIONS} className="answers-waiting no-underline" data-testid="answers-waiting" title={t('loop.answersWaitingHint')}>
+          <KLink href={WIKI_QUESTIONS} className="answers-waiting no-underline" data-testid="answers-waiting" title={t('loop.answersWaitingHint')}>
             <Badge variant="outline"><span className="answers-waiting-words">{t('loop.answersWaiting', { count: status.loop.questionsAnswered })}</span><span className="answers-waiting-count">{status.loop.questionsAnswered}</span></Badge>
           </KLink>
         )}
@@ -691,9 +691,9 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
 }
 
 /** The route an in-wiki address is; the home page for one the wiki does not know. */
-function routeOfAddress(address: string): KRoute {
+function routeOfAddress(address: string): WikiRoute {
   const url = new URL(address, 'http://wiki.invalid');
-  return kRouteOf(url.pathname, url.search) ?? { name: 'home' };
+  return wikiRouteOf(url.pathname, url.search) ?? { name: 'home' };
 }
 
 /** The tabs of the wiki (the first version had them): every opened page is one; the one in front is the page the address names. */
@@ -745,8 +745,8 @@ export function TabBar(): ReactElement {
 export function KnowledgeApp(): ReactElement {
   const { t } = useTranslation();
   const tabs = useTabs();
-  const frontAddress = tabs.tabs.find((tab) => tab.key === tabs.active)?.address ?? K_HOME;
-  const route = useMemo<KRoute>(() => routeOfAddress(frontAddress), [frontAddress]);
+  const frontAddress = tabs.tabs.find((tab) => tab.key === tabs.active)?.address ?? WIKI_HOME;
+  const route = useMemo<WikiRoute>(() => routeOfAddress(frontAddress), [frontAddress]);
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const { status, error, version, refresh } = useWikiStatus();

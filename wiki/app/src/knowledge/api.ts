@@ -1,36 +1,37 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
+import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
 import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
-export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
+export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
 
 /** The entity catalogue: every kind the manifest declares, with its words, its count and what fills it (madarch-8bdc.2.5). */
-export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJson<CatalogView>('read the entity catalogue', '/api/k/catalog', signal);
+export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJson<CatalogView>('read the entity catalogue', API.catalog, signal);
 
 /** The wiki-wide search: pages and entities by title and text, grouped by kind (madarch-o0d). */
-export const getSearch = (query: string, lang: string, signal?: AbortSignal): Promise<SearchView> => readJson<SearchView>('search the wiki', `/api/k/search?${new URLSearchParams({ q: query, lang: lang === 'ru' ? 'ru' : 'en' }).toString()}`, signal);
+export const getSearch = (query: string, lang: string, signal?: AbortSignal): Promise<SearchView> => readJson<SearchView>('search the wiki', `${API.search}?${new URLSearchParams({ q: query, lang: lang === 'ru' ? 'ru' : 'en' }).toString()}`, signal);
 
 /** One entity's page. */
-export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal, compose);
+export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `${API.page}?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal, compose);
 
 /** The statement view of one sentence of a page. */
-export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `/api/k/statement?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
+export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `${API.statement}?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
 
 /** One page of a kind's entities. */
 export function getEntities(kind: string, options: { q?: string; after?: string } = {}, signal?: AbortSignal): Promise<EntityListing> {
   const query = new URLSearchParams({ kind, limit: '100' });
   if (options.q !== undefined && options.q !== '') query.set('q', options.q);
   if (options.after !== undefined) query.set('after', options.after);
-  return readJson<EntityListing>(`list the entities of kind ${kind}`, `/api/k/entities?${query.toString()}`, signal);
+  return readJson<EntityListing>(`list the entities of kind ${kind}`, `${API.entities}?${query.toString()}`, signal);
 }
 
 /** One file of a repository, as the graph was filled from it. */
 export function getSource(repo: string | null, path: string, signal?: AbortSignal): Promise<SourceFile> {
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
-  return readJson<SourceFile>(`read the source of ${path}`, `/api/k/source?${query.toString()}${historyQuery()}`, signal);
+  return readJson<SourceFile>(`read the source of ${path}`, `${API.source}?${query.toString()}${historyQuery()}`, signal);
 }
 
 /**
@@ -41,31 +42,26 @@ export function getSource(repo: string | null, path: string, signal?: AbortSigna
 export function getFileText(repo: string | null, path: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<SourceFile> {
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
-  return readJson<SourceFile>(`read the text of ${path}`, `/api/k/source?${query.toString()}`, signal, compose);
+  return readJson<SourceFile>(`read the text of ${path}`, `${API.source}?${query.toString()}`, signal, compose);
 }
 
-/** The products the selector offers: the home's, or this one alone. */
+/**
+ * The products the selector offers: the server's list at `/api/products`. Under a
+ * product's mount the product answers it; at the products home, the home does —
+ * both name the same products, and only the product's answer carries `current`.
+ */
 export async function getProducts(signal?: AbortSignal): Promise<ProductChoice[]> {
-  const mounted = /^\/products\/[^/]+/.test(window.location.pathname);
-  try {
-    if (mounted) {
-      const response = await fetch('/api/products', { signal });
-      if (response.ok) return ((await response.json()) as { products: ProductChoice[] }).products;
-    }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
-  }
-  return (await readJson<{ products: ProductChoice[] }>('list the products', '/api/k/products', signal)).products;
+  return (await readJson<{ products: ProductChoice[] }>('list the products', API.products, signal)).products;
 }
 
 /** The agents the reader can let write the pages, and the one chosen for this product. */
-export const getAgents = (signal?: AbortSignal): Promise<{ agents: AgentOffer[]; chosen: { id: string; label: string } | null }> => readJson('read the agents', '/api/k/agents', signal);
+export const getAgents = (signal?: AbortSignal): Promise<{ agents: AgentOffer[]; chosen: { id: string; label: string } | null }> => readJson('read the agents', API.agents, signal);
 
 /** The reader's choice of the agent that writes the pages; `install` is the yes to fetching its adapter. `null` is no agent. */
 export async function chooseAgent(agent: string | null, install: boolean): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(appPath('/api/k/agent'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, install }) });
+    response = await fetch(appPath(API.agent), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, install }) });
   } catch (error) {
     throw new RequestError('choose the agent', `the request failed (${error instanceof Error ? error.message : String(error)})`);
   }
@@ -84,7 +80,7 @@ export async function chooseAgent(agent: string | null, install: boolean): Promi
 export async function chooseModelRole(role: ModelRoleId, agent: string | null, options: { model?: string | null; reasoning?: string | null; install?: boolean } = {}): Promise<ModelRoleView> {
   let response: Response;
   try {
-    response = await fetch(appPath('/api/k/model-role'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role, agent, ...options }) });
+    response = await fetch(appPath(API.modelRole), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role, agent, ...options }) });
   } catch (error) {
     throw new RequestError('assign the model role', `the request failed (${error instanceof Error ? error.message : String(error)})`);
   }
@@ -106,7 +102,7 @@ export async function startFill(agent?: string | null, language?: string): Promi
   let response: Response;
   try {
     // The press names the agent it was made for; the server refuses it when another tab saved a different choice meanwhile.
-    response = await fetch(appPath('/api/k/fill'), agent === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, ...(language === undefined ? {} : { language }) }) });
+    response = await fetch(appPath(API.fill), agent === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, ...(language === undefined ? {} : { language }) }) });
   } catch (error) {
     throw new RequestError('start the fill', `the request failed (${error instanceof Error ? error.message : String(error)})`);
   }
@@ -125,19 +121,19 @@ export async function startFill(agent?: string | null, language?: string): Promi
  * A person's «Пауза» (madarch-m38l.17): the page and the commit in progress are finished and the run ends before the next
  * one. The answer is the run's state as the server keeps it, and the server's words when there is nothing to pause.
  */
-export const pauseRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('pause the run', '/api/k/pause', {});
+export const pauseRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('pause the run', API.pause, {});
 
 /**
  * A person's «Остановить»: the run ends now, and the pages it already rewrote stand. The press that ends it is the second
  * one; the first answer is the server's refusal, naming the pages this run rewrote and that they stay.
  */
-export const stopRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('stop the run', '/api/k/stop', { confirm: true });
+export const stopRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('stop the run', API.stop, { confirm: true });
 
 /** One folder's page: its subfolders and one page of its own files. */
 export function getFolder(path: string, after: string | null, signal?: AbortSignal): Promise<{ folder: FolderPageModel }> {
   const query = new URLSearchParams({ path });
   if (after !== null) query.set('after', after);
-  return readJson(`read the folder ${path === '' ? 'at the root' : path}`, `/api/k/folder?${query.toString()}`, signal);
+  return readJson(`read the folder ${path === '' ? 'at the root' : path}`, `${API.folder}?${query.toString()}`, signal);
 }
 
 /** One file's page: every fact of the file and one page of its history. */
@@ -147,16 +143,16 @@ export function getFile(path: string, after: { walk: number; commit: string } | 
     query.set('walk', String(after.walk));
     query.set('at', after.commit);
   }
-  return readJson(`read the file ${path}`, `/api/k/file?${query.toString()}`, signal);
+  return readJson(`read the file ${path}`, `${API.file}?${query.toString()}`, signal);
 }
 
 /** One commit's page: its facts and the paths it changed. */
 export const getCommit = (hash: string, signal?: AbortSignal): Promise<{ commit: CommitPageModel }> =>
-  readJson(`read the commit ${hash}`, `/api/k/commit?hash=${encodeURIComponent(hash)}`, signal);
+  readJson(`read the commit ${hash}`, `${API.commit}?hash=${encodeURIComponent(hash)}`, signal);
 
 /** The newest run's trace: per step its wall clock, its peak memory and its slowest names. */
 export const getRun = (run: string | null, signal?: AbortSignal): Promise<{ run: FillRunView }> =>
-  readJson('read the run', `/api/k/run${run === null ? '' : `?run=${encodeURIComponent(run)}`}`, signal);
+  readJson('read the run', `${API.run}${run === null ? '' : `?run=${encodeURIComponent(run)}`}`, signal);
 
 /** The wiki's one change stream: the server says `change` when a file of the product or a commit of the fill changes what a page shows. */
 export const eventsAddress = (): string => appPath('/api/events');
@@ -166,16 +162,16 @@ export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: stri
 
 // ---- the product settings page (madarch-m38l.11) -----------------------------------------------
 
-export const getProductSettings = (signal?: AbortSignal): Promise<ProductSettings> => readJson<ProductSettings>('read the product settings', '/api/k/product-settings', signal);
+export const getProductSettings = (signal?: AbortSignal): Promise<ProductSettings> => readJson<ProductSettings>('read the product settings', API.productSettings, signal);
 
 /** What the chosen agent reports over ACP as its models and reasoning levels; `fresh` asks the agent again. */
-export const getAgentChoices = (fresh = false, signal?: AbortSignal): Promise<AgentChoices> => readJson<AgentChoices>('ask the agent for its models', `/api/k/agent-choices${fresh ? '?fresh=1' : ''}`, signal);
+export const getAgentChoices = (fresh = false, signal?: AbortSignal): Promise<AgentChoices> => readJson<AgentChoices>('ask the agent for its models', `${API.agentChoices}${fresh ? '?fresh=1' : ''}`, signal);
 
 /** Asks one agent (not only the writing one) for the models it reports; a role's pair is chosen among them. */
 export const getAgentChoicesFor = (agent: string, fresh = false, signal?: AbortSignal): Promise<AgentChoices> => {
   const query = new URLSearchParams({ agent });
   if (fresh) query.set('fresh', '1');
-  return readJson<AgentChoices>('ask the agent for its models', `/api/k/agent-choices?${query.toString()}`, signal);
+  return readJson<AgentChoices>('ask the agent for its models', `${API.agentChoices}?${query.toString()}`, signal);
 };
 
 
@@ -189,47 +185,47 @@ export async function getGraphVerdicts(query: { verdict?: GraphVerdictFilter; ro
   if (query.offset !== undefined) search.set('offset', String(query.offset));
   if (query.force === true) search.set('force', '1');
   if (query.peek === true) search.set('peek', '1');
-  return await readJson<GraphVerdictView>('read the graph verdicts', `/api/k/graph-verdicts${search.size === 0 ? '' : `?${search.toString()}`}`, signal);
+  return await readJson<GraphVerdictView>('read the graph verdicts', `${API.graphVerdicts}${search.size === 0 ? '' : `?${search.toString()}`}`, signal);
 }
 
 /** Saves what one graph verdict run may spend. */
 export async function saveGraphVerdictBudgets(itemsPerRun: number, modelCallsPerRun: number): Promise<{ budgets: GraphVerdictBudgets; report?: GraphVerdictReport }> {
-  return await post<{ budgets: GraphVerdictBudgets; report?: GraphVerdictReport }>('save the graph verdict budgets', '/api/k/graph-verdicts', { itemsPerRun, modelCallsPerRun });
+  return await post<{ budgets: GraphVerdictBudgets; report?: GraphVerdictReport }>('save the graph verdict budgets', API.graphVerdicts, { itemsPerRun, modelCallsPerRun });
 }
 
 /** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
-export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', '/api/k/product-settings', settings);
+export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', API.productSettings, settings);
 
 /** Adds items of the starter set to the product's manifest; answers the files written. */
-export const addStarter = (ids: string[]): Promise<{ written: string[] }> => post<{ written: string[] }>('add to the manifest', '/api/k/starter', { ids });
+export const addStarter = (ids: string[]): Promise<{ written: string[] }> => post<{ written: string[] }>('add to the manifest', API.starter, { ids });
 
 /** «Rewrite the pages»: the agent's pages go, the graph stays, a fill writes them again. */
-export const rewritePages = (): Promise<unknown> => post<unknown>('rewrite the pages', '/api/k/rewrite-pages', {});
+export const rewritePages = (): Promise<unknown> => post<unknown>('rewrite the pages', API.rewritePages, {});
 
 /** «Start from scratch»: pages, graph, manifest and templates are put at the current set, and a fresh fill starts. */
-export const startFresh = (preview?: ResetPlan): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', '/api/k/start-fresh', preview === undefined ? {} : { preview });
+export const startFresh = (preview?: ResetPlan): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', API.startFresh, preview === undefined ? {} : { preview });
 
 /** The Markdown documents of the product and of its connected repositories. */
-export const getDocuments = (signal?: AbortSignal): Promise<DocumentListing> => readJson<DocumentListing>('list the documents', '/api/k/documents', signal);
+export const getDocuments = (signal?: AbortSignal): Promise<DocumentListing> => readJson<DocumentListing>('list the documents', API.documents, signal);
 
 /** One Markdown document as a page. */
 export function getDocument(repo: string | null, path: string, signal?: AbortSignal): Promise<DocumentPageModel> {
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
-  return readJson<DocumentPageModel>(`read the document ${path}`, `/api/k/document?${query.toString()}`, signal);
+  return readJson<DocumentPageModel>(`read the document ${path}`, `${API.document}?${query.toString()}`, signal);
 }
 
 /** The terms of the product's glossaries. */
-export const getGlossary = (signal?: AbortSignal): Promise<Glossary> => readJson<Glossary>('read the glossary', '/api/k/glossary', signal);
+export const getGlossary = (signal?: AbortSignal): Promise<Glossary> => readJson<Glossary>('read the glossary', API.glossary, signal);
 
 /** The reader's settings on this machine: the role, and whether they were asked. */
-export const getSettings = (signal?: AbortSignal): Promise<UserSettings> => readJson<UserSettings>('read the settings', '/api/k/settings', signal);
+export const getSettings = (signal?: AbortSignal): Promise<UserSettings> => readJson<UserSettings>('read the settings', API.settings, signal);
 
 /** Keeps the role the reader chose (a skip is "everything"). */
 export async function setRole(role: string): Promise<UserSettings> {
   let response: Response;
   try {
-    response = await fetch(appPath('/api/k/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) });
+    response = await fetch(appPath(API.settings), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) });
   } catch (error) {
     throw new RequestError('keep the role', `the request failed (${error instanceof Error ? error.message : String(error)})`);
   }
@@ -249,41 +245,41 @@ export function getNeighborhood(id: string, options: { relation?: string; direct
   const query = new URLSearchParams({ id, limit: String(options.limit ?? 8) });
   if (options.relation !== undefined) query.set('relation', options.relation);
   if (options.direction !== undefined) query.set('direction', options.direction);
-  return readJson<Neighborhood>(`read the neighbours of ${id}`, `/api/k/neighborhood?${query.toString()}${historyQuery()}`, signal);
+  return readJson<Neighborhood>(`read the neighbours of ${id}`, `${API.neighborhood}?${query.toString()}${historyQuery()}`, signal);
 }
 
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
 
-export const getQuestions = (signal?: AbortSignal): Promise<QuestionListing> => readJson<QuestionListing>('list the questions', '/api/k/questions', signal);
+export const getQuestions = (signal?: AbortSignal): Promise<QuestionListing> => readJson<QuestionListing>('list the questions', API.questions, signal);
 
-export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionDetail> => readJson<QuestionDetail>(`read the question ${id}`, `/api/k/question?id=${encodeURIComponent(id)}`, signal);
+export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionDetail> => readJson<QuestionDetail>(`read the question ${id}`, `${API.question}?id=${encodeURIComponent(id)}`, signal);
 
 /** The Problems page's first level: one row per rule, with counts (madarch-8bdc.2.5). */
 export function getProblemCategories(options: { section?: ProblemSection } = {}, signal?: AbortSignal): Promise<ProblemCategories> {
   const query = new URLSearchParams();
   if (options.section !== undefined) query.set('section', options.section);
-  return readJson<ProblemCategories>('list the problem categories', `/api/k/problems${query.size === 0 ? '' : `?${query.toString()}`}`, signal);
+  return readJson<ProblemCategories>('list the problem categories', `${API.problems}${query.size === 0 ? '' : `?${query.toString()}`}`, signal);
 }
 
 /** The second level: the sources of one category, one bounded page at a time. */
 export function getProblemSources(rule: string, options: { after?: string } = {}, signal?: AbortSignal): Promise<ProblemSources> {
   const query = new URLSearchParams({ rule });
   if (options.after !== undefined) query.set('after', options.after);
-  return readJson<ProblemSources>(`list the sources of ${rule}`, `/api/k/problems?${query.toString()}`, signal);
+  return readJson<ProblemSources>(`list the sources of ${rule}`, `${API.problems}?${query.toString()}`, signal);
 }
 
 /** The third level: the items of one source of one category, one bounded page at a time. */
 export function getProblemItems(rule: string, source: string, options: { after?: string } = {}, signal?: AbortSignal): Promise<ProblemItems> {
   const query = new URLSearchParams({ rule, source });
   if (options.after !== undefined) query.set('after', options.after);
-  return readJson<ProblemItems>(`list the problems of ${rule} in ${source}`, `/api/k/problems?${query.toString()}`, signal);
+  return readJson<ProblemItems>(`list the problems of ${rule} in ${source}`, `${API.problems}?${query.toString()}`, signal);
 }
 
 /** «Не проблема»: the reason is kept as a file in the product repository. */
-export const dismissProblem = (id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> => post('dismiss the problem', '/api/k/problem-dismiss', { id, reason });
+export const dismissProblem = (id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> => post('dismiss the problem', API.problemDismiss, { id, reason });
 
 /** «Создать задачу»: a task scoped to the place the problem names (madarch-m38l.14). */
-export const createProblemTask = (id: string): Promise<CreatedTask> => post<CreatedTask>('create a task from the problem', '/api/k/problem-task', { id });
+export const createProblemTask = (id: string): Promise<CreatedTask> => post<CreatedTask>('create a task from the problem', API.problemTask, { id });
 
 async function post<T>(what: string, url: string, body: unknown): Promise<T> {
   let response: Response;
@@ -305,39 +301,39 @@ async function post<T>(what: string, url: string, body: unknown): Promise<T> {
 }
 
 /** A person's answer to a question; the server writes it into the question's file and commits it. */
-export const answerQuestion = (question: string, text: string): Promise<AnswerResult> => post<AnswerResult>('save the answer', '/api/k/answer', { question, text });
+export const answerQuestion = (question: string, text: string): Promise<AnswerResult> => post<AnswerResult>('save the answer', API.answer, { question, text });
 
 /** A person's correction of a statement (`<page id>#<statement name>`): "wrong, because ...". */
-export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });
+export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', API.correction, { statement, reason });
 
 /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-export const getBlock = (id: string, block: string, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block ${block} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&block=${encodeURIComponent(block)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
+export const getBlock = (id: string, block: string, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block ${block} of the page of ${id}`, `${API.block}?id=${encodeURIComponent(id)}&block=${encodeURIComponent(block)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
-export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);
+export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `${API.journal}?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);
 /** The views a specification asks for (a drill-down or a way up replaces a diagram in place). */
-export const getViews = (query: string, lang: string, signal?: AbortSignal): Promise<{ renderer: DiagramRenderer; views: DiagramView[] }> => readJson<{ renderer: DiagramRenderer; views: DiagramView[] }>('read the diagram view', `/api/k/view?${query}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
+export const getViews = (query: string, lang: string, signal?: AbortSignal): Promise<{ renderer: DiagramRenderer; views: DiagramView[] }> => readJson<{ renderer: DiagramRenderer; views: DiagramView[] }>('read the diagram view', `${API.view}?${query}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
 
 /** Where the frame of a view in the LikeC4 or archify renderer is served (the app's base is added). */
-export const viewFrameAddress = (query: string, renderer: 'likec4' | 'archify', lang: string): string => appPath(`/api/k/view-frame?${query}&renderer=${renderer}&lang=${lang === 'ru' ? 'ru' : 'en'}`);
+export const viewFrameAddress = (query: string, renderer: 'likec4' | 'archify', lang: string): string => appPath(`${API.viewFrame}?${query}&renderer=${renderer}&lang=${lang === 'ru' ? 'ru' : 'en'}`);
 
 /** The product's tasks, open first, each with what its change reaches through the graph. */
-export const getTasks = (signal?: AbortSignal): Promise<TaskListing> => readJson('list the tasks', '/api/k/tasks', signal);
+export const getTasks = (signal?: AbortSignal): Promise<TaskListing> => readJson('list the tasks', API.tasks, signal);
 
 /** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
-export const getTask = (id: string, signal?: AbortSignal): Promise<TaskDetail> => readJson(`read the task ${id}`, `/api/k/task?id=${encodeURIComponent(id)}`, signal);
+export const getTask = (id: string, signal?: AbortSignal): Promise<TaskDetail> => readJson(`read the task ${id}`, `${API.task}?id=${encodeURIComponent(id)}`, signal);
 
 /** The task an answer proposes: the scope its grounds name and what it reaches, before anything is written. */
-export const proposeTask = (question: string, choice: 'code' | 'docs', language: string): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', '/api/k/task-propose', { question, choice, language });
+export const proposeTask = (question: string, choice: 'code' | 'docs', language: string): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', API.taskPropose, { question, choice, language });
 
 /** What the reader's edited scope reaches through the graph: the preview follows the scope, not the answer it came from. */
-export const getScopeImpact = (scope: TaskScope[]): Promise<TaskImpact> => post<TaskImpact>('compute what the scope reaches', '/api/k/task-impact', { scope });
+export const getScopeImpact = (scope: TaskScope[]): Promise<TaskImpact> => post<TaskImpact>('compute what the scope reaches', API.taskImpact, { scope });
 
 /** Confirms the reader's edited proposal: only now is a task written, as the reader, in the product repository. */
-export const createTask = (input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<CreatedTask> => post<CreatedTask>('confirm the task', '/api/k/task-create', input);
+export const createTask = (input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<CreatedTask> => post<CreatedTask>('confirm the task', API.taskCreate, input);
 
 /** Closes a task by hand; a commit that names the task and touches its scope closes it without this. */
-export const closeTask = (id: string): Promise<{ task: { slug: string; id: string }; state: 'closed'; committed: boolean; note?: string }> => post('close the task', '/api/k/task-close', { id });
+export const closeTask = (id: string): Promise<{ task: { slug: string; id: string }; state: 'closed'; committed: boolean; note?: string }> => post('close the task', API.taskClose, { id });
 
 /** «Поправить страницы сейчас»: a run over exactly the pages this task's impact lists. */
-export const runTask = (id: string): Promise<{ task: TaskRow; pages: string[]; fill: FillState }> => post('fix the task pages now', '/api/k/task-run', { id });
+export const runTask = (id: string): Promise<{ task: TaskRow; pages: string[]; fill: FillState }> => post('fix the task pages now', API.taskRun, { id });

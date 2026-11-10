@@ -39,11 +39,13 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(folder);
     const before = readdirSync(folder);
     const result = serving(await serveWiki({ cwd: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const status = await fetch(`${result.url}/api/k/status`);
+    const status = await fetch(`${result.url}/api/status`);
     expect(status.status).toBe(500);
     expect(JSON.stringify(await status.json())).toContain('workspace.yaml');
-    // No other app answers any of the old addresses.
-    for (const old of ['/api/product', '/api/pages', '/api/questions', '/api/stages', '/api/registry', '/api/architecture', '/api/repos', '/api/fill', '/api/graph/pages']) {
+    // The one app answers some of those names now: the identity names the manifest it lacks, its
+    // questions and its fill are its own. The documents app's other addresses answer nothing.
+    expect((await fetch(`${result.url}/api/product`)).status).toBe(500);
+    for (const old of ['/api/pages', '/api/stages', '/api/registry', '/api/architecture', '/api/repos', '/api/graph/pages']) {
       expect((await fetch(`${result.url}${old}`)).status, old).toBe(404);
     }
     expect(readdirSync(folder)).toEqual(before);
@@ -58,9 +60,9 @@ describe('serveWiki with a product or a manifestless directory', () => {
     run(['init', '--quiet', '--initial-branch=main']); run(['add', '-A']); run(['commit', '--quiet', '-m', 'Source']);
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const listed = await (await fetch(`${result.url}/api/k/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
+    const listed = await (await fetch(`${result.url}/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
     expect(listed.documents).toContainEqual({ repo: 'source', path: 'README.md', title: 'Linked source' });
-    const response = await fetch(`${result.url}/api/k/document?repo=source&path=README.md`);
+    const response = await fetch(`${result.url}/api/document?repo=source&path=README.md`);
     const page = await response.json() as { title: string; markdown: string };
     expect(response.status, JSON.stringify(page)).toBe(200);
     expect({ title: page.title, markdown: page.markdown }).toEqual({ title: 'Linked source', markdown: '# Linked source\n' });
@@ -72,7 +74,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(folder);
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: manifest-id\nname: Manifest name\n');
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const status = await (await fetch(`${result.url}/api/k/status`)).json() as { product: { id: string; name: string }; seeded: string[] };
+    const status = await (await fetch(`${result.url}/api/status`)).json() as { product: { id: string; name: string }; seeded: string[] };
     expect(status.product).toEqual({ id: 'manifest-id', name: 'Manifest name' });
     // The product had no kinds manifest: it was given the starter set, and the wiki says which files.
     expect(status.seeded).toContain('madarch/kinds.yaml');
@@ -85,7 +87,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: bare-id\nname: Bare\n');
     writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const status = await (await fetch(`${result.url}/api/k/status`)).json() as { manifest: string; seeded: string[]; kinds: { kind: string }[] };
+    const status = await (await fetch(`${result.url}/api/status`)).json() as { manifest: string; seeded: string[]; kinds: { kind: string }[] };
     expect(status.manifest).toBe('ok');
     expect(status.seeded).not.toContain('templates/domain.liquid');
     expect(status.seeded).toContain('templates/product.liquid');

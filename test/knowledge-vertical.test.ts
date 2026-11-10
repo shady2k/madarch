@@ -88,9 +88,9 @@ function lineOf(path: string, text: string): number {
 const addressOf = (key: string): string => {
   const encoded = encodeURIComponent(key);
   for (const suffix of ['.md', '.json']) {
-    if (encoded.endsWith(suffix)) return `/k/e/${encoded.slice(0, -suffix.length)}%2E${suffix.slice(1)}`;
+    if (encoded.endsWith(suffix)) return `/e/${encoded.slice(0, -suffix.length)}%2E${suffix.slice(1)}`;
   }
-  return `/k/e/${encoded}`;
+  return `/e/${encoded}`;
 };
 
 describe('the payments service page', () => {
@@ -140,7 +140,7 @@ describe('the function page', () => {
     expect(fromRoutes.site!.path).toBe(route.path);
     expect(fromRoutes.site!.repo).toBe('training');
     expect(fromRoutes.site!.lineStart).toBe(lineOf(route.path, 'service.pay('));
-    expect(fromRoutes.site!.href).toBe(`/k/src?repo=training&path=${encodeURIComponent(route.path)}&line=${fromRoutes.site!.lineStart}`);
+    expect(fromRoutes.site!.href).toBe(`/src?repo=training&path=${encodeURIComponent(route.path)}&line=${fromRoutes.site!.lineStart}`);
     const stores = block(model, 'callees').rows.map((row) => row.entity.id);
     expect(stores).toContain(recordKey('code.symbol', 'services/payments/src/store/payment-repository.ts#PrismaPaymentRepository.create'));
   });
@@ -185,14 +185,14 @@ describe('the pages an agent wrote, over the filled graph', () => {
     const useCase = model.resolutions['madarch:doc:docs/requirements.md#uc-2'];
     expect(useCase?.state).toBe('ok');
     // The section is a use case of the manifest's document kind: its ground opens the entity's page, not the Markdown at a line.
-    expect(useCase !== undefined && useCase.state === 'ok' ? useCase.href : '').toBe(`/k/e/${encodeURIComponent(UC_2)}`);
+    expect(useCase !== undefined && useCase.state === 'ok' ? useCase.href : '').toBe(`/e/${encodeURIComponent(UC_2)}`);
     expect(model.findings).toEqual([]);
   });
 
   test('the domain page shows its broken ground as broken and its ungrounded statement as one, and its grounds that hold open the function', async () => {
     const model = await page('domain:payment');
     expect(model.resolutions[`madarch:${MISSING}`]).toMatchObject({ state: 'broken' });
-    expect(model.resolutions[`madarch:${FACTORY}`]).toMatchObject({ state: 'ok', href: `/k/e/${encodeURIComponent(FACTORY)}` });
+    expect(model.resolutions[`madarch:${FACTORY}`]).toMatchObject({ state: 'ok', href: `/e/${encodeURIComponent(FACTORY)}` });
     expect(model.resolutions[`madarch:${PAY}`]).toMatchObject({ state: 'ok', label: 'PaymentService.pay' });
     expect(block(model, 'body').ungrounded.map((statement) => statement.text)).toEqual(['A refund that brings the refunded total up to the captured amount moves the order to refunded.']);
     expect(model.findings.map((finding) => finding.message)).toEqual([expect.stringContaining('a ground does not resolve: no entity')]);
@@ -242,7 +242,7 @@ describe('the pages of the documents\' entities', () => {
     expect(block(model, 'body').markdown).toContain('Checkout asks payments to authorize the card');
     const stated = block(model, 'stated');
     expect(stated.place).toMatchObject({ repo: 'training', path: 'docs/requirements.md', lineStart: lineOfDoc('- **UC-2 Pay.**') });
-    expect(stated.place.href).toBe('/k/doc?repo=training&path=docs%2Frequirements.md#uc-2');
+    expect(stated.place.href).toBe('/doc?repo=training&path=docs%2Frequirements.md#uc-2');
     // The domain page grounds "Checkout asks payments..." in UC-2 and in PaymentService.pay in one footnote.
     // The domain page grounds the sentence in UC-2 and PaymentService.pay in one footnote, the product page grounds one in the payments service and UC-2 in another.
     expect(rows(model, 'Implemented by')).toEqual([{ id: PAYMENTS_SERVICE, note: 'grounded with it on the page Online shop' }, { id: PAY, note: 'grounded with it on the page Payment' }]);
@@ -649,7 +649,7 @@ describe('every page and every kind as a file for agents', () => {
     if (Array.isArray(value)) { for (const entry of value) urlsIn(entry, found); return found; }
     if (value === null || typeof value !== 'object') return found;
     for (const [key, held] of Object.entries(value)) {
-      if (key === 'url' && typeof held === 'string' && held.startsWith('/k/')) found.push(held);
+      if (key === 'url' && typeof held === 'string' && held.startsWith('/')) found.push(held);
       else urlsIn(held, found);
     }
     return found;
@@ -675,7 +675,7 @@ describe('every page and every kind as a file for agents', () => {
       expect(listed).toBeGreaterThanOrEqual(kind.count);
       expect(ids.length).toBe(listed);
 
-      const listAddress = `/k/kind/${encodeURIComponent(kind.kind)}`;
+      const listAddress = `/kind/${encodeURIComponent(kind.kind)}`;
       const listDocument = await at(`${listAddress}.json`);
       expect(listDocument.status).toBe(200);
       expect(listDocument.type).toContain('application/json');
@@ -683,7 +683,7 @@ describe('every page and every kind as a file for agents', () => {
       expect(Object.keys(list).filter((key) => !['schema', 'kind', 'title', 'description', 'address', 'json', 'markdown', 'total', 'entries'].includes(key))).toEqual([]);
       expect(list).toMatchObject({ schema: 'madarch.kind.v1', kind: kind.kind, address: listAddress, json: `${listAddress}.json`, markdown: `${listAddress}.md`, total: listed });
       expect(list.entries.map((entry: { id: string }) => entry.id)).toEqual(ids);
-      expect(list.entries.every((entry: { url: string | null }) => entry.url !== null && entry.url.startsWith('/k/e/'))).toBe(true);
+      expect(list.entries.every((entry: { url: string | null }) => entry.url !== null && entry.url.startsWith('/e/'))).toBe(true);
       const listMarkdown = await at(`${listAddress}.md`);
       expect(listMarkdown.status).toBe(200);
       expect(listMarkdown.type).toContain('text/markdown');
@@ -727,7 +727,7 @@ describe('every page and every kind as a file for agents', () => {
     expect(llms.type).toContain('text/plain');
     expect(llms.text).toContain(`# ${status.product.name}`);
     for (const kind of status.kinds) {
-      const address = `/k/kind/${encodeURIComponent(kind.kind)}`;
+      const address = `/kind/${encodeURIComponent(kind.kind)}`;
       expect(llms.text).toContain(`kind \`${kind.kind}\``);
       expect(llms.text).toContain(`${address}.md`);
       expect(llms.text).toContain(`${address}.json`);

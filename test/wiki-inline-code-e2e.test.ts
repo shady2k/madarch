@@ -25,7 +25,7 @@ if (!enabled) console.info('Wiki inline-code E2E tests skipped: set MADARCH_WIKI
 const DOCUMENT = [
   '# Linked code',
   '',
-  'The commit [`04bcf3317972`](/k/commit?hash=04bcf3317972) is shown as inline code inside a link.',
+  'The commit [`04bcf3317972`](/commit?hash=04bcf3317972) is shown as inline code inside a link.',
   '',
   'A [mixed `code` link](https://example.invalid/mixed) carries both, and a [plain link](https://example.invalid/plain) stands beside it.',
   '',
@@ -80,7 +80,7 @@ runDescribe('inline code in links (built app and Chromium)', () => {
       log: () => undefined,
       errorLog: (line) => console.error(line),
     });
-    const seeded = await fetch(`${server.url}/api/k/status`);
+    const seeded = await fetch(`${server.url}/api/status`);
     if (seeded.status !== 200) throw new Error(`the status answer was ${seeded.status}`);
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox'] });
   }, 120_000);
@@ -97,7 +97,7 @@ runDescribe('inline code in links (built app and Chromium)', () => {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
     await page.evaluateOnNewDocument(() => localStorage.setItem('madarch-wiki-language', 'ru'));
-    await page.goto(`${server!.url}/k/doc?path=docs%2Flinked-code.md`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${server!.url}/doc?path=docs%2Flinked-code.md`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid=document-page]', { timeout: 30_000 });
     return page;
   }

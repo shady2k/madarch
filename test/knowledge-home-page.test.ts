@@ -85,8 +85,8 @@ describe('the home page holds the overview and a compact rest (madarch-ztyq.7)',
 
   test("the compact history links to the whole list of files, in the reader's language", async () => {
     const en = (await page('product:shop')).blocks.find((block) => block.type === 'history');
-    expect(en?.type === 'history' ? en.more : undefined).toEqual({ href: '/k/kind/code.file', label: 'All files' });
+    expect(en?.type === 'history' ? en.more : undefined).toEqual({ href: '/kind/code.file', label: 'All files' });
     const ru = (await page('product:shop', 'ru')).blocks.find((block) => block.type === 'history');
-    expect(ru?.type === 'history' ? ru.more : undefined).toEqual({ href: '/k/kind/code.file', label: 'Все файлы' });
+    expect(ru?.type === 'history' ? ru.more : undefined).toEqual({ href: '/kind/code.file', label: 'Все файлы' });
   });
 });

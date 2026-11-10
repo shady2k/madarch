@@ -74,7 +74,7 @@ if (previous === undefined) {
   const child = Bun.spawn([binary, 'daemon-serve', '--home', home, '--port', String(port)], {cwd: work, env, stdout: 'ignore', stderr: 'inherit'});
   stop = async () => { child.kill('SIGTERM'); await child.exited; };
 }
-const api = `${base}/products/${product}/api/k`;
+const api = `${base}/products/${product}/api`;
 async function get<T>(path: string): Promise<T> { const answer = await fetch(`${api}/${path}`, {signal: AbortSignal.timeout(120_000)}); if (!answer.ok) throw new Error(`${path}: HTTP ${answer.status}: ${await answer.text()}`); return await answer.json() as T; }
 const wait = (milliseconds: number): Promise<void> => new Promise((done) => setTimeout(done, milliseconds));
 let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
@@ -117,7 +117,7 @@ try {
   }
   for (const format of ['openapi', 'asyncapi', 'proto']) if (!formats.has(format)) throw new Error(`training fixture is missing ${format} coverage`);
   browser = await puppeteer.launch({executablePath: resolveBrowserExecutable(), headless: true, protocolTimeout: 180_000, args: ['--no-sandbox']});
-  const allCases = [{id: 'catalogue', url: `/products/${product}/k/kind/code.operation`, catalogue: true}, ...entities.map((entity) => ({...entity, url: `/products/${product}/k/e/${encodeURIComponent(entity.id)}`, catalogue: false}))];
+  const allCases = [{id: 'catalogue', url: `/products/${product}/kind/code.operation`, catalogue: true}, ...entities.map((entity) => ({...entity, url: `/products/${product}/e/${encodeURIComponent(entity.id)}`, catalogue: false}))];
   const selectionFile = argument('pages', '');
   const requested = selectionFile === '' ? allCases.map((entry) => entry.id) : JSON.parse(readFileSync(resolve(selectionFile), 'utf8')) as unknown;
   if (!Array.isArray(requested) || requested.length === 0 || requested.some((id) => typeof id !== 'string' || !allCases.some((entry) => entry.id === id)) || new Set(requested).size !== requested.length) throw new Error('contract-shots.ts:130: --pages must name distinct known changed page ids');

@@ -65,16 +65,16 @@ const get = async (path: string): Promise<{ status: number; body: any }> => {
 
 /** Every problem through the page's three levels. */
 const allProblems = async (): Promise<any> => {
-  const categories = (await get('/api/k/problems')).body;
+  const categories = (await get('/api/problems')).body;
   const problems: any[] = [];
   for (const category of categories.categories) {
     let after: string | undefined;
     for (;;) {
-      const sources = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`)).body;
+      const sources = (await get(`/api/problems?rule=${encodeURIComponent(category.rule)}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`)).body;
       for (const source of sources.sources) {
         let cursor: string | undefined;
         for (;;) {
-          const items = (await get(`/api/k/problems?rule=${encodeURIComponent(category.rule)}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`)).body;
+          const items = (await get(`/api/problems?rule=${encodeURIComponent(category.rule)}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`)).body;
           problems.push(...items.problems);
           if (items.next === null) break;
           cursor = items.next;
@@ -115,14 +115,14 @@ afterAll(async () => {
 describe('the count of problems is collected once per revision', () => {
   test('eight status polls at once collect the listing once', async () => {
     collections = 0;
-    const answers = await Promise.all(Array.from({ length: 8 }, async () => await get('/api/k/status')));
+    const answers = await Promise.all(Array.from({ length: 8 }, async () => await get('/api/status')));
     for (const answer of answers) expect(answer.status).toBe(200);
     // The eight polls share one collection. The collection is keyed after the reader opens, so their answers are
     // pending; the next status poll reads the listing under that key and carries its count without walking again.
     let problemsOpen: unknown;
     for (let i = 0; i < 200 && typeof problemsOpen !== 'number'; i += 1) {
       if (i > 0) await new Promise((rest) => setTimeout(rest, 10));
-      const answer = await get('/api/k/status');
+      const answer = await get('/api/status');
       expect(answer.status).toBe(200);
       problemsOpen = answer.body.loop.problemsOpen;
     }
@@ -134,7 +134,7 @@ describe('the count of problems is collected once per revision', () => {
 
   test('a page that asks while the polls run waits for the same collection, and a page alone collects nothing', async () => {
     collections = 0;
-    const pages = await Promise.all(Array.from({ length: 4 }, async () => await get(`/api/k/page?id=${encodeURIComponent(DOMAIN)}`)));
+    const pages = await Promise.all(Array.from({ length: 4 }, async () => await get(`/api/page?id=${encodeURIComponent(DOMAIN)}`)));
     for (const page of pages) expect(page.status).toBe(200);
     expect(collections).toBe(0);
     const listing = await allProblems();
@@ -146,8 +146,8 @@ describe('the count of problems is collected once per revision', () => {
     writeFileSync(document, readFileSync(document, 'utf8') + '\n');
     collections = 0;
     const answers = await Promise.all([
-      ...[0, 1, 2, 3].map(async () => await get('/api/k/status')),
-      ...[0, 1, 2, 3].map(async () => await get(`/api/k/page?id=${encodeURIComponent(DOMAIN)}`)),
+      ...[0, 1, 2, 3].map(async () => await get('/api/status')),
+      ...[0, 1, 2, 3].map(async () => await get(`/api/page?id=${encodeURIComponent(DOMAIN)}`)),
     ]);
     for (const answer of answers) expect(answer.status).toBe(200);
     // The collection of the new revision runs in the background: it happens once, not once per answer.
@@ -184,9 +184,9 @@ describe('the count of problems is collected once per revision', () => {
     const manifest = readFileSync(join(folder, 'madarch', 'kinds.yaml'), 'utf8');
     expect(manifest).toContain('groups:\n');
     writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломанное }\n'));
-    const listing = await get('/api/k/problems');
+    const listing = await get('/api/problems');
     expect(listing.status).toBe(200);
-    const status = await get('/api/k/status');
+    const status = await get('/api/status');
     expect(status.body.loop.problemsOpen).toBe(listing.body.open);
     expect(status.body.loop.problemsOpen).toBeGreaterThan(0);
   });

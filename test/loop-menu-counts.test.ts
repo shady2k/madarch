@@ -52,7 +52,7 @@ const COUNT_WITHIN_MS = 10_000;
 async function statusWithCount(): Promise<Answer> {
   const deadline = Date.now() + COUNT_WITHIN_MS;
   for (;;) {
-    const answer = await get('/api/k/status');
+    const answer = await get('/api/status');
     expect(answer.status).toBe(200);
     if (typeof answer.body.loop?.problemsOpen === 'number') return answer;
     if (Date.now() > deadline) throw new Error(`the menu's problems count was still pending after ${String(COUNT_WITHIN_MS)} ms: ${JSON.stringify(answer.body.loop)}`);
@@ -77,7 +77,7 @@ beforeAll(async () => {
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  const warmed = await fetch(`${server.url}/products/${SHOP}/api/k/status`);
+  const warmed = await fetch(`${server.url}/products/${SHOP}/api/status`);
   expect(warmed.status).toBe(200);
 }, 120_000);
 
@@ -90,7 +90,7 @@ describe('the problems entry of the menu', () => {
   test('a manifest edit changes the count on the next poll, without another revision of the product', async () => {
     // The count is collected beside the status answer (`statusWithCount`), so the first answers of a product may be pending.
     const before = await statusWithCount();
-    const problemsBefore = await get('/api/k/problems');
+    const problemsBefore = await get('/api/problems');
     expect(problemsBefore.status).toBe(200);
     // The menu already follows the Problems page: the fresh product has findings of its own (its documents lack the kinds
     // the starter manifest expects), so the count is read rather than assumed.
@@ -101,7 +101,7 @@ describe('the problems entry of the menu', () => {
     expect(manifest).toContain('groups:\n');
     writeFileSync(join(folder, 'madarch/kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, parent: nowhere }\n'));
 
-    const problems = await get('/api/k/problems');
+    const problems = await get('/api/problems');
     expect(problems.status).toBe(200);
     expect(problems.body.open).toBe(problemsBefore.body.open + 1);
     expect(problems.body.starter).toEqual([]);
@@ -127,7 +127,7 @@ describe('the tasks entry of the menu', () => {
     // The planning commit names the task but touches none of its scope: the task is still open after it.
     git(folder, ['add', '--', 'docs/tasks/fix-price.md']);
     git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Plan the task fix-price']);
-    const stillOpen = await get('/api/k/tasks');
+    const stillOpen = await get('/api/tasks');
     expect([stillOpen.body.open, stillOpen.body.closed]).toEqual([1, 0]);
 
     // The commit that closes it: it names the task and changes the file its scope names, on the product's default branch.
@@ -136,12 +136,12 @@ describe('the tasks entry of the menu', () => {
     git(folder, ['add', '--', 'docs/product.md'], dated);
     git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Fix the price\n\nTask: fix-price'], dated);
 
-    const tasks = await get('/api/k/tasks');
+    const tasks = await get('/api/tasks');
     expect(tasks.status).toBe(200);
     expect([tasks.body.open, tasks.body.closed]).toEqual([0, 1]);
     expect(tasks.body.tasks[0].status).toBe('closed');
 
-    const status = await get('/api/k/status');
+    const status = await get('/api/status');
     expect(status.status).toBe(200);
     // The menu's tasks entry counts what the Tasks page shows, by the same closure calculation (product.ts loopCounts).
     expect(status.body.loop.tasksOpen).toBe(0);

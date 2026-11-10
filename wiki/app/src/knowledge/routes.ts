@@ -1,7 +1,7 @@
 import { appRoute } from '../app-base.js';
 
-/** The knowledge wiki's routes, under `/k` (decision 0029). */
-export type KRoute =
+/** The knowledge wiki's routes, at the root (decision 0029, amended by madarch-q6mx: no `/k` segment). */
+export type WikiRoute =
   | { name: 'home' }
   | { name: 'entity'; id: string }
   | { name: 'kind'; kind: string }
@@ -24,28 +24,28 @@ export type KRoute =
   | { name: 'task'; id: string }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
-export const K_HOME = '/k';
-export const K_DOCS = '/k/docs';
-export const K_CATALOGUE = '/k/catalogue';
-export const K_GLOSSARY = '/k/glossary';
-export const K_QUESTIONS = '/k/questions';
-export const K_PROBLEMS = '/k/problems';
-export const K_SETTINGS = '/k/settings';
+export const WIKI_HOME = '/';
+export const WIKI_DOCS = '/docs';
+export const WIKI_CATALOGUE = '/catalogue';
+export const WIKI_GLOSSARY = '/glossary';
+export const WIKI_QUESTIONS = '/questions';
+export const WIKI_PROBLEMS = '/problems';
+export const WIKI_SETTINGS = '/settings';
 /** Where the journal of the agent's work on a page stands (madarch-m38l.13). */
 export function addressOfJournal(id: string, run?: string): string {
-  return `/k/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
+  return `/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
 }
 /** Where the fill stands, page by page, while it writes and after it ends (madarch-m38l.23). */
-export const K_FILL = '/k/fill';
-export const K_TASKS = '/k/tasks';
+export const WIKI_FILL = '/fill';
+export const WIKI_TASKS = '/tasks';
 /** The newest run's trace, step by step: its wall clock, its memory and its slowest names (madarch-8bdc.2.5, item 4). */
-export const K_RUN = '/k/run';
+export const WIKI_RUN = '/run';
 
 /** Where one folder of the repository stands: its subfolders and one page of its files. */
 export function addressOfFolder(path: string, after?: string): string {
   const query = new URLSearchParams({ path });
   if (after !== undefined && after !== '') query.set('after', after);
-  return `/k/folder?${query.toString()}`;
+  return `/folder?${query.toString()}`;
 }
 
 /** Where one file stands: its entity page, the same page every other entity has. */
@@ -55,55 +55,125 @@ export function addressOfFile(path: string, _after?: { walk: number; commit: str
 
 /** Where one commit stands: its facts and the paths it changed. */
 export function addressOfCommit(hash: string): string {
-  return `/k/commit?${new URLSearchParams({ hash }).toString()}`;
+  return `/commit?${new URLSearchParams({ hash }).toString()}`;
 }
 
 /** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
-export const addressOfTask = (id: string): string => `/k/task?${new URLSearchParams({ id }).toString()}`;
-export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
+export const addressOfTask = (id: string): string => `/task?${new URLSearchParams({ id }).toString()}`;
+export const addressOfQuestion = (slug: string): string => `/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
-  return `/k/statement?${new URLSearchParams({ id, sentence, ...(turn > 0 ? { n: String(turn) } : {}) }).toString()}`;
+  return `/statement?${new URLSearchParams({ id, sentence, ...(turn > 0 ? { n: String(turn) } : {}) }).toString()}`;
 }
 /** Where a Markdown document stands, at a section when an anchor is given. */
 export function addressOfDocument(repo: string | null, path: string, anchor?: string): string {
   const query = new URLSearchParams();
   if (repo !== null) query.set('repo', repo);
   query.set('path', path);
-  return `/k/doc?${query.toString()}${anchor === undefined || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
+  return `/doc?${query.toString()}${anchor === undefined || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
 }
-export const addressOfEntity = (id: string): string => `/k/e/${encodeURIComponent(id)}`;
-export const addressOfKind = (kind: string): string => `/k/kind/${encodeURIComponent(kind)}`;
 
-/** The route an address is, or null when the address is not under `/k`. */
-export function kRouteOf(pathname: string, search = ''): KRoute | null {
+/**
+ * A name in an address: a terminal `.md` or `.json` would be read as the file's
+ * suffix, so that one dot is encoded and an entity whose id ends in it keeps an
+ * HTML address of its own (the engine's `addresses.ts` says the same).
+ */
+function addressName(name: string): string {
+  const encoded = encodeURIComponent(name).replaceAll('(', '%28').replaceAll(')', '%29');
+  for (const suffix of ['.md', '.json']) {
+    if (encoded.endsWith(suffix)) return `${encoded.slice(0, -suffix.length)}%2E${suffix.slice(1)}`;
+  }
+  return encoded;
+}
+
+export const ENTITY_ADDRESS_PREFIX = '/e/';
+export const addressOfEntity = (id: string): string => `/e/${addressName(id)}`;
+export const addressOfKind = (kind: string): string => `/kind/${addressName(kind)}`;
+
+/** The API the app reads: one address per answer. */
+export const API = {
+  product: '/api/product',
+  status: '/api/status',
+  catalog: '/api/catalog',
+  search: '/api/search',
+  page: '/api/page',
+  block: '/api/block',
+  statement: '/api/statement',
+  entities: '/api/entities',
+  neighborhood: '/api/neighborhood',
+  view: '/api/view',
+  viewFrame: '/api/view-frame',
+  source: '/api/source',
+  repository: '/api/repository',
+  folder: '/api/folder',
+  file: '/api/file',
+  commit: '/api/commit',
+  run: '/api/run',
+  products: '/api/products',
+  fill: '/api/fill',
+  pause: '/api/pause',
+  stop: '/api/stop',
+  agents: '/api/agents',
+  agent: '/api/agent',
+  documents: '/api/documents',
+  document: '/api/document',
+  glossary: '/api/glossary',
+  settings: '/api/settings',
+  questions: '/api/questions',
+  question: '/api/question',
+  answer: '/api/answer',
+  correction: '/api/correction',
+  problems: '/api/problems',
+  problemDismiss: '/api/problem-dismiss',
+  problemTask: '/api/problem-task',
+  journal: '/api/journal',
+  refreshPlan: '/api/refresh-plan',
+  tasks: '/api/tasks',
+  task: '/api/task',
+  taskPropose: '/api/task-propose',
+  taskImpact: '/api/task-impact',
+  taskCreate: '/api/task-create',
+  taskClose: '/api/task-close',
+  taskRun: '/api/task-run',
+  reset: '/api/reset',
+  productSettings: '/api/product-settings',
+  agentChoices: '/api/agent-choices',
+  modelRole: '/api/model-role',
+  graphVerdicts: '/api/graph-verdicts',
+  starter: '/api/starter',
+  rewritePages: '/api/rewrite-pages',
+  startFresh: '/api/start-fresh',
+} as const;
+
+/** The route an address is, or null when the app answers no such path. */
+export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
   const path = appRoute(pathname);
-  if (path === '/k' || path === '/k/') return { name: 'home' };
-  if (path === '/k/questions' || path === '/k/questions/') return { name: 'questions' };
-  if (path.startsWith('/k/questions/')) {
+  if (path === '/' || path === '') return { name: 'home' };
+  if (path === '/questions' || path === '/questions/') return { name: 'questions' };
+  if (path.startsWith('/questions/')) {
     try {
-      return { name: 'question', slug: decodeURIComponent(path.slice('/k/questions/'.length)) };
+      return { name: 'question', slug: decodeURIComponent(path.slice('/questions/'.length)) };
     } catch {
       return { name: 'questions' };
     }
   }
-  if (path === '/k/problems' || path === '/k/problems/') return { name: 'problems' };
-  if (path === '/k/settings' || path === '/k/settings/') return { name: 'settings' };
-  if (path === '/k/fill' || path === '/k/fill/') return { name: 'fill' };
-  if (path === '/k/journal') {
+  if (path === '/problems' || path === '/problems/') return { name: 'problems' };
+  if (path === '/settings' || path === '/settings/') return { name: 'settings' };
+  if (path === '/fill' || path === '/fill/') return { name: 'fill' };
+  if (path === '/journal') {
     const query = new URLSearchParams(search);
     const id = query.get('id');
     return id === null || id === '' ? { name: 'home' } : { name: 'journal', id, run: query.get('run') };
   }
-  if (path === '/k/tasks' || path === '/k/tasks/') return { name: 'tasks' };
-  if (path === '/k/task') {
+  if (path === '/tasks' || path === '/tasks/') return { name: 'tasks' };
+  if (path === '/task') {
     const query = new URLSearchParams(search);
     const id = query.get('id');
     return id === null || id === '' ? { name: 'tasks' } : { name: 'task', id };
   }
-  if (path.startsWith('/k/e/')) {
+  if (path.startsWith('/e/')) {
     try {
-      const id = decodeURIComponent(path.slice('/k/e/'.length));
+      const id = decodeURIComponent(path.slice('/e/'.length));
       // A question or a correction has its place in the loop's pages, not a generic entity page.
       if (id.startsWith('question:')) return { name: 'question', slug: id.slice('question:'.length) };
       if (id.startsWith('correction:')) return { name: 'problems' };
@@ -112,17 +182,17 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
       return { name: 'home' };
     }
   }
-  if (path.startsWith('/k/kind/')) {
+  if (path.startsWith('/kind/')) {
     try {
-      return { name: 'kind', kind: decodeURIComponent(path.slice('/k/kind/'.length)) };
+      return { name: 'kind', kind: decodeURIComponent(path.slice('/kind/'.length)) };
     } catch {
       return { name: 'home' };
     }
   }
-  if (path === '/k/docs') return { name: 'docs' };
-  if (path === '/k/catalogue') return { name: 'catalogue' };
-  if (path === '/k/glossary') return { name: 'glossary' };
-  if (path === '/k/statement') {
+  if (path === '/docs') return { name: 'docs' };
+  if (path === '/catalogue') return { name: 'catalogue' };
+  if (path === '/glossary') return { name: 'glossary' };
+  if (path === '/statement') {
     const query = new URLSearchParams(search);
     const id = query.get('id');
     const sentence = query.get('sentence');
@@ -130,33 +200,33 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     const turn = Number(query.get('n') ?? 0);
     return { name: 'statement', id, sentence, turn: Number.isInteger(turn) && turn > 0 ? turn : 0 };
   }
-  if (path === '/k/doc') {
+  if (path === '/doc') {
     const query = new URLSearchParams(search);
     const file = query.get('path');
     if (file === null || file === '') return { name: 'docs' };
     return { name: 'doc', repo: query.get('repo'), path: file };
   }
-  if (path === '/k/folder') {
+  if (path === '/folder') {
     const query = new URLSearchParams(search);
     return { name: 'folder', path: query.get('path') ?? '', after: query.get('after') };
   }
-  if (path === '/k/file') {
+  if (path === '/file') {
     // The file's page is its entity page (decision 0034): the old address goes there.
     const query = new URLSearchParams(search);
     const file = query.get('path');
     if (file === null || file === '') return { name: 'home' };
     return { name: 'entity', id: `code.file:${file}` };
   }
-  if (path === '/k/commit') {
+  if (path === '/commit') {
     const query = new URLSearchParams(search);
     const hash = query.get('hash');
     return hash === null || hash === '' ? { name: 'home' } : { name: 'commit', hash };
   }
-  if (path === '/k/run') {
+  if (path === '/run') {
     const query = new URLSearchParams(search);
     return { name: 'run', run: query.get('run') };
   }
-  if (path === '/k/src') {
+  if (path === '/src') {
     const query = new URLSearchParams(search);
     const file = query.get('path');
     if (file === null || file === '') return { name: 'home' };
@@ -164,6 +234,12 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     return { name: 'source', repo: query.get('repo'), path: file, line: Number.isInteger(line) && line > 0 ? line : null };
   }
   return null;
+}
+
+/** Whether a link names a page of this app, so it opens in the wiki rather than as a plain link. */
+export function isWikiAddress(href: string): boolean {
+  const pathname = href.split(/[?#]/, 1)[0] ?? '';
+  return wikiRouteOf(pathname) !== null;
 }
 
 /** The kind's word for a reader: the extractor prefix dropped, the first letter up. */

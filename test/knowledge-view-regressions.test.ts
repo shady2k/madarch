@@ -12,10 +12,10 @@ import { fixtureManifest } from './knowledge-manifest-fixture.js';
 const MANIFEST = fixtureManifest({ 'code.table': { er: 'links' }, 'code.database': { er: 'tables' }, 'code.service': { views: ['c4-component'], system: 'container' } });
 
 const domainMap: GraphView = {spec:{type:'domain-map',subject:''},title:'Domains',label:'Domains',elements:[
-  {id:'domain:orders',label:'Ordering',kind:'domain',href:'/k/e/orders',dashed:false},
-  {id:'orders',label:'orders-api',kind:'container',parent:'domain:orders',href:'/k/e/service',dashed:false},
-  {id:'domain:billing',label:'Billing',kind:'domain',href:'/k/e/billing',dashed:false},
-  {id:'billing',label:'billing-api',kind:'container',parent:'domain:billing',href:'/k/e/billing-service',dashed:false},
+  {id:'domain:orders',label:'Ordering',kind:'domain',href:'/e/orders',dashed:false},
+  {id:'orders',label:'orders-api',kind:'container',parent:'domain:orders',href:'/e/service',dashed:false},
+  {id:'domain:billing',label:'Billing',kind:'domain',href:'/e/billing',dashed:false},
+  {id:'billing',label:'billing-api',kind:'container',parent:'domain:billing',href:'/e/billing-service',dashed:false},
 ],edges:[],notes:[],empty:null,marker:null};
 
 test('disconnected domain services retain their ownership in the actual LikeC4 layout', async () => {
@@ -51,7 +51,7 @@ test('renderer HTTP failure stays 500 and includes escaped actionable diagnostic
   const message='/tmp/diagram/document.json:1: renderer exit 1: missing /tmp/app/renderer.mjs <script>bad</script>';
   const product={viewFrame:async()=>({ok:false,status:500,message})} as unknown as KnowledgeProduct;
   const part=createKnowledgePart({json:(status,body)=>new Response(JSON.stringify(body),{status}),refused:(status,body)=>({response:new Response(JSON.stringify(body),{status})}),errorLog:()=>undefined},product,()=>[]);
-  const handled=await part.viewFrame(new Request('http://localhost/api/k/view-frame?renderer=archify&lang=ru'));
+  const handled=await part.viewFrame(new Request('http://localhost/api/view-frame?renderer=archify&lang=ru'));
   expect(handled.response.status).toBe(500);
   const html=await handled.response.text();
   expect(html).toContain('Эту диаграмму'); expect(html).toContain('/tmp/diagram/document.json:1:');

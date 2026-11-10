@@ -19,6 +19,7 @@ import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
+import { API } from '../knowledge/addresses.js';
 import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
@@ -1008,7 +1009,7 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
     return 1;
   }
   const server = daemonUrl({ home: root });
-  const asServer = server === undefined ? undefined : `${server}/products/${encodeURIComponent(name)}/api/k/reset`;
+  const asServer = server === undefined ? undefined : `${server}/products/${encodeURIComponent(name)}${API.reset}`;
   let plan: ResetPlan;
   try {
     if (asServer !== undefined) {

@@ -372,8 +372,8 @@ test('actual adapter callback boundaries preserve errors and selected operation 
 
 
 test('AsyncAPI catalogue shows declared application flow and unavailable extraction honestly', async () => {
-  const row: EntityRef = {id: 'code.channel:inventory.adjusted', label: 'inventory.adjusted', kind: 'code.channel', href: '/k/e/code.channel%3Ainventory.adjusted'};
-  const owner: EntityRef = {id: 'code.contract:events.yaml', label: 'Events', kind: 'code.contract', href: '/k/e/code.contract%3Aevents.yaml'};
+  const row: EntityRef = {id: 'code.channel:inventory.adjusted', label: 'inventory.adjusted', kind: 'code.channel', href: '/e/code.channel%3Ainventory.adjusted'};
+  const owner: EntityRef = {id: 'code.contract:events.yaml', label: 'Events', kind: 'code.contract', href: '/e/code.contract%3Aevents.yaml'};
   const actor: EntityRef = {id: 'code.file:emit.ts', label: 'emit.ts', kind: 'code.file', href: null};
   await setWikiLanguage('en');
   const node = mount(createElement(Operations, {rows: [row], metadata: {[row.id]: {contracts: [{entity: owner, protocol: 'AsyncAPI', directions: ['subscribe', 'publish'], directionStatus: 'known', producedBy: [actor], consumedBy: []}], implementedBy: [], calledBy: [], cuts: []}}}));

@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { CheckIcon, CircleHelpIcon, UserRoundIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button.js';
-import { K_HOME } from './routes.js';
+import { WIKI_HOME } from './routes.js';
 import { chooseRole, rolesOf, useSettings } from './roles.js';
 import type { ProductChoice } from './types.js';
 
@@ -94,7 +94,7 @@ export function HelpLink({ products, current }: { products: readonly ProductChoi
   const { t } = useTranslation();
   const own = products.find((product) => product.own === true);
   if (own === undefined || own.folder === current) return null;
-  const href = `/products/${encodeURIComponent(own.folder)}${K_HOME}`;
+  const href = `/products/${encodeURIComponent(own.folder)}${WIKI_HOME}`;
   return (
     <a href={href} aria-label={t('knowledge.help.label')} title={t('knowledge.help.title')} data-testid="help-link" className="inline-flex size-9 items-center justify-center rounded-[var(--radius-control)] text-secondary no-underline hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink">
       <CircleHelpIcon aria-hidden="true" className="size-[21px]" />

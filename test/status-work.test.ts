@@ -72,33 +72,33 @@ describe('a status answer reads the manifest once per key', () => {
   test('eight polls of an unchanged product read the manifest not at all', async () => {
     // The reader a product starts on its first answer moves the key once (its snapshot number joins the key): a poll
     // that finds the reader open is the poll this bounds.
-    const warm = await get('/api/k/status');
+    const warm = await get('/api/status');
     expect(warm.status).toBe(200);
-    expect((await get('/api/k/status')).status).toBe(200);
+    expect((await get('/api/status')).status).toBe(200);
     // The product is unchanged only once two things the first answers started have landed: the starter set the server
     // brings up to date (a write of the manifest and its templates) and the Problems collection it starts beside itself,
     // which reads the manifest too. A count that stands (`loop.problemsOpen`) and an answer that reads nothing are what
     // say so (measured under load: either can land after the two warm answers, and the next answer then reads).
     let settled = manifestReads;
     for (let attempt = 0; attempt < 200; attempt += 1) {
-      const answer = await get('/api/k/status');
+      const answer = await get('/api/status');
       expect(answer.status).toBe(200);
       if (typeof (answer.body as { loop?: { problemsOpen?: unknown } }).loop?.problemsOpen === 'number' && manifestReads === settled) break;
       settled = manifestReads;
     }
     manifestReads = 0;
-    const answers = await Promise.all(Array.from({ length: 8 }, async () => await get('/api/k/status')));
+    const answers = await Promise.all(Array.from({ length: 8 }, async () => await get('/api/status')));
     for (const answer of answers) expect(answer.status).toBe(200);
     expect(manifestReads, 'the eight polls of an unchanged product read the manifest between them').toBe(0);
     for (const answer of answers) expect(countOf(answer.body, 'domain')).toBe(1);
   });
 
   test('a page written beside the product shows on the next answer', async () => {
-    const before = await get('/api/k/status');
+    const before = await get('/api/status');
     expect(countOf(before.body, 'domain')).toBe(1);
     const refund = SAMPLE_DOMAIN.replace('id: domain:payment', 'id: domain:refund').replace('title: Payment', 'title: Refund');
     writeFileSync(join(folder, 'docs', 'domains', 'refund.md'), refund);
-    const after = await get('/api/k/status');
+    const after = await get('/api/status');
     expect(after.status).toBe(200);
     expect(countOf(after.body, 'domain'), 'a page written beside the server').toBe(2);
   });
@@ -109,7 +109,7 @@ describe('a status answer reads the manifest once per key', () => {
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.setIn(['groups', 'stamp-probe'], { en: 'Stamp probe', ru: 'Проба чекана' });
     writeFileSync(file, manifest.toString());
-    const answer = await get('/api/k/status');
+    const answer = await get('/api/status');
     expect(answer.status).toBe(200);
     expect((answer.body.groups as { group: string }[]).map((group) => group.group)).toContain('stamp-probe');
     expect(manifestReads, 'the manifest read for an edited manifest').toBeGreaterThan(0);
