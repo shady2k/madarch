@@ -12,7 +12,7 @@
  */
 import type { GraphEntity } from './graph-read.js';
 import { HISTORY_SHAPES, type HistoryShape } from './kinds.js';
-import { GIT_FIELDS, GIT_WIKI } from '../fill/stages/git-contract.js';
+import { GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
 import { projectHistory, projectHistoryAcross } from './history-evidence.js';
@@ -78,33 +78,23 @@ async function taskRows(ctx: RenderContext, task: GraphEntity, limit: number): P
 
 /** The files one commit changed, each with the lines it added and removed and the symbols the file declares. */
 async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: HistoryNote[] }> {
-  const found = await ctx.graph.edgesOf(commit, GIT_WIKI.touched, 'out', limit);
+  const found = await ctx.graph.commitChanged(commit, limit);
   const rows: HistoryRow[] = [];
   let uncounted = 0;
-  const notes: HistoryNote[] = [];
-  for (const edge of found.rows) {
-    const file = edge.other;
-    const churn = churnOf(edge.properties);
+  for (const file of found.rows) {
+    const churn = churnOf({ change: file.change, added: file.added, removed: file.removed });
     if (churn.length === 0) uncounted += 1;
-    // A rename is its own edge: the commit's hash is its discriminator, and the other end is the old path.
-    const hash = typeof commit.properties[GIT_FIELDS.hash] === 'string' ? commit.properties[GIT_FIELDS.hash] : commit.key.slice(GIT_WIKI.commit.length + 1);
-    const renamed = await ctx.graph.edgesOf(file, GIT_WIKI.renamedTo, 'out', 10);
-    const from = renamed.rows.find((row) => row.properties['discriminator'] === hash);
-    if (from !== undefined) churn.push({ kind: 'renamed', value: from.other.label });
-    const contained = await ctx.graph.neighbors(file, { relations: ['code.contains'], direction: 'out', limit: 500 });
-    const declared = contained.find((group) => group.relation === 'code.contains');
-    const symbols = declared?.rows.filter((row) => row.entity.kind === 'code.symbol') ?? [];
-    const symbolCount = symbols.length;
+    if (file.previousPath !== null) churn.push({ kind: 'renamed', value: file.previousPath });
     rows.push({
-      text: file.label,
-      entity: refOfGraph(ctx, file),
-      figures: [...churn, ...(symbolCount === 0 ? [] : [{ kind: 'symbols' as const, value: String(symbolCount) }])],
+      text: file.entity.label,
+      entity: refOfGraph(ctx, file.entity),
+      figures: [...churn, ...(file.symbols === 0 ? [] : [{ kind: 'symbols' as const, value: String(file.symbols) }])],
     });
-    if (declared !== undefined && declared.total > declared.rows.length) notes.push({key: 'symbolsCut', args: {path: file.label, shown: declared.rows.length}});
   }
-  if (found.total > rows.length) notes.push({key: 'manyFiles', args: {total: found.total, shown: rows.length}});
-  if (uncounted > 0) notes.push({key: 'noCounts', args: {count: uncounted}});
-  if (found.total === 0) notes.push({key: commit.properties['merge'] === true ? 'merge' : 'noFiles'});
+  const notes: HistoryNote[] = [];
+  if (found.total > rows.length) notes.push({ key: 'manyFiles', args: { total: found.total, shown: rows.length } });
+  if (uncounted > 0) notes.push({ key: 'noCounts', args: { count: uncounted } });
+  if (found.total === 0) notes.push({ key: commit.properties['merge'] === true ? 'merge' : 'noFiles' });
   return { sections: rows.length === 0 ? [] : [{ role: 'files', total: found.total, rows }], notes };
 }
 
@@ -147,7 +137,7 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
     // The rest of a product's home page is bounded once, across all its repositories (madarch-ztyq.7): twenty
     // repositories cannot turn a five-row budget into twenty summaries and a hundred hotspots. One repository keeps
     // its label; a product-wide story says no single repository's name.
-    const projected = projectHistoryAcross(await Promise.all(repositories.map((repository) => ctx.graph.historyEvidence(repository.nodeId))), limit, (one) => refOfGraph(ctx, one));
+    const projected = projectHistoryAcross(await Promise.all(repositories.map((repository) => (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(repository.nodeId))), limit, (one) => refOfGraph(ctx, one));
     const sections: HistorySection[] = projected.sections.map((section) => repositories.length === 1
       ? { ...section, repository: ctx.repoOfScope(repositories[0]!.nodeId) ?? repositories[0]!.path }
       : section);
@@ -164,7 +154,51 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
   // A task's story is the commits that name it, and a commit's own rows (the files it changed) stand before its
   // projection; every other shape is the projection alone.
   const rows = shape === 'task' ? await taskRows(ctx, entity, limit) : shape === 'commit' ? await commitRows(ctx, entity, limit) : { sections: [], notes: [] };
-  const projected = shape === 'task' ? { sections: [], notes: [] } : projectHistory(await ctx.graph.historyEvidence(entity.scope), entity, shape, limit, (one) => refOfGraph(ctx, one));
+  const evidence = await (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(entity.scope);
+  const authorOf = new Map(evidence.edges.filter((edge) => edge.relation === GIT_WIKI.authored).map((edge) => [edge.to, edge.from]));
+  const evidenceEntities = new Map(evidence.entities.map((one) => [one.key, one]));
+  const authorEntity = (commitKey: string): GraphEntity | undefined => evidenceEntities.get(authorOf.get(commitKey) ?? '');
+  let projected: { sections: HistorySection[]; notes: HistoryNote[] };
+  if (shape === 'repositories') {
+    const held = await ctx.graph.repositoryHistory(entity.scope, limit);
+    const sections: HistorySection[] = [];
+    if (held.commits > 0) sections.push({ role: 'summary', total: 1, rows: [{ text: '', figures: [
+      { kind: 'reachable', value: String(held.commits) },
+      { kind: 'firstParent', value: String(held.firstParent) },
+      { kind: 'merges', value: String(held.merges) },
+      { kind: 'nonMerge', value: String(held.nonMerge) },
+      { kind: 'authors', value: String(new Set(authorOf.values()).size) },
+      ...(held.since === undefined || held.until === undefined ? [] : [{ kind: 'since' as const, value: held.since }, { kind: 'until' as const, value: held.until }]),
+    ] }] });
+    if (held.hotspots.length > 0) sections.push({ role: 'hotspots', total: held.hotspotsTotal, rows: held.hotspots.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), figures: [{ kind: 'commits', value: String(one.commits) }] })) });
+    const authors = evidence.entities.filter((one) => one.kind === GIT_WIKI.author).map((one) => ({ entity: one, commits: [...authorOf.values()].filter((key) => key === one.key).length }));
+    if (authors.length > 0) sections.push({ role: 'authors', total: authors.length, rows: authors.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), figures: [{ kind: 'commits', value: String(one.commits) }] })) });
+    projected = { sections, notes: [{ key: 'population' }] };
+  } else if (shape === 'commit') {
+    const parents = await ctx.graph.commitParents(entity);
+    const parentRows: HistoryRow[] = parents.map((one) => ({
+      text: one.entity.label, entity: refOfGraph(ctx, one.entity), when: one.when,
+      ...(authorEntity(one.entity.key) === undefined ? {} : { who: String(authorEntity(one.entity.key)!.properties['name'] ?? authorEntity(one.entity.key)!.label) }),
+      figures: [
+        { kind: 'files', value: String(one.files) },
+        ...(one.added === 0 ? [] : [{ kind: 'added' as const, value: String(one.added) }]),
+        ...(one.removed === 0 ? [] : [{ kind: 'removed' as const, value: String(one.removed) }]),
+      ],
+    }));
+    const branches = entity.properties['merge'] === true ? await ctx.graph.commitBranches(entity, limit) : [];
+    const summary: HistoryRow = { text: '', figures: (['authoredAt', 'committedAt', 'effectiveAt'] as const).flatMap((kind) => typeof entity.properties[kind] === 'string' ? [{ kind, value: String(entity.properties[kind]) }] : []) };
+    const notes: HistoryNote[] = [];
+    const first = parents[0];
+    if (first !== undefined && String(entity.properties['committedAt']) <= String(first.entity.properties['effectiveAt'])) notes.push({ key: 'dateAnomaly', args: { parent: String(first.entity.properties['effectiveAt']) } });
+    if (entity.properties['merge'] === true && typeof entity.properties['mergedBranch'] === 'string' && typeof entity.properties['effectiveAt'] === 'string') notes.push({ key: 'mergeBranch', args: { branch: entity.properties['mergedBranch'], date: entity.properties['effectiveAt'].slice(0, 10) } });
+    projected = { sections: [
+      ...(parentRows.length === 0 ? [] : [{ role: 'parents' as const, total: parentRows.length, rows: parentRows }]),
+      { role: 'summary' as const, total: 1, rows: [summary] },
+      ...(branches.length === 0 ? [] : [{ role: 'branches' as const, total: branches.length, rows: branches.map((one) => ({ text: one.entity.label, entity: refOfGraph(ctx, one.entity), when: one.when, ...(authorEntity(one.entity.key) === undefined ? {} : { who: String(authorEntity(one.entity.key)!.properties['name'] ?? authorEntity(one.entity.key)!.label) }), figures: [] })) }]),
+    ], notes };
+  } else {
+    projected = shape === 'task' ? { sections: [], notes: [] } : projectHistory(await (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(entity.scope), entity, shape, limit, (one) => refOfGraph(ctx, one));
+  }
   const built: { sections: HistorySection[]; notes: HistoryNote[] } = { sections: [...rows.sections, ...projected.sections], notes: [...rows.notes, ...projected.notes] };
   const kept = keptSections(built.sections, params['sections']);
   if (typeof kept === 'string') return { type: 'problem', block: 'history', file, line, message: kept };

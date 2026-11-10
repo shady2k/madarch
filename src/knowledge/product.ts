@@ -35,7 +35,7 @@ import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
 import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
-import { GraphReader } from './graph-read.js';
+import { GraphReader, type HistoryEvidence } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
@@ -481,6 +481,16 @@ export class KnowledgeProduct {
   }
 
   /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
+  /** Opens the reader and waits for it: a server starts its products before the first request. */
+  async warmNow(): Promise<void> {
+    if (this.closed) return;
+    await this.open().catch(() => undefined);
+    const context = await this.context().catch(() => undefined);
+    if (context !== undefined && !('absent' in context) && context.ctx.historyEvidence !== undefined) {
+      for (const repository of await context.ctx.graph.repositories()) await context.ctx.historyEvidence(repository.nodeId).catch(() => undefined);
+    }
+  }
+
   warm(): void {
     if (this.closed || this.opening !== undefined) return;
     const product = this.product();
@@ -1749,7 +1759,7 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, historyEvidence: (scope) => this.historyFor(graph, scope), ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
     };
@@ -2059,6 +2069,17 @@ export class KnowledgeProduct {
       filled: this.pins.size > 0,
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
     };
+  }
+
+  private historyMemo = new Map<string, { seq: number; evidence: HistoryEvidence }>();
+
+  private async historyFor(graph: GraphReader, scope: string): Promise<HistoryEvidence> {
+    const seq = this.reader?.seq ?? 0;
+    const held = this.historyMemo.get(scope);
+    if (held !== undefined && held.seq === seq) return held.evidence;
+    const evidence = await graph.historyEvidence(scope);
+    this.historyMemo.set(scope, { seq, evidence });
+    return evidence;
   }
 
   private statusMemo: { key: string; body: WikiStatus; ctx: RenderContext | undefined } | undefined;

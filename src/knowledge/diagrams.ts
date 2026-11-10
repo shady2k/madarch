@@ -111,6 +111,8 @@ interface NeighborRow {
   direction: 'out' | 'in';
   relation: string;
   ref: EntityRef;
+  /** The full graph entity when the row came from the graph, so the next hop need not find it again. */
+  entity?: GraphEntity;
   count: number;
 }
 
@@ -139,7 +141,7 @@ export async function collectNeighbors(ctx: RenderContext, subject: Subject, opt
     const groups = (await Promise.all(directions.map((direction) => ctx.graph.neighbors(subject.entity, { ...(options.relations === undefined ? {} : { relations: options.relations }), direction, limit: options.limit })))).flat();
     for (const group of groups) {
       if (!wanted(group.relation)) continue;
-      for (const row of group.rows) rows.push({ direction: group.direction, relation: group.relation, ref: refOfGraph(ctx, row.entity), count: row.edges });
+      for (const row of group.rows) rows.push({ direction: group.direction, relation: group.relation, ref: refOfGraph(ctx, row.entity), entity: row.entity, count: row.edges });
       if (group.total > group.rows.length) more.push({ relation: group.relation, direction: group.direction, hidden: group.total - group.rows.length });
     }
   }
@@ -229,11 +231,14 @@ export async function neighborhoodOf(ctx: RenderContext, subject: Subject, optio
         if (!edges.has(edgeKey)) edges.set(edgeKey, { from, to, relation: row.relation, count: row.count });
         if (hop < options.depth && !expanded.has(row.ref.id)) {
           expanded.add(row.ref.id);
-          const [again] = await ctx.graph.find(row.ref.id);
-          if (again !== undefined) next.push({ source: 'graph', entity: again });
+          if (row.entity !== undefined) next.push({ source: 'graph', entity: row.entity });
           else {
-            const page = ctx.markdown.get(row.ref.id);
-            if (page !== undefined) next.push({ source: 'markdown', entity: page });
+            const [again] = await ctx.graph.find(row.ref.id);
+            if (again !== undefined) next.push({ source: 'graph', entity: again });
+            else {
+              const page = ctx.markdown.get(row.ref.id);
+              if (page !== undefined) next.push({ source: 'markdown', entity: page });
+            }
           }
         }
       }
@@ -955,7 +960,7 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   // declares it generated or vendored). No file name is special here, so the picture and the note name none.
   const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
   const lockPaths = new Set(locks.rows.map((lock) => lockPathOf(lock.key)));
-  const churn = await ctx.graph.inDegrees('code.touched', found.rows.map((file) => file.key));
+  const churn = await ctx.graph.inDegreesOf('code.touched', found.rows);
   let lockfiles = 0;
   let declared = 0;
   const files: TreemapFile[] = [];

@@ -505,6 +505,12 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   const fillChild = options.fillProcess === false || process.env['MADARCH_ROLE'] === 'api'
     ? undefined
     : startFillRole({ home: serveHome, root: knowledgeHost.root });
+  // The api role opens each product's reader before the first request: the store's first page must not pay the
+  // product's open, and a page asked straight after start answers within the page budget.
+  if (productHome !== undefined) {
+    refreshProducts();
+    for (const entry of productEntries.values()) await knowledgeHost.of(entry.wiki.product.folder).warmNow();
+  }
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
