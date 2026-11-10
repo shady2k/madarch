@@ -83,6 +83,27 @@ describe('serveWiki with a product or a manifestless directory', () => {
     expect((await held.json() as { text: string }).text).toBe('# Linked source\n');
   }, 60_000);
 
+  test('a network bind names the address it listens on and prints no tunnel; a loopback bind over SSH prints one', async () => {
+    const base = scratch();
+    const folder = join(base, 'network-product');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: network-id\nname: Network\n');
+    const ssh = { SSH_CONNECTION: '203.0.113.9 50123 198.51.100.4 22', USER: 'ada' };
+    const networkLines: string[] = [];
+    const network = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, host: '0.0.0.0', open: false, env: ssh, print: (line) => networkLines.push(line), printError: () => {} }));
+    expect(network.url).toContain('0.0.0.0');
+    expect(networkLines).toContain(`Wiki: ${network.url}  (Ctrl+C stops it)`);
+    expect(networkLines).toContain('Warning: this wiki is reachable from the network without a password.');
+    expect(networkLines.some((line) => line.includes('ssh -L'))).toBe(false);
+    expect(networkLines.some((line) => line.includes('localhost'))).toBe(false);
+
+    const localLines: string[] = [];
+    const local = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, host: '127.0.0.1', open: false, env: ssh, print: (line) => localLines.push(line), printError: () => {} }));
+    expect(local.url).toContain('127.0.0.1');
+    expect(localLines).toContain(`Wiki: ${local.url}  (Ctrl+C stops it)`);
+    expect(localLines.some((line) => line.startsWith('  ssh -L') && line.includes(`:${local.server.port} `))).toBe(true);
+  });
+
   test('preserves the manifest identity for a valid product', async () => {
     const base = scratch();
     const folder = join(base, 'valid-product');
