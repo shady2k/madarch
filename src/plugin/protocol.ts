@@ -125,13 +125,26 @@ export const PluginUnitResult = Type.Object(
   { additionalProperties: false, description: 'One unit\'s answer: vertices, edges, removals and its end.' },
 );
 
-/** One field of a declared kind. */
+/**
+ * One field of a declared kind (decision 0035, item 18): its type, what it
+ * means, an example and whether the plugin cannot run without it. The manifest
+ * binds a kind's field to one of these (`<plugin>@<major>.<field>`), and the
+ * table is built from the pair, so the declaration is the contract half the
+ * manifest check holds the product to.
+ */
 export const PluginFieldDeclaration = Type.Object(
   {
     name: Type.String({ minLength: 1 }),
     claim: Type.Union([Type.Literal('authoritative'), Type.Literal('claimed')], { description: 'An authoritative field is a column with one producer; a claimed field is one tools may dispute.' }),
+    type: Type.Union(
+      [Type.Literal('text'), Type.Literal('integer'), Type.Literal('bigint'), Type.Literal('boolean'), Type.Literal('timestamp'), Type.Literal('json')],
+      { description: 'The PostgreSQL type the field is stored as: the manifest binds a field whose type must be this one.' },
+    ),
+    meaning: Type.String({ minLength: 1, description: 'What the field is, in plain words, for the person binding it in the manifest.' }),
+    example: Type.Unknown({ description: 'One value the field holds, as an example.' }),
+    required: Type.Boolean({ description: 'Whether the plugin cannot run without it: a kind\'s natural key and every field its reading needs.' }),
   },
-  { additionalProperties: false, description: 'One field of a declared kind, and whether it is authoritative or claimed.' },
+  { additionalProperties: false, description: 'One field of a declared kind: its type, its meaning, an example, whether it is required, and whether it is authoritative or claimed.' },
 );
 
 /** One vertex kind the plugin declares it produces. */
@@ -164,12 +177,37 @@ export const PluginContractDeclaration = Type.Object(
   { additionalProperties: false, description: 'The outputs a plugin declares: every kind, field and edge kind a result may name.' },
 );
 
-/** The rights a plugin asks for: this build runs the network profile "none" only. */
+/**
+ * The rights a plugin asks for (decision 0035, item 9): the network profile, whether it reads the graph through the
+ * host's queries, and whether it may see the repository snapshot at all. A right it does not declare is one the host
+ * grants it nothing for: only the files producer — the reader of the source filesystem and git — declares the
+ * repository, and the glossary reads the file vertices and their content from the graph, never a folder.
+ */
 export const PluginRights = Type.Object(
   {
     network: Type.Union([Type.Literal('none')], { description: 'The network profile. "none" is the only one this build runs: the network namespace is unshared and socket creation refused.' }),
+    graph: Type.Optional(Type.Boolean({ description: 'Whether the plugin reads the graph through the host\'s read-only queries (`graph.files`, `graph.value`); absent, it may not.' })),
+    filesystem: Type.Optional(Type.Boolean({ description: 'Whether the plugin sees the repository snapshot read-only at /repo; absent, it sees no repository at all.' })),
   },
-  { additionalProperties: false, description: 'The rights a plugin declares it needs.' },
+  { additionalProperties: false, description: 'The rights a plugin declares it needs: its network profile, graph reads and the repository snapshot.' },
+);
+
+/**
+ * The contract a plugin keeps in its own folder (`contract.json`), the same
+ * outputs its introduction sends (decision 0035, items 3, 17 and 18): the
+ * manifest check reads this file without running the plugin, so a binding to a
+ * field the plugin does not declare, a type that differs or a required field the
+ * manifest leaves out is refused before a fill starts. The introduction and this
+ * file are one declaration, and a test holds them equal.
+ */
+export const PluginContractFile = Type.Object(
+  {
+    id: Type.String({ minLength: 1, pattern: '^[a-z][a-z0-9-]*$', description: 'The plugin\'s id, the same one the manifest declares.' }),
+    version: Type.String({ minLength: 1, description: 'The plugin\'s semantic version, the one the lock records.' }),
+    outputs: PluginContractDeclaration,
+    rights: Type.Optional(PluginRights),
+  },
+  { additionalProperties: false, description: 'A plugin folder\'s contract: its id, its version and the outputs its introduction declares.' },
 );
 
 /** What the plugin declares about its own work. */
@@ -192,6 +230,24 @@ export const PluginIntroduce = Type.Object(
     outputs: PluginContractDeclaration,
   },
   { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights and limits.' },
+);
+
+/** One read-only query of the graph: the file vertices whose path matches a pattern (decision 0035, item 15). */
+export const PluginGraphFilesRequest = Type.Object(
+  {
+    pattern: Type.String({ minLength: 1, description: 'The repository path pattern the file vertices match (`**/glossary*.md`: `*` within a folder, `**` across folders).' }),
+  },
+  { additionalProperties: false, description: 'A query for the file vertices whose path matches a pattern.' },
+);
+
+/** One field of one vertex, read through the host: a file\'s content by its blob, as the files producer stored it. */
+export const PluginGraphValueRequest = Type.Object(
+  {
+    kind: Type.String({ minLength: 1, description: 'The vertex kind, as the wiki names it (`code.file`).' }),
+    key: PluginKeyValues,
+    field: Type.String({ minLength: 1, description: 'The field the vertex holds (`content`).' }),
+  },
+  { additionalProperties: false, description: 'A query for one field of one vertex.' },
 );
 
 /** The unit the host hands a plugin: what to read, named by kind and key. */
@@ -248,6 +304,8 @@ export const PluginRpcError = Type.Object(
 const IntroduceRequest = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('introduce'), params: PluginIntroduce }, { additionalProperties: false, description: 'The plugin introduces itself: protocol, name, version, rights, limits and outputs.' });
 const UnitRequestMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('unit'), params: Type.Object({ unit: PluginUnitRequest }, { additionalProperties: false }) }, { additionalProperties: false, description: 'The host hands the plugin one unit.' });
 const ControlRequest = (method: 'pause' | 'resume' | 'stop') => Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal(method), params: Type.Optional(Type.Unknown()) }, { additionalProperties: false, description: `The host asks the plugin to ${method}.` });
+const GraphFilesMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.files'), params: PluginGraphFilesRequest }, { additionalProperties: false, description: 'The plugin asks the host for the file vertices whose path matches a pattern.' });
+const GraphValueMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.value'), params: PluginGraphValueRequest }, { additionalProperties: false, description: 'The plugin asks the host for one field of one vertex.' });
 
 /** One notification either side sends, with its own params. */
 const HeartbeatMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('heartbeat'), params: Type.Optional(PluginHeartbeat) }, { additionalProperties: false, description: 'The plugin is alive while a unit runs.' });
@@ -266,6 +324,8 @@ export const PluginProtocolMessage = Type.Union(
   [
     IntroduceRequest,
     UnitRequestMessage,
+    GraphFilesMessage,
+    GraphValueMessage,
     ControlRequest('pause'),
     ControlRequest('resume'),
     ControlRequest('stop'),
@@ -299,6 +359,9 @@ export type PluginContractDeclaration = Static<typeof PluginContractDeclaration>
 export type PluginVertexKindDeclaration = Static<typeof PluginVertexKindDeclaration>;
 export type PluginEdgeKindDeclaration = Static<typeof PluginEdgeKindDeclaration>;
 export type PluginFieldDeclaration = Static<typeof PluginFieldDeclaration>;
+export type PluginContractFile = Static<typeof PluginContractFile>;
+export type PluginGraphFilesRequest = Static<typeof PluginGraphFilesRequest>;
+export type PluginGraphValueRequest = Static<typeof PluginGraphValueRequest>;
 export type PluginKeyValues = Static<typeof PluginKeyValues>;
 export type PluginHeartbeat = Static<typeof PluginHeartbeat>;
 export type PluginProgress = Static<typeof PluginProgress>;

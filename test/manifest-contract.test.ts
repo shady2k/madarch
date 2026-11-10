@@ -12,9 +12,22 @@ import { parseKinds } from '../src/knowledge/kinds.js';
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-contract-'));
 mkdirSync(join(root, 'templates'), { recursive: true });
 mkdirSync(join(root, 'plugins', 'git'), { recursive: true });
+mkdirSync(join(root, 'madarch'), { recursive: true });
 writeFileSync(join(root, 'templates', 'a.liquid'), '{% block lead %}{% endblock %}\n');
-writeFileSync(join(root, 'plugins', 'git', 'plugin.yaml'), 'id: git\n');
-writeFileSync(join(root, 'plugins', 'git', 'contract.yaml'), 'contract: git\n');
+// The plugin's own contract (decision 0035, items 3, 17 and 18): the fields its kinds declare, with their types.
+const CONTRACT = {
+  id: 'git',
+  version: '1.0.0',
+  outputs: {
+    vertices: [
+      { kind: 'a', key: ['name'], fields: [{ name: 'name', claim: 'authoritative', type: 'text', meaning: 'the name of a', example: 'one', required: true }, { name: 'tag', claim: 'claimed', type: 'text', meaning: 'a tag', example: 'tag', required: true }] },
+      { kind: 'b', key: ['name'], fields: [{ name: 'name', claim: 'authoritative', type: 'text', meaning: 'the name of b', example: 'two', required: true }, { name: 'note', claim: 'claimed', type: 'text', meaning: 'a note', example: 'note', required: false }] },
+    ],
+    edges: [],
+  },
+};
+writeFileSync(join(root, 'plugins', 'git', 'contract.json'), `${JSON.stringify(CONTRACT, null, 2)}\n`);
+writeFileSync(join(root, 'madarch', 'plugins.lock'), `plugins:\n  - { id: git, version: 1.0.0, closure: ${'a'.repeat(64)}, path: plugins/git }\n`);
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const KIND = (name: string, fields: string, key: string, depends: string): string => `  ${name}:
@@ -31,7 +44,7 @@ kinds:
 ${KIND('a', '    fields:\n      - { name: name, type: text, role: authoritative, producers: [git] }', '    key: [name]', '    depends-on: []')}
 ${KIND('b', '    fields:\n      - { name: name, type: text, role: authoritative, producers: [git] }\n      - { name: note, type: text, role: claimed, producers: [agent] }', '    key: [name]', '    depends-on: [a]')}
 plugins:
-  - { id: git, version: 0.0.1, inputs: [a], outputs: [a, b], closure: [plugins/git/plugin.yaml] }
+  - { id: git, version: 1, path: plugins/git, inputs: [a], outputs: [a, b], closure: [plugins/git/contract.json] }
 `;
 
 const findings = (text: string): string[] => parseKinds(text, 'madarch/kinds.yaml', root).findings.map((finding) => finding.message);
@@ -72,5 +85,62 @@ describe('the manifest contract preflight', () => {
     // The second kind's key names its claimed note; the first kind keeps its own key.
     const found = findings(text);
     expect(found).toContainEqual(expect.stringContaining('kind "b": key field "note" is claimed: a key field is authoritative'));
+  });
+});
+
+/**
+ * The field bindings (decision 0035, items 17, 18 and 19): a field names its producer as `<plugin>@<major>.<field>`, the
+ * table is built from the declarations, and the check refuses a binding to a field the plugin does not declare, a type
+ * that differs from the plugin's and a required field the manifest leaves out — each with the manifest's file and line.
+ */
+describe('a manifest field names its producer explicitly', () => {
+  const BOUND = (fields: string, key = '    key: [name]'): string => `groups:
+  g: { en: Group, ru: Группа, short: { en: Group, ru: Группа } }
+kinds:
+  a:
+    template: templates/a.liquid
+    source: graph
+    group: g
+    fields:
+${fields}
+${key}
+    depends-on: []
+plugins:
+  - { id: git, version: 1, path: plugins/git, inputs: [a], outputs: [a], closure: [plugins/git/contract.json] }
+`;
+
+  test('a valid manifest binds the key to the plugin field it declares, and passes', () => {
+    const text = BOUND('      - { name: name, type: text, binding: "git@1.name" }\n      - { name: tag, type: text, binding: "git@1.tag" }');
+    expect(findings(text)).toEqual([]);
+    const read = parseKinds(text, 'madarch/kinds.yaml', root);
+    const field = read.kinds.get('a')?.fields?.[0];
+    expect(field?.binding).toEqual({ kind: 'plugin', plugin: 'git', major: '1', field: 'name' });
+    expect(field?.line).toBeGreaterThan(1);
+  });
+
+  test('a binding to a field the plugin does not declare is refused, naming the file and the line', () => {
+    const text = BOUND('      - { name: name, type: text, binding: "git@1.surname" }\n      - { name: tag, type: text, binding: "git@1.tag" }');
+    const read = parseKinds(text, 'madarch/kinds.yaml', root);
+    const finding = read.findings.find((one) => one.message.includes('declares no field "surname"'));
+    expect(finding?.file).toBe('madarch/kinds.yaml');
+    expect(finding?.line).toBeGreaterThan(1);
+    expect(finding?.message).toContain('kind "a": field "name" binds to git@1.surname');
+  });
+
+  test('a type that differs from the plugin field is refused, naming both types', () => {
+    const text = BOUND('      - { name: name, type: integer, binding: "git@1.name" }\n      - { name: tag, type: text, binding: "git@1.tag" }');
+    expect(findings(text)).toContainEqual(expect.stringContaining('kind "a": field "name" is integer, and the plugin\'s field git@1.name is text'));
+  });
+
+  test('a required field the manifest leaves out is refused, naming the field and the binding to add', () => {
+    const text = BOUND('      - { name: name, type: text, binding: "git@1.name" }');
+    const found = findings(text);
+    expect(found).toContainEqual(expect.stringContaining('the plugin "git" requires the field "tag"'));
+    expect(found).toContainEqual(expect.stringContaining('binding: "git@1.tag"'));
+  });
+
+  test('a binding to a plugin the manifest does not declare is refused, naming the plugin', () => {
+    const text = BOUND('      - { name: name, type: text, binding: "other@1.name" }\n      - { name: tag, type: text, binding: "git@1.tag" }');
+    expect(findings(text)).toContainEqual(expect.stringContaining('the manifest declares no plugin "other"'));
   });
 });

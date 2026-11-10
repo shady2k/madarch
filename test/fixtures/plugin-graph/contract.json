@@ -1,0 +1,20 @@
+{
+  "id": "plugin-graph",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "probe",
+        "key": [
+          "id"
+        ],
+        "fields": []
+      }
+    ],
+    "edges": []
+  },
+  "rights": {
+    "network": "none",
+    "graph": true
+  }
+}

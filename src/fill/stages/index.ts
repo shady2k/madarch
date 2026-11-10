@@ -16,6 +16,7 @@ import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
 import type { RecordPassWiring } from '../steps.js';
 import { createRepositoryHistoryStage, createRepositoryTreeStage } from './repository-facts.js';
+import { createPluginTurnStage, type GraphOwner, type PluginTurnWiring } from '../plugin-turns.js';
 
 /** What a run's stages read from outside the graph: pinned repositories and their Git checkouts. */
 export interface FillStageWiring {
@@ -25,6 +26,8 @@ export interface FillStageWiring {
   readonly records?: RecordPassWiring;
   /** Whether the product declares the git capability; a product that does not runs neither pass. */
   readonly git?: boolean;
+  /** The product's plugins and the graph their turns read, when the product holds a manifest with plugins. */
+  readonly plugins?: PluginTurnWiring;
 }
 
 /**
@@ -53,6 +56,19 @@ export function createEngineStageRegistry(): StageRegistry {
         throw new Error(`the engine's stage registry reads no repository: it names the stages a workflow may name, and no run takes its stages from it (asked for ${JSON.stringify(repository)})`);
       },
     },
+    // The plugin turn is named here as every stage is; the registry plans nothing from it, and its plan answers no
+    // unit because this manifest declares no kind (the product's manifest is the run's, never this one).
+    plugins: {
+      productFolder: '',
+      manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+      locks: new Map(),
+      owner: { transaction: async () => { throw new Error('the engine\'s stage registry opens no store: it names the stages a workflow may name, and no run takes its stages from it (src/fill/stages/index.ts)'); } } as unknown as GraphOwner,
+      snapshots: {
+        pins: async () => [],
+        open: async () => { throw new Error('the engine\'s stage registry reads no repository (src/fill/stages/index.ts)'); },
+      },
+      contract: { vertex: [], edge: [], dictionary: [] },
+    },
   });
 }
 
@@ -78,5 +94,7 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
       .register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records }))
       .register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records }));
   }
+  // A product's plugins run after the tree stands: their units are the file vertices it published (decision 0035, item 15).
+  if (wiring.plugins !== undefined) registry.register(createPluginTurnStage(wiring.plugins));
   return registry;
 }

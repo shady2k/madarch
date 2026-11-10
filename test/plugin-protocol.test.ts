@@ -17,6 +17,7 @@ import { canonicalKey, validateUnitResult } from '../src/plugin/results.js';
 import { closureHashOf, closureOf, interpreterPinProblem, readPluginManifest, sdkClosureFiles, ClosureRefusal } from '../src/plugin/closure.js';
 import { closureTrustProblem, isReleaseClosure, snapshotClosure } from '../src/plugin/snapshot.js';
 import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
+import { bundledClosureHashes } from '../src/plugin/bundled.js';
 import { seccompFilter, refusedCallNames } from '../src/plugin/seccomp.js';
 import { checkCgroupDelegation, checkUserNamespaces } from '../src/plugin/cgroup.js';
 import { probeUnit } from '../src/plugin/conformance.js';
@@ -38,7 +39,7 @@ process.on('beforeExit', () => { for (const root of roots) rmSync(root, { recurs
 /** The contract the probe fixture declares: one vertex kind, one edge kind. */
 const CONTRACT: PluginContractDeclaration = {
   vertices: [
-    { kind: 'probe', key: ['id'], fields: [{ name: 'size', claim: 'authoritative' }, { name: 'language', claim: 'claimed' }] },
+    { kind: 'probe', key: ['id'], fields: [{ name: 'size', claim: 'authoritative', type: 'integer', meaning: 'the size', example: 1, required: false }, { name: 'language', claim: 'claimed', type: 'text', meaning: 'the language', example: 'ts', required: false }] },
     { kind: 'other', key: ['name'] },
   ],
   edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
@@ -191,7 +192,7 @@ describe("a plugin's closure and its one hash", () => {
     const paths = closure.files.map((file) => file.path);
     expect(paths).toEqual([...paths].sort(byCodePoint));
     expect(paths).toContain('node_modules/madarch-plugin-sdk/index.ts');
-    expect(paths).toEqual(['main.ts', 'node_modules/madarch-plugin-sdk/index.ts', 'node_modules/madarch-plugin-sdk/package.json', 'plugin.json']);
+    expect(paths).toEqual(['contract.json', 'main.ts', 'node_modules/madarch-plugin-sdk/index.ts', 'node_modules/madarch-plugin-sdk/package.json', 'plugin.json']);
     expect(sdkClosureFiles().length).toBe(2);
     expect(closure.files.find((file) => file.path === 'node_modules/madarch-plugin-sdk/index.ts')?.content?.length).toBeGreaterThan(1_000);
   });
@@ -233,7 +234,9 @@ describe("a plugin's closure and its one hash", () => {
   test('a closure no release carries needs approval as production, and runs as validation', () => {
     const closure = closureOf(join(FIXTURES, 'plugin-probe'));
     expect(isReleaseClosure(closure.hash)).toBe(false);
-    expect(RELEASE_CLOSURE_HASHES).toEqual([]);
+    // The release carries its own plugins and nothing else (decision 0035, item 4): the fixture is not one of them.
+    expect(RELEASE_CLOSURE_HASHES).toEqual([...bundledClosureHashes()]);
+    expect(RELEASE_CLOSURE_HASHES.length).toBeGreaterThan(0);
     const refused = closureTrustProblem(closure, 'production', join(closure.folder, 'plugin.json'));
     expect(refused?.code).toBe('needs-approval');
     expect(refused?.message).toContain('needs approval');

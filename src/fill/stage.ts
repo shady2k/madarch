@@ -20,6 +20,7 @@
  */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
+import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
 
 /** How much of the product one capability or fact kind is about. */
 type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -172,7 +173,11 @@ export type StageDraftWrite =
   /** One graph node a static stage's draft writes (decision 0033): applied by the publication's own transaction. */
   | { kind: 'node'; evidence: string; value: StaticNodeDraft }
   /** One graph edge a static stage's draft writes; both ends name nodes by their key. */
-  | { kind: 'edge'; evidence: string; value: StaticEdgeDraft };
+  | { kind: 'edge'; evidence: string; value: StaticEdgeDraft }
+  /** One vertex and its claims a plugin's answer publishes (decision 0035, items 6 and 7): the graph's writer applies it. */
+  | { kind: 'vertex'; evidence: string; value: VertexDraft }
+  /** One entity the producer no longer holds: its claims are withdrawn and it leaves the reads. */
+  | { kind: 'vertex-removal'; evidence: string; value: VertexRemovalDraft };
 
 /** The draft set a unit's writes collect into while it runs. */
 export interface StageDraftSet {

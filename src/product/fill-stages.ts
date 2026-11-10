@@ -73,6 +73,9 @@ import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
 import { createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
 import { GIT_CONTRACT, gitContractOf } from '../fill/stages/git-contract.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { readPluginLock } from '../plugin/lock.js';
+import { publishGraphWrites } from '../graph/claims.js';
 import { readKinds } from '../knowledge/kinds.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
@@ -166,9 +169,12 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // The record store this step's passes publish through: the process's one owner, so what the
   // wiki's button fills is what `madarch mcp` reads (madarch-8bdc.2.5, item 6).
   const kindsRead = readKinds(folder);
+  // The plugin lock (decision 0035, item 20): what a fill runs, by exact version and closure hash.
+  const lockRead = readPluginLock(folder);
+  const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
   // A folder that is no product — a bare checkout `madarch mcp` serves — reads the code kinds the engine's own
   // starter set binds; a product with a manifest takes only the capabilities its kinds bind (decision 0034, item 14).
-  const contract = kindsRead.present ? gitContractOf(kindsRead.manifest) : GIT_CONTRACT;
+  const contract = kindsRead.present ? graphContractOf(kindsRead.manifest) : GIT_CONTRACT;
   await createRecordSchema(options.database, contract);
   const records = options.records ?? {
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
@@ -179,7 +185,12 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     const held = createStageRegistry({
       snapshots,
       records,
-      git: kindsRead.present ? contract.vertex.length > 0 : true,
+      git: kindsRead.present ? gitContractOf(kindsRead.manifest).vertex.length > 0 : true,
+      // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
+      // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
+      ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
+        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
     return held;
@@ -198,6 +209,8 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       },
     }),
     source: (): SnapshotSource => snapshots,
+    // A plugin's answer publishes as the graph's claims inside the publication's own transaction (decision 0035, item 6).
+    facts: { apply: async ({ executor, writes }) => await publishGraphWrites(executor, contract, writes) },
     inputs: (ref) => inputsOf(registry, pins(), ref),
   };
   return { product, registry, wiring, unread: () => unread };

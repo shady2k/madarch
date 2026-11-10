@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock, termBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
 import { graphBlock, treemapBlock } from './diagrams.js';
@@ -282,6 +282,7 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'folder': return await folderBlock(ctx, subject, params, file, line);
     case 'file': return await fileBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line, details, ctx.manifest.properties, lang ?? ctx.language);
+    case 'term': return termBlock(ctx, subject, { ...params, lang: lang ?? ctx.language }, file, line);
     case 'members': return await membersBlock(ctx, subject, params, file, line, lang ?? ctx.language);
     case 'linkedfrom': return await linkedFromBlock(ctx, subject, params);
     default: return { type: 'problem', block: name, file, line, message: `"${name}" is not a block of the library` };
@@ -484,17 +485,17 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
       }),
     };
   }
-  if (decl.source === 'markdown' || decl.source === 'document') {
+  if (decl.source === 'markdown') {
     const text = options.q?.trim().toLowerCase() ?? '';
-    // No stage of the fill writes the entities of a document kind yet: its list is empty until one does.
-    const pool: MarkdownEntity[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [];
-    const all = pool.filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
+    const all = [...ctx.markdown.values()].filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
     const from = options.after === undefined ? 0 : all.findIndex((entity) => byCodePoint(entity.id, options.after!) > 0);
     const rows = from < 0 ? [] : all.slice(from, from + options.limit);
     const last = rows[rows.length - 1];
     const more = from >= 0 && from + options.limit < all.length;
     return { kind, total: all.length, rows: rows.map((entity) => refOfMarkdown(ctx, entity)), next: more && last !== undefined ? last.id : null };
   }
+  // A document kind's entities are the graph's: the fill's plugins read the documents and publish what they state,
+  // and the list reads only the graph (a kind no plugin fills has no table, and its list is empty).
   // The form of the listing is the kind's own (decision 0033: `listing:` of its declaration): the operations table asks
   // the graph for the operations and the channels its contracts declare, and reads what declares, serves and calls each.
   const operationsListed = listingFormOf(ctx.manifest, kind) === 'operations';

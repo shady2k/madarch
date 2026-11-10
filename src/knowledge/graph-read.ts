@@ -22,6 +22,17 @@ export interface SourceSpan {
   byteEnd: number;
 }
 
+/** One place a claim of an entity stands: the file, the lines, and the commit or digest the value was read at. */
+export interface GraphEvidence {
+  /** The field the evidence is under: the claim's attribute. */
+  field: string;
+  repository: string | null;
+  path: string | null;
+  lineStart: number | null;
+  lineEnd: number | null;
+  commit: string | null;
+}
+
 export interface GraphEntity {
   key: string;
   kind: string;
@@ -30,6 +41,22 @@ export interface GraphEntity {
   nodeIds: string[];
   scope: string;
   span?: SourceSpan;
+  /** Where the entity's claims were read, one per claim's evidence: a term's page links to its definitions. */
+  evidence?: readonly GraphEvidence[];
+}
+
+/**
+ * One kind's table as the manifest's declarations made it (decision 0034, item 14): the table, its columns and its
+ * natural key. A reader with these reads the kind's vertices without naming any kind: the table and its key are the
+ * product's own data.
+ */
+export interface GeneratedKindRead {
+  readonly kind: string;
+  readonly table: string;
+  readonly columns: readonly string[];
+  /** Each column's declared type, so a text column that holds digits stays text. */
+  readonly types: Readonly<Record<string, 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json'>>;
+  readonly key: readonly string[];
 }
 
 export interface NeighborEdge {
@@ -160,6 +187,31 @@ const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
  LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
  LEFT JOIN ${GIT_TABLES.commit} c ON c.node_id = n.id
  LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = n.id`;
+
+/** A text as a SQL literal: a kind's name stands in the counts that name it. */
+function quoteLiteral(text: string): string {
+  return `'${text.replaceAll("'", "''")}'`;
+}
+
+/** A table, column or key name of a generated table: lower-case letters, digits and underscores, quoted. */
+function quoteColumn(name: string): string {
+  if (!/^[a-z][a-z0-9_]*$/u.test(name)) throw new Error(`src/knowledge/graph-read.ts:1: ${JSON.stringify(name)} is not a column of a generated table: a column is a lower-case identifier`);
+  return `"${name}"`;
+}
+
+/** The select over one manifest-declared kind's table: its node, its columns, its live rows. */
+function generatedSelect(decl: GeneratedKindRead): string {
+  const columns = decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`).join(', ');
+  return `SELECT t.node_id::text AS node_id${columns === '' ? '' : `, ${columns}`} FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.tombstone = false`;
+}
+
+/** One column's value as a reader holds it: a count as a number, a flag as a boolean, everything else as it stands. */
+function valueOfColumn(value: unknown, type: GeneratedKindRead['types'][string]): unknown {
+  if (value === null || value === undefined) return value;
+  if (type === 'integer' || type === 'bigint') return Number(value);
+  if (type === 'boolean') return value === true || value === 't' || value === 'true';
+  return value;
+}
 
 function keyOf(row: Raw): string {
   const kind = String(row['kind']);
@@ -324,15 +376,22 @@ export class GraphReader {
     private readonly transaction?: OuterTransaction,
     /** The graph kinds the product declares; a reader without a set answers every kind a store holds. */
     private readonly declared?: ReadonlySet<string>,
+    /** The kinds the manifest's own field declarations build tables for, by graph kind. */
+    private readonly generated?: ReadonlyMap<string, GeneratedKindRead>,
   ) {}
 
   at(instant: string, scope: string): GraphReader {
-    return new GraphReader(this.owner, () => instant, BigInt(scope).toString(), this.transaction, this.declared);
+    return new GraphReader(this.owner, () => instant, BigInt(scope).toString(), this.transaction, this.declared, this.generated);
   }
 
   /** Whether the product declares the graph kind; a reader without a set answers every kind. */
   private holds(kind: string): boolean {
-    return this.declared === undefined || this.declared.has(kind);
+    return this.declared === undefined || this.declared.has(kind) || this.generated?.has(kind) === true;
+  }
+
+  /** The manifest-declared kind a key or a listing names, when the product's tables hold it. */
+  private generatedKind(kind: string): GeneratedKindRead | undefined {
+    return this.generated?.get(kind);
   }
 
   async landmarkPlan(_repo?: string, _scope?: string, _head?: string): Promise<LandmarkPlan | undefined> {
@@ -352,6 +411,8 @@ export class GraphReader {
     const colon = key.indexOf(':');
     const prefix = colon < 0 ? key : key.slice(0, colon);
     const tail = colon < 0 ? '' : key.slice(colon + 1);
+    const generated = this.generatedKind(prefix);
+    if (generated !== undefined) return this.scoped(await this.run(async (tx) => await this.generatedFind(tx, generated, tail)));
     const graphKind = graphKindOf(prefix);
     if (graphKind === undefined || !this.holds(graphKind)) return [];
     return await this.run(async (tx) => {
@@ -368,6 +429,7 @@ export class GraphReader {
       return this.scoped(found.rows.map(entityOf));
     });
   }
+
 
   /** The owner a graph read opens its own statement on: the page's transaction while a page is drawn, never a nested one. */
   private storeOwner(): DatabaseOwner {
@@ -471,6 +533,66 @@ export class GraphReader {
     };
   }
 
+  /** The entities of one manifest-declared kind whose key values are the tail's, split on `/`. */
+  private async generatedFind(tx: OuterTransaction, decl: GeneratedKindRead, tail: string): Promise<GraphEntity[]> {
+    const values: string[] = [];
+    let rest = tail;
+    for (let at = 0; at < decl.key.length - 1; at += 1) {
+      const cut = rest.indexOf('/');
+      if (cut < 0) return [];
+      values.push(rest.slice(0, cut));
+      rest = rest.slice(cut + 1);
+    }
+    values.push(rest);
+    const where = decl.key.map((column, at) => `t.${quoteColumn(column)} = $${String(at + 1)}`).join(' AND ');
+    const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${where} ORDER BY n.id`, values);
+    return await this.generatedEntities(tx, decl, found.rows);
+  }
+
+  /**
+   * The rows of one manifest-declared kind as the wiki's entities: the table's columns, the newest claim of every
+   * claimed field, and the evidence each claim stands on. The entity's key is its kind and its key values.
+   */
+  private async generatedEntities(tx: OuterTransaction, decl: GeneratedKindRead, rows: readonly Raw[]): Promise<GraphEntity[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => String(row['node_id']));
+    const claims = await tx.query<{ node: string; attribute: string; value: unknown }>(
+      `SELECT node_id::text AS node, attribute, value FROM claim WHERE node_id = ANY($1::bigint[]) ORDER BY id`,
+      [`{${ids.join(',')}}`],
+    );
+    const newest = new Map<string, Map<string, unknown>>();
+    for (const claim of claims.rows) {
+      const held = newest.get(claim.node) ?? new Map<string, unknown>();
+      held.set(claim.attribute, claim.value);
+      newest.set(claim.node, held);
+    }
+    const evidence = await tx.query<{ node: string; attribute: string; repository: string | null; path: string | null; line_start: number | null; line_end: number | null; commit_or_digest: string | null }>(
+      `SELECT c.node_id::text AS node, c.attribute, e.repository, p.text AS path, e.line_start, e.line_end, e.commit_or_digest
+       FROM claim c JOIN evidence e ON e.claim_id = c.id LEFT JOIN ${GIT_TABLES.path} p ON p.id = e.path_id
+       WHERE c.node_id = ANY($1::bigint[]) ORDER BY c.id DESC, e.id`,
+      [`{${ids.join(',')}}`],
+    );
+    const evidenceOf = new Map<string, GraphEvidence[]>();
+    for (const row of evidence.rows) {
+      const held = evidenceOf.get(row.node) ?? [];
+      held.push({ field: row.attribute, repository: row.repository, path: row.path, lineStart: row.line_start, lineEnd: row.line_end, commit: row.commit_or_digest });
+      evidenceOf.set(row.node, held);
+    }
+    return rows.map((row) => {
+      const node = String(row['node_id']);
+      const properties: Record<string, unknown> = {};
+      for (const column of decl.columns) properties[column] = valueOfColumn(row[column], decl.types[column] ?? 'text');
+      for (const [field, value] of newest.get(node) ?? []) properties[field] = value;
+      const keyValues = decl.key.map((column) => String(properties[column] ?? ''));
+      const key = `${decl.kind}:${keyValues.join('/')}`;
+      properties['recordKey'] = key;
+      const label = keyValues[0] ?? key;
+      const evidenceRows = evidenceOf.get(node);
+      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope: '', ...(evidenceRows === undefined ? {} : { evidence: evidenceRows }) };
+    });
+
+  }
+
   async kindCounts(): Promise<{ kind: string; count: number }[]> {
     const parts: string[] = [];
     if (this.holds(`${GIT_KINDS.repository}`)) parts.push(`SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM ${GIT_TABLES.repository}`);
@@ -478,6 +600,7 @@ export class GraphReader {
     if (this.holds(`${GIT_KINDS.file}`)) parts.push(`SELECT '${GIT_KINDS.file}', count(*)::text FROM ${GIT_TABLES.file} f JOIN edge e ON e.to_node = f.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')`);
     if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.history}'`);
     if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}', count(*)::text FROM ${GIT_TABLES.signature} s WHERE EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.node_id)`);
+    for (const decl of this.generated?.values() ?? []) parts.push(`SELECT ${quoteLiteral(decl.kind)} AS kind, count(*)::text AS n FROM ${decl.table} t WHERE t.tombstone = false`);
     if (parts.length === 0) return [];
     return await this.run(async (tx) => {
       const found = await tx.query<{ kind: string; n: string }>(parts.join(' UNION ALL '));
@@ -514,9 +637,10 @@ export class GraphReader {
 
   private async listKinds(kinds: readonly string[], options: { q?: string; after?: string; limit: number }): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
     const graphKinds = kinds.map(graphKindOf).filter((one): one is string => one !== undefined && this.holds(one));
-    if (graphKinds.length === 0) return { rows: [], next: null, total: 0 };
+    const generated = kinds.map((kind) => this.generatedKind(kind)).filter((one): one is GeneratedKindRead => one !== undefined);
+    if (graphKinds.length === 0 && generated.length === 0) return { rows: [], next: null, total: 0 };
     return await this.run(async (tx) => {
-      const entities = await this.entitiesOfKinds(tx, graphKinds);
+      const entities = [...await this.entitiesOfKinds(tx, graphKinds), ...await this.generatedOfKinds(tx, generated)];
       const text = options.q === undefined || options.q.trim() === '' ? undefined : options.q.trim().toLowerCase();
       const matching = entities.filter((entity) => text === undefined || entity.key.toLowerCase().includes(text) || entity.label.toLowerCase().includes(text));
       matching.sort((a, b) => byCodePoint(a.key, b.key));
@@ -538,10 +662,28 @@ export class GraphReader {
     return this.scoped(found.rows.map(entityOf));
   }
 
+  /** The entities of every manifest-declared kind a read names, from the tables their declarations made. */
+  private async generatedOfKinds(tx: OuterTransaction, kinds: readonly GeneratedKindRead[]): Promise<GraphEntity[]> {
+    const entities: GraphEntity[] = [];
+    for (const decl of kinds) {
+      const found = await tx.query<Raw>(`${generatedSelect(decl)} ORDER BY n.id`);
+      entities.push(...await this.generatedEntities(tx, decl, found.rows));
+    }
+    return entities;
+  }
+
   private async entitiesOfIds(tx: OuterTransaction, ids: readonly string[]): Promise<Map<string, GraphEntity>> {
     if (ids.length === 0) return new Map();
     const found = await tx.query<Raw>(`${ENTITY_SELECT} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
-    return new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
+    const held = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
+    // A node the code kinds' select did not answer is one of a manifest-declared kind: its table answers it.
+    const missing = ids.filter((id) => !held.has(id));
+    if (missing.length === 0) return held;
+    for (const decl of this.generated?.values() ?? []) {
+      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${missing.join(',')}}`]);
+      for (const entity of await this.generatedEntities(tx, decl, rows.rows)) held.set(entity.nodeIds[0]!, entity);
+    }
+    return held;
   }
 
   async neighbors(entity: GraphEntity, options: { relations?: readonly string[]; direction?: 'out' | 'in' | 'both'; limit: number }): Promise<NeighborGroup[]> {

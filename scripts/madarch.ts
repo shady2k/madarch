@@ -23,6 +23,17 @@
  */
 process.argv[1] = process.execPath;
 
-const { main } = await import('../src/product/cli.js');
-
-process.exitCode = await main(process.argv.slice(2));
+// The plugin host runs a plugin on the Bun inside this binary (decision 0035, item 7): a compiled binary has no
+// separate interpreter to start, so it starts itself with the entry as its first word and runs that module, and the
+// sandbox gives it no other way in. The word is internal: the command line below never sees it.
+if (process.argv[2] === '--plugin-entry') {
+  const entry = process.argv[3];
+  if (entry === undefined) {
+    console.error('madarch: --plugin-entry names the module to run, and none was given');
+    process.exit(2);
+  }
+  await import(entry);
+} else {
+  const { main } = await import('../src/product/cli.js');
+  process.exitCode = await main(process.argv.slice(2));
+}

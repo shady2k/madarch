@@ -69,12 +69,14 @@ const SCHEMA: readonly string[] = [
     stated_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS claim_node_attribute ON claim (node_id, attribute, id)`,
-  // Evidence names a vertex, an edge or a claim, exactly one of them (item 7).
+  // Evidence names a vertex, an edge or a claim, exactly one of them (item 7), and records where it was read: the
+  // repository, the commit or content digest, the path (interned, item 13) and the lines (decision 0035, item 7).
   `CREATE TABLE IF NOT EXISTS evidence (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     node_id bigint REFERENCES node (id),
     edge_id bigint REFERENCES edge (id),
     claim_id bigint REFERENCES claim (id),
+    repository text,
     commit_or_digest text,
     path_id bigint,
     line_start integer CHECK (line_start IS NULL OR line_start >= 1),
@@ -83,6 +85,8 @@ const SCHEMA: readonly string[] = [
     CHECK (num_nonnulls(node_id, edge_id, claim_id) = 1),
     CHECK ((line_start IS NULL) = (line_end IS NULL))
   )`,
+  // A store made before the repository stood in evidence gains the column; nothing else of the table moves.
+  `ALTER TABLE evidence ADD COLUMN IF NOT EXISTS repository text`,
   `CREATE INDEX IF NOT EXISTS evidence_node ON evidence (node_id)`,
   `CREATE INDEX IF NOT EXISTS evidence_edge ON evidence (edge_id)`,
   `CREATE INDEX IF NOT EXISTS evidence_claim ON evidence (claim_id)`,

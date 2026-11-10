@@ -102,7 +102,7 @@ describe('an empty product', () => {
   test('a product without a manifest is given the starter set and then reads as any empty product; one with a manifest and no graph says what to do: connect a repository, or start the fill', async () => {
     const bare = await get('/products/bare/api/status');
     expect(bare.body).toMatchObject({ manifest: 'ok', filled: false, home: null });
-    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml', 'madarch/workflows.yaml']);
+    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml']);
     expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'doc.use-case', 'code.service', 'code.file', 'code.symbol', 'code.route', 'code.table']));
     // The kinds carry their names in both languages, from the manifest.
     expect(bare.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.file').labels).toEqual({ en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } });

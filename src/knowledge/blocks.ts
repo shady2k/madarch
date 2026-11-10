@@ -32,8 +32,10 @@ export interface RenderContext {
   markdown: ReadonlyMap<string, MarkdownEntity>;
   /** The current product wiki language. */
   language: string;
-  /** The names of the code repositories. */
+  /** The names of the repositories the wiki reads: the product's own and the code repositories. */
   repositories: readonly string[];
+  /** The product's own repository, by its name; its documents are the product's, and its address names no repository. */
+  ownRepository?: string;
   /** The same place on the repository's web page (GitHub, GitLab, ...), when the repository's address is known. */
   webOf?: (repo: string | null, path: string, lineStart: number, lineEnd: number) => { host: string; url: string } | undefined;
   /** The page's own cursor, for a block that shows one bounded page of a folder's files. */
@@ -499,6 +501,45 @@ export async function memberParent(ctx: RenderContext, subject: Subject, member:
   const key = subject.entity.properties[member.property];
   if (typeof key !== 'string' || key === '') return undefined;
   return (await ctx.graph.find(key)).find((other) => member.parentKind === undefined || other.kind === member.parentKind);
+}
+
+/**
+ * A glossary entry (decision 0031's glossary, read from the graph): the definition the entity's claims state, the
+ * synonyms and code names it holds, and where it is stated — the file and the lines its evidence names, as a link that
+ * opens the source there. The block names no kind: a template gives it the fields its kind declares
+ * (`field="definition"`, `synonyms="synonyms"`, `code="code"`), so a product's own glossary kind is a glossary too.
+ */
+export function termBlock(ctx: Pick<RenderContext, 'repositories' | 'ownRepository'>, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
+  const title = params['title'] ?? 'Definition';
+  if (subject.source !== 'graph') return { type: 'problem', block: 'term', file, line, message: 'the term block reads the claims the fill published; the entities of this kind are Markdown pages' };
+  const entity = subject.entity;
+  const field = params['field'] ?? 'definition';
+  const definition = textOf(entity.properties[field]);
+  const synonyms = listOf(entity.properties[params['synonyms'] ?? 'synonyms']);
+  const code = listOf(entity.properties[params['code'] ?? 'code']);
+  const evidence = (entity.evidence ?? []).find((one) => one.field === field && one.path !== null);
+  // The product's own repository is addressed as the product's documents are; a code repository keeps its name.
+  const named = evidence?.repository ?? null;
+  const repository = named !== null && named !== ctx.ownRepository && ctx.repositories.includes(named) ? named : null;
+  const where = evidence !== undefined && evidence.path !== null
+    ? `[${repository === null ? '' : `${repository}/`}${evidence.path}${evidence.lineStart === null ? '' : `:${String(evidence.lineStart)}${evidence.lineEnd === null || evidence.lineEnd === evidence.lineStart ? '' : `-${String(evidence.lineEnd)}`}`}](${sourceAddress(repository, evidence.path, evidence.lineStart ?? undefined)})`
+    : null;
+  const usedIn = where === null ? null : (params['lang'] === 'ru' ? `Где определено: ${where}` : `Stated in: ${where}`);
+  return { type: 'term', title, definition, synonyms, code, usedIn, ambiguous: null };
+}
+
+/** One property's value as the text a reader sees. */
+function textOf(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return '';
+  return JSON.stringify(value);
+}
+
+/** One property's value as a list of names: an array as it stands, a single word as one name. */
+function listOf(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((one): one is string => typeof one === 'string');
+  if (typeof value === 'string' && value.trim() !== '') return [value];
+  return [];
 }
 
 /**

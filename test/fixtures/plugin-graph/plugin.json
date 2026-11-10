@@ -1,0 +1,10 @@
+{
+  "name": "plugin-graph",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "A fixture plugin with graph reads and no filesystem right."
+}

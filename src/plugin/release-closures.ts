@@ -6,9 +6,10 @@
  * runs only as validation (the conformance kit), publishing nothing.
  *
  * The list is code, not a file beside the binary: whatever build compiles this
- * module compiles the list it carries, so a plugin folder swapped on disk
- * never changes what the binary trusts. No plugin ships in this increment —
- * madarch's git reader moves into the first one after another branch lands —
- * so the list is empty, and `isReleaseClosure` answers false for everything.
+ * module compiles the plugin folders it carries, and the hashes are computed from
+ * those texts (`src/plugin/bundled.ts`), so a plugin folder swapped on disk never
+ * changes what the binary trusts.
  */
-export const RELEASE_CLOSURE_HASHES: readonly string[] = [];
+import { bundledClosureHashes } from './bundled.js';
+
+export const RELEASE_CLOSURE_HASHES: readonly string[] = bundledClosureHashes();

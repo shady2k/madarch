@@ -13,8 +13,9 @@
  */
 import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs.js';
 import { createRecordSchema } from '../graph/index.js';
+import { hasGeneratedTable } from '../graph/tables.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
-import { gitContractOf } from '../fill/stages/git-contract.js';
+import { declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -24,6 +25,7 @@ import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
+import { productRepositoryId } from '../product/identity.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
 import { WORKFLOWS_FILE } from './workflows.js';
@@ -35,7 +37,7 @@ import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
 import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
-import { GraphReader } from './graph-read.js';
+import { GraphReader, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
@@ -68,7 +70,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { archifyFrame, likec4Model } from './view-frames.js';
 import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
-import { documentAddress, entityAddress } from './addresses.js';
+import { documentAddress, entityAddress, sourceAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
@@ -89,6 +91,35 @@ import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../p
 import { WikiReadError } from './read-error.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
+
+/**
+ * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
+ * bindings build. No kind's name stands here: the manifest is the product's data and the reader reads it.
+ */
+function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>; generated: ReadonlyMap<string, GeneratedKindRead> } {
+  return { declared: new Set(graphContractOf(manifest).vertex.map((kind) => kind.name)), generated: declaredKindReads(manifest) };
+}
+
+/** The most terms one listing of a glossary kind reads; a larger glossary is cut rather than read whole. */
+const GLOSSARY_TERM_LIMIT = 5000;
+
+/** One term as the glossary page states it: what it is, its other names, and the file and lines it is stated at. */
+export interface GlossaryTermView {
+  readonly id: string;
+  readonly title: string;
+  readonly definition: string;
+  readonly synonyms: readonly string[];
+  readonly code: readonly string[];
+  readonly usedIn: string | null;
+  readonly ambiguous: string | null;
+  readonly repo: string | null;
+  readonly path: string;
+  readonly line: number;
+  readonly endLine: number;
+  readonly anchor: string | null;
+  readonly single: boolean;
+  readonly href: string;
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -346,7 +377,7 @@ export class KnowledgeProduct {
         // This store's record tables too (madarch-8bdc.2.5): a store the fill has not run on is read for its repository
         // and its files, and a missing relation would be a failed page, not an empty one.
         const manifestRead = readKinds(this.options.productFolder);
-        await createRecordSchema(owner, manifestRead.present ? gitContractOf(manifestRead.manifest) : EMPTY_CONTRACT);
+        await createRecordSchema(owner, manifestRead.present ? graphContractOf(manifestRead.manifest) : EMPTY_CONTRACT);
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
           await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
@@ -1697,8 +1728,8 @@ export class KnowledgeProduct {
     const read = this.kindsForStamp(product.folder);
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
-    const declared = new Set(gitContractOf(read.manifest).vertex.map((kind) => kind.name));
-    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, declared);
+    const kinds = graphKindsOf(read.manifest);
+    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, kinds.declared, kinds.generated);
     const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope ?? undefined;
     const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
     const pins = snapshot?.pins ?? this.pins;
@@ -1762,7 +1793,7 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
     };
@@ -1898,8 +1929,8 @@ export class KnowledgeProduct {
     let ctx = context.ctx;
     try {
       const owner = await this.open();
-      const declared = new Set(gitContractOf(context.manifest).vertex.map((kind) => kind.name));
-      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared) };
+      const kinds = graphKindsOf(context.manifest);
+      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
     }
@@ -2036,8 +2067,8 @@ export class KnowledgeProduct {
     let bound = ctx;
     try {
       const owner = await this.open();
-      const declared = new Set(gitContractOf(ctx.manifest).vertex.map((kind) => kind.name));
-      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared) };
+      const kinds = graphKindsOf(ctx.manifest);
+      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
 
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
@@ -2566,12 +2597,60 @@ export class KnowledgeProduct {
   }
 
   /**
-   * The terms of the product's glossaries. No stage of the fill writes the document kinds a glossary is read from yet,
-   * so the answer is empty: the old reading of the documents at request time is deleted, and the terms come back with
-   * the stage that fills them. The answer carries a count, never the list of findings (madarch-8bdc.2.5).
+   * The terms of the product's glossaries, read from the graph and from nothing else: every entity of every kind whose
+   * manifest declaration names the glossary listing (`listing: glossary`), with its definition, its other names and the
+   * file and lines its evidence states it at. The old reading of the documents at request time is gone; a term exists
+   * because the fill's plugins published it. The answer carries a count of the manifest's findings, never their list.
    */
-  async glossary(): Promise<{ terms: never[]; resolutions: Record<string, Resolution>; findingCount: number }> {
-    return { terms: [], resolutions: {}, findingCount: 0 };
+  async glossary(): Promise<{ terms: GlossaryTermView[]; resolutions: Record<string, Resolution>; findingCount: number }> {
+    const context = await this.context();
+    if ('absent' in context) return { terms: [], resolutions: {}, findingCount: 0 };
+    const terms: GlossaryTermView[] = [];
+    const kinds = [...context.manifest.kinds.values()].filter((decl) => decl.listing === 'glossary').sort((left, right) => byCodePoint(left.name, right.name));
+    for (const decl of kinds) {
+      const page = await context.ctx.graph.list(decl.name, { limit: GLOSSARY_TERM_LIMIT });
+      for (const entity of page.rows) terms.push(this.glossaryTermOf(entity));
+    }
+    terms.sort((left, right) => byCodePoint(left.title.toLowerCase(), right.title.toLowerCase()) || byCodePoint(left.id, right.id));
+    return { terms, resolutions: {}, findingCount: context.manifest.findings.length };
+  }
+
+  /** Whether the store holds the generated table of one kind: what a manifest change is checked by. */
+  async hasGraphTable(kind: string): Promise<boolean> {
+    const owner = await this.open();
+    return await hasGeneratedTable(owner, kind);
+  }
+
+  /** One graph entity as the glossary states a term: its definition and names from its claims, and where its evidence is. */
+  private glossaryTermOf(entity: GraphEntity): GlossaryTermView {
+    const evidence = (entity.evidence ?? []).find((one) => one.field === 'definition') ?? (entity.evidence ?? [])[0];
+    const repository = evidence?.repository ?? null;
+    // The product's own repository is addressed as the product's documents are; a code repository keeps its name.
+    const identity = this.product();
+    const own = 'message' in identity ? undefined : productRepositoryId(identity);
+    const productRepository = repository !== null && repository === own;
+    const path = evidence?.path ?? '';
+    const line = evidence?.lineStart ?? 1;
+    const endLine = evidence?.lineEnd ?? line;
+    const names = entity.properties['synonyms'];
+    const codeNames = entity.properties['code'];
+    const where = path === '' ? null : `[${repository === null || productRepository ? '' : `${repository}/`}${path}:${String(line)}${endLine === line ? '' : `-${String(endLine)}`}](${sourceAddress(productRepository ? null : repository, path, line)})`;
+    return {
+      id: entity.key,
+      title: entity.label,
+      definition: typeof entity.properties['definition'] === 'string' ? entity.properties['definition'] : '',
+      synonyms: Array.isArray(names) ? names.filter((one): one is string => typeof one === 'string') : [],
+      code: Array.isArray(codeNames) ? codeNames.filter((one): one is string => typeof one === 'string') : [],
+      usedIn: where,
+      ambiguous: null,
+      repo: productRepository ? null : repository,
+      path,
+      line,
+      endLine,
+      anchor: null,
+      single: this.repositories().length <= 1,
+      href: entityAddress(entity.key),
+    };
   }
 
   /**
@@ -3146,7 +3225,7 @@ export class KnowledgeProduct {
     const listing = await collectProblems({
       productFolder: this.options.productFolder, owner,
       // The Problems page reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
-      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, new Set(gitContractOf(context.manifest).vertex.map((kind) => kind.name))),
+      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, graphKindsOf(context.manifest).declared, graphKindsOf(context.manifest).generated),
       settings: context.manifest.problems ?? defaultSettings(),
       ...(repository === undefined ? {} : { repository }),
       resolve: (url) => context.ctx.resolver.resolve(url), findings: [...context.findings, ...dismissals.problems.map((problem) => ({ file: problem.file, line: problem.line, message: problem.message }))],

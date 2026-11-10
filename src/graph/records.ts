@@ -29,21 +29,10 @@ import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
 import { raise } from '../model/raise.js';
 import { createOneGraphSchema } from './one-graph.js';
-import { createHash } from 'node:crypto';
+import { keyUid } from './uid.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { GraphContract } from './contract.js';
 
-/** Madarch's UUIDv5 namespace: a node's uid is the same on every machine for the same kind and key. */
-const UID_NAMESPACE = Buffer.from('6f1d9a2e4b8c5d7e9f012a3b4c5d6e7f', 'hex');
-
-/** A UUIDv5 over madarch's namespace and the kind's natural key values. */
-function keyUid(kind: string, values: readonly string[]): string {
-  const hash = createHash('sha1').update(UID_NAMESPACE).update(`${kind}\0${values.join('\0')}`, 'utf8').digest();
-  hash[6] = (hash[6]! & 0x0f) | 0x50;
-  hash[8] = (hash[8]! & 0x3f) | 0x80;
-  const hex = hash.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
 
 /** The uid of a path-keyed entity: its repository's uid and the path's text, never local node ids. */
 async function pathKeyUid(tx: OuterTransaction, kind: string, repositoryNode: string, pathId: string): Promise<string> {
@@ -75,6 +64,8 @@ export interface TreeFile {
   /** Git's own answer: `-` in `--numstat` is a binary blob, a number of added lines is text. */
   readonly form: 'text' | 'binary';
   readonly lines: number | null;
+  /** A text file's bytes as text, stored once per blob; null for a binary blob, whose bytes are kept nowhere. */
+  readonly content: string | null;
   /** The dataset's language, or `ambiguous` with its candidates: the claim stores the candidates, never the word. */
   readonly language: string;
   readonly candidates: readonly string[];
@@ -166,6 +157,11 @@ function sqlText(values: readonly string[]): string {
   return `{${values.map((value) => `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`).join(',')}}`;
 }
 
+/** A Postgres array literal of texts, with `NULL` where a row's text is absent. */
+function sqlTexts(values: readonly (string | null)[]): string {
+  return `{${values.map((value) => (value === null ? 'NULL' : `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`)).join(',')}}`;
+}
+
 /** A Postgres array literal of ids, with `NULL` where a row's id is absent. */
 function sqlIds(values: readonly (string | null)[]): string {
   return `{${values.map((value) => (value === null ? 'NULL' : value)).join(',')}}`;
@@ -246,14 +242,15 @@ async function blobIdsOf(tx: OuterTransaction, files: readonly TreeFile[]): Prom
   const rows = [...wanted.values()];
   await inBatches(rows, async (chunk) => {
     await tx.query(
-      `INSERT INTO ${GIT_TABLES.blob} (hash, algorithm, bytes, form, lines) SELECT * FROM unnest($1::text[], $2::text[], $3::bigint[], $4::text[], $5::bigint[])
-       ON CONFLICT (hash) DO UPDATE SET bytes = EXCLUDED.bytes, form = EXCLUDED.form, lines = EXCLUDED.lines`,
+      `INSERT INTO ${GIT_TABLES.blob} (hash, algorithm, bytes, form, lines, content) SELECT * FROM unnest($1::text[], $2::text[], $3::bigint[], $4::text[], $5::bigint[], $6::text[])
+       ON CONFLICT (hash) DO UPDATE SET bytes = EXCLUDED.bytes, form = EXCLUDED.form, lines = EXCLUDED.lines, content = EXCLUDED.content`,
       [
         sqlText(chunk.map((file) => file.blob)),
         sqlText(chunk.map((file) => hashAlgorithmOf(file.blob))),
         `{${chunk.map((file) => String(file.bytes)).join(',')}}`,
         sqlText(chunk.map((file) => file.form)),
         sqlIds(chunk.map((file) => (file.lines === null ? null : String(file.lines)))),
+        sqlTexts(chunk.map((file) => file.content)),
       ],
     );
   });

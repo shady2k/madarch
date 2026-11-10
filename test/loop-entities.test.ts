@@ -15,6 +15,7 @@ import { readKnowledgePages } from '../src/knowledge/index/index.js';
 import { ensureLoopKinds } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { LoopRefusal, answerQuestion, commitFiles, localIdentity, recordCorrection } from '../src/loop/answer.js';
+import { parseDocument } from 'yaml';
 import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderQuestion, type Question } from '../src/loop/entities.js';
 import { correctionId, questionFootnoteId } from '../src/loop/ids.js';
 import { decide } from '../src/loop/plan.js';
@@ -296,9 +297,12 @@ describe('a product made before the loop gets its two kinds', () => {
     expect(drafted.manifest.findings).toEqual([]);
     // A product made before the loop declares neither the document kinds nor the expectation: an expectation whose kinds
     // are not declared is a finding of its own, so the two go together here, as an older manifest has neither.
-    const old = before
-      .replace(/  question:[\s\S]*?  code\.service:/, '  code.service:')
-      .replace(/^  expect: \[[^\]]*\]\n/m, '');
+    // A manifest made before the loop loses the two kinds and the documents' expectation, and keeps everything else:
+    // its comments, its other kinds and its plugins.
+    const document = parseDocument(before);
+    document.deleteIn(['kinds', 'question']);
+    document.deleteIn(['documents', 'expect']);
+    const old = document.toString();
     expect(old).not.toContain('\n  question:\n');
     expect(old).not.toContain('expect: [');
     writeFileSync(manifest, old);

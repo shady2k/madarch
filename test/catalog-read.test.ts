@@ -22,11 +22,14 @@ afterAll(() => {
   for (const folder of made.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
-/** A product folder whose templates are the starter set's, so a page kind's template resolves. */
+/**
+ * A product folder holding the starter set, so a page kind's template resolves and the manifest finds the plugin and
+ * the lock it names (decision 0035, items 18 and 20).
+ */
 function product(): string {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-catalog-read-'));
   made.push(folder);
-  for (const file of STARTER_FILES.filter((entry) => entry.path.startsWith('templates/'))) {
+  for (const file of STARTER_FILES) {
     const path = join(folder, file.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.content);
@@ -350,10 +353,11 @@ describe('one defect in the manifest is one problem', () => {
   /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
   function appendedKind(name: string, id: string, group: string, extra: string[] = []): string {
     const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
-    // The starter manifest now ends with its `edges:` section; a kind belongs under `kinds:`, so insert it there.
+    // A kind belongs under `kinds:`, whose section ends where `edges:` begins; the rest of the manifest stays whole.
     const edgeSection = base.indexOf('\nedges:\n');
-    const kinds = edgeSection === -1 ? base : base.slice(0, edgeSection);
-    return `${kinds}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}`;
+    const head = edgeSection === -1 ? base : base.slice(0, edgeSection);
+    const tail = edgeSection === -1 ? '' : base.slice(edgeSection);
+    return `${head}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}${tail}`;
   }
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],

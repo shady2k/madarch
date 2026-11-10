@@ -101,12 +101,14 @@ function refused(name: string, work: () => void): UnitResult {
 await definePlugin({
   name: 'plugin-probe',
   version: '1.0.0',
+  // The fixture reads its repository snapshot, so it declares that right: a plugin that declares none sees no /repo.
+  filesystem: true,
   // The SDK's own heartbeat is off for the fixture (`no-heartbeat` needs a silent unit, and the pause test needs the
   // silence to outlast the host's deadline); a plugin that sends none is what the host's heartbeat deadline is for.
   heartbeatMs: 600_000,
   contract: {
     vertices: [
-      { kind: 'probe', key: ['id'], fields: [{ name: 'size', claim: 'authoritative' }, { name: 'language', claim: 'claimed' }] },
+      { kind: 'probe', key: ['id'], fields: [{ name: 'size', claim: 'authoritative', type: 'integer', meaning: 'the size', example: 12, required: true }, { name: 'language', claim: 'claimed', type: 'text', meaning: 'the language', example: 'typescript', required: false }] },
     ],
     edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
   },
@@ -144,6 +146,9 @@ await definePlugin({
     }
     if (behavior === 'read-outside') {
       return refused('read-outside', () => readFileSync('/etc/hostname', 'utf8'));
+    }
+    if (behavior === 'read-repo') {
+      return refused('read-repo', () => readFileSync('/repo/plugin.json', 'utf8'));
     }
     if (behavior === 'unshare') {
       const result = libc.symbols.unshare(CLONE_NEWUSER);

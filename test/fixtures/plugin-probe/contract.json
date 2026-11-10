@@ -1,0 +1,43 @@
+{
+  "id": "plugin-probe",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "probe",
+        "key": [
+          "id"
+        ],
+        "fields": [
+          {
+            "name": "size",
+            "claim": "authoritative",
+            "type": "integer",
+            "meaning": "the size",
+            "example": 12,
+            "required": true
+          },
+          {
+            "name": "language",
+            "claim": "claimed",
+            "type": "text",
+            "meaning": "the language",
+            "example": "typescript",
+            "required": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "kind": "probe-link",
+        "from": "probe",
+        "to": "probe"
+      }
+    ]
+  },
+  "rights": {
+    "network": "none",
+    "filesystem": true
+  }
+}

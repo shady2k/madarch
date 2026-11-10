@@ -8,7 +8,7 @@
  *     import { definePlugin } from 'madarch-plugin-sdk';
  *
  *     await definePlugin({
- *       contract: { vertices: [{ kind: 'file', key: ['path'], fields: [{ name: 'size', claim: 'authoritative' }] }], edges: [] },
+ *       contract: { vertices: [{ kind: 'file', key: ['path'], fields: [{ name: 'path', claim: 'authoritative', type: 'text', meaning: 'the path', example: 'a.ts', required: true }, { name: 'size', claim: 'authoritative', type: 'integer', meaning: 'its size', example: 12, required: false }] }], edges: [] },
  *       extract(unit) {
  *         return { vertices: [{ kind: 'file', key: unit.key, attributes: { size: 12 } }], end: { state: 'complete' } };
  *       },
@@ -85,6 +85,20 @@ export interface Unit {
   readonly inputs?: unknown;
 }
 
+/** One vertex the host answers a graph query with: its kind and key values. */
+export interface GraphVertex {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, string | number>>;
+}
+
+/** The graph reads a plugin declares and asks for (decision 0035, item 15): files by pattern, and a vertex's field. */
+export interface GraphReads {
+  /** The file vertices whose path matches the pattern (a glossary document in any folder, say), in code point order. */
+  files(pattern: string): Promise<GraphVertex[]>;
+  /** One field of one vertex: a file's content, as the files producer stored it, never a folder of the product. */
+  value<T = unknown>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T>;
+}
+
 /** What `extract` is handed beside the unit: the way back to the host while it works. */
 export interface ExtractContext {
   /** Set when the host asked the plugin to stop: a long read should give up at the next check. */
@@ -93,12 +107,21 @@ export interface ExtractContext {
   heartbeat(): void;
   /** Where the unit stands, in counts of what it reads. */
   progress(done: number, total?: number, note?: string): void;
+  /** The graph the plugin asked the host for; a query of a plugin that declared no `graph` right is refused. */
+  readonly graph: GraphReads;
 }
 
-/** One field of a declared kind. */
+/** One field of a declared kind (decision 0035, item 18): its type, meaning, an example and whether it is required. */
 export interface FieldDeclaration {
   readonly name: string;
   readonly claim: 'authoritative' | 'claimed';
+  readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
+  /** What the field is, in plain words, for the person binding it in the product's manifest. */
+  readonly meaning: string;
+  /** One value the field holds. */
+  readonly example: unknown;
+  /** Whether the plugin cannot run without it: its kind's key and every field its reading needs. */
+  readonly required: boolean;
 }
 
 /** One vertex kind a plugin declares it produces. */
@@ -133,12 +156,29 @@ export interface PluginDefinition {
   readonly maxOutputBytes?: number;
   /** How often the SDK tells the host it is alive while a unit runs, in milliseconds; 250 unless named. */
   readonly heartbeatMs?: number;
+  /** The repository snapshot at /repo this plugin reads; absent, it sees no repository, as the glossary does. */
+  readonly filesystem?: boolean;
+  /** Whether the plugin asks the host for graph reads (`context.graph`); absent, it may not. */
+  readonly graph?: boolean;
   /** The one function the author writes: the unit in, its answer out. */
   readonly extract: (unit: Unit, context: ExtractContext) => Promise<UnitResult> | UnitResult;
 }
 
 /** The JSON-RPC id a message answers or asks by. */
 type RpcId = string | number;
+
+/** The requests this plugin asked the host and has not been answered for, by their id. */
+const pendingOfHost = new Map<RpcId, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+let askedHost = 0;
+
+/** One question to the host over the protocol: its answer, or the failure the host named. */
+function askHost<T>(method: string, params: unknown): Promise<T> {
+  const id = `plugin-${String((askedHost += 1))}`;
+  return new Promise<T>((resolve, reject) => {
+    pendingOfHost.set(id, { resolve: (value) => resolve(value as T), reject });
+    send({ jsonrpc: '2.0', id, method, params });
+  });
+}
 
 /** One incoming message, as the SDK reads it. */
 interface Incoming {
@@ -232,6 +272,10 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
           signal: controller.signal,
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
+          graph: {
+            files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
+            value: async (kind, key, field) => await askHost<{ value: unknown }>('graph.value', { kind, key, field }).then((answer) => answer.value as never),
+          },
         });
         if (!running.has(id)) return;
         const answerWith = { unitId: unit.unitId, ...result };
@@ -268,7 +312,19 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
     }
     if (message.method === 'cancel') {
       for (const controller of running.values()) controller.abort();
+      for (const waiter of pendingOfHost.values()) waiter.reject(new Error('the host cancelled the plugin while a graph read stood open'));
+      pendingOfHost.clear();
       finish();
+      return;
+    }
+    // An answer to a request this plugin made (a graph read): the waiter takes it, or the cause it failed with.
+    if (message.id !== undefined && (message.result !== undefined || message.error !== undefined)) {
+      const waiter = pendingOfHost.get(message.id);
+      if (waiter !== undefined) {
+        pendingOfHost.delete(message.id);
+        if (message.error === undefined) waiter.resolve(message.result);
+        else waiter.reject(new Error(message.error.message));
+      }
       return;
     }
     // The host's answer to the introduction: nothing to do, the loop is already taking units.
@@ -282,7 +338,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       protocol: PROTOCOL_VERSION,
       name: definition.name,
       version: definition.version,
-      rights: { network: 'none' },
+      rights: { network: 'none', ...(definition.graph === true ? { graph: true } : {}), ...(definition.filesystem === true ? { filesystem: true } : {}) },
       limits: {
         ...(definition.maxParallelUnits === undefined ? {} : { maxParallelUnits: definition.maxParallelUnits }),
         ...(definition.maxOutputBytes === undefined ? {} : { maxOutputBytes: definition.maxOutputBytes }),

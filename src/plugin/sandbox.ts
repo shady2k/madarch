@@ -17,6 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { bwrapForUse } from './bwrap-install.js';
+import { pluginInvocation } from './invocation.js';
 import { PluginCgroup, cgroupParent, checkCgroupDelegation, checkUserNamespaces, type CgroupCounters, type CgroupLimits, type SetupProblem } from './cgroup.js';
 import { refusedCallNames, seccompFilter } from './seccomp.js';
 import { log } from '../obs/log.js';
@@ -34,8 +35,11 @@ const SANDBOX_UID = 65_534;
 export interface SandboxSpec {
   /** The private copy of the plugin's closure, bound read-only at `/plugin`. */
   readonly closureFolder: string;
-  /** The repository snapshot the plugin reads, bound read-only at `/repo`. */
-  readonly repository: string;
+  /**
+   * The repository snapshot the plugin reads, bound read-only at `/repo` — only a plugin that declared the `filesystem`
+   * right is given one (decision 0035, item 9); a plugin that reads the graph sees no folder at all.
+   */
+  readonly repository?: string;
   /** The host's folder for this run: the stderr log, the seccomp filter and the cgroup's name hang here. */
   readonly workFolder: string;
   /** The runtime's path on the host: the Bun this process runs on. */
@@ -126,7 +130,7 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   args.push('--ro-bind', spec.runtime, '/runtime/bun');
   for (const library of ['/lib', '/lib64', '/usr/lib']) if (bindable(library)) args.push('--ro-bind', library, library);
   args.push('--ro-bind', spec.closureFolder, '/plugin');
-  args.push('--ro-bind', spec.repository, '/repo');
+  if (spec.repository !== undefined) args.push('--ro-bind', spec.repository, '/repo');
   args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp');
   args.push('--remount-ro', '/');
   args.push('--chdir', '/plugin');
@@ -134,7 +138,9 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   for (const [name, value] of Object.entries(spec.environment ?? {}).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) args.push('--setenv', name, value);
   args.push('--seccomp', String(options.seccompFd));
   args.push('--sync-fd', String(options.syncFd));
-  args.push('/runtime/bun', `/plugin/${spec.entry}`);
+  // A compiled madarch binary runs the plugin itself (`--plugin-entry`), a `bun` runtime runs the entry as its script:
+  // both are the Bun inside madarch, and neither needs an interpreter of its own.
+  args.push('/runtime/bun', ...pluginInvocation(spec.runtime, `/plugin/${spec.entry}`));
   return args;
 }
 
