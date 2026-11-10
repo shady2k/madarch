@@ -49,8 +49,8 @@ function pick(select: HTMLSelectElement, value: string): void {
 }
 
 const file = (path: string, lines: number, heat: [number, number, number, number], language: string | null, authors: string[], last: string | null): FilesMapFile => ({
-  id: `code.file:shop/${path}`, path, repository: 'shop', href: `/e/${encodeURIComponent(`code.file:shop/${path}`)}`,
-  lines, bytes: lines * 10, language, candidates: language === null ? ['Markdown'] : [language], heat, last, authors,
+  id: `code.file:shop/${path}`, path, href: `/e/${encodeURIComponent(`code.file:shop/${path}`)}`,
+  lines, bytes: lines * 10, language, heat, last, authors,
 });
 
 const DATA: FilesMap = {
@@ -62,7 +62,7 @@ const DATA: FilesMap = {
     file('docs/readme.md', 40, [0, 0, 0, 0], null, [], null),
     file('src/checkout.ts', 250, [2, 6, 6, 6], 'TypeScript', ['Linus'], '2026-11-05T10:00:00Z'),
   ],
-  totals: { files: 4, lines: 790, bytes: 7900, withoutLines: 0, ambiguous: 1, other: 0, languages: [] },
+  totals: { files: 4, lines: 790, bytes: 7900, withoutLines: 0, ambiguous: 1, languages: [] },
   windows: { d30: '2026-10-01T00:00:00Z', d90: '2026-08-01T00:00:00Z', d365: '2025-11-01T00:00:00Z' },
   graphTotal: 4,
 };

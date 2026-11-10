@@ -1655,7 +1655,6 @@ export class GraphReader {
            LEFT JOIN edge ae ON ae.to_node = c.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
            LEFT JOIN ${GIT_TABLES.signature} sig ON sig.node_id = ae.from_node
            WHERE c.commit_date IS NOT NULL
-             AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
          )
          SELECT t.path,
                 count(m.at) FILTER (WHERE m.at >= $2::timestamptz)::text AS d30,
