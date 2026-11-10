@@ -161,11 +161,13 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const noDesktop = process.platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY;
   const open = options.open !== false && !ssh && (!noDesktop || Boolean(options.opener || env.MADARCH_BROWSER?.trim() || env.BROWSER?.trim()));
   print(open ? `The wiki is running at ${server.url}  (Ctrl+C stops it)` : `Wiki: ${server.url}  (Ctrl+C stops it)`);
-  if (ssh) {
+  // A tunnel reaches a server bound to this machine's loopback only. A server bound to a network address already
+  // answers there, so the address line above is the whole instruction and no tunnel is printed (madarch-f40v).
+  if (ssh && !networkBound) {
     const [remoteHost] = (env.SSH_CONNECTION ?? '').split(/\s+/).slice(2, 3);
     const user = env.USER || '<user>';
     print('This machine is remote (SSH). To open the wiki on your computer, run there:');
-    print(`  ssh -L ${server.port}:127.0.0.1:${server.port} ${user}@${remoteHost || '<host>'}`);
+    print(`  ssh -L ${server.port}:${server.hostname}:${server.port} ${user}@${remoteHost || '<host>'}`);
     print(`and open http://localhost:${server.port}`);
   }
   if (open) {

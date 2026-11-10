@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -25,7 +25,7 @@ import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, Fill
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
-import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
+import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfEntity, addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
@@ -126,8 +126,18 @@ export function ProductSelector({ name, products, current }: { name: string; pro
   );
 }
 
-/** The kinds whose entities stand at a top-level place of their own in the navigation (the glossary's terms, the tasks): "Pages by kind" does not list them again, and their pages stay reachable from that place and from links. The manifest says which (`nav: own-page`). */
-const hasOwnPlace = (kind: KindSummary): boolean => kind.nav === 'own-page';
+/**
+ * The kinds whose entities stand at a place the loop draws for itself (`nav: own-page`), such as the tasks: "Pages by
+ * kind" does not list them again. A kind that declares its own listing page (`listing:`) is not one of them: its row
+ * stands in its manifest group and opens that listing, so the navigation places it like every other kind.
+ */
+const hasOwnPlace = (kind: KindSummary): boolean => kind.nav === 'own-page' && kind.listing === undefined;
+
+/** The address a kind's row opens: its own listing page when the manifest declares one, else its page by kind. */
+const ownAddressOf = (kind: KindSummary): string => kind.listing === 'glossary' ? WIKI_GLOSSARY : addressOfKind(kind.kind);
+
+/** Whether the kind's own listing page is the page in front. */
+const ownRouteOf = (kind: KindSummary, route: WikiRoute): boolean => kind.listing === 'glossary' ? route.name === 'glossary' : route.name === 'kind' && route.kind === kind.kind;
 
 /** A sub-area of a group, as the navigation and the catalogue draw it. */
 interface NavSubgroup {
@@ -197,7 +207,6 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const { role, roles } = useRole();
-  const { terms } = useTerms();
   const groups = leadGroups(navGroups(status, pendingOf), role, roles);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
@@ -224,9 +233,10 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
     return entry.kinds.filter((kind) => !inSubgroup.has(kind.kind));
   };
   const kindLink = (kind: KindSummary, padding = '!pl-[30px]'): ReactElement => {
-    const active = route.name === 'kind' && route.kind === kind.kind;
+    const active = ownRouteOf(kind, route);
+    const address = ownAddressOf(kind);
     return (
-      <a key={kind.kind} href={appPath(addressOfKind(kind.kind))} className={link(active) + ` !py-[7px] ${padding}`} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(addressOfKind(kind.kind))}>
+      <a key={kind.kind} href={appPath(address)} className={link(active) + ` !py-[7px] ${padding}`} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(address)}>
         <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
         <span className="text-small text-muted" data-testid="nav-count">
           {kind.count}
@@ -258,13 +268,6 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           {waitingLink('nav-tasks', WIKI_TASKS, CheckIcon, t('loop.tasksTitle'), tasksOpen, route.name === 'tasks' || route.name === 'task')}
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </div>
-        {terms.length > 0 && (
-          <a href={appPath(WIKI_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
-            <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-            <span className="min-w-0 flex-1">{t('knowledge.glossary.title')}</span>
-            <span className="text-small text-muted">{terms.length}</span>
-          </a>
-        )}
         {groups.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';

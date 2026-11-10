@@ -10,8 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
-import { commitFacts } from '../src/graph/records.js';
-import { ONE_GRAPH_TABLES } from '../src/graph/one-graph.js';
+import { commitWithPaths as commitFacts } from '../src/graph/records.js';
+
 import { generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
@@ -23,8 +23,11 @@ import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let repository = '';
+/** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+
 const RECORD_TABLES = [
-  ...ONE_GRAPH_TABLES,
+  ...MECHANISM_TABLES,
   ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
   ...GIT_CONTRACT.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
   ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
@@ -143,7 +146,13 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // `.h` is C, C++ and Objective-C in the dataset: the claim holds the candidates, and no one language is picked.
+    // The language is the opinion's own `lang`: blob.bin is one language (`unknown`). A `.ts` or `.md` file is not: the
+    // dataset gives `.ts` TypeScript and XML and `.md` GCC Machine Description and Markdown, so the opinion names its
+    // candidates and picks none.
+    expect(byPath.get('blob.bin')?.language).toBe('unknown');
+    expect(byPath.get('src/a.ts')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
+    // `.h` is C, C++ and Objective-C in the dataset: the opinion holds the candidates, and no one language is picked.
     const header = byPath.get('src/b.h')!;
     expect(header.language).toBeNull();
     expect(header.candidates.length).toBeGreaterThan(1);
@@ -163,10 +172,10 @@ describe('the two passes over one fixture', () => {
     const historyCounts = await publishHistory(owner, history);
     // One file's blob moved: the file's row is updated, the new commit's vertex and its row and the
     // as-is edge are added, and the edge to the commit the repository stood at before is removed.
-    // Every other row stands: inserted 3 (the commit vertex, its row and the as-is edge), updated 1
-    // (the file), deleted 1 (the old as-is edge).
+    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 2 (the file's
+    // opinion and the dataset's, each now resting on the new commit as its evidence), deleted 1 (the old as-is edge).
     expect(treeCounts.inserted).toBe(3);
-    expect(treeCounts.updated).toBe(1);
+    expect(treeCounts.updated).toBe(2);
     expect(treeCounts.deleted).toBe(1);
     expect(historyCounts.inserted).toBeGreaterThan(0);
     expect(historyCounts.updated + historyCounts.unchanged).toBeGreaterThan(0);
@@ -245,9 +254,9 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs')).toBe('');
     // The parent of a file is its folder, never the repository.
     const parents = await owner.transaction('snapshot', async (tx) => await tx.query(
-      `SELECT p.text AS child, coalesce(pp.text, '') AS parent FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = 'contains'
-       JOIN ${GIT_TABLES.file} f ON f.node_id = e.to_node JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> f.repository_node
-       LEFT JOIN ${GIT_TABLES.directory} d ON d.node_id = pn.id LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = d.path_id`,
+      `SELECT (fn.key->>'path') AS child, coalesce(pn.key->>'path', '') AS parent FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = 'contains'
+       JOIN node fn ON fn.id = e.to_node JOIN entity fe ON fe.id = fn.entity_id AND fe.name = 'file'
+       LEFT JOIN node pn ON pn.id = e.from_node`,
     ));
     for (const row of parents.rows as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
@@ -365,5 +374,25 @@ describe('a git date of a zero or a negative offset', () => {
     };
     await publishHistory(owner, history);
     expect(await commitFacts(owner, 'z-dates', 'b'.repeat(40))).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
+  }, 120_000);
+
+  test('a listing answers the opinions\' values without their sources, and a single entity answers both', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const reader = new GraphReader(owner, () => new Date().toISOString());
+    // The bulk read a page's treemap and the Problems listing make: every value, and no opinion's id, producer or
+    // evidence (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms with the sources, 1.21 MB and
+    // 24 ms without). A list shows values, and no page shows where a value was stated from a list.
+    const listed = await reader.byPrefix('code.file', 'code.file:', 100);
+    const file = listed.rows.find((one) => one.key === 'code.file:fixture/src/a.ts');
+    if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
+    expect(typeof file.properties['path']).toBe('string');
+    expect(typeof file.properties['mode']).toBe('string');
+    expect(file.evidence ?? []).toEqual([]);
+    expect(file.opinions ?? []).toEqual([]);
+    // The single entity's read is the one that states the sources, and the value is the same one.
+    const one = (await reader.find('code.file:fixture/src/a.ts'))[0];
+    expect(one?.properties['mode']).toBe(file.properties['mode']);
+    expect((one?.evidence ?? []).length).toBeGreaterThan(0);
+    expect((one?.opinions ?? []).length).toBeGreaterThan(0);
   }, 120_000);
 });

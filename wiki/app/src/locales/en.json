@@ -487,8 +487,6 @@
       "colDefinition": "Definition",
       "colNames": "Names",
       "colPlace": "Place",
-      "lead_one": "{{count}} term, each with the place it is stated.",
-      "lead_other": "{{count}} terms, each with the place it is stated.",
       "empty": "No fill stage writes the glossary yet: its terms come back with the stage that reads the documents.",
       "alsoCalled": "Also called",
       "inCode": "In code",
@@ -496,9 +494,7 @@
       "ambiguous": "Ambiguous.",
       "ambiguousNoNote": "The documents use this word for more than one thing.",
       "ambiguousBadge": "Ambiguous",
-      "statedAt": "Stated at",
-      "lead_few": "{{count}} terms, each with the place it is stated.",
-      "lead_many": "{{count}} terms, each with the place it is stated."
+      "statedAt": "Stated at"
     },
     "roles": {
       "cardTitle": "Which role do you read as?",

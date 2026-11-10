@@ -9,14 +9,17 @@ import { join } from 'node:path';
 import { createRecordSchema } from '../src/graph/records.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { generatedTableName } from '../src/graph/contract.js';
-import { ONE_GRAPH_TABLES } from '../src/graph/one-graph.js';
+
 import { createTestDatabaseOwner } from './test-database.js';
 
 test('two concurrent first fills create every generated table once', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-contract-lock-'));
   const store = join(root, 'store');
-  const RECORD_TABLES = [
-    ...ONE_GRAPH_TABLES,
+  /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+
+const RECORD_TABLES = [
+    ...MECHANISM_TABLES,
     ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
     ...GIT_CONTRACT.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
     ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),

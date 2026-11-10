@@ -69,10 +69,11 @@ coverage gaps. No product kind name stands in their DDL.
 ## Tables generated from the walk product's contracts
 
 The names below are generated from the kind and its sort; the kind's display name stands
-apart. `k_` is a vertex, `d_` a dictionary and `e_` an attributed edge. The natural key is the
-contract's; a field marked authoritative is a column with evidence, a claimed field is a claim
-only. The git capability's contract supplies these tables because the manifest binds
-`capability: git`; a manifest that binds no code kind gets none.
+apart. `k_` is a vertex, `d_` a dictionary and `e_` an attributed edge. The natural key stands
+once on the vertex (`node.key`); every other field value is an opinion in the table, and no
+field is authoritative — a manifest no longer states a field's `role`. The git capability's
+contract supplies these tables because the manifest binds `capability: git`; a manifest that
+binds no code kind gets none.
 
 | Table | Kind | Rows | Natural key |
 |---|---|---:|---|

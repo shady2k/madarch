@@ -11,7 +11,6 @@
         "fields": [
           {
             "name": "name",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The term itself, as the glossary writes it in bold.",
             "example": "Fill",
@@ -19,7 +18,6 @@
           },
           {
             "name": "definition",
-            "claim": "claimed",
             "type": "text",
             "meaning": "What the term means, as the glossary defines it.",
             "example": "The one run that reads a product and writes its graph.",
@@ -27,7 +25,6 @@
           },
           {
             "name": "synonyms",
-            "claim": "claimed",
             "type": "json",
             "meaning": "The other names the glossary gives the term.",
             "example": [
@@ -37,7 +34,6 @@
           },
           {
             "name": "code",
-            "claim": "claimed",
             "type": "json",
             "meaning": "The names the code uses for the thing the term means.",
             "example": [

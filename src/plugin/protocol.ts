@@ -8,11 +8,14 @@
  * A plugin introduces itself with its contract (the kinds, key fields and
  * attributes it produces), its version, the rights it needs and its limits.
  * The host hands it units; for a unit it answers with vertices, edges —
- * addressed by kind and key values, never by node ids — attributes of
- * authoritative fields, claims of claimed fields, evidence for each, removals
- * of what the unit's input no longer holds, and the unit's end, complete or
- * partial with the cause. Progress, heartbeats and errors travel the same
- * channel.
+ * addressed by kind and key values, never by node ids — one list of field values
+ * per entity with the evidence it stands on (every value is an opinion, and no
+ * field is authoritative), removals of what the unit's input no longer holds,
+ * and the unit's end, complete or partial with the cause. Progress, heartbeats
+ * and errors travel the same channel.
+ *
+ * Version 2 (2026-11-10) removed the `claim: authoritative | claimed` marker: a
+ * declared field is a field, and a result states its value like any other opinion.
  *
  * Nothing in a message names a madarch kind: the catalogue is the product's
  * data, so every kind here is a string the plugin declared.
@@ -20,10 +23,10 @@
 import { Type, type Static } from 'typebox';
 
 /** The protocol's version: the introduction names it, and a host refuses any other. */
-export const PROTOCOL_VERSION = 'madarch.plugins/1';
+export const PROTOCOL_VERSION = 'madarch.plugins/2';
 
 /** The version of the documents themselves (the schema's `$id` carries it too). */
-export const PROTOCOL_CONTRACT = 1;
+export const PROTOCOL_CONTRACT = 2;
 
 /** The JSON schema's one address, whatever host renders it. */
 export const PROTOCOL_SCHEMA_ID = `https://github.com/shady2k/madarch/schema/v${String(PROTOCOL_CONTRACT)}/plugin-protocol.schema.json`;
@@ -57,17 +60,7 @@ export const PluginEvidence = Type.Object(
   { additionalProperties: false, description: 'What one value stands on: where it was read, and at which lines.' },
 );
 
-/** One claim a plugin makes about a claimed field: the value, and the evidence under it. */
-export const PluginClaim = Type.Object(
-  {
-    field: Type.String({ minLength: 1, description: 'The claimed field, as the plugin\'s contract declares it.' }),
-    value: Type.Unknown({ description: 'The value the plugin claims the field holds.' }),
-    evidence: Type.Optional(PluginEvidence),
-  },
-  { additionalProperties: false, description: 'One producer\'s claim of a claimed field, with the evidence it stands on.' },
-);
-
-/** The attributes of one edge kind that carries them. */
+/** The values of one edge kind that carries them. */
 export const PluginEdgeAttributes = Type.Record(Type.String({ minLength: 1 }), Type.Unknown());
 
 /** One vertex a unit produced. */
@@ -75,10 +68,10 @@ export const PluginVertexResult = Type.Object(
   {
     kind: Type.String({ minLength: 1, description: 'The vertex kind, one the plugin\'s contract declares.' }),
     key: PluginKeyValues,
-    attributes: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Unknown(), { description: 'The values of authoritative fields, by field name.' })),
-    claims: Type.Optional(Type.Array(PluginClaim, { description: 'The claims of claimed fields.' })),
+    values: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Unknown(), { description: 'The field values this producer states, by field name: every value is an opinion.' })),
+    evidence: Type.Optional(PluginEvidence),
   },
-  { additionalProperties: false, description: 'One vertex a unit produced: its kind, key, authoritative attributes and claims.' },
+  { additionalProperties: false, description: 'One vertex a unit produced: its kind, its key and the field values of one opinion with its evidence.' },
 );
 
 /** One edge a unit produced. */
@@ -88,11 +81,10 @@ export const PluginEdgeResult = Type.Object(
     from: PluginEntityRef,
     to: PluginEntityRef,
     discriminator: Type.Optional(Type.String({ description: 'What tells repeats between the same ends apart; an empty string where the kind does not repeat.' })),
-    attributes: Type.Optional(PluginEdgeAttributes),
-    claims: Type.Optional(Type.Array(PluginClaim)),
+    values: Type.Optional(PluginEdgeAttributes),
     evidence: Type.Optional(PluginEvidence),
   },
-  { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and what its values stand on.' },
+  { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on.' },
 );
 
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
@@ -135,7 +127,6 @@ export const PluginUnitResult = Type.Object(
 export const PluginFieldDeclaration = Type.Object(
   {
     name: Type.String({ minLength: 1 }),
-    claim: Type.Union([Type.Literal('authoritative'), Type.Literal('claimed')], { description: 'An authoritative field is a column with one producer; a claimed field is one tools may dispute.' }),
     type: Type.Union(
       [Type.Literal('text'), Type.Literal('integer'), Type.Literal('bigint'), Type.Literal('boolean'), Type.Literal('timestamp'), Type.Literal('json')],
       { description: 'The PostgreSQL type the field is stored as: the manifest binds a field whose type must be this one.' },
@@ -144,14 +135,15 @@ export const PluginFieldDeclaration = Type.Object(
     example: Type.Unknown({ description: 'One value the field holds, as an example.' }),
     required: Type.Boolean({ description: 'Whether the plugin cannot run without it: a kind\'s natural key and every field its reading needs.' }),
   },
-  { additionalProperties: false, description: 'One field of a declared kind: its type, its meaning, an example, whether it is required, and whether it is authoritative or claimed.' },
+  { additionalProperties: false, description: 'One field of a declared kind: its type, its meaning, an example and whether it is required. Every value a producer states of it is an opinion.' },
 );
 
 /** One vertex kind the plugin declares it produces. */
 export const PluginVertexKindDeclaration = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
-    key: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'The key fields, in the contract\'s order.' }),
+    // A kind with no natural key stands by a random identity: its declaration names no key field, and a result names an empty key.
+    key: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'The key fields, in the contract\'s order; none for a kind with no natural key.' })),
     fields: Type.Optional(Type.Array(PluginFieldDeclaration, { description: 'The fields it writes beside the key.' })),
   },
   { additionalProperties: false, description: 'One vertex kind the plugin produces: its name, its key fields and its fields.' },
@@ -352,7 +344,6 @@ export type PluginUnitEnd = Static<typeof PluginUnitEnd>;
 export type PluginVertexResult = Static<typeof PluginVertexResult>;
 export type PluginEdgeResult = Static<typeof PluginEdgeResult>;
 export type PluginRemoval = Static<typeof PluginRemoval>;
-export type PluginClaim = Static<typeof PluginClaim>;
 export type PluginEvidence = Static<typeof PluginEvidence>;
 export type PluginEntityRef = Static<typeof PluginEntityRef>;
 export type PluginContractDeclaration = Static<typeof PluginContractDeclaration>;

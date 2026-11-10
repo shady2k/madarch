@@ -810,9 +810,9 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
     if (kind.fields !== undefined && kind.fields.length > 0) {
       lines.push('    fields:');
       for (const field of kind.fields) {
-        // A field bound to a plugin states the binding; the plugin's own contract states its type and its role.
+        // A field bound to a plugin states the binding; the plugin's own contract states its type.
         lines.push(field.binding === undefined
-          ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, role: ${field.role}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
+          ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
           : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: "${field.binding}" }`);
       }
     }

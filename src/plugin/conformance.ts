@@ -61,7 +61,7 @@ export function probeUnit(contract: PluginContractDeclaration, unitId = 'conform
   const first = [...contract.vertices].sort((left, right) => byCodePoint(left.kind, right.kind))[0];
   if (first === undefined) return undefined;
   const key: Record<string, string> = {};
-  for (const field of first.key) key[field] = 'conformance';
+  for (const field of first.key ?? []) key[field] = 'conformance';
   return { unitId, kind: first.kind, key };
 }
 

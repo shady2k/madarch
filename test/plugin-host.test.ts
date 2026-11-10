@@ -161,7 +161,7 @@ describe('the handshake', () => {
     const session = await open(probeFolder);
     try {
       expect(session.declared.name).toBe('plugin-probe');
-      expect(session.declared.protocol).toBe('madarch.plugins/1');
+      expect(session.declared.protocol).toBe('madarch.plugins/2');
       expect(session.declared.outputs.vertices.map((kind) => kind.kind)).toEqual(['probe']);
       expect(session.closureHash).toBe(probeClosure.hash);
     } finally {
@@ -184,8 +184,8 @@ describe('the bounds of one message and one unit', () => {
     expect(outcome.state).toBe('extracted');
     if (outcome.state !== 'extracted') return;
     expect(outcome.result.vertices.map((vertex) => vertex.kind)).toEqual(['probe']);
-    expect(outcome.result.vertices[0]?.attributes).toEqual({ size: 12 });
-    expect(outcome.result.vertices[0]?.claims?.[0]?.field).toBe('language');
+    expect(outcome.result.vertices[0]?.values).toEqual({ size: 12, language: 'typescript' });
+    expect(outcome.result.vertices[0]?.evidence?.path).toBe('probe/normal.ts');
     expect(outcome.result.edges.map((edge) => edge.kind)).toEqual(['probe-link']);
     expect(outcome.result.removals.map((removal) => removal.key['id'])).toEqual(['gone']);
     expect(outcome.result.end).toEqual({ state: 'complete' });
