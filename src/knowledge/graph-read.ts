@@ -211,7 +211,7 @@ const OPINIONS_OF = (table: string, node: string, columns: readonly string[], va
 
 /** The opinion columns of an entity row: every open opinion of the entity's kind, as jsonb arrays. */
 const ENTITY_OPINION_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
-      'mode', o."mode", 'languages', o."languages",
+      'mode', o."mode", 'language', o."language", 'languages', o."languages",
       'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
     FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
@@ -220,7 +220,7 @@ const ENTITY_OPINION_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (S
 
 /** The same opinions without their sources: a bulk read of a kind's entities answers every value and no evidence. */
 const ENTITY_VALUE_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('lang', o."lang",
-      'mode', o."mode", 'languages', o."languages",
+      'mode', o."mode", 'language', o."language", 'languages', o."languages",
       'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
     FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
@@ -408,7 +408,7 @@ function entityOf(row: Raw, sources = true): GraphEntity {
   const graphKind = String(row['kind']);
   const kind = WIKI_KIND[graphKind] ?? graphKind;
   const properties: Record<string, unknown> = { recordKey: keyOf(row) };
-  const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'languages'], sources);
+  const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'language', 'languages'], sources);
   const commitOpinions = graphOpinions(row['commit_opinions'], ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], sources);
   const repositoryOpinions = graphOpinions(row['repository_opinions'], ['url', 'default_branch'], sources);
   if (graphKind === `${GIT_KINDS.repository}`) {
@@ -430,7 +430,9 @@ function entityOf(row: Raw, sources = true): GraphEntity {
       properties['lines'] = lines === undefined ? undefined : typeof lines === 'string' ? Number(lines) : lines;
       const languages = agreedValue(fileOpinions, 'languages');
       const candidates = Array.isArray(languages) && languages.every((one) => typeof one === 'string') ? languages as string[] : [];
-      properties['language'] = agreedValue(fileOpinions, 'lang');
+      // The file's programming language is an opinion field, like its mode: the opinion's `lang` is the natural language
+      // of a text value, and a language name is no such text (madarch-64o5.2, the files worker's finding).
+      properties['language'] = agreedValue(fileOpinions, 'language');
       properties['candidates'] = candidates;
     }
   } else if (graphKind === `${GIT_KINDS.commit}`) {

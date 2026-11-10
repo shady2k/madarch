@@ -33,6 +33,15 @@ const STAMP_SQL = `CREATE TABLE IF NOT EXISTS ${META_SCHEMA}.schema_stamp (
   created_at timestamptz NOT NULL DEFAULT now())`;
 const STORE_SCHEMA_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended('madarch:store-schema', 0))`;
 
+/**
+ * The revision of the graph's meaning, part of the stamp: a store whose revision differs is reset as a whole, because
+ * what its rows say changed even where their shape did not. Revision 2 (madarch-64o5.2): a file's programming language
+ * is an opinion field, `language`, not the opinion's `lang`, which is the natural language of a text value and stands
+ * null for a language name; a file opinion written under revision 1 cannot be matched by the writer any more, and its
+ * store is made again and filled.
+ */
+const SCHEMA_REVISION = 2;
+
 /** The tables a reset drops, in the order their foreign keys allow: the opinions and the catalogue before the nodes. */
 const GENERATED_PREFIXES = ['k_', 'e_', 'd_'] as const;
 
@@ -193,6 +202,7 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
     await tx.query(`CREATE SCHEMA IF NOT EXISTS ${META_SCHEMA}`);
     await tx.query(STAMP_SQL);
     const parts = [
+      `revision ${String(SCHEMA_REVISION)}`,
       ...SCHEMA,
       ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')} ${kind.key.join(',')}`),
       ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''}`),

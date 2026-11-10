@@ -26,6 +26,7 @@
  * never creates the vertex it names.
  */
 import { randomUUID } from 'node:crypto';
+import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
 import { keyUid } from './uid.js';
@@ -48,35 +49,64 @@ export interface JournalVertexEvent {
   readonly entity: string;
   /** The vertex's stable id, the same on every machine. */
   readonly uid: string;
+  /** Its canonical key, stated on a declaration: replay makes the vertex from the entity and the key it names. */
+  readonly key?: Readonly<Record<string, unknown>>;
   /** Its local node id, for a replay into this store. */
   readonly node: string;
   readonly state: 'declared' | 'removed';
 }
 
-/** One edge's event: its identity is the kind, its ends and its discriminator; `edge` is its local id when read. */
+/**
+ * One edge's event: its identity is the kind, its ends (by uid) and its discriminator; `edge` is its local id when
+ * read. A replay makes the edge from the uids its declaration names, never from a local id of another store.
+ */
 export interface JournalEdgeEvent {
   readonly entity: string;
   readonly edge: string;
   readonly from: string;
   readonly to: string;
   readonly discriminator: string;
+  readonly context: number;
   readonly state: 'declared' | 'removed';
 }
 
-/** One opinion's event: opened (a new row), closed (superseded or withdrawn) or re-evidenced (same value, new grounds). */
+/**
+ * One opinion's event, carrying what a replay needs: `opened` states the row's whole content — its producer and version,
+ * its values (every field of the kind, a field it has no opinion on as null), its evidence, its language, the opinion it
+ * was translated from and the digest of its source, its context and the moment it was said; `re-evidenced` states the
+ * grounds that replaced the row's; `closed` needs its id alone. `node` is the vertex's uid and `edge` its local id.
+ */
 export interface JournalOpinionEvent {
   readonly id: string;
+  readonly entity: string;
   readonly node?: string;
   readonly edge?: string;
   readonly state: 'opened' | 'closed' | 're-evidenced';
   readonly fields: readonly string[];
   readonly lang: string | null;
+  /** The row's producer and version, for every state: the event says its own producer, not its entry's author. */
+  readonly said_by: string;
+  /** An opened opinion's values, by field name, a null for every field the producer has no opinion on. */
+  readonly values?: Readonly<Record<string, unknown>>;
+  /** An opened opinion's evidence, and the evidence that replaced it in a re-evidenced one. */
+  readonly evidence?: readonly EvidenceEntry[];
+  readonly translated_from?: string | null;
+  readonly source_digest?: string | null;
+  readonly context?: number;
+  readonly said_at?: string;
 }
 
-/** One request a plugin made of the host, under the debug setting: its method and the size of its answer. */
+/**
+ * One request a plugin made of the host, under the debug setting: its method, the size of its answer, what came of it
+ * and — for a refusal or a failure — the class of the cause, never the arguments or a file's text. A request the unit
+ * was still waiting for when it ended is `abandoned`; a run that hit the debug journal's bound ends with one
+ * `truncated` record naming how many requests were kept.
+ */
 export interface JournalRead {
   readonly method: string;
   readonly size: number;
+  readonly outcome: 'answered' | 'refused' | 'failed' | 'abandoned' | 'truncated';
+  readonly cause?: string;
 }
 
 /** One publication's journal entry, built as the writer works and written at its end. */
@@ -96,15 +126,32 @@ export class Journal {
     this.machine = options.machine ?? '';
     this.session = options.session ?? '';
   }
-  declaredVertex(entity: string, uid: string, node: string): void { this.vertices.push({ entity, uid, node, state: 'declared' }); }
+  declaredVertex(entity: string, uid: string, node: string, key: Readonly<Record<string, unknown>>): void { this.vertices.push({ entity, uid, key, node, state: 'declared' }); }
   removedVertex(entity: string, uid: string, node: string): void { this.vertices.push({ entity, uid, node, state: 'removed' }); }
-  declaredEdge(entity: string, edge: string, from: string, to: string, discriminator: string): void { this.edges.push({ entity, edge, from, to, discriminator, state: 'declared' }); }
-  removedEdge(entity: string, edge: string, from: string, to: string, discriminator: string): void { this.edges.push({ entity, edge, from, to, discriminator, state: 'removed' }); }
+  declaredEdge(entity: string, edge: string, from: string, to: string, discriminator: string, context: number): void { this.edges.push({ entity, edge, from, to, discriminator, context, state: 'declared' }); }
+  removedEdge(entity: string, edge: string, from: string, to: string, discriminator: string, context: number): void { this.edges.push({ entity, edge, from, to, discriminator, context, state: 'removed' }); }
   opinion(event: JournalOpinionEvent): void { this.opinions.push(event); }
-  read(method: string, size: number): void { this.reads.push({ method, size }); }
+  read(record: JournalRead): void { this.reads.push(record); }
+  /** The events this entry holds, of every kind. */
+  count(): number { return this.vertices.length + this.edges.length + this.opinions.length + this.reads.length; }
   /** Whether the entry states anything: a publication that wrote nothing writes no row. */
-  changed(): boolean { return this.vertices.length > 0 || this.edges.length > 0 || this.opinions.length > 0 || this.reads.length > 0; }
+  changed(): boolean { return this.count() > 0; }
+  /** Empties the entry after its events were written as one row: the next events open the next row of the same run. */
+  drain(): void {
+    this.vertices.length = 0;
+    this.edges.length = 0;
+    this.opinions.length = 0;
+    this.reads.length = 0;
+  }
 }
+
+/**
+ * How many events one journal row carries before the writer writes what it holds and opens another: a pass whose entry
+ * grows with the repository keeps each row a couple of megabytes, and every row of one publication is written in that
+ * publication's transaction (codex, stage 2 review, item 7). One event is 240-800 bytes of entry on this repository,
+ * and a pass journals a batch of up to 500 edges at once, so 4 000 events keep a row under ~3.5 MB.
+ */
+export const JOURNAL_ENTRY_EVENTS = 4_000;
 
 /**
  * The journal entry a transaction is building, bound to that transaction object: every writer call inside the
@@ -128,7 +175,11 @@ export function journalFor(author: string, options: { readonly words?: string; r
   return new Journal(author, options);
 }
 
-/** Writes one journal entry, in the caller's transaction; answers whether it wrote a row (an empty entry writes none). */
+/**
+ * Writes one journal entry, in the caller's transaction; answers whether it wrote a row (an empty entry writes none).
+ * Its span states what the entry costs — its events, its bytes and the milliseconds its serialization took — so a pass
+ * whose entry grows is measured where it grows (codex, stage 2 review, item 7).
+ */
 export async function writeJournal(executor: SqlExecutor, journal: Journal): Promise<boolean> {
   if (!journal.changed()) return false;
   const change: Record<string, unknown> = {
@@ -137,11 +188,34 @@ export async function writeJournal(executor: SqlExecutor, journal: Journal): Pro
     opinions: journal.opinions,
     ...(journal.reads.length === 0 ? {} : { reads: journal.reads }),
   };
-  await executor.query(
-    `INSERT INTO operation (author, machine, session, words, change) VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [journal.author, journal.machine, journal.session, journal.words, canonicalJson(change)],
-  );
+  const started = performance.now();
+  const text = canonicalJson(change);
+  const encoded = performance.now() - started;
+  await withSpan('journal.entry', {
+    'journal.author': journal.author,
+    'journal.vertices': journal.vertices.length,
+    'journal.edges': journal.edges.length,
+    'journal.opinions': journal.opinions.length,
+    'journal.bytes': Buffer.byteLength(text, 'utf8'),
+    'journal.encode_ms': Math.round(encoded * 10) / 10,
+  }, async () => await executor.query(
+    // `at` is when the row was written, not when its transaction opened: the rows of one publication are written in
+    // order inside one transaction, and a replay plays them in that order.
+    `INSERT INTO operation (author, machine, session, words, change, at) VALUES ($1, $2, $3, $4, $5::jsonb, clock_timestamp())`,
+    [journal.author, journal.machine, journal.session, journal.words, text],
+  ));
   return true;
+}
+
+/**
+ * Writes the entry when it holds `JOURNAL_ENTRY_EVENTS` or more, and empties it so the pass goes on in a new row of the
+ * same transaction. A pass calls it between its write batches; a run whose entry never grows writes one row, as before.
+ */
+export async function flushJournalIfFull(executor: SqlExecutor, journal: Journal, events = JOURNAL_ENTRY_EVENTS): Promise<boolean> {
+  if (journal.count() < events) return false;
+  const wrote = await writeJournal(executor, journal);
+  journal.drain();
+  return wrote;
 }
 
 /** A table, column or key name: the shape a generated table carries. */
@@ -174,6 +248,13 @@ async function entityIdOf(executor: SqlExecutor, kind: string, sort: 'node' | 'e
   const id = made.rows[0]?.id;
   if (id === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(kind)} was registered and the store answered no id`);
   return id;
+}
+
+/** The uids of nodes, by their local id: a journal event names a vertex or an edge's end by its uid, never by an id. */
+async function uidsOfNodes(executor: SqlExecutor, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const found = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`, [`{${ids.join(',')}}`]);
+  return new Map(found.rows.map((row) => [row.id, row.uid]));
 }
 
 /** A value with the keys of every object in code point order, so two equal values render equal. */
@@ -289,7 +370,7 @@ export async function ensureVertex(executor: SqlExecutor, contract: GraphContrac
   );
   const created = made.rows[0];
   if (created !== undefined) {
-    journal?.declaredVertex(vertex.name, uid, created.id);
+    journal?.declaredVertex(vertex.name, uid, created.id, key);
     return { nodeId: created.id, uid, created: true, revived: false };
   }
   const held = await executor.query<{ id: string; removed: boolean }>(`SELECT id::text AS id, removed FROM node WHERE uid = $1::uuid`, [uid]);
@@ -297,7 +378,7 @@ export async function ensureVertex(executor: SqlExecutor, contract: GraphContrac
   if (row === undefined) throw new Error(`${WHERE}:1: the node of ${JSON.stringify(draft.kind)} and ${JSON.stringify(key)} was declared and the store holds neither it nor a keyless echo`);
   if (!row.removed) return { nodeId: row.id, uid, created: false, revived: false };
   await executor.query(`UPDATE node SET removed = false WHERE id = $1::bigint`, [row.id]);
-  journal?.declaredVertex(vertex.name, uid, row.id);
+  journal?.declaredVertex(vertex.name, uid, row.id, key);
   return { nodeId: row.id, uid, created: false, revived: true };
 }
 
@@ -345,14 +426,26 @@ function paramOf(value: unknown): unknown {
  * is compared with the whole opinion the draft states. Unchanged values and evidence write nothing; unchanged values
  * with new evidence update the row's evidence; a changed value closes the old row and opens a new one. Answers whether
  * the row changed.
+ *
+ * Every event states what a replay needs and nothing it must guess: an opened opinion carries the row's whole content
+ * (its producer and version, its values, its evidence, its language, the opinion it was translated from, its source's
+ * digest, its context and the moment it was said), a re-evidenced one the grounds that replaced its own, and a closed
+ * one its id — the row it names is the state, and replay drops it from there.
  */
-async function stateOpinion(executor: SqlExecutor, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string): Promise<boolean> {
+async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string): Promise<boolean> {
   const columns = fields;
   const producer = saidBy.slice(0, saidBy.lastIndexOf('@') < 0 ? saidBy.length : saidBy.lastIndexOf('@'));
   const stated = [...values.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field);
-  const event = (id: string, state: 'opened' | 'closed' | 're-evidenced'): void => journal?.opinion({ id, ...(nodeUid === undefined ? {} : { node: nodeUid }), ...(edgeId === undefined ? {} : { edge: edgeId }), state, fields: stated, lang });
+  // A node opinion names its vertex by uid, which the row itself does not carry: the same statement reads it, so an
+  // event says its vertex even where the caller holds only the node's local id (codex, stage 2 review, item 3).
+  const ownerUid = (param: number): string => (owner === 'node_id' ? `, (SELECT uid::text FROM node WHERE id = $${String(param)}::bigint) AS owner_uid` : '');
+  const placeOf = (uid: unknown): { entity: string; node?: string; edge?: string } => ({
+    entity,
+    ...((nodeUid ?? uid) === undefined ? {} : { node: String(nodeUid ?? uid) }),
+    ...(edgeId === undefined ? {} : { edge: edgeId }),
+  });
   const held = await executor.query<Record<string, unknown>>(
-    `SELECT "id"::text AS id, ${columns.map((column) => `${quote(column, 'column')}, `).join('')}"evidence" FROM ${table}
+    `SELECT "id"::text AS id, "said_by", ${columns.map((column) => `${quote(column, 'column')}, `).join('')}"evidence"${ownerUid(1)} FROM ${table}
      WHERE ${quote(owner, 'column')} = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "lang" IS NOT DISTINCT FROM $3 AND "context_id" = $4::bigint AND "state" = 'open'
      ORDER BY "id" DESC LIMIT 1`,
     [ownerId, producer, lang, String(contextId)],
@@ -364,19 +457,26 @@ async function stateOpinion(executor: SqlExecutor, table: string, owner: 'node_i
     if (same) {
       if (sameValue(open['evidence'] ?? [], evidence)) return false;
       await executor.query(`UPDATE ${table} SET "evidence" = $2::jsonb WHERE "id" = $1::bigint`, [String(open['id']), canonicalJson(evidence)]);
-      event(String(open['id']), 're-evidenced');
+      journal?.opinion({ id: String(open['id']), ...placeOf(open['owner_uid']), state: 're-evidenced', fields: stated, lang, said_by: String(open['said_by'] ?? saidBy), evidence });
       return true;
     }
     await executor.query(`UPDATE ${table} SET "state" = 'closed' WHERE "id" = $1::bigint`, [String(open['id'])]);
-    event(String(open['id']), 'closed');
+    journal?.opinion({ id: String(open['id']), ...placeOf(open['owner_uid']), state: 'closed', fields: stated, lang, said_by: String(open['said_by'] ?? saidBy) });
   }
   const insertColumns = [...columns, 'said_by', 'lang', 'evidence', 'context_id', owner];
   const params: unknown[] = [...columns.map((column) => paramOf(values.get(column))), saidBy, lang, canonicalJson(evidence), String(contextId), ownerId];
-  const made = await executor.query<{ id: string }>(
-    `INSERT INTO ${table} (${insertColumns.map((column) => quote(column, 'column')).join(', ')}) VALUES (${insertColumns.map((_, at) => `$${String(at + 1)}`).join(', ')}) RETURNING "id"::text AS id`,
+  const made = await executor.query<{ id: string; said_at: string; translated_from: string | null; source_digest: string | null; owner_uid?: string }>(
+    `INSERT INTO ${table} (${insertColumns.map((column) => quote(column, 'column')).join(', ')}) VALUES (${insertColumns.map((_, at) => `$${String(at + 1)}`).join(', ')})
+     RETURNING "id"::text AS id, to_char("said_at" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, "translated_from"::text AS translated_from, "source_digest"${ownerUid(insertColumns.length)}`,
     params,
   );
-  event(made.rows[0]?.id ?? '', 'opened');
+  const row = made.rows[0];
+  journal?.opinion({
+    id: row?.id ?? '', ...placeOf(row?.owner_uid), state: 'opened', fields: stated, lang, said_by: saidBy,
+    values: Object.fromEntries(columns.map((column) => [column, values.get(column) ?? null])),
+    evidence, translated_from: row?.translated_from ?? null, source_digest: row?.source_digest ?? null,
+    context: contextId, said_at: row?.said_at ?? '',
+  });
   return true;
 }
 
@@ -388,7 +488,7 @@ export async function publishOpinion(executor: SqlExecutor, contract: GraphContr
   const vertex = vertexOf(contract, draft.kind);
   const values = valuesOf(vertex, draft);
   const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
-  return await stateOpinion(executor, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid);
+  return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid);
 }
 
 /**
@@ -400,7 +500,7 @@ export async function publishEdgeOpinion(executor: SqlExecutor, contract: GraphC
   const kind = edgeOfKind(contract, edgeKind);
   const declared = contract.edge.find((held) => held.name === edgeKind)!;
   const fields = declared.fields.map((field) => field.name);
-  return await stateOpinion(executor, kind.table, 'edge_id', edgeId, `${draft.producer}@${draft.producerVersion}`, new Map(Object.entries(draft.values ?? {})), fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), undefined, edgeId);
+  return await stateOpinion(executor, kind.name, kind.table, 'edge_id', edgeId, `${draft.producer}@${draft.producerVersion}`, new Map(Object.entries(draft.values ?? {})), fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), undefined, edgeId);
 }
 
 /**
@@ -412,13 +512,14 @@ export async function ensureEdge(executor: SqlExecutor, contract: GraphContract,
   journal = heldJournal(executor, journal);
   if (!contract.edge.some((held) => held.name === kindName)) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kindName)} is no kind the product declares: the contract holds ${contract.edge.length === 0 ? 'none' : contract.edge.map((one) => one.name).join(', ')}`);
   const entityId = await entityIdOf(executor, kindName, 'edge');
-  const made = await executor.query<{ id: string }>(
+  const made = await executor.query<{ id: string; from_uid: string; to_uid: string }>(
     `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)
-     ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id`,
+     ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING
+     RETURNING id::text AS id, (SELECT uid::text FROM node WHERE id = $2::bigint) AS from_uid, (SELECT uid::text FROM node WHERE id = $3::bigint) AS to_uid`,
     [entityId, fromNode, toNode, discriminator, String(contextId)],
   );
-  const created = made.rows[0]?.id;
-  let id = created;
+  const created = made.rows[0];
+  let id = created?.id;
   if (id === undefined) {
     const held = await executor.query<{ id: string }>(
       `SELECT id::text AS id FROM edge WHERE entity_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = $4 AND context_id = $5::bigint`,
@@ -427,27 +528,39 @@ export async function ensureEdge(executor: SqlExecutor, contract: GraphContract,
     id = held.rows[0]?.id;
     if (id === undefined) throw new Error(`${WHERE}:1: the edge of ${JSON.stringify(kindName)} between ${fromNode} and ${toNode} was declared and the store holds neither it nor its echo`);
   }
-  // The existence opinion is the producer's first statement of the edge; an edge that already stands keeps its opinion
-  // (a value opinion of the same producer is that edge's whole opinion, and a rerun writes nothing).
-  if (opinion !== undefined && created !== undefined) {
-    journal?.declaredEdge(kindName, id, fromNode, toNode, discriminator);
-    await publishEdgeOpinion(executor, contract, kindName, id, { values: {}, ...opinion }, contextId, journal);
+  // Every edge a publication makes is journaled as declared — with or without an opinion — and an edge that already
+  // stands is journaled by nothing (codex, stage 2 review, item 2). The existence opinion is the producer's first
+  // statement of the edge; an edge that already stands keeps its opinion, and a rerun writes nothing.
+  if (created !== undefined) {
+    journal?.declaredEdge(kindName, created.id, created.from_uid, created.to_uid, discriminator, contextId);
+    if (opinion !== undefined) await publishEdgeOpinion(executor, contract, kindName, created.id, { values: {}, ...opinion }, contextId, journal);
   }
-  return { id, created: created !== undefined };
+  return { id: id!, created: created !== undefined };
 }
 
 /** Declares many edges of one kind at once, with the batch the fill's history pass needs; each stands once. */
-export async function ensureEdges(executor: SqlExecutor, contract: GraphContract, kindName: string, edges: readonly { readonly from: string; readonly to: string; readonly discriminator?: string }[], contextId = 1): Promise<void> {
+export async function ensureEdges(executor: SqlExecutor, contract: GraphContract, kindName: string, edges: readonly { readonly from: string; readonly to: string; readonly discriminator?: string }[], contextId = 1, journal?: Journal): Promise<void> {
+  journal = heldJournal(executor, journal);
   if (!contract.edge.some((held) => held.name === kindName)) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kindName)} is no kind the product declares`);
   if (edges.length === 0) return;
   const entityId = await entityIdOf(executor, kindName, 'edge');
   for (let at = 0; at < edges.length; at += 500) {
     const chunk = edges.slice(at, at + 500);
-    await executor.query(
+    const made = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
       `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) SELECT $1::bigint, e.from_node, e.to_node, e.discriminator, $2::bigint
-       FROM unnest($3::bigint[], $4::bigint[], $5::text[]) AS e(from_node, to_node, discriminator) ON CONFLICT DO NOTHING`,
+       FROM unnest($3::bigint[], $4::bigint[], $5::text[]) AS e(from_node, to_node, discriminator) ON CONFLICT DO NOTHING
+       RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator`,
       [entityId, String(contextId), `{${chunk.map((one) => one.from).join(',')}}`, `{${chunk.map((one) => one.to).join(',')}}`, `{${chunk.map((one) => `"${(one.discriminator ?? '').replace(/["\\]/gu, '\\$&')}"`).join(',')}}`],
     );
+    // The batch's declarations are journaled as events of the entry the caller is building — one entry, one statement
+    // per 500 edges, and one more statement for the uids all its ends name (codex, stage 2 review, item 2).
+    if (journal !== undefined && made.rows.length > 0) {
+      const uids = await uidsOfNodes(executor, [...new Set(made.rows.flatMap((row) => [row.from_node, row.to_node]))]);
+      for (const row of made.rows) journal.declaredEdge(kindName, row.id, uids.get(row.from_node) ?? '', uids.get(row.to_node) ?? '', row.discriminator, contextId);
+      // The batch's declarations are written where the batch ends, so one bulk declaration of a whole history never
+      // makes one row of the entry (codex, stage 2 review, item 7).
+      await flushJournalIfFull(executor, journal);
+    }
   }
 }
 
@@ -455,14 +568,16 @@ export async function ensureEdges(executor: SqlExecutor, contract: GraphContract
 export async function removeEdgeById(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, journal?: Journal): Promise<boolean> {
   journal = heldJournal(executor, journal);
   const kind = edgeOfKind(contract, kindName);
-  const held = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(`SELECT id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator FROM edge WHERE id = $1::bigint`, [edgeId]);
+  const held = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string; context_id: string; from_uid: string; to_uid: string }>(
+    `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator, e.context_id::text AS context_id, fn.uid::text AS from_uid, tn.uid::text AS to_uid
+     FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint`, [edgeId]);
   const row = held.rows[0];
   if (row === undefined) return false;
-  const opinions = await executor.query<{ id: string }>(`SELECT "id"::text AS id FROM ${kind.table} WHERE edge_id = $1::bigint AND "state" = 'open'`, [edgeId]);
-  for (const one of opinions.rows) journal?.opinion({ id: one.id, edge: edgeId, state: 'closed', fields: [], lang: null });
+  const opinions = await executor.query<{ id: string; said_by: string; lang: string | null }>(`SELECT "id"::text AS id, "said_by", "lang" FROM ${kind.table} WHERE edge_id = $1::bigint AND "state" = 'open'`, [edgeId]);
+  for (const one of opinions.rows) journal?.opinion({ id: one.id, entity: kind.name, edge: edgeId, state: 'closed', fields: [], lang: one.lang, said_by: one.said_by });
   await executor.query(`DELETE FROM ${kind.table} WHERE edge_id = $1::bigint`, [edgeId]);
   await executor.query(`DELETE FROM edge WHERE id = $1::bigint`, [edgeId]);
-  journal?.removedEdge(kindName, edgeId, row.from_node, row.to_node, row.discriminator);
+  journal?.removedEdge(kindName, edgeId, row.from_uid, row.to_uid, row.discriminator, Number(row.context_id));
   return true;
 }
 
@@ -479,16 +594,21 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   const node = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
   const nodeId = node.rows[0]?.id;
   if (nodeId === undefined) return false;
-  const closed = await executor.query<{ id: string }>(
-    `UPDATE ${vertex.table} SET "state" = 'closed' WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id`,
+  const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
+    `UPDATE ${vertex.table} SET "state" = 'closed' WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
     [nodeId, draft.producer, String(contextId)],
   );
-  for (const row of closed.rows) journal?.opinion({ id: row.id, node: uid, state: 'closed', fields: [], lang: null });
-  journal?.removedVertex(vertex.name, uid, nodeId);
+  // A withdrawal that withdrew nothing states nothing: no close, and no removal of a vertex that stands (codex, stage 2
+  // review, item 4). A repeated ineffective withdrawal is not a change and writes no row.
+  if (closed.rows.length === 0) return false;
+  for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
   const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" = 'open' AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
   const removed = Number(open.rows[0]?.n ?? '0') === 0;
+  // The vertex is journaled as removed only where no open opinion of any producer remains: a producer that withdraws
+  // while another's opinion stands closed its own opinion and removed nothing.
+  if (removed) journal?.removedVertex(vertex.name, uid, nodeId);
   await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, removed]);
-  return closed.rows.length > 0 || removed;
+  return true;
 }
 
 /** What a key or an edge end names and no vertex holds, recorded for the consistency check. */
@@ -565,6 +685,16 @@ export interface GraphDrafts {
   readonly removals: readonly VertexRemovalDraft[];
 }
 
+/** The producer an entry's author falls back to: the first draft's producer, whichever kind of draft it is. */
+function producerOf(drafts: GraphDrafts): string | undefined {
+  const vertex = drafts.vertices[0];
+  if (vertex !== undefined) return `${vertex.producer}@${vertex.producerVersion}`;
+  const edge = (drafts.edges ?? [])[0];
+  if (edge !== undefined) return `${edge.producer}@${edge.producerVersion}`;
+  const removal = drafts.removals[0];
+  return removal === undefined ? undefined : removal.producer;
+}
+
 /** A declaration's node, and where each vertex's key names its references. */
 interface Declared {
   readonly draft: VertexDraft;
@@ -580,11 +710,16 @@ interface Declared {
 export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[] } = {}): Promise<number> {
   let written = 0;
   // The entry's author is the publication's: a plugin and its version, a record pass's producer, or the agent or a person
-  // for an operation; without one the drafts' own producers name it.
-  const author = options.author ?? (drafts.vertices[0] === undefined ? '' : `${drafts.vertices[0].producer}@${drafts.vertices[0].producerVersion}`);
-  const journal = author === '' ? undefined : journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...(options.session === undefined ? {} : { session: options.session }) });
-  if (journal !== undefined) journalOn(executor, journal);
-  for (const read of options.reads ?? []) journal?.read(read.method, read.size);
+  // for an operation; without one named, the drafts' own producers name it — a removal-only or edge-only publication
+  // included. A publication with no author at all is refused: every change stands in the journal (A5; codex, stage 2
+  // review, item 1).
+  const author = options.author ?? producerOf(drafts);
+  if (author === undefined || author === '') {
+    throw new Error(`${WHERE}:1: a publication names its author — a producer and its version, "agent", or "person:<uid>" — and this one states a change with none: every change stands in the journal`);
+  }
+  const journal = journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...(options.session === undefined ? {} : { session: options.session }) });
+  journalOn(executor, journal);
+  for (const record of options.reads ?? []) journal.read(record);
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
   for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
   const declared: Declared[] = [];
@@ -627,6 +762,6 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
     );
   }
   for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);
-  if (journal !== undefined) await writeJournal(executor, journal);
+  await writeJournal(executor, journal);
   return written;
 }

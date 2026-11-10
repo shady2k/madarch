@@ -124,14 +124,17 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     // One journal entry for the plugin's turn, authored by the plugin and its version, naming the term vertices it
     // declared, the opinions it opened and the requests it made (the debug setting is on).
     const storeOwner = await createTestDatabaseOwner({ store: join(productStoreFolder(folder, join(work, 'store')), 'graph'), btreeGist: true });
-    const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number }[] } }>('SELECT author, change FROM operation ORDER BY at, author'));
+    const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number; outcome?: string }[] } }>('SELECT author, change FROM operation ORDER BY at, author'));
     await storeOwner.close();
     const plugin = journal.rows.filter((one) => one.author === 'glossary@1.0.0');
     expect(plugin).toHaveLength(1);
     expect(plugin[0]?.change.vertices.map((one) => one.entity)).toEqual(['doc.term', 'doc.term']);
     expect(plugin[0]?.change.opinions.every((one) => one.state === 'opened')).toBe(true);
-    expect(plugin[0]?.change.reads?.map((one) => one.method)).toEqual(['graph.files', 'graph.value']);
-    expect(plugin[0]?.change.reads?.every((one) => one.size > 0)).toBe(true);
+    // Every request the plugin made is recorded where the host received it — its introduction too — with what came of
+    // it and the size of its answer, never an argument or a text.
+    expect(plugin[0]?.change.reads?.map((one) => one.method)).toEqual(['introduce', 'graph.files', 'graph.value']);
+    expect(plugin[0]?.change.reads?.map((one) => one.outcome)).toEqual(['answered', 'answered', 'answered']);
+    expect(plugin[0]?.change.reads?.slice(1).every((one) => one.size > 0)).toBe(true);
   }, 300_000);
 
   test('an edited definition is the one the next fill shows, and the old value stays a claim of its own', async () => {

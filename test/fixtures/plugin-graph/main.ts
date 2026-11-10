@@ -3,7 +3,7 @@
  * snapshot anyway, which is what the host's refusal is held against (decision 0035, item 9: a plugin reads the source
  * only when it was given it, and the files producer alone is).
  */
-import { definePlugin, type Unit, type UnitResult } from 'madarch-plugin-sdk';
+import { definePlugin, type ExtractContext, type Unit, type UnitResult } from 'madarch-plugin-sdk';
 import { readFileSync } from 'node:fs';
 
 /** Runs one read and answers how it ended: what was read, or the refusal's code. */
@@ -24,13 +24,17 @@ await definePlugin({
     vertices: [{ kind: 'probe', key: ['id'], fields: [] }],
     edges: [],
   },
-  async extract(unit: Unit): Promise<UnitResult> {
+  async extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
     const behavior = String(unit.key['behavior'] ?? 'read-repo');
     if (behavior === 'read-repo') return attempt('read-repo', () => readFileSync('/repo/plugin.json', 'utf8'));
     if (behavior === 'read-graph') {
-      const files: { kind: string; key: Record<string, string | number> }[] = [];
-      void files;
-      return { end: { state: 'complete' } };
+      // The one request the host's debug journal is held against: a read the plugin declared, answered or refused.
+      try {
+        const files = await context.graph.files('**/*.md');
+        return { end: { state: 'partial', cause: `read-graph: ${String(files.length)} files` } };
+      } catch (error) {
+        return { end: { state: 'partial', cause: `read-graph: refused (${(error as Error).message.slice(0, 80)})` } };
+      }
     }
     return { end: { state: 'partial', cause: `unknown behaviour ${behavior}` } };
   },
