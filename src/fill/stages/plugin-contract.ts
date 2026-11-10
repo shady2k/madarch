@@ -4,12 +4,13 @@
  * names its producer — a plugin field (`glossary@1.definition`) or the agent with
  * a description — and the kind's fields and key build the kind's table. No code
  * per kind: the engine reads the declarations, the plugin's own contract supplies
- * each bound field's type and whether it is authoritative, and the key fields are
- * columns because a key is authoritative.
+ * each bound field's type, and the key fields name the entity.
  *
- * A claimed field has no column (0034, item 7): its producers write claims with
- * their evidence. A kind no declaration fills — a document kind whose entities
- * only the agent writes — is no part of this contract, and no table stands for it.
+ * Every field of the kind is a column of its opinion table (A3 of the 2026-11-10
+ * amendment), its key fields among the declarations but not among the columns: the
+ * key stands once in the vertex (`node.key`). A kind no declaration fills — a
+ * document kind whose entities only the agent writes — is no part of this
+ * contract, and no table stands for it.
  */
 import { generatedTableName, type DictionaryContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedKindRead } from '../../knowledge/graph-read.js';
@@ -19,26 +20,28 @@ import { gitContractOf } from './git-contract.js';
 /** The path dictionary the one graph interns evidence paths in: the same declaration the git contract carries. */
 const PATH_DICTIONARY: DictionaryContract = { name: 'path', fields: [{ name: 'text', type: 'text' }], key: ['text'] };
 
-/** The field's type and role as its declared producer states them, or its own declaration for an agent field. */
-function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; claim: 'authoritative' | 'claimed' } | undefined {
+/** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
+function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
   const binding = field.binding;
   if (binding === undefined) return undefined;
-  if (binding.kind === 'agent') return { type: field.type, claim: field.role ?? 'claimed' };
+  if (binding.kind === 'agent') return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
   const plugin = manifest.plugins?.get(binding.plugin);
   const declared = plugin?.contract?.vertices.find((vertex) => vertex.kind === kind.name)?.fields.find((one) => one.name === binding.field);
   if (declared === undefined) return undefined;
-  return { type: declared.type, claim: declared.claim };
+  return { type: declared.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
 }
 
 /**
  * The vertex tables a manifest's own declarations make: one for every kind whose
- * fields name a producer, with its key fields and its authoritative fields as
- * columns, and the path dictionary its evidence paths are interned in.
+ * fields name a producer, with every bound field as a column of its opinion table,
+ * and the path dictionary its evidence paths are interned in.
  */
 export function manifestContractOf(manifest: KindsManifest): GraphContract {
   const vertex: VertexContract[] = [];
   for (const kind of manifest.kinds.values()) {
-    if (kind.fields === undefined || kind.key === undefined || kind.key.length === 0) continue;
+    // A kind with no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
+    if (kind.fields === undefined) continue;
+    const keyFields = kind.key ?? [];
     const fields: FieldContract[] = [];
     let bound = false;
     let capability = '';
@@ -47,40 +50,40 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
       if (held === undefined) continue;
       bound = true;
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
-      const isKey = kind.key.includes(field.name);
-      // A key field is a column whatever a plugin says; so is every authoritative field.
-      if (isKey && held.claim !== 'authoritative') continue;
-      if (held.claim !== 'authoritative') continue;
-      fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}) });
+      fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
     }
-    // A kind whose key has no column makes no table: the unique index of a table stands on its key.
-    if (!bound || fields.length === 0 || !kind.key.every((field) => fields.some((held) => held.name === field))) continue;
-    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: kind.key, capability: capability === '' ? 'agent' : capability });
+    // A kind whose key has no declaration makes no table: a producer must be able to name the entity it writes about.
+    if (!bound || !keyFields.every((field) => fields.some((held) => held.name === field))) continue;
+    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
   if (vertex.length === 0) return { vertex: [], edge: [], dictionary: [] };
   return { vertex, edge: [], dictionary: [PATH_DICTIONARY] };
 }
 
 /**
- * The manifest-declared kinds a reader reads, with the table each declaration made: the columns, the types they are
- * stored as and the natural key. This is the whole of what a reader needs to answer one of these kinds' vertices, and
- * no kind's name stands in it.
+ * The manifest-declared kinds a reader reads, with the table each declaration made: the columns its opinions state,
+ * the types they are stored as and the natural key. This is the whole of what a reader needs to answer one of these
+ * kinds' vertices, and no kind's name stands in it.
  */
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
   for (const kind of manifest.kinds.values()) {
-    if (kind.fields === undefined || kind.key === undefined || kind.key.length === 0) continue;
+    if (kind.fields === undefined) continue;
+    const keyFields = kind.key ?? [];
     const columns: string[] = [];
     const types: Record<string, GeneratedKindRead['types'][string]> = {};
+    const bound = new Set<string>();
     for (const field of kind.fields) {
       const held = resolved(field, kind, manifest);
-      if (held === undefined || held.claim !== 'authoritative') continue;
+      if (held === undefined) continue;
+      bound.add(field.name);
+      if (keyFields.includes(field.name)) continue;
       columns.push(field.name);
       types[field.name] = held.type;
     }
-    // A kind whose key has no column has no table a reader can answer from.
-    if (columns.length === 0 || !kind.key.every((field) => columns.includes(field))) continue;
-    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: kind.key });
+    // A kind no declaration fills, or whose key no producer names, has no table a reader can answer from.
+    if (bound.size === 0 || !keyFields.every((field) => bound.has(field))) continue;
+    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields });
   }
   return reads;
 }

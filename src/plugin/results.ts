@@ -58,7 +58,7 @@ function edgeKind(contract: PluginContractDeclaration, kind: string): PluginEdge
 
 /** The key fields a declared vertex kind holds, in code point order. */
 function declaredKeyFields(declaration: PluginVertexKindDeclaration): string[] {
-  return [...declaration.key].sort(byCodePoint);
+  return [...(declaration.key ?? [])].sort(byCodePoint);
 }
 
 /** Whether a key's fields are exactly the declared ones, in whatever order the plugin wrote them. */
@@ -67,14 +67,9 @@ function keyConforms(key: PluginKeyValues, fields: readonly string[]): boolean {
   return held.length === fields.length && held.every((field, at) => field === fields[at]);
 }
 
-/** The authoritative field names a declared kind writes as columns. */
-function authoritativeFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDeclaration): string[] {
-  return (declaration.fields ?? []).filter((field) => field.claim === 'authoritative').map((field) => field.name);
-}
-
-/** The claimed field names a declared kind writes as claims. */
-function claimedFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDeclaration): string[] {
-  return (declaration.fields ?? []).filter((field) => field.claim === 'claimed').map((field) => field.name);
+/** The field names a declared kind states. */
+function declaredFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDeclaration): string[] {
+  return (declaration.fields ?? []).map((field) => field.name);
 }
 
 /** A refusal with its place written into the sentence. */
@@ -82,18 +77,12 @@ function refuse(code: string, where: string, message: string): ResultCheck {
   return { ok: false, refusal: { code, where, message: `${where}: ${message}` } };
 }
 
-/** One vertex's attributes and claims, held against its kind's fields. */
-function checkFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDeclaration, value: { attributes?: Readonly<Record<string, unknown>>; claims?: readonly { field: string }[] }, where: string): ResultCheck | undefined {
-  const authoritative = authoritativeFields(declaration);
-  const claimed = claimedFields(declaration);
-  for (const field of Object.keys(value.attributes ?? {})) {
-    if (!authoritative.includes(field)) {
-      return refuse('undeclared-field', `${where}.attributes.${field}`, `the kind "${declaration.kind}" declares no authoritative field "${field}"; its authoritative fields are ${authoritative.length === 0 ? 'none' : authoritative.join(', ')}`);
-    }
-  }
-  for (const [at, claim] of (value.claims ?? []).entries()) {
-    if (!claimed.includes(claim.field)) {
-      return refuse('undeclared-field', `${where}.claims[${String(at)}].field`, `the kind "${declaration.kind}" declares no claimed field "${claim.field}"; its claimed fields are ${claimed.length === 0 ? 'none' : claimed.join(', ')}`);
+/** One entity's field values, held against its kind's fields: every value belongs to a field the kind declares. */
+function checkFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDeclaration, value: { values?: Readonly<Record<string, unknown>> }, where: string): ResultCheck | undefined {
+  const declared = declaredFields(declaration);
+  for (const field of Object.keys(value.values ?? {})) {
+    if (!declared.includes(field)) {
+      return refuse('undeclared-field', `${where}.values.${field}`, `the kind "${declaration.kind}" declares no field "${field}"; its fields are ${declared.length === 0 ? 'none' : declared.join(', ')}`);
     }
   }
   return undefined;
@@ -101,7 +90,7 @@ function checkFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDe
 
 /**
  * One unit's answer, held against the plugin's introduction: every kind, key
- * field, attribute and edge kind must be one the plugin declared, nothing may
+ * field, value and edge kind must be one the plugin declared, nothing may
  * be written twice in one answer, and a partial unit's removals are dropped.
  * The answer comes back in code point order of its kinds and keys, so two
  * runs of the same plugin answer the same bytes.
@@ -116,13 +105,13 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
       return refuse('undeclared-kind', `${where}.kind`, `the plugin declares no vertex kind "${vertex.kind}"; it declares ${contract.vertices.length === 0 ? 'none' : contract.vertices.map((declared) => declared.kind).join(', ')}`);
     }
     const fields = declaredKeyFields(declaration);
-    if (!keyConforms(vertex.key, fields)) {
+    if (!keyConforms(vertex.key ?? {}, fields)) {
       return refuse('undeclared-key-field', `${where}.key`, `the kind "${vertex.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(vertex.key).sort(byCodePoint).join(', ')}`);
     }
     const fieldProblem = checkFields(declaration, vertex, where);
     if (fieldProblem !== undefined) return fieldProblem;
-    const identity = `${vertex.kind}\u0000${canonicalKey(vertex.key)}`;
-    if (seenVertices.has(identity)) return refuse('duplicate-vertex', where, `the kind "${vertex.kind}" with key ${canonicalKey(vertex.key)} stands twice in one answer`);
+    const identity = `${vertex.kind}\u0000${canonicalKey(vertex.key ?? {})}`;
+    if (seenVertices.has(identity)) return refuse('duplicate-vertex', where, `the kind "${vertex.kind}" with key ${canonicalKey(vertex.key ?? {})} stands twice in one answer`);
     seenVertices.add(identity);
     vertices.push(vertex);
   }
@@ -141,7 +130,7 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
       }
       const endDeclaration = vertexKind(contract, named.kind)!;
       const fields = declaredKeyFields(endDeclaration);
-      if (!keyConforms(named.key, fields)) {
+      if (!keyConforms(named.key ?? {}, fields)) {
         return refuse('undeclared-key-field', `${where}.${end}.key`, `the kind "${named.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(named.key).sort(byCodePoint).join(', ')}`);
       }
     }
@@ -160,14 +149,14 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     if (vertexKind(contract, removal.kind) === undefined) {
       return refuse('undeclared-kind', `${where}.kind`, `the plugin declares no vertex kind "${removal.kind}"`);
     }
-    const identity = `${removal.kind}\u0000${canonicalKey(removal.key)}`;
+    const identity = `${removal.kind}\u0000${canonicalKey(removal.key ?? {})}`;
     if (seenRemovals.has(identity)) return refuse('duplicate-removal', where, `the kind "${removal.kind}" with key ${canonicalKey(removal.key)} is removed twice in one answer`);
     seenRemovals.add(identity);
     removals.push(removal);
   }
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key), canonicalKey(right.key)));
   edges.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.from.key), canonicalKey(right.from.key)) || byCodePoint(canonicalKey(left.to.key), canonicalKey(right.to.key)) || byCodePoint(left.discriminator ?? '', right.discriminator ?? ''));
-  removals.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key), canonicalKey(right.key)));
+  removals.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key ?? {}), canonicalKey(right.key ?? {})));
   return {
     ok: true,
     unit: {

@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { dependencyRuleViolations } from './dependency-rules.js';
 import { fillEntryViolations } from './fill-entry.js';
+import { graphWriteViolations } from './graph-writes.js';
 import { unreachableViolations } from './reachability.js';
 import { moduleSet, repositoryRoot } from './sources.js';
 import {
@@ -67,6 +68,7 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
     found.push(...(await dependencyRuleViolations(root, rules, modules)));
   }
   if (rules.includes('one-fill-entry')) found.push(...fillEntryViolations(root));
+  if (rules.includes('graph-writes-in-writer')) found.push(...graphWriteViolations(root));
   if (rules.includes('no-unreachable-code')) found.push(...(await unreachableViolations(root)));
   const located = orderedViolations(found);
   if (!existsSync(listPath)) {
@@ -170,6 +172,8 @@ function describe(violation: ArchitectureViolation): string {
   switch (violation.rule) {
     case 'graph-single-writer':
       return `${violation.file} imports the graph's publication API ${violation.symbol}, which only the graph store (src/graph) and the storage layer (src/adapters) may import — every other module drafts and has its draft published`;
+    case 'graph-writes-in-writer':
+      return `${violation.file} writes the graph table ${violation.symbol ?? 'row'} itself, and the one writer of the graph is src/graph/write.ts: a module drafts and has its draft published`;
     case 'no-retired-surfaces':
       return `${violation.file} imports ${violation.symbol}, which is a retired surface (src/extract, src/history or src/query): the work that replaced it is the fill's record passes`;
     case 'sql-only-in-storage-layer':

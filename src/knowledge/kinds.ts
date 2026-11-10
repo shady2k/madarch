@@ -108,17 +108,15 @@ export interface FieldDecl {
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   readonly nullable?: boolean;
-  /** Whether the field is authoritative (one producer, a column) or claimed (many producers, claims only). */
-  readonly role?: 'authoritative' | 'claimed';
-  /** The producers the manifest names for the field; an authoritative field names exactly one. */
+  /** The producers the manifest names for the field; a field with no binding names at least one. */
   readonly producers?: readonly string[];
   /** The kind a reference field names; a reference field may stand in the natural key. */
   readonly reference?: string;
   /**
    * The producer the manifest binds the field to (decision 0035, item 17). A
-   * field with a binding takes its type and its role from the plugin's own
-   * declaration when it names one, so the manifest and the plugin cannot
-   * disagree without the check saying so.
+   * field with a binding takes its type from the plugin's own declaration when
+   * it names one, so the manifest and the plugin cannot disagree without the
+   * check saying so.
    */
   readonly binding?: FieldBinding;
   /** The line the field stands at, for a finding the whole contract's check makes. */
@@ -128,7 +126,6 @@ export interface FieldDecl {
 /** One field a plugin declares for one of its output kinds (decision 0035, item 18). */
 export interface PluginFieldDecl {
   readonly name: string;
-  readonly claim: 'authoritative' | 'claimed';
   readonly type: FieldDecl['type'];
   readonly meaning: string;
   readonly example: unknown;
@@ -449,6 +446,8 @@ export interface KindsManifest {
   roles: ReadonlyMap<string, RoleDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
+  /** `journal:` — whether the journal keeps every request a plugin makes, its reads included (off unless it is said). */
+  journal?: { readonly debug: boolean };
   /** The renderer the diagrams open on (`diagram:` at the top of the manifest: likec4, mermaid or archify); absent means the environment's, else LikeC4. */
   diagram?: string;
   /** The reader-facing labels and value formats of the properties the kinds show. */
@@ -874,12 +873,11 @@ function readPluginContract(productFolder: string, id: string, path: string, man
       if (seen.has(field.name)) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} declares the field ${JSON.stringify(field.name)} twice` });
       seen.add(field.name);
     }
-    for (const keyField of vertex.key) {
+    for (const keyField of vertex.key ?? []) {
       const declared = fields.find((field) => field.name === keyField);
       if (declared === undefined) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which its fields do not declare` });
-      else if (declared.claim !== 'authoritative') findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which the contract declares ${declared.claim}: a key field is authoritative` });
     }
-    vertices.push({ kind: vertex.kind, key: vertex.key, fields });
+    vertices.push({ kind: vertex.kind, key: vertex.key ?? [], fields });
   }
   return { id, version: contract.version, vertices, file };
 }
@@ -914,7 +912,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -1335,18 +1333,19 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
     const parseFields = (raw: unknown, field: string): FieldDecl[] => {
       if (raw === undefined) return [];
-      if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, role?, producers?, reference?, binding? }`); return []; }
+      if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, producers?, reference?, binding? }`); return []; }
       const out: FieldDecl[] = [];
       raw.forEach((entry: unknown, index) => {
         const body = entry as Record<string, unknown> | null;
         if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['name'] !== 'string' || !/^[a-z][a-z0-9_]*$/.test(body['name']) || typeof body['type'] !== 'string' || !fieldTypes.has(body['type'])) {
-          problem([field, index], 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true, role?: authoritative|claimed, producers?: [<producer>], reference?: <kind>, binding?: "<plugin>@<major>.<field>" | { agent: <description> } }');
+          problem([field, index], 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true, producers?: [<producer>], reference?: <kind>, binding?: "<plugin>@<major>.<field>" | { agent: <description> } }');
           return;
         }
-        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'role' && key !== 'producers' && key !== 'reference' && key !== 'binding');
-        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, role, producers, reference and binding`); return; }
-        const role = body['role'];
-        if (role !== undefined && role !== 'authoritative' && role !== 'claimed') { problem([field, index, 'role'], '"role" is "authoritative" or "claimed"'); return; }
+        // Nothing is authoritative and nothing is claimed: the word "role" left the manifest's field language, and a
+        // manifest that still says it is refused where it says it.
+        if (body['role'] !== undefined) { problem([field, index, 'role'], '"role" is gone: no field is authoritative and none is claimed — every value a producer states is an opinion'); return; }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding');
+        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, producers, reference and binding`); return; }
         const producers = body['producers'];
         if (producers !== undefined && (!Array.isArray(producers) || producers.length === 0 || producers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) {
           problem([field, index, 'producers'], '"producers" is a list of producer names, each a lower-case identifier'); return;
@@ -1359,7 +1358,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           name: body['name'],
           type: body['type'] as FieldDecl['type'],
           ...(body['nullable'] === true ? { nullable: true } : {}),
-          ...(role === 'authoritative' || role === 'claimed' ? { role } : {}),
           ...(producers === undefined ? {} : { producers: producers as string[] }),
           ...(reference === undefined ? {} : { reference }),
           ...(binding === undefined ? {} : { binding }),
@@ -1499,15 +1497,14 @@ export function parseKinds(text: string, file: string, productFolder: string): K
             findings.push({ file, line: at(['edges', index, 'fields', fieldAt]), message: 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true }' });
             return;
           }
-          const fieldExtra = Object.keys(field).filter((key) => !['name', 'type', 'nullable', 'role', 'producers', 'reference'].includes(key));
-          if (fieldExtra.length > 0) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, fieldExtra[0]!]), message: `"${fieldExtra[0]}" is not a field of a field: the fields are name, type, nullable, role, producers and reference` }); return; }
-          const fieldRole = field['role'];
+          if (field['role'] !== undefined) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'role']), message: '"role" is gone: no field is authoritative and none is claimed — every value a producer states is an opinion' }); return; }
+          const fieldExtra = Object.keys(field).filter((key) => !['name', 'type', 'nullable', 'producers', 'reference'].includes(key));
+          if (fieldExtra.length > 0) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, fieldExtra[0]!]), message: `"${fieldExtra[0]}" is not a field of a field: the fields are name, type, nullable, producers and reference` }); return; }
           const fieldProducers = field['producers'];
-          if (fieldRole !== undefined && fieldRole !== 'authoritative' && fieldRole !== 'claimed') { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'role']), message: '"role" is "authoritative" or "claimed"' }); return; }
           if (fieldProducers !== undefined && (!Array.isArray(fieldProducers) || fieldProducers.length === 0 || fieldProducers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'producers']), message: '"producers" is a list of producer names, each a lower-case identifier' }); return; }
           const fieldReference = field['reference'];
           if (fieldReference !== undefined && (typeof fieldReference !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(fieldReference))) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'reference']), message: '"reference" names a kind of the manifest' }); return; }
-          fields.push({ name: field['name'], type: field['type'] as FieldDecl['type'], ...(field['nullable'] === true ? { nullable: true } : {}), ...(fieldRole === 'authoritative' || fieldRole === 'claimed' ? { role: fieldRole } : {}), ...(fieldProducers === undefined ? {} : { producers: fieldProducers as string[] }), ...(fieldReference === undefined ? {} : { reference: fieldReference }), line: at(['edges', index, 'fields', fieldAt]) });
+          fields.push({ name: field['name'], type: field['type'] as FieldDecl['type'], ...(field['nullable'] === true ? { nullable: true } : {}), ...(fieldProducers === undefined ? {} : { producers: fieldProducers as string[] }), ...(fieldReference === undefined ? {} : { reference: fieldReference }), line: at(['edges', index, 'fields', fieldAt]) });
         }
       }
       const repeats = body['repeats'] === true;
@@ -1586,7 +1583,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         continue;
       }
       if (declared.type !== field.type) findings.push({ file, line, message: `kind "${name}": field "${field.name}" is ${field.type}, and the plugin's field ${binding.plugin}@${binding.major}.${binding.field} is ${declared.type}: a manifest field takes the type its plugin declares` });
-      if (field.role !== undefined && field.role !== declared.claim) findings.push({ file, line, message: `kind "${name}": field "${field.name}" is ${field.role}, and the plugin's field ${binding.plugin}@${binding.major}.${binding.field} is ${declared.claim}` });
       const held = byPlugin.get(binding.plugin);
       if (held === undefined) byPlugin.set(binding.plugin, { plugin, output, fields: [field] });
       else held.fields.push(field);
@@ -1604,18 +1600,18 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           findings.push({ file, line: kind.line, message: `kind "${name}": the plugin "${id}" requires the field "${required.name}" (${required.meaning}), and the manifest binds none: add { name: ${required.name}, type: ${required.type}, binding: "${id}@${entry.plugin.version}.${required.name}" }` });
         }
       }
-      // A key field is authoritative, so it is a column: it must be one of the plugin's fields.
+      // A key field is the vertex's, so the manifest must name a producer for it.
       for (const keyField of kind.key) {
         const bound = entry.fields.find((field) => field.name === keyField);
         const declared = entry.output.fields.find((one) => one.name === keyField);
-        if (bound === undefined || declared === undefined || declared.claim !== 'authoritative') {
-          findings.push({ file, line: kind.line, message: `kind "${name}": key field "${keyField}" must be an authoritative field the plugin "${id}" writes, and ${bound === undefined ? 'the manifest binds it to no plugin field' : `the plugin's field is ${declared?.claim ?? 'not declared'}`}` });
+        if (bound === undefined || declared === undefined) {
+          findings.push({ file, line: kind.line, message: `kind "${name}": key field "${keyField}" must be a field the plugin "${id}" writes, and ${bound === undefined ? 'the manifest binds it to no plugin field' : 'the plugin declares no such field'}` });
         }
       }
     }
   }
-  // The contract's preflight (decision 0035, items 2 and 11): every field has a producer, an authoritative field has
-  // one, a key field is authoritative, the dependency graph is acyclic and declared, and a plugin reads only what the
+  // The contract's preflight (decision 0035, items 2 and 11): every field has a producer, no field states a role (none is
+  // authoritative), the dependency graph is acyclic and declared, and a plugin reads only what the
   // closure of its earliest output kind holds. No fill starts while any finding stands.
   const dependencies = new Map<string, readonly string[]>();
   for (const [name, kind] of kinds) dependencies.set(name, kind.dependsOn ?? []);
@@ -1642,11 +1638,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const line = field.line ?? ownerLine;
     const what = edge ? 'edge kind' : 'kind';
     const producers = field.producers ?? [];
-    // A field with a binding names its producer there: the plugin's own declaration says whether it is authoritative.
+    // A field with a binding names its producer there, and the plugin's own declaration states its type.
     if (field.binding === undefined) {
       if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
-      if (field.role === undefined) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" states whether it is authoritative or claimed` });
-      if (field.role === 'authoritative' && producers.length > 1) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" is authoritative and names ${String(producers.length)} producers: an authoritative field has one producer` });
     } else if (producers.length > 0) {
       findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names its producer twice, as a binding and as producers: a field names one` });
     }
@@ -1658,10 +1652,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       if (seen.has(field.name)) findings.push({ file, line: field.line ?? kind.line, message: `kind "${name}": field "${field.name}" stands once` });
       seen.add(field.name);
       checkField(name, field, kind.line, false);
-    }
-    for (const keyField of kind.key ?? []) {
-      const field = (kind.fields ?? []).find((one) => one.name === keyField);
-      if (field?.role === 'claimed') findings.push({ file, line: field.line ?? kind.line, message: `kind "${name}": key field "${keyField}" is claimed: a key field is authoritative` });
     }
   }
   for (const [name, edge] of edges) for (const field of edge.fields) checkField(name, field, edge.line, true);
@@ -1675,7 +1665,21 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const closure = closureOf(earliest);
     for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });
   }
-  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  // `journal: { debug: true }` keeps every request a plugin makes, its reads included, in the journal; off by default,
+  // and a plugin never logs itself.
+  let journal: { debug: boolean } | undefined;
+  const rawJournal = top['journal'];
+  if (rawJournal !== undefined) {
+    if (rawJournal === null || typeof rawJournal !== 'object' || Array.isArray(rawJournal)) {
+      findings.push({ file, line: at(['journal']), message: '"journal" is { debug: true|false }: whether the journal keeps every request a plugin makes, its reads included' });
+    } else {
+      for (const key of Object.keys(rawJournal)) if (key !== 'debug') findings.push({ file, line: at(['journal', key]), message: `"journal" holds only "debug", and "${key}" is not one` });
+      const debug = (rawJournal as Record<string, unknown>)['debug'];
+      if (debug !== undefined && typeof debug !== 'boolean') findings.push({ file, line: at(['journal', 'debug']), message: '"journal" "debug" is true or false' });
+      if (debug === true) journal = { debug: true };
+    }
+  }
+  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**

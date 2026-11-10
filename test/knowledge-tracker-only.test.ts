@@ -98,7 +98,7 @@ describe('a product that is only a tracker', () => {
       for (const absent of ['repository', 'directory', 'file', 'gitlink', 'commit', 'signature', 'blob', 'path', 'language', 'touched', 'history', 'parent_position', 'authored', 'lifecycle', 'responsibility', 'work_span']) {
         expect({ table: absent, present: names.includes(absent) }).toEqual({ table: absent, present: false });
       }
-      for (const present of ['kind', 'node', 'edge', 'claim', 'evidence', 'context', 'layer_entry', 'operation', 'gap']) {
+      for (const present of ['entity', 'node', 'edge', 'context', 'layer_entry', 'operation', 'gap']) {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 

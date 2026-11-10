@@ -39,7 +39,7 @@ process.on('beforeExit', () => { for (const root of roots) rmSync(root, { recurs
 /** The contract the probe fixture declares: one vertex kind, one edge kind. */
 const CONTRACT: PluginContractDeclaration = {
   vertices: [
-    { kind: 'probe', key: ['id'], fields: [{ name: 'size', claim: 'authoritative', type: 'integer', meaning: 'the size', example: 1, required: false }, { name: 'language', claim: 'claimed', type: 'text', meaning: 'the language', example: 'ts', required: false }] },
+    { kind: 'probe', key: ['id'], fields: [{ name: 'size', type: 'integer', meaning: 'the size', example: 1, required: false }, { name: 'language', type: 'text', meaning: 'the language', example: 'ts', required: false }] },
     { kind: 'other', key: ['name'] },
   ],
   edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
@@ -49,7 +49,7 @@ const CONTRACT: PluginContractDeclaration = {
 function answer(overrides: Record<string, unknown> = {}): Parameters<typeof validateUnitResult>[1] {
   return {
     unitId: 'u1',
-    vertices: [{ kind: 'probe', key: { id: 'one' }, attributes: { size: 1 }, claims: [{ field: 'language', value: 'ts' }] }],
+    vertices: [{ kind: 'probe', key: { id: 'one' }, values: { size: 1, language: 'ts' } }],
     edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: 'one' } }, to: { kind: 'probe', key: { id: 'two' } }, discriminator: '' }],
     removals: [{ kind: 'probe', key: { id: 'gone' } }],
     end: { state: 'complete' },
@@ -70,7 +70,7 @@ describe('the published schema is the module render', () => {
       id: 'introduce',
       method: 'introduce',
       params: {
-        protocol: 'madarch.plugins/1',
+        protocol: 'madarch.plugins/2',
         name: 'plugin-probe',
         version: '1.0.0',
         rights: { network: 'none' },
@@ -84,7 +84,7 @@ describe('the published schema is the module render', () => {
 
   test('a message that names another protocol version does not validate', () => {
     const file = JSON.parse(readFileSync(fileURLToPath(new URL('../schema/plugin-protocol.schema.json', import.meta.url)), 'utf8')) as never;
-    const wrong = { jsonrpc: '2.0', id: 1, method: 'introduce', params: { protocol: 'madarch.plugins/2', name: 'x', version: '1', rights: { network: 'none' }, outputs: { vertices: [], edges: [] } } };
+    const wrong = { jsonrpc: '2.0', id: 1, method: 'introduce', params: { protocol: 'madarch.plugins/1', name: 'x', version: '1', rights: { network: 'none' }, outputs: { vertices: [], edges: [] } } };
     expect(Value.Check(file, wrong)).toBe(false);
   });
 });
@@ -115,24 +115,24 @@ describe('results are held to the plugin declaration', () => {
     expect(checked.refusal.message).toContain('probe');
   });
 
-  test('an undeclared field is refused, and a claimed field written as an attribute is one', () => {
-    const attributes = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { id: 'x' }, attributes: { language: 'ts' } }] }));
-    expect(attributes.ok).toBe(false);
-    if (!attributes.ok) {
-      expect(attributes.refusal.code).toBe('undeclared-field');
-      expect(attributes.refusal.where).toBe('vertices[0].attributes.language');
+  test('an undeclared field is refused, and every declared field is a value alike', () => {
+    const undeclared = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { id: 'x' }, values: { weight: 2 } }] }));
+    expect(undeclared.ok).toBe(false);
+    if (!undeclared.ok) {
+      expect(undeclared.refusal.code).toBe('undeclared-field');
+      expect(undeclared.refusal.where).toBe('vertices[0].values.weight');
     }
-    const claims = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { id: 'x' }, claims: [{ field: 'size', value: 1 }] }] }));
-    expect(claims.ok).toBe(false);
-    if (!claims.ok) expect(claims.refusal.where).toBe('vertices[0].claims[0].field');
+    // No field is authoritative: both declared fields are stated the same way, in one list of values.
+    const declared = validateUnitResult(CONTRACT, answer({ vertices: [{ kind: 'probe', key: { id: 'x' }, values: { size: 1, language: 'ts' } }] }));
+    expect(declared.ok).toBe(true);
   });
 
-  test('an edge attribute its kind does not declare is refused', () => {
-    const checked = validateUnitResult(CONTRACT, answer({ edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: 'a' } }, to: { kind: 'probe', key: { id: 'b' } }, discriminator: '', attributes: { weight: 2 } }] }));
+  test('an edge value its kind does not declare is refused', () => {
+    const checked = validateUnitResult(CONTRACT, answer({ edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: 'a' } }, to: { kind: 'probe', key: { id: 'b' } }, discriminator: '', values: { weight: 2 } }] }));
     expect(checked.ok).toBe(false);
     if (!checked.ok) {
       expect(checked.refusal.code).toBe('undeclared-field');
-      expect(checked.refusal.where).toBe('edges[0].attributes.weight');
+      expect(checked.refusal.where).toBe('edges[0].values.weight');
     }
   });
 

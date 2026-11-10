@@ -68,6 +68,8 @@ export interface TraceRun {
   buffer: string[];
   lines: number;
   closed: boolean;
+  /** The pending batch flush, so a burst of spans costs one write rather than one per span (see `pushLine`). */
+  flushSoon?: ReturnType<typeof setTimeout>;
 }
 
 /** The run a piece of work belongs to: a fill, a served session, a wiki server. */
@@ -138,12 +140,31 @@ function memory(): { rss: number; heap: number } {
   return memoryHeld;
 }
 
+/**
+ * How long a finished span may wait for the write that states it: long enough that the spans of one request share
+ * one write, short enough that a progress read after a request sees the whole page (10 ms, and a page's spans span
+ * 150-250 ms, so it costs about ten writes a page instead of one a span).
+ */
+const TRACE_FLUSH_MS = 10;
+/** How many lines one batch holds before it is written without waiting: a trace never grows the process unboundedly. */
+const TRACE_BATCH_LINES = 256;
+
 function pushLine(run: TraceRun, line: string): void {
   run.buffer.push(line);
   run.lines += 1;
-  // A trace is evidence while the run is still open: a status read that follows a fast fill must see the spans, not
-  // wait for the buffer's size or the run's close. A fill now has hundreds of spans, so one append per span is cheap.
-  flushRun(run);
+  // Writing every span synchronously costs the work it measures: a page's 70 appends were over a second of the
+  // process's own CPU in a profile (madarch-64o5.2 stage 2d). A batch is written once its timer fires, and a batch
+  // that grows past the cap is written at once, so the buffer is bounded. A run's close and `forceFlush` write the
+  // rest, and a progress read during a fill sees spans at most `TRACE_FLUSH_MS` old.
+  if (run.buffer.length >= TRACE_BATCH_LINES) {
+    if (run.flushSoon !== undefined) { clearTimeout(run.flushSoon); run.flushSoon = undefined; }
+    flushRun(run);
+    return;
+  }
+  if (run.flushSoon === undefined && !run.closed) {
+    run.flushSoon = setTimeout(() => { run.flushSoon = undefined; flushRun(run); }, TRACE_FLUSH_MS);
+    run.flushSoon.unref?.();
+  }
 }
 
 /** Writes what a run has buffered; a run whose file cannot be written is not the caller's to crash on. */
@@ -273,6 +294,7 @@ export function runInTrace<T>(run: TraceRun, work: () => Promise<T>): Promise<T>
 export function closeTrace(run: TraceRun): void {
   if (run.timer !== undefined) { clearInterval(run.timer); run.timer = undefined; }
   if (run.flushTimer !== undefined) { clearInterval(run.flushTimer); run.flushTimer = undefined; }
+  if (run.flushSoon !== undefined) { clearTimeout(run.flushSoon); run.flushSoon = undefined; }
   flushRun(run);
   run.closed = true;
   if (latest === run) latest = undefined;

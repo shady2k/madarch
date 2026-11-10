@@ -209,11 +209,8 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
       vertices.push({
         kind: TERM_KIND,
         key: { name: term.name },
-        claims: [
-          { field: 'definition', value: term.definition, evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd } },
-          { field: 'synonyms', value: term.synonyms, evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd } },
-          { field: 'code', value: term.code, evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd } },
-        ],
+        values: { definition: term.definition, synonyms: term.synonyms, code: term.code },
+        evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
       });
     }
   }
@@ -231,10 +228,10 @@ await definePlugin({
         kind: TERM_KIND,
         key: ['name'],
         fields: [
-          { name: 'name', claim: 'authoritative', type: 'text', meaning: 'The term itself, as the glossary writes it in bold.', example: 'Fill', required: true },
-          { name: 'definition', claim: 'claimed', type: 'text', meaning: 'What the term means, as the glossary defines it.', example: 'The one run that reads a product and writes its graph.', required: true },
-          { name: 'synonyms', claim: 'claimed', type: 'json', meaning: 'The other names the glossary gives the term.', example: ['run'], required: false },
-          { name: 'code', claim: 'claimed', type: 'json', meaning: 'The names the code uses for the thing the term means.', example: ['fillRun'], required: false },
+          { name: 'name', type: 'text', meaning: 'The term itself, as the glossary writes it in bold.', example: 'Fill', required: true },
+          { name: 'definition', type: 'text', meaning: 'What the term means, as the glossary defines it.', example: 'The one run that reads a product and writes its graph.', required: true },
+          { name: 'synonyms', type: 'json', meaning: 'The other names the glossary gives the term.', example: ['run'], required: false },
+          { name: 'code', type: 'json', meaning: 'The names the code uses for the thing the term means.', example: ['fillRun'], required: false },
         ],
       },
     ],
