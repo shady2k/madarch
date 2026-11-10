@@ -22,6 +22,7 @@ import { getProducts, startFill } from './api.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { FillSidePanel } from './fill-panel.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
@@ -370,30 +371,12 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
   // that do not fit scroll inside it instead of reaching past the bottom of the window.
   const chip = useRef<HTMLButtonElement | null>(null);
-  const panel = useRef<HTMLDivElement | null>(null);
   const wrap = useRef<HTMLDivElement | null>(null);
   const focusPanel = useRef(false);
   const [open, setOpen] = useState(false);
-  // Where the panel stands, measured off the badge when it opens: beside the badge and never past the window's edge, and
-  // never taller than the window leaves on that side, so a short window gets a short panel whose words scroll.
-  const [place, setPlace] = useState<{ top: number | null; bottom: number | null; right: number; maxHeight: number }>({ top: null, bottom: null, right: 8, maxHeight: 320 });
+  /** The side panel's node: it stands at the window's right edge, so the badge measures nothing for it. */
+  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-side-panel"]');
   const openPanel = (): void => {
-    const rect = chip.current?.getBoundingClientRect();
-    if (rect !== undefined) {
-      const below = window.innerHeight - rect.bottom - 12;
-      const over = rect.top - 12;
-      const up = below < 160 && over > below;
-      // The panel is as wide as the window leaves it (`min(26rem, 92vw)`), and it stands inside the window even when
-      // the badge sits in the middle of the bar: its right edge never reaches past the window's, nor its left past the
-      // margin. Above a phone's width the badge is the bar's last control and the two rights are the same one.
-      const width = Math.min(26 * 16, window.innerWidth * 0.92);
-      setPlace({
-        top: up ? null : rect.bottom + 7,
-        bottom: up ? window.innerHeight - rect.top + 7 : null,
-        right: Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - 8 - width)),
-        maxHeight: Math.max(0, Math.min(320, up ? over : below)),
-      });
-    }
     setOpen(true);
     focusPanel.current = true;
   };
@@ -401,7 +384,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   useEffect(() => {
     if (!open || !focusPanel.current) return;
     focusPanel.current = false;
-    panel.current?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
+    panelNode()?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
   }, [open]);
   // A press anywhere else closes it, and so does tabbing out of it.
   useEffect(() => {
@@ -409,7 +392,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     const outside = (event: Event): void => {
       const target = event.target as Node | null;
       if (target === null) return;
-      if (panel.current?.contains(target) === true || chip.current?.contains(target) === true) return;
+      if (panelNode()?.contains(target) === true || chip.current?.contains(target) === true) return;
       setOpen(false);
     };
     document.addEventListener('pointerdown', outside, true);
@@ -458,7 +441,12 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
       : t('knowledge.sync');
     narrow = null;
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
-  } else return null;
+  }
+  // A product with a repository and no fill yet offers Fill in the top bar (the owner, 2026-11-10): the press opens the
+  // panel over the page, where the person chooses the sections and the agent and reads the estimate before pressing. A
+  // product with no repository has nothing to fill and says so on its home page instead.
+  else if (status.repositories.length > 0) { label = t('knowledge.fillButton'); solid = true; }
+  else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
   // The pages' language is the one request in the popover, and it is the fill: the run that writes them in that language.
   const start = (chosen: 'ru' | 'en'): void => {
@@ -528,59 +516,55 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         </Badge>
       </button>
       {open && (
-        <div
-          ref={panel}
+        <FillSidePanel
+          status={status}
+          refresh={refresh}
+          onClose={() => setOpen(false)}
           id="fill-menu-panel"
-          role="dialog"
-          aria-label={t('knowledge.fillMenuTitle')}
-          data-testid="fill-menu"
-          data-state="open"
-          style={{ position: 'fixed', top: place.top ?? undefined, bottom: place.bottom ?? undefined, right: place.right, maxHeight: place.maxHeight }}
-          className="language-menu fill-menu w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden overscroll-contain break-words"
-        >
-          <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
-          <div className="language-menu-separator" role="separator" />
-          {(authoring || filling) && (
-            // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
-            // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
-            // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
-            <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
-              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-              {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
-              <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
-              <RunControls status={status} refresh={refresh} where="menu" />
-            </div>
-          )}
-          {paused && (
-            // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
-            // up again or end it (madarch-m38l.17).
-            <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
-              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-              <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
-              <RunControls status={status} refresh={refresh} where="menu" />
-            </div>
-          )}
-          {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
-          {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
-          {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
-          {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
-          <div className="px-2 pb-2">
-            {status.chosenAgent !== null && (
-              <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
-                <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
-                <div className="flex flex-wrap gap-2">
-                  {(['ru', 'en'] as const).map((code) => (
-                    <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
-                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
-                      <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
-                    </label>
-                  ))}
-                </div>
+          extra={<div className="mt-3 grid gap-2 border-t border-line pt-3" data-testid="fill-menu-extra">            <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
+            <div className="language-menu-separator" role="separator" />
+            {(authoring || filling) && (
+              // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
+              // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
+              // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
+              <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
+                <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+                {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
+                <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+                <RunControls status={status} refresh={refresh} where="menu" />
               </div>
             )}
-            {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
-          </div>
-        </div>
+            {paused && (
+              // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
+              // up again or end it (madarch-m38l.17).
+              <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
+                <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+                <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+                <RunControls status={status} refresh={refresh} where="menu" />
+              </div>
+            )}
+            {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
+            {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
+            {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
+            {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
+            <div className="px-2 pb-2">
+              {status.chosenAgent !== null && (
+                <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
+                  <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(['ru', 'en'] as const).map((code) => (
+                        <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
+                          <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
+                          <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
+                        </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
+            </div>
+</div>}
+        />
       )}
     </div>
   );
@@ -713,7 +697,7 @@ export function fillDotTitle(status: WikiStatus, t: (key: string, args?: Record<
   const counts = status.fill.counts ?? status.repository?.counts;
   const figures = { files: counts?.files ?? 0, commits: counts?.commits ?? 0 };
   const state = fillDotState(status);
-  if (state === 'running') return t('knowledge.fillDot.running', { ...figures, ...(short === null ? {} : { commit: short }) });
+  if (state === 'running') return short === null ? t('knowledge.fillDot.runningNoCommit', figures) : t('knowledge.fillDot.running', { ...figures, commit: ` at ${short}` });
   if (state === 'failed') return t('knowledge.fillDot.failed');
   if (state === 'stale') return short === null ? t('knowledge.fillDot.staleNoCommit', figures) : t('knowledge.fillDot.stale', { ...figures, commit: short });
   return short === null ? t('knowledge.fillDot.upToDateNoCommit', figures) : t('knowledge.fillDot.upToDate', { ...figures, commit: short });

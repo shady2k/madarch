@@ -330,6 +330,13 @@ function stubFetch(calls: string[], others: (url: string, init?: RequestInit) =>
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
     if (url.endsWith('/api/agents')) return new Response(JSON.stringify({ agents: OFFERS, chosen: null }));
+    // The fill panel reads the catalogue and the selection it opens: a section of two kinds, one filled by a plugin and
+    // one by the agent, and no stored selection (the panel then shows every entity, as the design says).
+    if (url.includes('/api/catalog')) return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, language: 'en', groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }], kinds: [
+      { kind: 'code.file', area: 'code', subgroup: '', count: 4, page: true, filled: true, plugins: ['files'], state: 'filled', estimate: { volume: 4, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+      { kind: 'doc.use-case', area: 'code', subgroup: '', count: 0, page: true, filled: false, state: 'never', estimate: { volume: null, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+    ], findings: [] }));
+    if (url.includes('/api/fill-selection')) return new Response(JSON.stringify({ selection: { selected: [], agent: null, tokenCap: null, savedAt: '' } }));
     return others(url, init);
   };
 }
@@ -931,6 +938,27 @@ describe('the badge and the panel it opens', () => {
     },
   });
 
+  test('a product with a repository and no fill yet offers Fill in the top bar, and its press opens the panel', async () => {
+    await setWikiLanguage('en');
+    stubFetch([]);
+    const empty = status({ filled: false, repositories: [{ name: 'training', filled: false }], fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, chosenAgent: null, home: null });
+    const container = into(createElement(FillMenu, { status: empty, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the Fill button');
+    const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
+    expect(chip.textContent).toBe('Fill');
+    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
+    chip.click();
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    // Nothing is filled yet, so the panel is where the person chooses sections, agent and cap before the one press.
+    expect(container.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
+    // A product with no repository has nothing to fill: it offers no button that cannot work.
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const bare = into(createElement(FillMenu, { status: status({ filled: false, repositories: [] }), refresh: () => undefined }));
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(bare.querySelector('[data-testid=fill-chip]')).toBeNull();
+  });
+
   test('Tab on the badge opens the panel and moves into it; Escape shuts it and gives the badge its focus back', async () => {
     stubFetch([]);
     const container = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
@@ -941,63 +969,43 @@ describe('the badge and the panel it opens', () => {
     expect(container.querySelector('[data-testid=fill-menu]')).toBeNull();
     chip.focus();
     chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
-    const panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    const panel = container.querySelector('[data-testid=fill-side-panel]') as HTMLElement;
     expect(panel.getAttribute('role')).toBe('dialog');
+    expect(panel.getAttribute('aria-modal')).toBe('false');
     expect(chip.getAttribute('aria-expanded')).toBe('true');
     expect(chip.getAttribute('aria-controls')).toBe(panel.id);
-    // The focus went in, on the way to the fill page — the panel's first control; the languages come after it.
+    // The focus went in, on the panel's first control: its Close. The run's own controls and the language choice follow,
+    // inside the panel's own text.
     await until(() => panel.contains(document.activeElement), 'the focus inside the panel');
-    expect(document.activeElement).toBe(panel.querySelector('[data-testid=fill-menu-open]') as HTMLElement);
-    const controls = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')].map((element) => element.getAttribute('data-testid') ?? `${element.getAttribute('type')}:${element.getAttribute('name')}`);
-    expect(controls).toEqual(['fill-menu-open', 'radio:menu-content-language', 'radio:menu-content-language']);
+    expect(document.activeElement).toBe(panel.querySelector('[data-testid=fill-side-close]') as HTMLElement);
+    expect(panel.querySelector('[data-testid=fill-side-sections]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid=fill-side-catalogue]')).not.toBeNull();
     // The languages are reachable and offered: both radios are enabled with nothing running.
     expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([false, false]);
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the panel to close');
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') === null, 'the panel to close');
     expect(document.activeElement).toBe(chip);
     expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('the panel is no taller than the window leaves, opens above a badge near the bottom, and scrolls its words', async () => {
+  test('the panel comes from the right over the page, full height, and scrolls its own words', async () => {
     stubFetch([]);
-    const height = Object.getOwnPropertyDescriptor(window, 'innerHeight');
-    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
-    try {
-      const container = into(createElement(FillMenu, { status: running(), refresh: () => undefined }));
-      await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
-      const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
-      const at = (top: number, bottom: number): DOMRect => ({ top, bottom, left: 100, right: 300, width: 200, height: bottom - top, x: 100, y: top, toJSON: () => ({}) }) as DOMRect;
-      chip.getBoundingClientRect = () => at(60, 84);
-      chip.click();
-      await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
-      let panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
-      // What the window leaves below the badge, less a margin: 400 - 84 - 12.
-      expect(panel.style.maxHeight).toBe('304px');
-      // It hangs from the badge's lower edge and stays where the window scrolls. Its right edge stands on the badge's
-      // when that keeps the panel inside the window; here the badge sits at 300 of a 1024 window and the panel is 416
-      // wide, so the panel moves left and its right edge is the window's, less the margin and its own width.
-      expect(panel.style.position).toBe('fixed');
-      expect(panel.style.top).toBe('91px');
-      expect(panel.style.bottom).toBe('');
-      expect(panel.style.right).toBe(`${window.innerWidth - 8 - 26 * 16}px`);
-      expect(panel.className).toContain('overflow-y-auto');
-      // The languages are spent while the run is under way.
-      expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
-      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the panel to close');
-      // A badge near the bottom of a short window opens its panel upward, and the panel takes the room above it.
-      chip.getBoundingClientRect = () => at(300, 380);
-      chip.click();
-      await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel above');
-      panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
-      expect(panel.style.top).toBe('');
-      expect(panel.style.bottom).toBe(`${400 - 300 + 7}px`);
-      expect(panel.style.maxHeight).toBe('288px');
-    } finally {
-      if (height === undefined) delete (window as unknown as { innerHeight?: number }).innerHeight;
-      else Object.defineProperty(window, 'innerHeight', height);
-    }
+    const container = into(createElement(FillMenu, { status: running(), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    (container.querySelector('[data-testid=fill-chip]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    const panel = container.querySelector('[data-testid=fill-side-panel]') as HTMLElement;
+    // A panel from the right over the page, not a modal and not a page: it takes the window's height at its right edge,
+    // and its words scroll inside it.
+    for (const held of ['fixed', 'inset-y-0', 'right-0']) expect(panel.className).toContain(held);
+    // Its words scroll inside it: the panel itself is the frame and its body is the scroller.
+    expect(panel.querySelector('.overflow-y-auto')).not.toBeNull();
+    expect(panel.querySelector('[data-testid=fill-side-intro]')!.textContent).toContain('continue');
+    // A run under way is shown in the panel (its own controls), and the languages are spent while it runs.
+    expect(panel.querySelector('[data-testid=run-controls]')).not.toBeNull();
+    expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
   });
 });
 
@@ -1091,8 +1099,8 @@ describe('a run a person pauses or stops', () => {
     const bar = into(createElement(FillMenu, { status: graph, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
     (bar.querySelector('[data-testid=fill-chip]') as HTMLButtonElement).click();
-    await until(() => bar.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
-    const menu = bar.querySelector('[data-testid=fill-menu] [data-testid=run-controls]');
+    await until(() => bar.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    const menu = bar.querySelector('[data-testid=fill-side-panel] [data-testid=run-controls]');
     expect(menu).not.toBeNull();
     expect([...menu!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
   });

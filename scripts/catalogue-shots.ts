@@ -190,6 +190,37 @@ try {
           rows,
         };
       });
+      // The top bar's fill panel is the second surface: it opens from the right over the same page.
+      const chip = await page.$('[data-testid="fill-chip"]');
+      if (chip === null) {
+        console.error(`the fill badge is not on the page at ${String(width)} px: the panel cannot be shot`);
+        process.exitCode = 1;
+      } else {
+        await chip.click();
+        await page.waitForSelector('[data-testid="fill-side-panel"]', { timeout: 60_000 });
+        await page.waitForSelector('[data-testid="fill-side-press"]', { timeout: 60_000 });
+        await new Promise((rest) => setTimeout(rest, 300));
+        const panelShot = await page.screenshot({ fullPage: false });
+        const panelFile = join(out, `fill-panel-${String(width)}.png`);
+        writeFileSync(panelFile, panelShot);
+        const panelSize = await page.evaluate(() => {
+          const node = document.querySelector('[data-testid="fill-side-panel"]');
+          const rect = node?.getBoundingClientRect();
+          return {
+            viewport: window.innerWidth,
+            document: document.documentElement.scrollWidth,
+            panel: rect === undefined || rect === null ? null : { left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), top: Math.round(rect.top), bottom: Math.round(rect.bottom) },
+            sections: document.querySelectorAll('[data-testid="fill-side-section"]').length,
+          };
+        });
+        const panelInk = inkOf(panelShot);
+        console.log(`fill panel at ${String(width)} px: ${JSON.stringify({ ...panelSize, pixels: panelInk })} → ${panelFile}`);
+        if (panelSize.document > panelSize.viewport || panelSize.sections < 2 || panelInk.distinct < 20) {
+          console.error(`the fill panel's shot at ${String(width)} px is not the panel it should be: ${JSON.stringify({ ...panelSize, pixels: panelInk })}`);
+          process.exitCode = 1;
+        }
+        await page.keyboard.press('Escape');
+      }
       const file = join(out, `catalogue-${String(width)}.png`);
       const shot = await page.screenshot({ fullPage: false });
       writeFileSync(file, shot);
