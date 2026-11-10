@@ -615,22 +615,39 @@ describe('after the run', () => {
     expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Filled Oct 23, 5 pages');
   });
 
-  test('a filled store no agent has written a page in names the files and commits the fill read', async () => {
+  test('a filled store no agent has written a page in says Sync, and its dot names the commit and the counts', async () => {
     stubFetch([]);
     const read = status({
       kinds: [{ kind: 'domain', source: 'markdown', count: 0, single: false, origins: [] }],
       writer: { state: 'idle', agent: null, units: [] },
+      repositories: [{ name: 'training', filled: true }],
+      filled: true,
       repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
     });
     const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
-    // "0 pages" would read as if the fill found nothing: the badge says what it did read, and where it is from.
+    // The header keeps one word and one dot: the sentence "Заполнено · Файлов: — · Коммитов: —" is gone (the owner,
+    // 2026-11-10), and what the run read is the dot's tooltip.
     const chip = bar.querySelector('[data-testid=fill-chip]')!;
-    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
-    // A phone keeps the same numbers without the date, as every other form of the badge keeps its count there.
-    expect(chip.querySelector('.fill-chip-count-narrow')!.textContent).toBe('Files: 114 · Commits: 72');
-    expect(chip.getAttribute('aria-label')).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    expect(chip.textContent).toContain('Sync');
+    expect(chip.getAttribute('aria-label')).toBe('Sync');
+    expect(chip.textContent).not.toContain('Files:');
     expect(chip.textContent).not.toContain('pages');
+    const dot = chip.querySelector('[data-testid=fill-dot]')!;
+    expect(dot.getAttribute('data-state')).toBe('up-to-date');
+    expect(dot.getAttribute('title')).toBe('Up to date: the graph describes aaaaaaa · Files: 114 · Commits: 72');
+  });
+
+  test('the dot says stale when the graph is short of the checkouts, and failed when the last run failed', async () => {
+    stubFetch([]);
+    const stale = status({ repositories: [{ name: 'training', filled: false }], incomplete: true, filled: true });
+    const first = into(createElement(FillMenu, { status: stale, refresh: () => undefined }));
+    await until(() => first.querySelector('[data-testid=fill-dot]') !== null, 'the dot');
+    expect(first.querySelector('[data-testid=fill-dot]')!.getAttribute('data-state')).toBe('stale');
+    const failed = status({ filled: true, repositories: [{ name: 'training', filled: true }], fill: { state: 'failed', message: 'x' } });
+    const second = into(createElement(FillMenu, { status: failed, refresh: () => undefined }));
+    await until(() => second.querySelector('[data-testid=fill-dot]') !== null, 'the dot of the failed run');
+    expect(second.querySelector('[data-testid=fill-dot]')!.getAttribute('data-state')).toBe('failed');
   });
 
   test('a failed run stays on the page until the reader dismisses it', async () => {
@@ -660,10 +677,11 @@ describe('after the run', () => {
     expect(chip.className).toContain('fill-chip-writing');
     expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('The agent is writing · ');
     expect(chip.querySelector('.fill-chip-count')!.textContent).toBe('1/7');
-    const dot = bar.querySelector('[data-testid=fill-chip-dot]')!;
-    expect(dot.getAttribute('aria-hidden')).toBe('true');
-    expect(dot.className).toContain('animate-pulse');
-    expect(dot.className).toContain('motion-reduce:animate-none');
+    // The dot on the badge is the run's state: it pulses while a run works, and stands still where motion is reduced.
+    const dot = bar.querySelector('[data-testid=fill-dot]')!;
+    expect(dot.getAttribute('data-state')).toBe('running');
+    expect(dot.querySelector('.animate-pulse')).not.toBeNull();
+    expect(dot.querySelector('.motion-reduce\\:animate-none')).not.toBeNull();
   });
 
   test('before the writer has counted the pages, the badge says how many it has written, with no denominator', async () => {
@@ -1044,7 +1062,7 @@ describe('a run a person pauses or stops', () => {
     const pause = chip.querySelector('[data-testid=fill-chip-pause]')!;
     expect(pause.getAttribute('aria-hidden')).toBe('true');
     expect(pause.className).toContain('fill-chip-state-icon');
-    expect(chip.querySelector('[data-testid=fill-chip-dot]')).toBeNull();
+    expect(chip.querySelector('.animate-pulse')).toBeNull();
     expect(chip.className).not.toContain('fill-chip-writing');
     rendered?.unmount();
     document.body.innerHTML = '';

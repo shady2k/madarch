@@ -450,19 +450,13 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   }
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    // Until an agent has written a page, the badge names what the fill did read — the repository's
-    // files and commits, from the same store the pages read — rather than "0 pages", which reads as
-    // if the fill found nothing (madarch-8bdc.2.5, item 3 of the view's rework).
-    const counts = status.repository?.counts;
-    if (pages > 0 || counts === undefined) {
-      label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
-    } else {
-      label = when === null
-        ? t('knowledge.repository.fillRead', { files: counts.files, commits: counts.commits })
-        : t('knowledge.repository.fillReadAt', { date: when, files: counts.files, commits: counts.commits });
-      // The badge keeps its count on a phone, as every other form of it does: the same numbers without the date.
-      narrow = t('knowledge.repository.fillReadNarrow', { files: counts.files, commits: counts.commits });
-    }
+    // The header says one word and one dot (the owner, 2026-11-10: "Заполнено · Файлов: 1882 · Коммитов: 2520" takes too
+    // much room): the button is Sync, and what the last run read — the commit, the files, the commits — is the dot's
+    // tooltip, where a reader asks for it.
+    label = pages > 0
+      ? (when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages }))
+      : t('knowledge.sync');
+    narrow = null;
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
@@ -519,7 +513,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         }}
       >
         <Badge variant={solid ? 'solid' : 'outline'}>
-          {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
+          <FillDot status={status} />
           {paused && <PauseIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3.5" data-testid="fill-chip-pause" />}
           {stopped && <SquareIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3" data-testid="fill-chip-stop" />}
           <span className="fill-chip-label">
@@ -628,7 +622,8 @@ function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => vo
   return (
     <span className="sync-control relative flex items-center">
       {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
-      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={t('knowledge.syncHint')} data-testid="sync">
+      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={fillDotTitle(status, t)} data-testid="sync">
+        <FillDot status={status} />
         <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />
         <span className="sync-words">{busy ? t('knowledge.syncRunning') : t('knowledge.sync')}</span>
       </Button>
@@ -690,6 +685,63 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
         <LanguageMenu />
       </span>
     </header>
+  );
+}
+
+/** The fill's state as the header's dot tells it (madarch-stm0.6, the owner 2026-11-10). */
+export type FillDotState = 'up-to-date' | 'stale' | 'running' | 'failed';
+
+/**
+ * Which of the four states a product's fill stands in: a run under way, a run that failed, the graph short of what the
+ * checkouts hold (some files or commits are not read), or up to date. The app reads only the status: the engine keeps no
+ * second copy of this answer.
+ */
+export function fillDotState(status: WikiStatus): FillDotState {
+  if (status.fill.state === 'running' || status.writer.state === 'running' || status.writer.state === 'waiting') return 'running';
+  if (status.fill.state === 'failed' || status.writer.state === 'failed') return 'failed';
+  if (status.incomplete || status.repositories.some((repository) => !repository.filled)) return 'stale';
+  return 'up-to-date';
+}
+
+/**
+ * The dot's words: the commit the graph describes and the counts the run published, in the reader's language. A state
+ * without a commit says so rather than naming an empty one.
+ */
+export function fillDotTitle(status: WikiStatus, t: (key: string, args?: Record<string, string | number>) => string): string {
+  const commit = status.repository?.asIsCommit ?? null;
+  const short = commit === null ? null : commit.slice(0, 7);
+  const counts = status.fill.counts ?? status.repository?.counts;
+  const figures = { files: counts?.files ?? 0, commits: counts?.commits ?? 0 };
+  const state = fillDotState(status);
+  if (state === 'running') return t('knowledge.fillDot.running', { ...figures, ...(short === null ? {} : { commit: short }) });
+  if (state === 'failed') return t('knowledge.fillDot.failed');
+  if (state === 'stale') return short === null ? t('knowledge.fillDot.staleNoCommit', figures) : t('knowledge.fillDot.stale', { ...figures, commit: short });
+  return short === null ? t('knowledge.fillDot.upToDateNoCommit', figures) : t('knowledge.fillDot.upToDate', { ...figures, commit: short });
+}
+
+/**
+ * The one dot on the Fill/Sync button: a filled dot when the graph stands up to date, a hollow one when it is stale, a
+ * pulsing one while a run works and a barred one when a run failed. The state is told by its shape and its word, never by
+ * hue (the design tokens are the graphite pair), and its title says the commit and the counts.
+ */
+export function FillDot({ status }: { status: WikiStatus }): ReactElement {
+  const { t } = useTranslation();
+  const state = fillDotState(status);
+  const words = fillDotTitle(status, t);
+  return (
+    <span
+      className="fill-dot mr-1.5 inline-block size-2 shrink-0 rounded-full align-middle"
+      data-testid="fill-dot"
+      data-state={state}
+      title={words}
+      aria-label={words}
+      role="img"
+    >
+      {state === 'up-to-date' && <span aria-hidden="true" className="block size-full rounded-full bg-current" />}
+      {state === 'stale' && <span aria-hidden="true" className="block size-full rounded-full border border-current" />}
+      {state === 'running' && <span aria-hidden="true" className="block size-full animate-pulse rounded-full bg-current motion-reduce:animate-none" />}
+      {state === 'failed' && <span aria-hidden="true" className="block size-full rounded-full border border-current" />}
+    </span>
   );
 }
 

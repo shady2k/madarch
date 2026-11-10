@@ -850,6 +850,14 @@
       "absent": "This tree was read, but this entity is absent at the selected date. It is not replaced by its current version."
     },
     "sync": "Sync",
+    "fillDot": {
+      "upToDate": "Up to date: the graph describes {{commit}} · Files: {{files}} · Commits: {{commits}}",
+      "upToDateNoCommit": "Up to date · Files: {{files}} · Commits: {{commits}}",
+      "stale": "Stale: the graph describes {{commit}}, and the checkouts hold more · Files: {{files}} · Commits: {{commits}}",
+      "staleNoCommit": "Stale: the checkouts hold more than the graph · Files: {{files}} · Commits: {{commits}}",
+      "running": "A fill is running{{commit}} · Files so far: {{files}} · Commits so far: {{commits}}",
+      "failed": "The last fill failed: open the button for what it said"
+    },
     "syncHint": "Read the new commits and check the pages again",
     "syncRunning": "Syncing…",
     "syncResult": "What changed",
