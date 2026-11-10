@@ -295,7 +295,7 @@ generator and checks them against this decision.
 
 - madarch-8bdc.2.11 lands the engine's tables, the contract generator and its migrations, and
   the deletions of item 1 in one change, with the wiki's catalogue, entity pages and blocks
-  reading only this graph and `/k/file` folded into the one entity page. A test asserts that no
+  reading only this graph and `/file` folded into the one entity page. A test asserts that no
   generated table's attribute is repeated in `node`, that the engine's DDL names no product
   kind, and that a product that takes no code kind holds no table of one; a search of the
   repository finds none of the deleted tables' names outside the decisions and change records.
