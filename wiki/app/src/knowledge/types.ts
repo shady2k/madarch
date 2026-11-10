@@ -164,7 +164,7 @@ export type PageModel = {
 type Origin = 'agent' | 'person' | 'code' | 'history';
 
 /** The form a kind's listing page takes (`listing:` of the manifest); no screen of the app holds a kind of its own. */
-type KindListing = 'operations';
+type KindListing = 'operations' | 'glossary';
 /** Where a kind stands in the navigation (`nav:` of the manifest). */
 type KindNav = 'own-page' | 'loop';
 

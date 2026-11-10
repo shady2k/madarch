@@ -477,9 +477,15 @@ describe('the navigation by group', () => {
     expect([area!.short?.ru, area!.subgroups[0]!.short?.ru, area!.labels?.ru]).toEqual(['Стратегия', 'Продукт', 'Стратегия и мотивация бизнеса']);
   });
 
-  test('a kind with a top-level page of its own (the glossary terms) is not listed again under the kinds', () => {
-    const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7, nav: 'own-page' })] } as unknown as WikiStatus, () => 0);
-    expect(groups.map((entry) => entry.kinds.map((one) => one.kind))).toEqual([['domain']]);
+  test('a kind that declares its own listing page stands in its manifest group; a loop-owned kind is not listed again', () => {
+    const groups = navGroups({ ...status, kinds: [
+      kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }),
+      kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7, nav: 'own-page', listing: 'glossary' }),
+      kind({ kind: 'task', source: 'markdown', group: 'product', count: 2, nav: 'own-page' }),
+    ] } as unknown as WikiStatus, () => 0);
+    // The listing's row is a kind row like every other; the loop's own place keeps the task out of the groups, while
+    // its entities still count in the group's number.
+    expect(groups.map((entry) => [entry.group, entry.kinds.map((one) => one.kind), entry.total])).toEqual([['product', ['domain', 'doc.term'], 10]]);
   });
 
   test('a kind whose pages are being written is shown with its pending units', () => {
