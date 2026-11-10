@@ -2242,6 +2242,23 @@ html {
 
 
 /* ---- The Files page: the map, its switches, its legend and the table (madarch-j9ao.1) -------------- */
+/* The Files page's controls: one segmented choice per group, its label above the choice. */
+.dg-files-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 8px; }
+.dg-seg { display: inline-flex; flex-direction: column; gap: 4px; }
+.dg-seg-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); }
+.dg-seg-options { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; background: var(--surface-page); }
+.dg-seg-option { min-height: 30px; padding: 0 8px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1; white-space: nowrap; cursor: pointer; }
+.dg-seg-option:first-child { border-left: 0; }
+.dg-seg-option:hover { background: var(--surface-hover); color: var(--text); }
+.dg-seg-option:focus-visible { outline: 2px solid var(--ink, var(--text)); outline-offset: -2px; }
+.dg-seg-option[data-state='on'] { background: var(--surface-active); color: var(--text); font-weight: 600; }
+.dg-legend-caption { font-weight: 600; color: var(--text-secondary); }
+@media (max-width: 700px) {
+  .dg-files-controls { gap: 8px 14px; }
+  .dg-seg-options { flex-wrap: wrap; }
+  .dg-seg-option { min-height: 32px; }
+}
+
 .dg-totals { margin: 0 0 8px; font-size: var(--fs-small); color: var(--text-secondary); }
 .dg-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; margin: 0 0 6px; font-size: var(--fs-small); }
 .dg-crumb { padding: 2px 6px; border: 1px solid transparent; border-radius: var(--radius-control); background: none; color: var(--text); cursor: pointer; font: inherit; }

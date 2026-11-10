@@ -67,8 +67,8 @@ export interface FilesMapTotals {
   /** Files the graph states are binary, or whose line count it does not hold. */
   withoutLines: number;
   languages: FilesMapLanguage[];
-  /** Files with no accepted language (their claims name several candidates or none): drawn as other. */
-  ambiguous: number;
+  /** Files with no single language yet (several candidates, none, or the dataset's `unknown`): drawn as Other. */
+  other: number;
 }
 
 /** The instants the heat windows start at, so a page can say what it counts from. */
@@ -90,6 +90,9 @@ export interface FilesMap {
 }
 
 const DAY_MS = 86_400_000;
+
+/** The language dataset's name for a path it cannot name: to a reader it is no language at all. */
+const UNKNOWN_LANGUAGE = 'unknown';
 
 /**
  * The repository a subject belongs to and the folder the map covers: a repository
@@ -184,7 +187,7 @@ async function readFilesMapUncached(
   const rhythm = await ctx.graph.fileRhythm(scope.repository, windows);
   const languages = new Map<string, FilesMapLanguage>();
   let withoutLines = 0;
-  let ambiguous = 0;
+  let other = 0;
   let lines = 0;
   let bytes = 0;
   const files: FilesMapFile[] = inside.map((file) => {
@@ -196,15 +199,16 @@ async function readFilesMapUncached(
     else lines += fileLines;
     if (fileBytes !== null) bytes += fileBytes;
     // The language a file is drawn by is the one its claims accept. A file whose claims name several candidates has no
-    // accepted one (decision 0034 item 7: a claimed field's accepted value is computed, never picked by a reader), so it
-    // is counted as other and the note says how many files that is and why.
-    if (language === null) ambiguous += 1;
+    // accepted one (decision 0034 item 7: a claimed field's accepted value is computed, never picked by a reader), and
+    // the dataset's `unknown` names no language either: both are one thing to a reader — Other — and are counted once.
+    const drawn = language === UNKNOWN_LANGUAGE ? null : language;
+    if (drawn === null) other += 1;
     else {
-      const held = languages.get(language) ?? { name: language, files: 0, lines: 0, bytes: 0 };
+      const held = languages.get(drawn) ?? { name: drawn, files: 0, lines: 0, bytes: 0 };
       held.files += 1;
       held.lines += fileLines ?? 0;
       held.bytes += fileBytes ?? 0;
-      languages.set(language, held);
+      languages.set(drawn, held);
     }
     const held = rhythm.get(path);
     const heat: [number, number, number, number] = held === undefined ? [0, 0, 0, 0] : [held.d30, held.d90, held.d365, held.all];
@@ -216,7 +220,7 @@ async function readFilesMapUncached(
       href: entityAddress(`code.file:${scope.repository}/${path}`),
       lines: fileLines,
       bytes: fileBytes,
-      language,
+      language: drawn,
       heat,
       last: last === null ? null : new Date(last).toISOString(),
       authors: [...authors].sort(byCodePoint),
@@ -227,7 +231,7 @@ async function readFilesMapUncached(
     repository: scope.repository,
     folder,
     files,
-    totals: { files: inside.length, lines, bytes, withoutLines, ambiguous, languages: [...languages.values()].sort((left, right) => right.files - left.files || byCodePoint(left.name, right.name)) },
+    totals: { files: inside.length, lines, bytes, withoutLines, other, languages: [...languages.values()].sort((left, right) => right.files - left.files || byCodePoint(left.name, right.name)) },
     windows,
     graphTotal,
   };

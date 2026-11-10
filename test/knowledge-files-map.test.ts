@@ -123,7 +123,7 @@ test('the totals count what the graph holds: files, lines, bytes and the languag
   expect(block.data.totals.lines).toBe(200);
   expect(block.data.totals.bytes).toBe(6800);
   expect(block.data.totals.withoutLines).toBe(1);
-  expect(block.data.totals.ambiguous).toBe(2);
+  expect(block.data.totals.other).toBe(2);
   expect(block.data.totals.languages).toEqual([
     { name: 'TypeScript', files: 2, lines: 150, bytes: 1300 },
     { name: 'Markdown', files: 1, lines: 20, bytes: 200 },
@@ -144,6 +144,37 @@ test('the heat of a file is the commits that touched it in each window, and its 
   expect(file.heat).toEqual([2, 3, 4, 5]);
   expect(file.last).toBe(daysAgo(5));
   expect(file.authors).toEqual(['Ada', 'Grace', 'Linus']);
+});
+
+test('a file the dataset calls unknown is Other, the same word as a file whose claims name several languages', async () => {
+  const ctx = fixture([
+    fileRow('src/a.ts', { lines: 10, language: 'TypeScript' }),
+    fileRow('bun.lock', { lines: 5, language: 'unknown' }),
+    fileRow('docs/a.md', { lines: 5, language: null, candidates: ['GCC Machine Description', 'Markdown'] }),
+  ]);
+  const block = await treemapOf(ctx);
+  // One thing for a reader: no single language yet. It is counted once and is no language of the sentence.
+  expect(block.data.totals.other).toBe(2);
+  expect(block.data.totals.languages.map((entry) => entry.name)).toEqual(['TypeScript']);
+  expect(block.data.files.find((file) => file.path === 'bun.lock')!.language).toBeNull();
+  expect(block.notes.some((note) => note.includes('no single language yet'))).toBe(true);
+  expect(block.notes.join(' ')).not.toContain('unknown');
+  expect(block.notes.join(' ')).not.toContain('candidates');
+});
+
+test('the note about files without one language is written for a reader, in the reader\'s language', async () => {
+  const ctx = fixture([
+    fileRow('src/a.ts', { lines: 10, language: 'TypeScript' }),
+    fileRow('bun.lock', { lines: 5, language: 'unknown' }),
+    fileRow('docs/a.md', { lines: 5, language: null, candidates: ['Markdown'] }),
+  ]);
+  const english = await treemapBlock(ctx, subject, {}, 'templates/repository.liquid', 4, 'en');
+  if (english.type !== 'treemap') throw new Error(`the map came back as ${english.type}`);
+  expect(english.notes).toEqual(['2 files have no single language yet — they show as Other.']);
+  expect(english.notes.join(' ')).not.toMatch(/claim|candidate|accepted/);
+  const russian = await treemapBlock(ctx, subject, {}, 'templates/repository.liquid', 4, 'ru');
+  if (russian.type !== 'treemap') throw new Error(`the map came back as ${russian.type}`);
+  expect(russian.notes).toEqual(['2 файла пока без единого языка — они показаны как «Прочие».']);
 });
 
 test('a map cut by its limit says how many files it left out, and the table reads the same cut', async () => {

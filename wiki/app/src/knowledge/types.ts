@@ -81,7 +81,7 @@ export type FilesMapFile = {
   authors: string[];
 };
 export type FilesMapLanguage = { name: string; files: number; lines: number; bytes: number };
-export type FilesMapTotals = { files: number; lines: number; bytes: number; withoutLines: number; languages: FilesMapLanguage[]; ambiguous: number };
+export type FilesMapTotals = { files: number; lines: number; bytes: number; withoutLines: number; languages: FilesMapLanguage[]; other: number };
 export type FilesMap = {
   repository: string;
   folder: string;

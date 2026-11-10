@@ -62,7 +62,7 @@ const DATA: FilesMap = {
     file('docs/readme.md', 40, [0, 0, 0, 0], null, [], null),
     file('src/checkout.ts', 250, [2, 6, 6, 6], 'TypeScript', ['Linus'], '2026-11-05T10:00:00Z'),
   ],
-  totals: { files: 4, lines: 790, bytes: 7900, withoutLines: 0, ambiguous: 1, languages: [] },
+  totals: { files: 4, lines: 790, bytes: 7900, withoutLines: 0, other: 1, languages: [] },
   windows: { d30: '2026-10-01T00:00:00Z', d90: '2026-08-01T00:00:00Z', d365: '2025-11-01T00:00:00Z' },
   graphTotal: 4,
 };

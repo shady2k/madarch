@@ -158,7 +158,7 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
   };
 
   const header = (key: SortKey, label: string, numeric = false): ReactElement => (
-    <TableHead className={numeric ? 'text-right' : undefined} aria-sort={sort === key ? (ascending ? 'ascending' : 'descending') : 'none'}>
+    <TableHead className={numeric ? 'whitespace-nowrap px-2 text-right' : 'whitespace-nowrap px-2'} aria-sort={sort === key ? (ascending ? 'ascending' : 'descending') : 'none'}>
       <button
         type="button"
         className="dg-sort"
@@ -218,7 +218,18 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
           <Input type="number" min={0} value={to} onChange={(event) => { setTo(event.target.value); reset(); }} data-testid="files-filter-to" />
         </label>
       </div>
-      <Table data-testid="files-table">
+      {/* A fixed layout keeps every numeric column at its width and gives the path the rest: no column wraps, and the
+          table fits a 1150 px page; under that it scrolls inside its own box (min-w below), never the page. */}
+      <Table data-testid="files-table" className="table-fixed min-w-[620px]">
+        <colgroup>
+          <col />
+          <col style={{ width: '112px' }} />
+          <col style={{ width: '64px' }} />
+          <col style={{ width: '78px' }} />
+          <col style={{ width: '56px' }} />
+          <col style={{ width: '120px' }} />
+          <col style={{ width: '76px' }} />
+        </colgroup>
         <TableHeader>
           <TableRow>
             {header('path', t('knowledge.files.colPath'))}
@@ -236,15 +247,15 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
             const drawn = drawnLanguage(file);
             return (
               <TableRow key={file.id} data-testid="files-row" data-path={file.path}>
-                <TableCell className="max-w-[28rem] truncate font-mono text-[0.85em]" title={file.path}>
+                <TableCell className="truncate px-2 font-mono text-[0.85em]" title={file.path}>
                   {file.href === null ? file.path : <KLink href={file.href} testId="files-row-link">{file.path}</KLink>}
                 </TableCell>
-                <TableCell className="text-muted">{drawn ?? t('knowledge.files.other')}</TableCell>
-                <TableCell className="text-right text-muted">{file.lines === null ? '—' : countText(file.lines)}</TableCell>
-                <TableCell className="text-right text-muted">{file.bytes === null ? '—' : bytesText(file.bytes)}</TableCell>
-                <TableCell className="text-right" data-testid="files-row-heat">{countText(heatOf(file, window))}</TableCell>
-                <TableCell className="whitespace-nowrap text-muted">{dateText(file.last, language)}</TableCell>
-                <TableCell className="text-right text-muted" title={file.authors.join(', ')}>{file.authors.length === 0 ? '—' : countText(file.authors.length)}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-muted">{drawn ?? t('knowledge.files.other')}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-right text-muted tabular-nums">{file.lines === null ? '—' : countText(file.lines)}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-right text-muted tabular-nums">{file.bytes === null ? '—' : bytesText(file.bytes)}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-right tabular-nums" data-testid="files-row-heat">{countText(heatOf(file, window))}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-muted tabular-nums">{dateText(file.last, language)}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-right text-muted tabular-nums" title={file.authors.join(', ')}>{file.authors.length === 0 ? '—' : countText(file.authors.length)}</TableCell>
               </TableRow>
             );
           })}
