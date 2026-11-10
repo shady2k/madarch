@@ -19,5 +19,5 @@
     "paths": { "madarch-plugin-sdk": ["./src/plugin-sdk.ts"] }
   },
   "include": ["src", "test"],
-  "exclude": ["test/fixtures/model-skill-example/repo", "test/fixtures/model-skill-example/update/repo"]
+  "exclude": ["test/fixtures/model-skill-example/repo", "test/fixtures/model-skill-example/update/repo", "test/fixtures/language-heuristics"]
 }
