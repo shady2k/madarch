@@ -216,6 +216,16 @@ beforeAll(async () => {
   // The product's reader is a process of its own: the first ask pays for its start, so it is warmed here.
   const warmed = await fetch(`${server.url}/products/${SHOP}/api/tasks`);
   expect(warmed.status).toBe(200);
+  // The documents are the graph's now (decision 0035, item 9): the files producer reads the repositories before a
+  // document's text or section is asked for.
+  const pressed = await fetch(`${server.url}/products/${SHOP}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  expect(pressed.status).toBe(202);
+  for (let attempt = 0; attempt < 1200; attempt++) {
+    const status = await (await fetch(`${server.url}/products/${SHOP}/api/status`)).json() as { fill: { state: string; message?: string } };
+    if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
+    if (status.fill.state !== 'running') break;
+    await new Promise((rest) => setTimeout(rest, 100));
+  }
 }, 120_000);
 
 afterAll(async () => {

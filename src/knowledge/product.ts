@@ -16,10 +16,10 @@ import { createRecordSchema } from '../graph/index.js';
 import { hasGeneratedTable } from '../graph/tables.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
@@ -27,7 +27,7 @@ import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
 import { productRepositoryId } from '../product/identity.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
+import { homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
@@ -72,7 +72,7 @@ import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRef
 import { buildStatement, type StatementResult } from './statement.js';
 import { documentAddress, entityAddress, sourceAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
-import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
+import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { CORRECTIONS_FOLDER, QUESTIONS_FOLDER, readCorrections } from '../loop/entities.js';
 import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
@@ -187,16 +187,6 @@ export interface GraphVerdictProductView {
   readonly cached: boolean;
 }
 
-/** Runs git in a code repository for one blob; the file is `undefined` when git has none there. */
-async function gitBlob(repository: string, commit: string, path: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync('git', ['cat-file', 'blob', `${commit}:${path}`], { cwd: repository, maxBuffer: 1 << 26, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
-    return stdout;
-  } catch {
-    return undefined;
-  }
-}
-
 interface PageSnapshot {
   owner: DatabaseOwner;
   transaction: OuterTransaction;
@@ -248,8 +238,17 @@ interface PausedRun {
   readonly resumed?: boolean;
 }
 
+/** The largest document the wiki reads: a document over it is titled by its path and not read. */
+const DOCUMENT_READ_BYTES = 1024 * 1024;
+
+/** The documents one page of the graph's document query answers: the listing reads every page to count them all. */
+const DOCUMENT_PAGE = 500;
+
 /** One read of the status and the render context its writer units were named against. */
 type StatusRead = { body: WikiStatus; ctx: RenderContext | undefined };
+
+/** What the source view answers for one file: its text at the commit read, or why the graph holds none of that version. */
+export type SourceRead = { readonly text: string; readonly commit: string | null; readonly history?: HistoryContext } | { readonly absent: string };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
@@ -553,7 +552,7 @@ export class KnowledgeProduct {
       const at = commit === '' ? undefined : await reader.commit(facts.name, commit).catch(() => null);
       const shallow = facts.gaps.some((gap) => gap.reason === 'shallow-history');
       next.push({
-        name: facts.name, scope: facts.nodeId, head: commit, commit,
+        name: facts.name, url: facts.url, scope: facts.nodeId, head: commit, commit,
         effectiveTime: at?.commitDate ?? new Date().toISOString(),
         commits: facts.counts.commits,
         filledCommits: shallow ? 0 : facts.counts.commits,
@@ -778,8 +777,10 @@ export class KnowledgeProduct {
     const read = this.kinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
     const repositories = this.repositories();
-    if (repositories.length === 0) {
-      return { started: false, message: 'the product declares no code repository: connect one with "madarch repo add <name> <url>", then start the fill', fill: this.fill };
+    // A product with no code repository still has its own repository: the files producer reads it, so a product that is
+    // documentation alone fills its documents and its own tree. A folder that is no Git checkout has nothing to read.
+    if (repositories.length === 0 && headCommitOf(product.folder) === undefined) {
+      return { started: false, message: 'the product declares no code repository and its own folder is no Git checkout: connect one with "madarch repo add <name> <url>", then start the fill', fill: this.fill };
     }
     const missing = repositories.filter((repo) => !repo.present);
     if (missing.length > 0) {
@@ -1307,12 +1308,13 @@ export class KnowledgeProduct {
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
       if (read.has(path)) return read.get(path);
       let content: GraphEvidenceContent | undefined;
+      const reader = new GraphReader(await this.open(), this.validAt);
       for (const repository of this.repositories()) {
         if (!repository.present) continue;
         const pin = this.pins.get(repository.name);
         if (pin === undefined || pin.commit === '') continue;
-        const text = await gitBlob(join(this.options.productFolder, 'repos', repository.name), pin.commit, path);
-        if (text === undefined) continue;
+        const text = await reader.content(repository.name, path);
+        if (text === null) continue;
         content = { text, repository: repository.name, commit: pin.commit };
         break;
       }
@@ -1748,34 +1750,27 @@ export class KnowledgeProduct {
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const language = read.manifest.language ?? 'en';
     const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope !== null && pin.scope === scope)?.name;
-    const declaredRepositories = new Set(this.repositories().map((one) => one.name));
-    const readProductFile = async (path: string): Promise<string | undefined> => {
-      if (history !== undefined) return undefined;
-      // The product repository's own files, not its git folder or a dotfile (`.env`, `.git/config`) a reader never meant to publish.
-      if (!insideFolder(product.folder, path) || path.split('/').some((part) => part.startsWith('.')) || path.startsWith('repos/')) return undefined;
-      try {
-        // Through a link too: the real file must stand inside the product repository, and be a file of a size the view shows.
-        const real = realpathSync(join(product.folder, path));
-        if (!insideFolder(realpathSync(product.folder), relative(realpathSync(product.folder), real)) || !statSync(real).isFile() || statSync(real).size > 2 * 1024 * 1024) return undefined;
-        return readFileSync(real, 'utf8');
-      } catch {
-        return undefined;
-      }
-    };
+    // The source filesystem is the files producer's alone (decision 0035, item 24): a reader of a file's text reads the
+    // content the producer stored in the graph, once per blob, and the product repository is the repository named after
+    // the product. A file no fill read is absent, never a second read from the checkout.
+    const productRepository = productRepositoryId(product);
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
-      if (repo === null || !declaredRepositories.has(repo)) return await readProductFile(path);
-      if (history !== undefined && repo !== history.repo) return undefined;
-      const pin = pins.get(repo);
-      if (pin === undefined || pin.commit === '') return undefined;
-      return await gitBlob(join(product.folder, 'repos', repo), history?.commit ?? pin.commit, path);
+      if (history === undefined) {
+        const content = await graph.content(repo ?? productRepository, path);
+        return content === null ? undefined : content;
+      }
+      // A page at a past commit reads the text that commit held: the graph's history says whether the path's blob is
+      // still that version, and an absent answer is never today's text under the commit's name.
+      if (repo === null || repo !== history.repo || history.commit === null) return undefined;
+      const at = await graph.contentAt(repo, path, history.commit);
+      return 'absent' in at ? undefined : at.text;
     };
     const webOf = (repo: string | null, path: string, lineStart: number, lineEnd: number): { host: string; url: string } | undefined => {
       if (repo === null) return undefined;
-      const origin = this.originOf(join(product.folder, 'repos', repo));
       if (history !== undefined && repo !== history.repo) return undefined;
-      const commit = history?.commit ?? pins.get(repo)?.commit;
-      if (origin === undefined || commit === undefined || commit === '') return undefined;
-      return webLink({ origin, commit, path, lineStart, lineEnd });
+      const pin = pins.get(repo);
+      if (pin === undefined || pin.url === '' || pin.commit === '') return undefined;
+      return webLink({ origin: pin.url, commit: history?.commit ?? pin.commit, path, lineStart, lineEnd });
     };
     // A declared checkout that holds no commit is named with its path: the wiki says what it leaves unread rather than
     // failing, and the fill says the same of it. This reads a ref, never a document.
@@ -1815,20 +1810,6 @@ export class KnowledgeProduct {
       parts.push(headCommitOf(repository.path)?.commit ?? '-');
     }
     return parts.join('|');
-  }
-
-  private readonly origins = new Map<string, string | null>();
-
-  /** The origin URL of a code repository's checkout (`git remote get-url origin`), read once; undefined when it has none. */
-  private originOf(checkout: string): string | undefined {
-    if (!this.origins.has(checkout)) {
-      try {
-        this.origins.set(checkout, execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null);
-      } catch {
-        this.origins.set(checkout, null);
-      }
-    }
-    return this.origins.get(checkout) ?? undefined;
   }
 
   /** The language the writer last wrote the pages in whole, as kept beside the store; absent when none was recorded. */
@@ -2725,8 +2706,8 @@ export class KnowledgeProduct {
   }
 
   /**
-   * The Markdown documents the wiki shows as pages: the product repository's own (its README and everything under docs/,
-   * as the working tree holds them) and each connected repository's, as it was at the commit the graph was filled from.
+   * The Markdown documents the wiki shows as pages: the product repository's own and each connected repository's, as
+   * the graph holds them at the commit the fill read.
    */
   async documents(): Promise<DocumentListing> {
     const product = this.product();
@@ -2735,26 +2716,49 @@ export class KnowledgeProduct {
     // the read never seeds the starter set. A manifest that is there is parsed once per revision, never once per listing.
     const read = this.kindsForStamp(product.folder, false);
     const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
+    const context = await this.context();
+    if ('absent' in context) return { documents: [], truncated: [] };
+    const graph = context.ctx.graph;
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
     // The product's own pages (the files of its Markdown kinds) are entity pages, and the manifest names the harness files that are no product document.
     const shown = (path: string): boolean => !HARNESS_FILES.has(path.split('/').pop()!);
-    for (const path of productDocumentPaths(product.folder).filter(shown)) {
-      if (!listedDocument(manifest, null, path)) continue;
-      documents.push({ repo: null, path, title: documentTitle(readProductDocument(product.folder, path) ?? '', path) });
-    }
+    // The documents are the graph's, read page by page with the Markdown rule in the statement: a repository of more
+    // files than one page holds still answers its documents, and the total a truncation names is every document listed.
+    const listedIn = async (repo: string | null, repository: string): Promise<{ paths: string[]; sizes: Map<string, number | null>; total: number }> => {
+      const paths: string[] = [];
+      const sizes = new Map<string, number | null>();
+      let after: string | undefined;
+      for (;;) {
+        const page = await graph.documents(repository, { limit: DOCUMENT_PAGE, ...(after === undefined ? {} : { after }) });
+        for (const file of page.rows) {
+          if (!shown(file.path) || !listedDocument(manifest, repo, file.path)) continue;
+          paths.push(file.path);
+          sizes.set(file.path, file.bytes);
+        }
+        if (page.next === null) break;
+        after = page.next;
+      }
+      return { paths, sizes, total: paths.length };
+    };
+    const productRepository = productRepositoryId(product);
+    const own = await listedIn(null, productRepository);
+    if (own.total > DOCUMENT_LIMIT) truncated.push({ repo: null, total: own.total, shown: DOCUMENT_LIMIT });
+    const ownPaths = own.paths.slice(0, DOCUMENT_LIMIT);
+    const ownTexts = await graph.contentsOf(productRepository, ownPaths.filter((path) => (own.sizes.get(path) ?? 0) <= DOCUMENT_READ_BYTES));
+    for (const path of ownPaths) documents.push({ repo: null, path, title: documentTitle(ownTexts.get(path) ?? '', path) });
     for (const repo of this.repositories().filter((candidate) => candidate.present)) {
-      const commit = this.pins.get(repo.name)?.commit;
-      const names = (await repoDocumentPaths(repo.name, repo.path, commit)).filter((name) => shown(name) && listedDocument(manifest, repo.name, name));
-      if (names.length > DOCUMENT_LIMIT) truncated.push({ repo: repo.name, total: names.length, shown: DOCUMENT_LIMIT });
-      const listed = names.slice(0, DOCUMENT_LIMIT);
-      // One git process reads the lot; a document too large to read is titled by its file name.
-      const texts = await readRepoDocuments(repo.name, repo.path, commit === undefined || commit === '' ? 'HEAD' : commit, listed);
-      for (const name of listed) documents.push({ repo: repo.name, path: name, title: documentTitle(texts.get(name) ?? '', name) });
+      const found = await listedIn(repo.name, repo.name);
+      if (found.total > DOCUMENT_LIMIT) truncated.push({ repo: repo.name, total: found.total, shown: DOCUMENT_LIMIT });
+      const names = found.paths.slice(0, DOCUMENT_LIMIT);
+      // One statement reads the lot; a document too large to read is titled by its file name.
+      const texts = await graph.contentsOf(repo.name, names.filter((name) => (found.sizes.get(name) ?? 0) <= DOCUMENT_READ_BYTES));
+      for (const name of names) documents.push({ repo: repo.name, path: name, title: documentTitle(texts.get(name) ?? '', name) });
     }
     for (const kind of Object.keys(GUIDE_OUTPUTS)) {
       const declared = manifest.kinds.get(kind);
-      if (declared?.source !== 'markdown' || declared.file === undefined || !existsSync(join(product.folder, declared.file))) continue;
+      if (declared?.source !== 'markdown' || declared.file === undefined) continue;
+      if (await graph.content(productRepository, declared.file) === null) continue;
       if (!documents.some((document) => document.repo === null && document.path === declared.file)) documents.push({ repo: null, path: declared.file, title: declared.labels?.[manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind });
     }
     return { documents, truncated };
@@ -2762,6 +2766,8 @@ export class KnowledgeProduct {
 
   /** One document as a page; `undefined` when the repository has no such document. */
   async document(repo: string | null, path: string): Promise<DocumentPage | undefined> {
+    const identity = this.product();
+    if ('message' in identity) throw new WikiReadError(identity.message);
     const registry = readKinds(this.options.productFolder);
     const guideKind = repo === null && registry.present ? (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => registry.manifest.kinds.get(kind)?.source === 'markdown' && registry.manifest.kinds.get(kind)?.file === path) : undefined;
     if (guideKind !== undefined) {
@@ -2775,14 +2781,10 @@ export class KnowledgeProduct {
     if (!DOCUMENT_PATH.test(path)) return undefined;
     const context = await this.context();
     if ('absent' in context) return undefined;
-    // A document of a code repository is read at the commit the graph was filled from, and at the checkout's HEAD where
-    // the repository was never filled: a reader may open its documents before the first fill.
-    const markdown = repo === null
-      ? await context.ctx.readSource(null, path)
-      : (this.repositories().some((candidate) => candidate.name === repo && candidate.present)
-        ? await gitBlob(join(this.options.productFolder, 'repos', repo), this.pins.get(repo)?.commit || 'HEAD', path)
-        : undefined);
-    if (markdown === undefined) return undefined;
+    // A document's text is the content the files producer stored, at the commit the graph was filled from: the product
+    // repository is the one named after the product, and no checkout is read.
+    const markdown = await context.ctx.graph.content(repo ?? productRepositoryId(identity), path);
+    if (markdown === null || Buffer.byteLength(markdown) > DOCUMENT_READ_BYTES) return undefined;
     const resolutions: Record<string, Resolution> = {};
     for (const match of markdown.matchAll(/madarch:[^\s)\]>"']+/g)) {
       const target = match[0].replace(/[.,;:]+$/, '');
@@ -2802,15 +2804,23 @@ export class KnowledgeProduct {
     };
   }
 
-  /** A file of a repository as the graph was filled from it, for the source view. */
-  async source(repo: string | null, path: string, selection?: HistorySelection): Promise<{ text: string; commit: string | null; history?: HistoryContext } | undefined> {
+  /**
+   * A file of a repository as the graph was filled from it, for the source view. At a past commit it answers the text
+   * that commit held, and why the graph holds none of it where it holds none; never the current tree's text.
+   */
+  async source(repo: string | null, path: string, selection?: HistorySelection): Promise<SourceRead | undefined> {
     const history = selection === undefined ? undefined : await this.historyAt(selection);
     if (history !== undefined && (history.coverage !== 'covered' || repo !== history.repo)) return undefined;
     const context = await this.context(history);
     if ('absent' in context) return undefined;
+    if (history !== undefined) {
+      if (repo === null || history.commit === null) return { absent: `the store holds no text of ${JSON.stringify(path)} at the commit the history names: no code repository is named for it (src/knowledge/product.ts)` };
+      const at = await context.ctx.graph.contentAt(repo, path, history.commit);
+      return 'absent' in at ? { absent: at.absent } : { text: at.text, commit: history.commit, history };
+    }
     const text = await context.ctx.readSource(repo, path);
     if (text === undefined) return undefined;
-    return { text, commit: history?.commit ?? (repo === null ? null : this.pins.get(repo)?.commit ?? null), ...(history === undefined ? {} : { history }) };
+    return { text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };
   }
 
   // ---- the loop of questions and corrections (madarch-m38l.7) ---------------------------------
@@ -3350,6 +3360,8 @@ export class KnowledgeProduct {
 /** What a repository was filled to: kept in the primary store (`knowledge_fill`) and applied with the snapshot it belongs to. */
 export interface RepositoryPin {
   name: string;
+  /** The repository's web address, as the files producer read its remote; a local path when it has none. */
+  url: string;
   /**
    * The repository's node in the temporal graph, which its history reads are keyed by, or `null` when the store holds
    * no temporal reading of it — a store this fill wrote, whose facts are the as-is record tables. It is an id, never

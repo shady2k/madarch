@@ -83,6 +83,10 @@ beforeAll(async () => {
   rmSync(join(bare, 'madarch'), { recursive: true });
   const empty = makeProduct(home, 'unconnected', repository, 'tiny');
   writeFileSync(join(empty, 'workspace.yaml'), 'schemaVersion: 1\nid: 2ed7a5e0-3aa5-4e9a-9d3c-76d0a0c5c001\nname: unconnected\n');
+  // A product whose own folder is no Git checkout has nothing the files producer could read.
+  const noGit = makeProduct(home, 'nogit', repository, 'tiny');
+  writeFileSync(join(noGit, 'workspace.yaml'), 'schemaVersion: 1\nid: 2ed7a5e0-3aa5-4e9a-9d3c-76d0a0c5c002\nname: nogit\n');
+  rmSync(join(noGit, '.git'), { recursive: true, force: true });
   const app = join(work, 'app');
   mkdirSync(join(app, 'fonts'), { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
@@ -155,10 +159,10 @@ describe('an empty product', () => {
     expect(notes.filter((note) => note.message.includes('the engine does not implement'))).toEqual([]);
   }, 30_000);
 
-  test('the fill is refused in words where it cannot start: no repository', async () => {
-    const none = await fetch(`${server.url}/products/unconnected/api/fill`, { method: 'POST' });
+  test('the fill is refused in words where it cannot start: no repository and no checkout of its own', async () => {
+    const none = await fetch(`${server.url}/products/nogit/api/fill`, { method: 'POST' });
     expect(none.status).toBe(409);
-    expect((await none.json() as { message: string }).message).toBe('the product declares no code repository: connect one with "madarch repo add <name> <url>", then start the fill');
+    expect((await none.json() as { message: string }).message).toBe('the product declares no code repository and its own folder is no Git checkout: connect one with "madarch repo add <name> <url>", then start the fill');
   });
 
   test('a page that does not exist is a 404 that names why, and an id is required', async () => {
@@ -173,9 +177,9 @@ describe('an empty product', () => {
 describe('the products and the app', () => {
   test('the selector is offered the home\'s products at the root and each product alone under its prefix', async () => {
     const all = await get('/api/products');
-    expect(all.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'tiny', 'unconnected']);
+    expect(all.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'nogit', 'tiny', 'unconnected']);
     const one = await get('/products/tiny/api/products');
-    expect(one.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'tiny', 'unconnected']);
+    expect(one.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'nogit', 'tiny', 'unconnected']);
   });
 
   test('the app answers its home and its pages at a product\'s prefix, and the app\'s fonts are served at the home\'s root', async () => {

@@ -18,6 +18,28 @@ function product(home: string, folder: string, id: string): void {
   const path = join(home, folder); mkdirSync(join(path, 'docs'), { recursive: true });
   writeFileSync(join(path, 'workspace.yaml'), `schemaVersion: 1\nid: ${id}\nname: ${folder}\n`);
   writeFileSync(join(path, 'docs', 'vision.md'), `# ${folder} vision\n`);
+  // A product folder is its own Git checkout; the files producer reads it into the graph.
+  gitCommit(path);
+}
+
+/** Commits everything in a product folder, as a draft does. */
+function gitCommit(folder: string): void {
+  const git = (args: string[]): void => { const result = spawnSync('git', args, { cwd: folder, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.status !== 0) throw new Error(new TextDecoder().decode(result.stderr)); };
+  if (!existsSync(join(folder, '.git'))) git(['init', '--quiet', '--initial-branch=main']);
+  git(['add', '-A']); git(['commit', '--quiet', '-m', 'the product']);
+}
+
+/** Presses the product's fill and waits: the documents are the graph's now (decision 0035, item 9). */
+async function fillProduct(server: StartedServer, folder: string): Promise<void> {
+  const pressed = await fetch(`${server.url}/products/${folder}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  expect(pressed.status).toBe(202);
+  for (let attempt = 0; attempt < 600; attempt++) {
+    const status = await (await fetch(`${server.url}/products/${folder}/api/status`)).json() as { fill: { state: string; message?: string } };
+    if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
+    if (status.fill.state !== 'running') return;
+    await Bun.sleep(100);
+  }
+  throw new Error('the fill never ended');
 }
 function appDist(rootFolder: string): string {
   const app = join(rootFolder, 'app'); mkdirSync(app, { recursive: true });
@@ -108,6 +130,8 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   expect(await nameOf()).toBe('Alpha renamed');
   // And a page is still read at every ask through the kept entry: a saved document is served at once.
   writeFileSync(join(home, 'alpha', 'docs', 'vision.md'), '# alpha vision\n\nThe saved body.\n');
+  gitCommit(join(home, 'alpha'));
+  await fillProduct(server, 'alpha');
   const page = await fetch(`${server.url}/products/alpha/api/document?path=docs/vision.md`);
   expect(page.status).toBe(200);
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
@@ -130,6 +154,7 @@ test('products-home mode lists products and routes each wiki under its folder', 
   expect(await nestedPage.text()).toContain('/products/alpha/assets/');
   expect((await fetch(`${server.url}/products/alpha/assets/app.js`)).status).toBe(200);
   // The wiki's documents are listed product-relative: the app adds its mount base itself.
+  await fillProduct(server, 'alpha');
   const documents = await (await fetch(`${server.url}/products/alpha/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
   expect(documents.documents).toContainEqual({ repo: null, path: 'docs/vision.md', title: 'alpha vision' });
 });

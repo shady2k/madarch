@@ -826,6 +826,31 @@ export async function listFiles(owner: DatabaseOwner, input: { readonly reposito
   }));
 }
 
+/**
+ * One page of a repository's current Markdown documents, in code point order of the paths. The suffix and the
+ * hidden-folder rules stand in the statement, so a repository of many files answers with its documents and never with
+ * the first files of the whole tree: a path a dot begins, and a path a folder a dot begins, is no document.
+ */
+export async function listDocuments(owner: DatabaseOwner, input: { readonly repository: string; readonly suffixes: readonly string[]; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
+  return await withSpan('records.listDocuments', {
+    'records.repository': input.repository,
+    'records.limit': input.limit,
+  }, async () => await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query(
+      `${FILE_SELECT} JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
+       WHERE r.name = $1 AND ${IN_TREE}
+         AND left(p.text, 1) <> '.' AND position('/.' in p.text) = 0
+         AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS suffix WHERE right(lower(p.text), length(suffix)) = suffix)
+         AND ($3::text IS NULL OR p.text > $3) ORDER BY p.text LIMIT $4::bigint`,
+      [input.repository, [...input.suffixes], input.after ?? null, String(input.limit + 1)],
+    );
+    const rows = found.rows.map(fileOf);
+    const more = rows.length > input.limit;
+    const shown = more ? rows.slice(0, input.limit) : rows;
+    return { rows: shown, next: more ? shown[shown.length - 1]!.path : null };
+  }));
+}
+
 /** One path a commit changed, as the history pass read it. */
 export interface TouchedRecord {
   readonly path: string;
@@ -984,6 +1009,79 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
       commitCount: distinct.size,
       authors,
     };
+  }));
+}
+
+/** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
+export async function fileContents(owner: DatabaseOwner, repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
+  const answer = new Map<string, string | null>();
+  if (paths.length === 0) return answer;
+  return await withSpan('records.fileContents', { 'records.repository': repository, 'records.paths': paths.length }, async () => await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ path: string; content: string | null }>(
+      `SELECT p.text AS path, b.content FROM ${GIT_TABLES.file} f
+       JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
+       JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
+       WHERE r.name = $1 AND p.text = ANY($2::text[]) AND ${IN_TREE}`,
+      [repository, [...paths]],
+    );
+    for (const row of found.rows) answer.set(row.path, row.content);
+    return answer;
+  }));
+}
+
+/** The text of one file in a repository's current tree: null when the store holds none (binary, unread, or the path left the tree). */
+export async function fileContent(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
+  return await withSpan('records.fileContent', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ content: string | null }>(
+      `SELECT b.content FROM ${GIT_TABLES.file} f
+       JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
+       JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
+       WHERE r.name = $1 AND p.text = $2 AND ${IN_TREE} LIMIT 1`,
+      [repository, path],
+    );
+    return found.rows[0]?.content ?? null;
+  }));
+}
+
+/** The text of one file at one commit, or why the store holds no text of that version, never today's text under its name. */
+export type FileAtCommit =
+  | { readonly text: string }
+  | { readonly absent: 'no-file' | 'binary' | 'unread' | 'touched-after' | 'commit-not-in-history' };
+
+/**
+ * The text one file held at one commit: the blob the path stands on now, answered as that commit's text when nothing
+ * touched the path after it — the store keeps one blob per version a fill read, and the history states which versions
+ * came and went. Where the store cannot name that version's text it answers why, and never the current tree's bytes.
+ */
+export async function fileTextAt(owner: DatabaseOwner, repository: string, path: string, commit: string): Promise<FileAtCommit> {
+  return await withSpan('records.fileTextAt', { 'records.path': path, 'records.commit': commit }, async () => await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ content: string | null; form: string | null; walk: number | null; as_is: string | null; touched_after: boolean }>(
+      `WITH target AS (
+         SELECT f.node_id AS file_node, f.repository_node, b.content, b.form
+         FROM ${GIT_TABLES.file} f JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
+         JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
+         WHERE r.name = $1 AND p.text = $2 AND ${IN_TREE}
+       ), walked AS (
+         SELECT h.walk FROM ${GIT_TABLES.history} h JOIN edge he ON he.id = h.edge_id JOIN ${GIT_TABLES.commit} c ON c.node_id = he.to_node
+         WHERE he.from_node = (SELECT repository_node FROM target) AND c.hash = $3
+       ), stood AS (
+         SELECT c.hash FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.asIs}'
+         JOIN ${GIT_TABLES.commit} c ON c.node_id = ae.to_node WHERE ae.from_node = (SELECT repository_node FROM target)
+       )
+       SELECT t.content, t.form, w.walk, (SELECT hash FROM stood) AS as_is,
+         EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+                 JOIN edge he ON he.to_node = e.from_node AND he.from_node = t.repository_node AND he.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.history}')
+                 JOIN ${GIT_TABLES.history} h ON h.edge_id = he.id
+                 WHERE e.to_node = t.file_node AND h.walk < w.walk) AS touched_after
+       FROM target t LEFT JOIN walked w ON TRUE`,
+      [repository, path, commit],
+    );
+    const row = found.rows[0];
+    if (row === undefined) return { absent: 'no-file' };
+    if (row.walk === null && row.as_is !== commit) return { absent: 'commit-not-in-history' };
+    if (row.touched_after) return { absent: 'touched-after' };
+    if (row.content === null) return { absent: row.form === 'binary' ? 'binary' : 'unread' };
+    return { text: row.content };
   }));
 }
 

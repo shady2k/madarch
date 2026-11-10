@@ -5,8 +5,8 @@
  * reads git's own history or the journal, never a versioned row.
  */
 export {
-  RecordGap, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles,
-  graphKindCounts, listDirectories, listFiles, listRepositories, publishHistory, publishTree, repositoryFacts,
+  RecordGap, commitWithPaths, createRecordSchema, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles,
+  graphKindCounts, listDirectories, listDocuments, listFiles, listRepositories, publishHistory, publishTree, repositoryFacts,
   type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
   type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';

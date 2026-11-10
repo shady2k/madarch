@@ -17,6 +17,8 @@ import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GraphReader, type ContentAt } from '../src/knowledge/graph-read.js';
+import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
@@ -44,6 +46,11 @@ function pin(commit: string): RepositoryAt {
   return { repository: 'fixture', root: repository, commit, url: 'file:///fixture' };
 }
 
+/** The commits the fixture makes, oldest first: a past commit's text is read at the commit that held it. */
+let one = '';
+let two = '';
+let three = '';
+
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-records-'));
   repository = join(root, 'repo');
@@ -55,14 +62,17 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'docs', 'same-two.md'), '# one\n');
   writeFileSync(join(repository, 'blob.bin'), Buffer.from([0, 1, 2, 3, 0]));
   writeFileSync(join(repository, 'with space and\nnewline.txt'), 'x\n');
+  writeFileSync(join(repository, 'docs', 'with "quotes" and \\backslash.md'), '# quoted\n');
   symlinkSync('src/a.ts', join(repository, 'link.ts'));
   git(['init', '-q', '-b', 'main']);
-  commitAll('one');
+  // A remote a person cloned with: the credential is read and never stored (madarch-hsqs stage B review).
+  git(['remote', 'add', 'origin', 'https://someone:secret-token@example.test/fixture.git']);
+  one = commitAll('one');
   // A rename, a deletion and a modification.
   git(['mv', 'docs/same-one.md', 'docs/renamed.md']);
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
-  commitAll('two');
+  two = commitAll('two');
   owner = await createTestDatabaseOwner({});
   await createRecordSchema(owner);
 });
@@ -102,6 +112,24 @@ describe('the two passes over one fixture', () => {
     expect([secondHistory.inserted, secondHistory.updated, secondHistory.deleted]).toEqual([0, 0, 0]);
   }, 120_000);
 
+  test('a text file\'s bytes stand in the graph once per blob, and a reader takes them there', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const reader = new GraphReader(owner, () => new Date().toISOString());
+    expect(await reader.content('fixture', 'src/a.ts')).toBe('export const a = 2;\n');
+    expect(await reader.content('fixture', 'docs/renamed.md')).toBe('# one\n');
+    expect(await reader.content('fixture', 'blob.bin')).toBeNull();
+    // A path that left the tree has no text at the filled commit, though its row and blob remain.
+    expect(await reader.content('fixture', 'docs/same-one.md')).toBeNull();
+    // Many paths at once are one bound text[] parameter: a quote and a backslash in a name are characters, not SQL.
+    const many = await reader.contentsOf('fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
+    expect(many.get('src/a.ts')).toBe('export const a = 2;\n');
+    expect(many.get('docs/renamed.md')).toBe('# one\n');
+    expect(many.get('docs/with "quotes" and \\backslash.md')).toBe('# quoted\n');
+    expect(many.has('src/missing.ts')).toBe(false);
+    const shared = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.blob} WHERE content = $1`, ['# one\n']));
+    expect(shared.rows[0]?.n).toBe('1');
+  });
+
   test('read git\'s shapes: a rename, a deleted path, a binary, two paths on one blob, a symlink, an ambiguous extension, a space and a newline, a merge', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const files = await listFiles(owner, { repository: 'fixture', limit: 100 });
@@ -127,7 +155,8 @@ describe('the two passes over one fixture', () => {
   test('write only what moved when a new commit changes one file', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 3;\n');
-    const head = commitAll('three');
+    three = commitAll('three');
+    const head = three;
     const tree = await readRepositoryTree(pin(head));
     const history = await readRepositoryHistory(pin(head));
     const treeCounts = await publishTree(owner, tree);
@@ -144,6 +173,46 @@ describe('the two passes over one fixture', () => {
     const a = await fileFacts(owner, 'fixture', 'src/a.ts');
     expect(a?.lines).toBe(1);
   }, 120_000);
+
+  test('a past commit\'s text is the text that commit held, or absent — never the current tree\'s', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const reader = new GraphReader(owner, () => new Date().toISOString());
+    /** The reason a read answers, refused where it answered a text. */
+    const absence = (answer: ContentAt): string => {
+      if ('text' in answer) throw new Error(`the read answered ${JSON.stringify(answer.text)} where the store holds no text of that version`);
+      return answer.absent;
+    };
+    // src/a.ts changed at the second and the third commit: the store holds no text of its first version, and says so.
+    expect(absence(await reader.contentAt('fixture', 'src/a.ts', one))).toContain(one);
+    // docs/renamed.md came into the tree at the second commit, and no commit touched it after: that is its text there.
+    expect(await reader.contentAt('fixture', 'docs/renamed.md', two)).toEqual({ text: '# one\n' });
+    // The same path stood under another name at the first commit: absent there, naming that commit.
+    expect(absence(await reader.contentAt('fixture', 'docs/renamed.md', one))).toContain(one);
+    // The commit the graph was filled from answers the current text.
+    expect(await reader.contentAt('fixture', 'src/a.ts', three)).toEqual({ text: 'export const a = 3;\n' });
+    // A commit the store\'s history does not hold is absent by name, never the tip\'s text.
+    expect(absence(await reader.contentAt('fixture', 'src/a.ts', '0'.repeat(40)))).toContain('0'.repeat(40));
+  });
+
+  test('a remote with a user and a password is stored and read without them', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    // The tree pass read the checkout\'s remote, which named a credential: the graph holds the address without it.
+    const second = await readRepositoryTree(pin(three));
+    expect(second.repository.url).toBe('https://example.test/fixture.git');
+    const facts = await repositoryFacts(owner, 'fixture');
+    expect(facts?.url).toBe('https://example.test/fixture.git');
+    const reader = new GraphReader(owner, () => new Date().toISOString());
+    // The repository block renders the graph\'s own repository read: its data carries the clean address.
+    const held = await reader.repository('fixture');
+    expect(held?.url).toBe('https://example.test/fixture.git');
+    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:fixture', kind: 'code.repository', label: 'fixture', properties: { name: 'fixture' }, nodeIds: [], scope: '' } };
+    const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/kinds.yaml', 1);
+    if (block.type !== 'repository') throw new Error(`the repository block answered ${block.type}: ${block.type === 'problem' ? block.message : ''}`);
+    expect(block.data.url).toBe('https://example.test/fixture.git');
+    // The credential stands nowhere in the store.
+    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string }>(`SELECT url FROM ${GIT_TABLES.repository}`));
+    expect(stored.rows.map((row) => row.url)).toEqual(['https://example.test/fixture.git']);
+  });
 
   test('run as stages: one unit per repository per pass, publishing through the module', async () => {
     if (owner === undefined) throw new Error('the store was not opened');

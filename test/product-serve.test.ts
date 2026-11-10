@@ -174,12 +174,33 @@ async function whenServing(serve: LiveServe & { raw: Bun.Subprocess }, urlPath =
   }
 }
 
+
+/** A folder that is its own Git checkout, as every product folder is: the files producer reads it. */
+function gitCheckout(folder: string): void {
+  const git = (args: string[]): void => { const result = spawnSync('git', args, { cwd: folder, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.status !== 0) throw new Error(new TextDecoder().decode(result.stderr)); };
+  git(['init', '--quiet', '--initial-branch=main']); git(['add', '-A']); git(['commit', '--quiet', '-m', 'the product']);
+}
+
+/** Presses the product's fill and waits for it: the documents are the graph's now (decision 0035, item 9). */
+async function fillProduct(address: string): Promise<void> {
+  const pressed = await fetch(`${address}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  expect(pressed.status).toBe(202);
+  for (let attempt = 0; attempt < 600; attempt++) {
+    const status = await (await fetch(`${address}/api/status`)).json() as { fill: { state: string; message?: string } };
+    if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
+    if (status.fill.state !== 'running') return;
+    await Bun.sleep(100);
+  }
+  throw new Error('the fill never ended');
+}
+
 /** A product folder to serve: its manifest plus docs. */
 function product(base: string, name = 'demo'): string {
   const folder = join(base, 'demo');
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: demo-id\nname: " + name + "\n");
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
+  gitCheckout(folder);
   return folder;
 }
 
@@ -379,6 +400,7 @@ describe('madarch serve: an existing product served', () => {
     const address = await whenServing(serve);
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body).toEqual({ id: 'demo-id', name: 'named' });
+    await fillProduct(address);
     const vision = (await (await fetch(`${address}/api/document?path=docs/vision.md`)).json()) as { title: string; markdown: string };
     expect(vision.title).toBe('Vision');
     expect(vision.markdown).toBe('# Vision\n\nWhat it is for.\n');
@@ -407,12 +429,18 @@ describe('madarch serve: an existing product served', () => {
     const built = builtApp(base);
     const setMade = join(base, 'leftover-listings');
     cpSync(SET_MADE_FIXTURE, setMade, { recursive: true });
+    // The declared code repositories are not checked out in this copy: the product's own documents are what it serves.
+    const manifest = join(setMade, 'workspace.yaml');
+    const text = await Bun.file(manifest).text();
+    writeFileSync(manifest, text.slice(0, text.indexOf('\nrepos:')) + '\n');
+    gitCheckout(setMade);
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });
     const address = await whenServing(serve);
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body.id).toBe('8f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
     expect(body.name).toBe('leftover-listings');
+    await fillProduct(address);
     const documents = (await (await fetch(`${address}/api/documents`)).json()) as { documents: { repo: string | null; path: string }[] };
     const paths = documents.documents.map((document) => document.path);
     expect(paths).toContain('docs/vision.md');
