@@ -48,16 +48,14 @@ import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
-import { GraphReadRefusal, answerMembership, recordedReadText } from './graph-reads.js';
+import { GraphReadRefusal, answerMembership, recordedReadText } from './read-record.js';
 import { SnapshotError } from './snapshot.js';
 import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import {
-  ORCHESTRATOR_TABLES,
   appendProgress,
   publicationDigest,
   publishUnitIn,
-  readMembership,
   readRunConfiguration,
   readRunPlans,
   readRunPublicationCount,
@@ -500,10 +498,6 @@ interface CacheKeyParts {
   readonly versions: Readonly<Record<string, string>>;
 }
 
-/** The digest alone, for the walks that only compare and replace. */
-async function currentCacheDigest(orchestrator: FillOrchestrator, unit: UnitRecord, plan: UnitPlanRecord): Promise<string> {
-  return (await cacheKeyOf(orchestrator, unit, plan)).digest;
-}
 
 /**
  * What moved between the versions a generation was planned under and the ones a run resolves now, in the
@@ -830,7 +824,7 @@ async function planStageUnitsSpanned(
   options: { readonly run: RunRecord; readonly graph: DerivedStageGraph; readonly stageId: string; readonly stagePosition: number; readonly at: number },
 ): Promise<StagePlanOutcome & { readonly refusal?: PlanRefusal }> {
   const database = orchestrator.database;
-  const { run, graph, stageId, stagePosition, at } = options;
+  const { run, stageId, stagePosition, at } = options;
   const units: PlannedUnit[] = [];
   const reused: string[] = [];
   const stage = stageOf(orchestrator, stageId);
@@ -1325,7 +1319,7 @@ async function settleJoin(
   request: { readonly unit: UnitRecord; readonly plan: UnitPlanRecord; readonly runId: string; readonly at: number },
 ): Promise<SweptUnit | null> {
   const database = orchestrator.database;
-  const { unit, plan, at } = request;
+  const { unit, at } = request;
   const children = await childOutcomes(orchestrator, unit);
   if (children.length === 0) return null;
   const failedChild = children.some((child) => child.failed);
@@ -2195,7 +2189,7 @@ async function settleRun(orchestrator: FillOrchestrator, options: { readonly run
 }
 
 /** Settles the product's chain to quiescent once its run finished and nothing is outstanding. */
-async function settleChain(orchestrator: FillOrchestrator, runId: string, evidence: RunEvidence): Promise<void> {
+async function settleChain(orchestrator: FillOrchestrator, _runId: string, evidence: RunEvidence): Promise<void> {
   const database = orchestrator.database;
   const chain = await readChain(database, orchestrator.product);
   if (chain === null || chain.state !== 'active') return;
@@ -2275,19 +2269,6 @@ export async function resumeRun(orchestrator: FillOrchestrator, options: { reado
   return resumed.record;
 }
 
-/** Fails one run for its spent budget, naming what was spent. */
-async function failRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly detail: string }): Promise<RunSettleOutcome> {
-  const database = orchestrator.database;
-  const at = orchestrator.clock();
-  const run = await readRun(database, options.runId);
-  if (run === null) raise(`no run ${options.runId} is recorded`);
-  const evidence = await runEvidence(orchestrator, run.runId);
-  const step = await advanceRun(database, { runId: run.runId, event: { type: 'fail', at, cause: 'budget-exhausted', detail: options.detail } });
-  if (!step.ok) return { run, outcome: 'unchanged', evidence, refusal: { code: step.refusal.code, reason: step.refusal.reason } };
-  await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-failed', summary: `the run failed: ${options.detail}` });
-  await settleChain(orchestrator, run.runId, evidence);
-  return { run: step.record, outcome: 'failed', evidence };
-}
 
 /** Blocks one run with the starvation path that stopped it. */
 async function blockRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly reason: string }): Promise<RunSettleOutcome> {
@@ -2303,21 +2284,6 @@ async function blockRun(orchestrator: FillOrchestrator, options: { readonly runI
   return { run: step.record, outcome: 'blocked', evidence };
 }
 
-/** Unblocks one generation after an explicit resolution, and makes it runnable again. */
-async function unblockUnit(orchestrator: FillOrchestrator, options: { readonly unitId: string; readonly resolution: string }): Promise<WorkOutcome> {
-  const database = orchestrator.database;
-  const unit = await readUnit(database, options.unitId);
-  if (unit === null) raise(`no unit ${options.unitId} is recorded`);
-  const at = orchestrator.clock();
-  // The machine's own `record-resolution` effect: what the person resolved is kept as this run's durable
-  // progress event, in their words, so the record of why the generation runs again is the same record a
-  // watching person reads. `enqueue-ready` makes it runnable again and `emit-progress` is the event.
-  const step = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'unblock', at, generation: unit.generation, resolution: options.resolution } });
-  if (!step.ok) return { claimed: false, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: step.refusal.code, reason: step.refusal.reason } };
-  await orchestrator.queue.enqueue({ queue: orchestrator.queueName, data: { unitId: unit.unitId, generation: unit.generation }, singletonKey: unit.unitId });
-  await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-unblocked', summary: `${unit.unitId} is unblocked: ${options.resolution}` });
-  return { claimed: false, unitId: unit.unitId, generation: unit.generation, result: 'retried', summary: options.resolution };
-}
 
 /** One named step the machine refused on one unit generation, with the machine's own words. */
 interface UnitRefusal {

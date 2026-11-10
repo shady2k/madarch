@@ -21,7 +21,7 @@
  * step failed (a network error, an unreadable checksum or one that does
  * not match, a rename refused).
  */
-import { chmodSync, mkdtempSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';

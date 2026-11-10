@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createFillMachine, type MachineSpec } from '../src/fill/fsm-core.js';
-import { CHAIN_STATES, RUN_STATES, UNIT_STATES, chainMachine, newChainContext, newRunContext, newUnitContext, runMachine, unitMachine } from '../src/fill/fsm.js';
-import type { ChainEvent, ChainState, RunContext, RunEvent, RunEvidence, RunState, UnitChildOutcome, UnitContext, UnitEvent, UnitFailedChildPolicy, UnitFailCause, UnitRetryCause, UnitState } from '../src/fill/fsm.js';
+import { CHAIN_STATES, RUN_STATES, UNIT_STATES, chainMachine, newChainContext, newUnitContext, runMachine, unitMachine } from '../src/fill/fsm.js';
+import type { ChainEvent, RunContext, RunEvent, RunEvidence, RunState, UnitChildOutcome, UnitContext, UnitEvent, UnitFailedChildPolicy, UnitFailCause, UnitRetryCause, UnitState } from '../src/fill/fsm.js';
 
 /**
  * The transitions decision 0027 allows, written out from the decision rather than
@@ -39,8 +39,6 @@ const LEASED_STATES = ['leased', 'running', 'draft', 'validating'] as const;
 const ATTEMPT_ENDS = ['leased', 'running', 'draft', 'validating'] as const;
 /** Every live state; the run's budget ends the generation wherever it stands. */
 const LIVE_STATES = ['planned', 'ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const;
-/** The states that held a draft set or a lease, so a rerun retracts and revokes it. */
-const RERUN_STATES = ['leased', 'running', 'draft', 'validating'] as const;
 
 const retract = ['retract-draft', 'emit-progress'];
 const revokeAndRetract = ['revoke-lease', 'retract-draft', 'emit-progress'];
@@ -112,7 +110,6 @@ function contextIn(from: UnitState): UnitContext {
   };
 }
 
-const holdsLease = (from: UnitState): boolean => (LEASED_STATES as readonly string[]).includes(from);
 
 /** The token in force for a state's context: the same one every step names, leased or not. */
 const tokenIn = (context: UnitContext): number => context.fence;

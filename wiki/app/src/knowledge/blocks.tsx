@@ -33,7 +33,7 @@ import { mermaidFence, MermaidFence } from './diagram-fence.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
-import { remarkStatements, type MNode } from './statements.js';
+import { remarkStatements } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
 import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, PropertyRow, RelatedGroup, Resolution } from './types.js';
@@ -679,10 +679,14 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
     if (figure.kind === 'removed') return `−${figure.value}`;
     const key = `knowledge.historyFigure.${figure.kind}`;
     if (countedKinds.has(figure.kind)) return t(key, { count: Number(figure.value) });
+    if (figure.kind === 'change') return t(key, { value: figure.value });
+    if (figure.kind === 'renamed') return t(key, { value: figure.value });
+    if (figure.kind === 'added') return `+${figure.value}`;
+    if (figure.kind === 'removed') return `−${figure.value}`;
     return `${t(key)}: ${figure.value}`;
   };
   /** A badge's title: the same words for a counted figure, so it agrees with the numeral it names. */
-  const figureTitle = (figure: { kind: string; value: string }): string => (countedKinds.has(figure.kind) ? figureText(figure) : t(`knowledge.historyFigure.${figure.kind}`));
+  const figureTitle = (figure: { kind: string; value: string }): string => (countedKinds.has(figure.kind) || ['change', 'renamed'].includes(figure.kind) ? figureText(figure) : t(`knowledge.historyFigure.${figure.kind}`));
   return (
     <section data-block="history" aria-label={block.title}>
       <h2>{block.title}</h2>
@@ -764,7 +768,6 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
 
 /** One block of a page. */
 export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
-  const { t } = useTranslation();
   switch (block.type) {
     case 'guide': return <section data-block="guide" data-walk-status={block.data.walk.status}><KMarkdown text={block.data.markdown} resolutions={resolutions} /></section>;
     case 'markdown': return <KMarkdown text={block.markdown} resolutions={resolutions} />;

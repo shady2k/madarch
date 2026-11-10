@@ -5,7 +5,7 @@
  * page language. Every case builds its own git repository from them in a scratch folder.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -21,9 +21,6 @@ afterEach(() => { if (root !== undefined) rmSync(root, { recursive: true, force:
 const identity = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'f@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'f@example.test' };
 function git(folder: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd: folder, encoding: 'utf8', env: gitEnv(identity) }).trim();
-}
-function files(folder: string): string[] {
-  return readdirSync(folder, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name).slice(folder.length + 1)).sort();
 }
 
 /** A draft product as madarch 0.2.0 left it: the first commit, then the working tree the loop changed. */

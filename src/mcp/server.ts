@@ -12,23 +12,22 @@
  * — what it built, how long it took, which revision it serves — goes to standard
  * error.
  */
-import { answerUnitMcpMessage, serveUnitMcp, type McpToolDefinition } from '../fill/unit-mcp.js';
+import { serveUnitMcp } from '../fill/unit-mcp.js';
+import type { McpToolDefinition } from './types.js';
 import { runningVersion } from '../product/version.js';
-import { REPO_TOOLS, type RepoToolAnswer } from './tools.js';
 import { RECORD_TOOLS } from './records.js';
+import type { RepoToolAnswer } from './session.js';
 import { RepositorySession } from './session.js';
 import { readLatestFillProgress, type FillProgress } from '../obs/progress.js';
 import { bytesOf } from '../obs/trace.js';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { repositoryStoreFolder } from './graph.js';
-import { readRevision } from './git.js';
-import { join } from 'node:path';
 
 /** What this server calls itself in `initialize`, after the protocol's own fields. */
 const REPO_MCP_INFO: { readonly name: string; readonly version: string } = { name: 'madarch', version: runningVersion() };
 
 /** Every tool this server serves: this step's five, then the seven of decision 0032 whose step has not run. */
-const SERVED_TOOLS: readonly McpToolDefinition[] = [...RECORD_TOOLS, ...REPO_TOOLS];
+const SERVED_TOOLS: readonly McpToolDefinition[] = [...RECORD_TOOLS];
 
 /** The served tools' names, in the served order. */
 export const SERVED_TOOL_NAMES: readonly string[] = SERVED_TOOLS.map((tool) => tool.name);
@@ -163,7 +162,7 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
   const provider: PendingRepository = { repository: options.repository, ready, progress };
   try {
     await serveUnitMcp({
-      tools: [...RECORD_TOOLS, ...REPO_TOOLS] as readonly McpToolDefinition[],
+      tools: [...RECORD_TOOLS] as readonly McpToolDefinition[],
       info: REPO_MCP_INFO,
       call: (tool, argumentsValue) => answerCall(options.repository, provider, tool, argumentsValue, sessionTrace),
       streams: { input: options.input ?? process.stdin, write: (text: string) => { (options.output ?? process.stdout).write(text); } },
@@ -173,16 +172,4 @@ export async function serveRepositoryMcp(options: RepositoryMcpOptions): Promise
     closeTrace(sessionTrace);
   }
   return failure === undefined ? 0 : 2;
-}
-
-/**
- * Answers one message of a session that is already open, or of one that is still
- * opening, as the transport does.
- */
-async function answerRepositoryMcpMessage(message: unknown, provider: RepositoryProvider, info: { name: string; version: string } = REPO_MCP_INFO): Promise<Record<string, unknown> | null> {
-  return await answerUnitMcpMessage(message, {
-    tools: SERVED_TOOLS,
-    info,
-    call: (tool, argumentsValue) => answerCall('ready' in provider ? provider.repository : '', provider, tool, argumentsValue),
-  });
 }

@@ -1,6 +1,7 @@
 import type { ProtoDocumentation } from './proto-document.js';
 import type { ContractDiagnostic } from './contract-document.js';
-import type { GuidePageData } from '../writer/guides/read.js';
+/** A guide block's data; no stage writes one yet. */
+type GuidePageData = Record<string, unknown>;
 /**
  * The page model the server answers and the app draws (decision 0029): a page
  * is a list of blocks, each already read from the graph or the Markdown, so the
@@ -16,35 +17,6 @@ import type { DiagramsBlockShape } from './views.js';
  * text. No stage of the fill writes these yet, and nothing reads the product's documents at request time; the type is
  * the shape the writer's document stages will receive when one does (decision 0033, item 1).
  */
-export interface DocEntity {
-  /** The page id, `doc:<path>#<stableId>`: built from the durable identity, never from the anchor. */
-  id: string;
-  kind: string;
-  /** What a reader calls it: the identifier and its name (`UC-2 Pay`), or the words of its first passage. */
-  title: string;
-  /** The alias the document writes (`UC-2`); null for a section that numbers nothing. Never the identity. */
-  identifier: string | null;
-  repo: string | null;
-  path: string;
-  /** The anchor the document gives it now: what a ground names and a page shows, never what the page is called. */
-  anchor: string;
-  /** Every anchor the tree derives for this passage: a heading names itself by its number and by its words. */
-  aliases: readonly string[];
-  /** The 1-based line the passage starts at, and the last line it covers. */
-  line: number;
-  endLine: number;
-  /** The passage's Markdown without the line that names it (the heading, the bold identifier or the list mark). */
-  text: string;
-  /** The durable identity: the page id's fragment, which a rename or a renumbering does not change. */
-  stableId: string;
-  /** The general kind the section was read as. */
-  semantics: import('./semantics.js').SemanticKind;
-  /** The pass that decided the kind: the manifest and the metadata, the structure, or the classifier. */
-  pass: 'metadata' | 'structure' | 'classifier';
-  /** The heading texts that enclose it, from the document's first heading down to it. */
-  headingPath: string[];
-}
-
 /** Where a piece of code is: the file in a repository and its lines. */
 export interface CodeLocation {
   /** The code repository's name in the manifest; null for the product repository. */
@@ -302,7 +274,7 @@ interface HistoryMore {
 
 /** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */
 export interface HistoryFigure {
-  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity';
+  kind: 'added' | 'removed' | 'change' | 'renamed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity';
   value: string;
 }
 
@@ -413,6 +385,31 @@ export interface CatalogView {
   kinds: CatalogKindView[];
   /** The catalog's own findings: a row that leaves a field out, and a kind that leaves a translation out. */
   findings: Finding[];
+}
+
+/** One page or entity a search found: its name, its address, and the text around the match where the page's body holds it. */
+interface SearchRow {
+  id: string;
+  kind: string;
+  title: string;
+  href: string;
+  excerpt?: string;
+}
+
+/** The rows one kind of the wiki's search found, with how many it holds in all. */
+interface SearchGroup {
+  kind: string;
+  total: number;
+  rows: SearchRow[];
+}
+
+/** The wiki's own answer to a search: the rows grouped by kind, and how many were found. */
+export interface SearchView {
+  product: { name: string; id: string };
+  language: string;
+  query: string;
+  groups: SearchGroup[];
+  total: number;
 }
 
 export interface KindSummary {

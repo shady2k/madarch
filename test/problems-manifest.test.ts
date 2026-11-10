@@ -79,7 +79,7 @@ problems:
 `);
     expect(read.problems?.rules).toEqual({});
     const messages = read.findings.map((finding) => finding.message).join('\n');
-    for (const field of ['predicate', 'kind', 'sonar', 'section', 'action', 'label']) expect(messages).toContain(`rule "old.format":`);
+    for (const {} of ['predicate', 'kind', 'sonar', 'section', 'action', 'label']) expect(messages).toContain(`rule "old.format":`);
     expect(read.findings.every((finding) => finding.line > 0)).toBe(true);
   });
 

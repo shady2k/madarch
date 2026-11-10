@@ -10,13 +10,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
-import { RECORD_TABLES, commitFacts } from '../src/graph/records.js';
+import { commitFacts } from '../src/graph/records.js';
+import { ONE_GRAPH_TABLES } from '../src/graph/one-graph.js';
+import { generatedTableName } from '../src/graph/contract.js';
+import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
+import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let repository = '';
+const RECORD_TABLES = [
+  ...ONE_GRAPH_TABLES,
+  ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
+  ...GIT_CONTRACT.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
+  ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
+] as const;
+
 let owner: DatabaseOwner | undefined;
 
 function git(args: readonly string[]): string {
@@ -52,7 +63,7 @@ beforeAll(async () => {
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
   commitAll('two');
-  owner = await createTestDatabaseOwner({ btreeGist: true });
+  owner = await createTestDatabaseOwner({});
   await createRecordSchema(owner);
 });
 
@@ -104,9 +115,9 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // `.h` is C, C++ and Objective-C in the dataset: ambiguous, with its candidates, never one picked.
+    // `.h` is C, C++ and Objective-C in the dataset: the claim holds the candidates, and no one language is picked.
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBe('ambiguous');
+    expect(header.language).toBeNull();
     expect(header.candidates.length).toBeGreaterThan(1);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
@@ -121,10 +132,11 @@ describe('the two passes over one fixture', () => {
     const history = await readRepositoryHistory(pin(head));
     const treeCounts = await publishTree(owner, tree);
     const historyCounts = await publishHistory(owner, history);
-    // One file's blob moved: the file's row is updated, the commit vertex and its as-is edge are
-    // added, and the edge to the commit the repository stood at before is removed. Every other row
-    // stands: inserted 1 (the as-is edge), updated 1 (the file), deleted 1 (the old as-is edge).
-    expect(treeCounts.inserted).toBe(1);
+    // One file's blob moved: the file's row is updated, the new commit's vertex and its row and the
+    // as-is edge are added, and the edge to the commit the repository stood at before is removed.
+    // Every other row stands: inserted 3 (the commit vertex, its row and the as-is edge), updated 1
+    // (the file), deleted 1 (the old as-is edge).
+    expect(treeCounts.inserted).toBe(3);
     expect(treeCounts.updated).toBe(1);
     expect(treeCounts.deleted).toBe(1);
     expect(historyCounts.inserted).toBeGreaterThan(0);
@@ -164,10 +176,9 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs')).toBe('');
     // The parent of a file is its folder, never the repository.
     const parents = await owner.transaction('snapshot', async (tx) => await tx.query(
-      `SELECT p.text AS child, coalesce(pp.text, '') AS parent FROM edge e JOIN node n ON n.id = e.to_id JOIN kind k ON k.id = n.kind_id
-       JOIN file f ON f.node_id = n.id JOIN path p ON p.id = f.path_id LEFT JOIN node pn ON pn.id = e.from_id AND pn.id <> n.repository_id
-       LEFT JOIN directory d ON d.node_id = pn.id LEFT JOIN path pp ON pp.id = d.path_id
-       WHERE k.name = 'file' AND e.kind_id = (SELECT id FROM kind WHERE name = 'contains')`,
+      `SELECT p.text AS child, coalesce(pp.text, '') AS parent FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = 'contains'
+       JOIN ${GIT_TABLES.file} f ON f.node_id = e.to_node JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> f.repository_node
+       LEFT JOIN ${GIT_TABLES.directory} d ON d.node_id = pn.id LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = d.path_id`,
     ));
     for (const row of parents.rows as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
@@ -232,24 +243,6 @@ describe('the gaps each pass owns', () => {
     expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([{ what: 'gaps at aaa', reason: 'shallow-history' }]);
   }, 120_000);
 
-  test('a store filled before the producing pass was recorded keeps its rows under one, and the column is added', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    // A store as the schema before this fix left it: a gap table with no `producer`, and one row in it.
-    const old = await createTestDatabaseOwner({ btreeGist: true });
-    try {
-      await old.run((tx) => tx.query(`CREATE TABLE gap (repository_id bigint NOT NULL, what text NOT NULL CHECK (what <> ''), reason text NOT NULL CHECK (reason IN ('non-utf8-path', 'shallow-history', 'unreadable')), PRIMARY KEY (repository_id, what))`));
-      await old.run((tx) => tx.query(`INSERT INTO gap (repository_id, what, reason) VALUES (1, 'an old gap', 'shallow-history')`));
-      await createRecordSchema(old);
-      const columns = await old.run((tx) => tx.query<{ column_name: string; column_default: string | null }>(`SELECT column_name, column_default FROM information_schema.columns WHERE table_name = 'gap' AND column_name = 'producer'`));
-      expect(columns.rows[0]?.column_name).toBe('producer');
-      expect(columns.rows[0]?.column_default).toContain('tree');
-      const held = await old.run((tx) => tx.query<{ producer: string }>(`SELECT producer FROM gap WHERE what = 'an old gap'`));
-      // The row the old schema held is a tree row until a fill rewrites it under its own pass.
-      expect(held.rows[0]?.producer).toBe('tree');
-    } finally {
-      await old.close();
-    }
-  }, 120_000);
 });
 
 describe('a git date of a zero or a negative offset', () => {

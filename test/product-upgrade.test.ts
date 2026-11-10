@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { artifactName, CHECKSUMS_FILE, upgrade, sha256, checksumFor, parseReleases } from '../src/product/upgrade.js';
 import { releaseVersion } from '../src/product-wiki/release-assets.js';
 

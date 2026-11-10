@@ -14,11 +14,10 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { byCodePoint } from '../model/order.js';
 import { correctionId, QUESTION_SLUG } from './ids.js';
 import { readKnowledgePages } from '../knowledge/index/index.js';
 import {
-  CORRECTIONS_FOLDER, CORRECTION_KIND, LOCAL_UNVERIFIED, LoopFileError, MAX_ANSWER, MAX_REASON, QUESTION_KIND,
+  CORRECTIONS_FOLDER, CORRECTION_KIND, LoopFileError, MAX_ANSWER, MAX_REASON,
   correctionPath, parseCorrection, parseQuestion, parseStatementRef, questionPath, renderCorrection, renderQuestion,
   type Author, type Correction, type Question,
 } from './entities.js';
@@ -209,23 +208,5 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcte
     await writeWhole(join(input.productFolder, file), renderCorrection(correction));
     const committed = await commitFiles(input.productFolder, [file], `Record the correction ${slug}\n\nCorrected in the wiki by ${by.name} <${by.email}> (${by.verified}): ${input.statement}.`, by, env);
     return { correction, ...committed };
-  });
-}
-
-/** A page's rewrite used an answer or a correction: the file says which page closed it. Not committed (a page the agent writes is not either). */
-async function markResolved(productFolder: string, resolved: { readonly kind: 'question' | 'correction'; readonly slug: string; readonly pages: readonly string[]; readonly now?: () => Date }): Promise<void> {
-  const file = resolved.kind === QUESTION_KIND ? questionPath(resolved.slug) : correctionPath(resolved.slug);
-  const path = join(productFolder, file);
-  await alone(path, async () => {
-    assertInside(productFolder, path);
-    const source = await readFile(path, 'utf8');
-    const at = (resolved.now?.() ?? new Date()).toISOString();
-    if (resolved.kind === QUESTION_KIND) {
-      const question = parseQuestion(file, source);
-      await writeWhole(path, renderQuestion({ ...question, resolvedBy: [...new Set([...question.resolvedBy, ...resolved.pages])].sort(byCodePoint), resolvedAt: at }));
-    } else {
-      const correction = parseCorrection(file, source);
-      await writeWhole(path, renderCorrection({ ...correction, status: 'applied', resolvedBy: [...new Set([...correction.resolvedBy, ...resolved.pages])].sort(byCodePoint), resolvedAt: at }));
-    }
   });
 }

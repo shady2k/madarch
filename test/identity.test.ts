@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { LOCAL_MARK, authorOf, identityTrailer, localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
+import { localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
 import { gitEnv } from './git-env.js';
 
 /** git's configuration sources sealed off: no system or global user is the fixture's. */

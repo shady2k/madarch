@@ -76,18 +76,18 @@ afterAll(() => {
 
 describe('the empty wiki, the press and the end state', () => {
   test('an empty product says nothing is read yet; the press fills it; the end state has the counts and the time', async () => {
-    const { repository } = product('walk', (folder) => {
-      mkdirSync(join(folder, 'src', 'nested'), { recursive: true });
-      mkdirSync(join(folder, 'assets'), { recursive: true });
-      writeFileSync(join(folder, 'README.md'), '# Walk\n\nA fixture.\n');
-      writeFileSync(join(folder, 'src', 'a.ts'), 'export const a = 1;\n');
-      writeFileSync(join(folder, 'src', 'nested', 'b.ts'), 'export const b = 2;\n');
-      writeFileSync(join(folder, 'assets', 'picture.bin'), Uint8Array.from([0, 1, 2, 0, 255]));
-      git(folder, 'add', '-A');
-      git(folder, 'commit', '-qm', 'the tree is written');
-      git(folder, 'mv', 'src/nested/b.ts', 'src/nested/c.ts');
-      git(folder, 'commit', '-qm', 'the nested file moves');
-    });
+    product('walk',(folder) => {
+mkdirSync(join(folder,'src','nested'),{ recursive: true });
+mkdirSync(join(folder,'assets'),{ recursive: true });
+writeFileSync(join(folder,'README.md'),'# Walk\n\nA fixture.\n');
+writeFileSync(join(folder,'src','a.ts'),'export const a = 1;\n');
+writeFileSync(join(folder,'src','nested','b.ts'),'export const b = 2;\n');
+writeFileSync(join(folder,'assets','picture.bin'),Uint8Array.from([0,1,2,0,255]));
+git(folder,'add','-A');
+git(folder,'commit','-qm','the tree is written');
+git(folder,'mv','src/nested/b.ts','src/nested/c.ts');
+git(folder,'commit','-qm','the nested file moves');
+});
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty state: the manifest reads, the store holds no repository and no trace.
@@ -323,6 +323,24 @@ describe('the empty wiki, the press and the end state', () => {
       const commit = await json(server, 'treeonly', '/api/k/commit?hash=0000000000000000000000000000000000000000');
       expect(commit.status).toBe(404);
       expect(String(commit.body['message'])).toContain('repository-history');
+    } finally {
+      await server.stop();
+    }
+  }, 300_000);
+
+  test('a fill that ends does not validate the graph through a closed owner', async () => {
+    product('validated', (folder) => {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      writeFileSync(join(folder, 'docs', 'index.md'), '# Index\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-qm', 'one file');
+    });
+    const errors: string[] = [];
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
+    try {
+      await press(server, 'validated');
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(errors.filter((line) => line.includes('could not validate the graph after the fill'))).toEqual([]);
     } finally {
       await server.stop();
     }

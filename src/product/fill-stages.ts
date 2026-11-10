@@ -65,14 +65,15 @@
  * anywhere yet.
  */
 import { execFileSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
-import { ID_PATTERN } from '../model/schema.js';
 import type { FillStageConfigurationRead } from '../fill/config.js';
 import { readFillStageConfiguration } from '../fill/config.js';
-import { createGraphStore, createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
+import { createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
+import { GIT_CONTRACT, gitContractOf } from '../fill/stages/git-contract.js';
+import { readKinds } from '../knowledge/kinds.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
@@ -94,7 +95,7 @@ import { engineFirstFillStages, firstFillStagesOf, readWorkflows, type FirstFill
  * storage layer import it) while still reading and lending the owner the host
  * created.
  */
-type FillDatabase = Parameters<typeof createGraphStore>[0];
+type FillDatabase = Parameters<typeof createRecordSchema>[0];
 
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
@@ -164,7 +165,11 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const repin = (): readonly RepositoryPin[] => readPins();
   // The record store this step's passes publish through: the process's one owner, so what the
   // wiki's button fills is what `madarch mcp` reads (madarch-8bdc.2.5, item 6).
-  await createRecordSchema(options.database);
+  const kindsRead = readKinds(folder);
+  // A folder that is no product — a bare checkout `madarch mcp` serves — reads the code kinds the engine's own
+  // starter set binds; a product with a manifest takes only the capabilities its kinds bind (decision 0034, item 14).
+  const contract = kindsRead.present ? gitContractOf(kindsRead.manifest) : GIT_CONTRACT;
+  await createRecordSchema(options.database, contract);
   const records = options.records ?? {
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
     publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
@@ -174,6 +179,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     const held = createStageRegistry({
       snapshots,
       records,
+      git: kindsRead.present ? contract.vertex.length > 0 : true,
     });
     span.setAttribute('madarch.stages', held.all().length);
     return held;
@@ -239,15 +245,6 @@ function workflowOf(folder: string): FirstFillRead {
   return readWorkflows(folder).present ? firstFillStagesOf(folder) : engineFirstFillStages();
 }
 
-/** The run's snapshot record of one pinned repository, as fill-runtime's shape holds it. */
-function snapshotOfPins(folder: string, registry: StageRegistry, pin: RepositoryPin): RunSnapshot {
-  return {
-    repository: folder,
-    defaultBranch: pin.defaultBranch ?? 'HEAD',
-    commit: pin.commit,
-    registryHash: declaredStagesDigest(registry),
-  };
-}
 
 /** A repository a run could not pin, named where it stands: what the fill did for it, in words. */
 export interface UnreadRepository {
@@ -299,7 +296,7 @@ function pinOf(id: string, form: 'code' | 'product', root: string, defaultBranch
 }
 
 /** The branch one checkout's HEAD stands on; `undefined` where it is detached or the branch cannot be read. */
-function branchOf(root: string, id: string): string | undefined {
+function branchOf(root: string, _id: string): string | undefined {
   const branch = gitQuietly(root, ['symbolic-ref', '--short', 'HEAD']);
   if (branch === undefined || branch === '') return undefined;
   return branch;
@@ -323,16 +320,6 @@ function checkoutFolderOf(identity: ProductIdentity, name: string): string {
 
 
 
-/** The folder one repository's checkout stands in, refused by name where the product pins no such repository. */
-function rootOf(identity: ProductIdentity, repository: string): string {
-  if (repository === productRepositoryId(identity)) return identity.folder;
-  const declared = identity.repos.find((repo) => repo.name === repository);
-  if (declared === undefined) {
-    const known = [identity.name, ...identity.repos.map((repo) => repo.name)].map((id) => JSON.stringify(id));
-    throw new Error(`the repository ${JSON.stringify(repository)} is not one the product ${identity.folder} pins: it pins ${known.join(', ')}`);
-  }
-  return checkoutFolderOf(identity, declared.name);
-}
 
 /**
  * The named inputs one unit's facts stand on. A unit's own bytes are what the

@@ -263,7 +263,7 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     // A claim that goes quiet past the declared heartbeat interval is dead
     // before its lease lapses: the lease is a minute, the interval ten seconds.
     await queue.enqueue({ queue: SCENARIO_QUEUES.heartbeatQuiet, data: { unit: 'quiet' } });
-    const quiet = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.heartbeatQuiet }))[0]!;
+    await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.heartbeatQuiet });
     await wait(10.4);
     const heartbeatQuietClaimsBeforeRecover = (await queue.claim({ queue: SCENARIO_QUEUES.heartbeatQuiet })).length;
     await queue.recover(SCENARIO_QUEUES.heartbeatQuiet);
@@ -274,7 +274,7 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
 
     // A lease that lapses on a job with no retries left is dead-lettered.
     await queue.enqueue({ queue: SCENARIO_QUEUES.leaseSpent, data: { unit: 'spent' } });
-    const spent = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.leaseSpent }))[0]!;
+    await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.leaseSpent });
     await wait(1.3);
     await queue.recover(SCENARIO_QUEUES.leaseSpent);
     const spentLeaseDeadLetters = await queue.deadLetters<{ unit: string }>(SCENARIO_QUEUES.leaseSpent);
@@ -402,7 +402,7 @@ export async function runQueueScenario(owner: DatabaseOwner, schema: string): Pr
     const frozenJob = (await queue.claim<{ unit: string }>({ queue: SCENARIO_QUEUES.frozen }))[0]!;
     const retriesFrozenOutcome = await queue.fail(SCENARIO_QUEUES.frozen, frozenJob, 'the job carries no retries');
     const retriesFrozenDeadLetters = await queue.deadLetters(SCENARIO_QUEUES.frozen);
-    const retriesFrozenClaims = (await queue.claim({ queue: SCENARIO_QUEUES.frozen })).length;
+    await queue.claim({ queue: SCENARIO_QUEUES.frozen });
 
     await queue.enqueue({ queue: SCENARIO_QUEUES.raised, data: { unit: 'raised' } });
     await queue.declare({ name: SCENARIO_QUEUES.raised, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });

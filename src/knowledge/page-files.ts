@@ -539,7 +539,7 @@ function sectionMarkdown(section: PageFileSection, language: string): string {
   return lines.join('\n\n');
 }
 
-function plannedSection(page: PageModel, prefix: string): PageFileSection[] {
+function plannedSection(page: PageModel, _prefix: string): PageFileSection[] {
   const planned = page.planned;
   if (planned === undefined) return [];
   const sections: PageFileSection[] = [{
@@ -591,16 +591,9 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
   const rewriteText = (text: string): string => rewrite(text, page.resolutions, prefix);
   const resolved = (text: string): string => rewriteText(text);
   switch (block.type) {
-    case 'guide': {
-      const data = block.data;
-      return {
-        title: '',
-        type: 'text',
-        text: rewriteText(data.markdown),
-        links: textLinks(data.markdown, page.resolutions, prefix),
-        diagnostics: data.diagnostics.map((diagnostic) => ({ file: diagnostic.file, line: diagnostic.line, path: diagnostic.path, code: diagnostic.code, message: diagnostic.message })),
-      };
-    }
+    case 'guide':
+      // No stage writes a guide block yet: a page that carries one shows no text, never a second store's.
+      return { title: '', type: 'text', text: '', links: [] };
     case 'markdown':
       return { title: '', type: 'text', text: resolved(block.markdown), links: textLinks(block.markdown, page.resolutions, prefix) };
     case 'term': {

@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { embeddedWikiApp } from '../product-wiki/release-assets.js';
-import type { ArchifyDocument, ArchifyLayoutedView, LayoutPoint } from './archify.js';
+import type { ArchifyDocument } from './archify.js';
 
 /** The madarch checkout the renderer is vendored in. */
 const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -24,49 +24,6 @@ const PACKAGE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 /** The vendored renderer the archify pages are made with, pinned at 3.0.1 (vendor/archify/README.md). */
 const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
 
-/**
- * The layout LikeC4 computed for every view of the workspace: node
- * positions, sizes, groups and edges, exactly what the archify document
- * is built from. A view the layout pass skipped is absent from the map, and a
- * caller that needs it says so by name.
- */
-async function layoutedViews(workspace: string): Promise<Map<string, ArchifyLayoutedView>> {
-  const { LikeC4 } = await import('likec4');
-  const likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
-  try {
-    const views = new Map<string, ArchifyLayoutedView>();
-    for (const diagram of (await likec4.diagrams()) as unknown as ReadonlyArray<Record<string, unknown>>) {
-      const id = diagram.id as string;
-      const nodes = (diagram.nodes as ReadonlyArray<Record<string, unknown>>).map((node) => ({
-        id: node.id as string,
-        kind: (node.kind as string | undefined) ?? 'external',
-        title: node.title as string,
-        parent: (node.parent as string | null) ?? null,
-        x: node.x as number,
-        y: node.y as number,
-        width: node.width as number,
-        height: node.height as number,
-      }));
-      const edges = (diagram.edges as ReadonlyArray<Record<string, unknown>>).map((edge) => ({
-        source: edge.source as string,
-        target: edge.target as string,
-        ...(edge.label === undefined ? {} : { label: edge.label as string }),
-        ...(edge.labelBBox === undefined
-          ? {}
-          : {
-              labelAt: [
-                (edge.labelBBox as { x: number; y: number; width: number; height: number }).x + (edge.labelBBox as { width: number }).width / 2,
-                (edge.labelBBox as { x: number; y: number; height: number }).y + (edge.labelBBox as { height: number }).height / 2,
-              ] as LayoutPoint,
-            }),
-      }));
-      views.set(id, { id, title: diagram.title as string, nodes, edges });
-    }
-    return views;
-  } finally {
-    await likec4[Symbol.asyncDispose]?.();
-  }
-}
 
 /**
  * How long the vendored renderer may run before it is killed: a render of a laid-out

@@ -1,10 +1,7 @@
 import { expect, test } from 'bun:test';
 import { operationMetadata } from '../src/knowledge/operation-catalogue.js';
-import { createGraphStore } from '../src/graph/index.js';
-import { GraphReader } from '../src/knowledge/graph-read.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { GraphEntity } from '../src/knowledge/graph-read.js';
-import { createTestDatabaseOwner } from './test-database.js';
 const entity = (key: string, kind: string, properties = {}): GraphEntity => ({key, kind, label: key, properties, scope: 'scope', nodeIds: ['1']});
 test('catalogue uses declared contract identity and preserves implementation/caller counts', async () => {
   const contract = entity('code.contract:api.yaml', 'code.contract', {format: 'openapi'});
@@ -50,31 +47,3 @@ test('declared AsyncAPI channels keep ownership, real links and application flow
   expect((await operationMetadata(ctx, channel)).contracts[0]).toMatchObject({directionStatus: 'unavailable'});
   expect((await operationMetadata(ctx, channel)).contracts[0]?.directions).toBeUndefined();
 });
-
-
-test('production catalogue SQL pages declared channels and operations without changing kind lists', async () => {
-  const owner = await createTestDatabaseOwner({btreeGist: true});
-  try {
-    await owner.ready; const store = createGraphStore(owner); await store.createSchema();
-    await store.registerCodeSchema({kinds: ['code.channel', 'code.contract', 'code.operation'], relations: [{key: 'code.declares', discriminated: true}]});
-    const scope = await store.newNode(); const owned = {producer: 'neutral.contracts', scope};
-    await store.openNode({nodeId: scope, kind: 'code.repository', label: 'neutral', properties: {}, validFrom: '2026-01-01T00:00:00Z', owner: owned});
-    const contract = await store.newNode();
-    await store.openNode({nodeId: contract, kind: 'code.contract', label: 'Events', properties: {recordKey: 'code.contract:events.yaml', format: 'asyncapi'}, validFrom: '2026-01-01T00:00:00Z', owner: owned});
-    for (const [name, declared] of [['first', true], ['second', true], ['unowned', false]] as const) {
-      const channel = await store.newNode();
-      await store.openNode({nodeId: channel, kind: 'code.channel', label: name, properties: {recordKey: `code.channel:${name}`}, validFrom: '2026-01-01T00:00:00Z', owner: owned});
-      if (declared) await store.openEdge({relation: 'code.declares', src: contract, dst: channel, properties: {}, validFrom: '2026-01-01T00:00:00Z', owner: owned});
-    }
-    await store.openNode({kind: 'code.operation', label: 'GET /records', properties: {recordKey: 'code.operation:api.yaml#GET:/records'}, validFrom: '2026-01-01T00:00:00Z', owner: owned});
-    const reader = new GraphReader(owner, () => '2026-01-02T00:00:00Z');
-    const first = await reader.listOperations({limit: 1});
-    expect(first.total).toBe(3); expect(first.rows.map((row) => row.key)).toEqual(['code.channel:first']); expect(first.next).toBe('code.channel:first');
-    const second = await reader.listOperations({limit: 2, after: first.next!});
-    expect(second.total).toBe(3); expect(second.rows.map((row) => row.key)).toEqual(['code.channel:second', 'code.operation:api.yaml#GET:/records']); expect(second.next).toBeNull();
-    expect((await reader.listOperations({limit: 20, q: 'second'})).rows.map((row) => row.key)).toEqual(['code.channel:second']);
-    expect((await reader.list('code.channel', {limit: 20})).total).toBe(3);
-    expect((await reader.list('code.operation', {limit: 20})).total).toBe(1);
-    expect((await reader.at('2025-12-31T00:00:00Z', scope).listOperations({limit: 20})).total).toBe(0);
-  } finally {await owner.close();}
-}, 20_000);

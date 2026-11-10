@@ -91,7 +91,7 @@ describe('the catalog check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 515 kinds (67 with a page of their own or a member\'s row)');
+    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 515 kinds (69 with a page of their own or a member\'s row)');
     expect(done.out).toContain(join('madarch', 'kinds.yaml'));
   }, 30_000);
 
@@ -169,35 +169,3 @@ describe('the catalog check over the starter set', () => {
     expect(read.kinds.has('code.service')).toBe(true);
   }, 30_000);
 });
-
-/** The manifest's text with the first line that starts with `prefix` replaced by `written`, or dropped when `written` is null. */
-function line(manifest: string, prefix: string, written: string | null): string {
-  const lines = manifest.split('\n');
-  const at = lines.findIndex((text) => text.startsWith(prefix));
-  if (at < 0) throw new Error(`the starter manifest holds no line starting ${prefix}`);
-  return written === null ? [...lines.slice(0, at), ...lines.slice(at + 1)].join('\n') : [...lines.slice(0, at), written, ...lines.slice(at + 1)].join('\n');
-}
-
-/** The manifest's `relations` block replaced whole: a value that is not a mapping takes its indented lines with it. */
-function relations(manifest: string, written: string): string {
-  const lines = manifest.split('\n');
-  const at = lines.findIndex((text) => text.startsWith('  relations:'));
-  let end = at + 1;
-  while (end < lines.length && lines[end]!.startsWith('    ')) end += 1;
-  return [...lines.slice(0, at), written, ...lines.slice(end)].join('\n');
-}
-
-/** The catalog findings of a manifest, read against the starter set's templates: the line and the words, each. */
-function refusals(manifest: string): string[] {
-  const read = parseKinds(manifest, 'madarch/kinds.yaml', product());
-  // A schema the catalog cannot read leaves the manifest without a catalog; its findings are the manifest's own then.
-  return (read.catalog?.findings ?? read.findings).map((finding) => `${finding.line}: ${finding.message}`);
-}
-
-/** The catalog findings held to the one finding the manifest is expected to make. */
-function expectRefused(manifest: string, message: string): void {
-  const findings = refusals(manifest);
-  expect(findings).toHaveLength(1);
-  expect(findings[0]).toContain(message);
-}
-

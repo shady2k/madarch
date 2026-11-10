@@ -1,4 +1,3 @@
-import type { CompiledModel } from '../model/compile.js';
 import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history-assertions.js';
 import type {
   AssertionChange,

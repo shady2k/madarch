@@ -166,7 +166,7 @@ async function downloadArchive(options: {
   readonly folder: string;
   readonly progress: (line: string) => void;
 }): Promise<void> {
-  const { build, url, archive, folder } = options;
+  const { url, folder } = options;
   const attempts = RETRY_DELAYS_MS.length + 1;
   let last: TransientDownload | undefined;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {

@@ -23,8 +23,9 @@
  * failed.
  */
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { startServer, type StartedServer } from '../server/http.js';
+import { knowledgeRootOf } from '../product/store.js';
 import { readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
 import { ensureBuilt, type AppBuildOptions } from './app.js';
@@ -129,7 +130,6 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
 /** Serves one product's wiki; the command's own serving, to be stopped by the one who ran it. */
 export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult> {
   const print = options.print ?? ((line: string) => console.log(line));
-  const printError = options.printError ?? ((line: string) => console.error(line));
   const cwd = options.cwd ?? process.cwd();
   const folder = resolve(options.productFolder?.trim() || cwd);
 
@@ -143,7 +143,7 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
-    server = await startServer({ productFolder: folder, appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest });
+    server = await startServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(dirname(folder)), appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest });
   } catch (error) {
     const message = (error as Error).message;
     // Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the

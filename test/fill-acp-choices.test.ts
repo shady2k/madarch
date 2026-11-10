@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent, readConfigOptions, type AcpConnection } from '../src/fill/acp.js';
-import { applyPreferences, choicesOf } from '../src/fill/acp-choices.js';
+import { choicesOf } from '../src/fill/acp-choices.js';
 import { queryAgentChoices } from '../src/knowledge/agents.js';
 
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
@@ -62,44 +62,6 @@ describe('what the agent reports', () => {
     expect(readConfigOptions([{ id: 'flag', name: 'Flag', type: 'boolean', currentValue: true }, { id: 'x' }, null, 'text', { id: 'model', name: 'Model', type: 'select', currentValue: 'a', options: [{ value: 'a', name: 'A' }, { nope: 1 }] }])).toEqual([{ id: 'model', name: 'Model', category: null, current: 'a', values: [{ value: 'a', name: 'A' }] }]);
     expect(readConfigOptions(undefined)).toEqual([]);
   });
-});
-
-describe('setting the reader\'s choice', () => {
-  test('exactly the values chosen are set through the agent\'s own option ids, and a value already in force is not sent again', async () => {
-    const { session: opened, sent } = await session('--models');
-    await applyPreferences(opened, { model: 'sonnet', reasoning: 'medium' });
-    expect(sent().filter((message) => message.method === 'session/set_config_option')).toEqual([]);
-    await applyPreferences(opened, { reasoning: 'high' });
-    expect(sent().filter((message) => message.method === 'session/set_config_option').map((call) => call.params)).toEqual([{ sessionId: opened.sessionId, configId: 'effort', value: 'high' }]);
-  }, 30_000);
-
-  test('choosing a model that resets the reasoning level does not skip the saved level: the state the agent answered is what is compared', async () => {
-    const { session: opened, sent } = await session('--models');
-    await applyPreferences(opened, { model: 'opus', reasoning: 'medium' });
-    expect(sent().filter((message) => message.method === 'session/set_config_option').map((call) => [call.params?.['configId'], call.params?.['value']])).toEqual([['model', 'opus'], ['effort', 'medium']]);
-    expect(choicesOf(opened).reasoning?.current).toBe('medium');
-  }, 30_000);
-
-  test('a value the agent no longer offers is skipped and told, never sent', async () => {
-    const { session: opened, sent } = await session('--models');
-    const told: string[] = [];
-    const said = await applyPreferences(opened, { model: 'retired-model', reasoning: 'high' }, (line) => told.push(line));
-    expect(sent().filter((message) => message.method === 'session/set_config_option').map((call) => call.params?.['value'])).toEqual(['high']);
-    expect(told).toEqual(['the agent no longer offers "retired-model" as the model, so the agent\'s own was kept']);
-    // The same lines are handed back, so a judge or a fill can report them where the reader looks (madarch-j6ho.2).
-    expect(said).toEqual(told);
-  }, 30_000);
-
-  test('an agent with no such choice is told, and the earlier form is set by `session/set_model`', async () => {
-    const plain = await session();
-    const told: string[] = [];
-    await applyPreferences(plain.session, { model: 'opus' }, (line) => told.push(line));
-    expect(told).toEqual(['the agent reports no model to choose, so "opus" was not set']);
-    expect(plain.sent().some((message) => message.method === 'session/set_config_option' || message.method === 'session/set_model')).toBe(false);
-    const legacy = await session('--models', 'legacy');
-    await applyPreferences(legacy.session, { model: 'opus' });
-    expect(legacy.sent().filter((message) => message.method === 'session/set_model').map((call) => call.params)).toEqual([{ sessionId: legacy.session.sessionId, modelId: 'opus' }]);
-  }, 30_000);
 });
 
 describe('asking an installed adapter', () => {

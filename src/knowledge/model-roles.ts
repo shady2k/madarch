@@ -47,10 +47,6 @@ export interface ModelRoleView {
   readonly roles: readonly ResolvedModelRole[];
 }
 
-export function emptyModelAssignments(): ModelAssignments {
-  return { writing: null, classification: null, analysis: null, editing: null };
-}
-
 export function isModelRole(value: string): value is ModelRole {
   return (MODEL_ROLES as readonly string[]).includes(value);
 }
@@ -93,13 +89,4 @@ export function roleOf(view: ModelRoleView, role: ModelRole): ResolvedModelRole 
   const found = view.roles.find((entry) => entry.role === role);
   if (found === undefined) throw new Error(`src/knowledge/model-roles.ts:1: the role ${JSON.stringify(role)} is missing from the resolved roles; full path ${import.meta.dir}/model-roles.ts`);
   return found;
-}
-
-/** The assignments a view was made from, for a writer that re-reads the file. */
-function assignmentsOf(view: ModelRoleView): ModelAssignments {
-  const pair = (role: ModelRole): ModelPair | null => {
-    const found = roleOf(view, role);
-    return found.source === 'assigned' ? found.pair : null;
-  };
-  return { writing: pair('writing'), classification: pair('classification'), analysis: pair('analysis'), editing: pair('editing') };
 }

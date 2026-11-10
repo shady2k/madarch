@@ -158,7 +158,6 @@ function readLines(text: string, file: string): { ok: true; tokens: { indent: nu
  */
 export function cutComment(text: string): string {
   let quote: string | null = null;
-  let tokenStarted = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
     if (quote !== null) {
@@ -169,8 +168,7 @@ export function cutComment(text: string): string {
       }
       continue;
     }
-    if (ch !== ' ' && ch !== '\t') tokenStarted = true;
-    if ((ch === "'" || ch === '"') && onlySpacesBefore(text, i)) { quote = ch; continue; }
+    if (ch !== ' ' && ch !== '\t')    if ((ch === "'" || ch === '"') && onlySpacesBefore(text, i)) { quote = ch; continue; }
     if (ch === '#' && (i === 0 || /\s/.test(text[i - 1]!))) return text.slice(0, i);
   }
   return text;

@@ -5,7 +5,6 @@ import { join, relative } from 'node:path';
 import { anchorLines, documentAnchors, findAnchor } from '../src/knowledge/anchors.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { splitFrontMatter } from '../src/knowledge/markdown.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { generateTrainingRepository } from './knowledge-fixture.js';
 
 function markdownFiles(folder: string, root = folder): string[] {

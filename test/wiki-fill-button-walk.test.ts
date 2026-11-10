@@ -7,12 +7,11 @@
  * code repository with one source file. No model runs: the fill is the static stages, and the pages that a model would
  * write are absent by design.
  */
-import { afterAll, beforeAll, describe as bunDescribe, expect, test as bunTest } from 'bun:test';
+import { afterAll, beforeAll, expect, test as bunTest } from 'bun:test';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 
 // The cases read a stage out of this step's list: they come back with that stage's step (test/fill-skip-list.ts).
 const skippedSuite = skippedBecauseOutOfWorkflow(import.meta.path);
-const describe = bunDescribe.skipIf(skippedSuite !== undefined);
 const test = bunTest.skipIf(skippedSuite !== undefined);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -110,3 +109,13 @@ test('the button fills the store and the pages read the graph it published', asy
   expect(model['created']).not.toBeNull();
   expect((model['history'] as unknown[]).length).toBe(1);
 }, 240_000);
+
+test('the server still answers a page after the fill queue has been left alone', async () => {
+  // A store's pg-boss asks its owner for statements on its own timer: a queue left open when the reader's owner
+  // closes is the crash of madarch-8bdc.12. Wait past a supervise pass, then read a page.
+  await new Promise((resolve) => setTimeout(resolve, 25_000));
+  const status = await fetch(`${server.url}/products/walk/api/k/status`, { headers: { accept: 'application/json' } });
+  expect(status.status).toBe(200);
+  const body = (await status.json()) as { product?: { name?: string } };
+  expect(body.product?.name).toBe('walk');
+}, 40_000);

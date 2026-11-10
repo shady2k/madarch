@@ -65,8 +65,6 @@ interface TemplateRender {
   dataMisses: string[];
 }
 
-/** A page whose template or partial stands in a file the worker cannot name: the answer carries this instead of a file. */
-type TemplateFailure = { message: string; file?: string; line?: number };
 
 class TemplateError extends Error {
   readonly file: string | undefined;

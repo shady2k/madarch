@@ -4,7 +4,22 @@
  * the knowledge wiki's views (`src/knowledge/views.ts`) are written to it, so one renderer draws both and a diagram
  * carries the same solid and dashed lines wherever it is drawn (decision 0026, "Diagrams").
  */
-import type { DiagramColumn, DiagramPlace } from '../fill/diagrams.js';
+/** Where an element's fact was read: the repository, the commit, the file and the lines. */
+export interface DiagramPlace {
+  readonly repository: string;
+  readonly commit: string;
+  readonly file: string;
+  readonly line: number;
+  readonly endLine: number;
+}
+
+/** One column of an ER table, as the renderers draw it. */
+export interface DiagramColumn {
+  readonly id: string;
+  readonly label: string;
+  readonly dataType?: string;
+  readonly dashed: boolean;
+}
 
 /** One element of a renderable diagram. */
 export interface ShapeElement {

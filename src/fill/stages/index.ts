@@ -23,6 +23,8 @@ export interface FillStageWiring {
   readonly snapshots: SnapshotSource;
   /** What this step's two passes publish through: the record store's own writes (src/graph/records.ts). */
   readonly records?: RecordPassWiring;
+  /** Whether the product declares the git capability; a product that does not runs neither pass. */
+  readonly git?: boolean;
 }
 
 /**
@@ -66,9 +68,15 @@ export function createEngineStageRegistry(): StageRegistry {
  */
 export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   const records = wiring.records ?? noRecords;
-  const registry = new StageRegistry()
-    // This step's two passes (madarch-8bdc.2.5): the tree and the history, published into the record store.
-    .register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records }))
-    .register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records }));
+  const registry = new StageRegistry();
+  // A product that declares no kind the git reader fills runs neither pass: the manifest's capability binding is what
+  // puts the reader in the fill's path (decision 0034, item 14). The engine's registry still names both stages for the
+  // workflow check, because a product may declare the binding.
+  if (wiring.git !== false) {
+    registry
+      // This step's two passes (madarch-8bdc.2.5): the tree and the history, published into the record store.
+      .register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records }))
+      .register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records }));
+  }
   return registry;
 }

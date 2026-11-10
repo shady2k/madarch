@@ -95,7 +95,7 @@ function context(manifest: KindsManifest, folder: string): RenderContext {
     graph: {
       find: async (key: string) => ([SERVICE, FILE, AUTHOR, COMMIT, TASK, UNDECLARED].filter((one) => one.key === key)),
       // A task's commits name it in their messages, and a commit's author is the one who made it.
-      neighbors: async (entity: GraphEntity, options: { relations?: readonly string[] }) => (options.relations?.[0] === 'code.authored'
+      neighbors: async (_entity: GraphEntity, options: { relations?: readonly string[] }) => (options.relations?.[0] === 'code.authored'
         ? [{ relation: 'code.authored', direction: 'in', total: 1, rows: [{ entity: AUTHOR, edges: 1 }] }]
         : []),
       edgesOf: async (entity: GraphEntity, relation: string, direction: string) => (entity.key === TASK.key && relation === 'code.tasks' && direction === 'in'
@@ -223,6 +223,7 @@ describe('the starter set keeps the pages it showed', () => {
       'code.commit: commit',
       'code.author: author',
       'code.task: task',
+      'code.repository: repositories',
     ]);
   });
 });

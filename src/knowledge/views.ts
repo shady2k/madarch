@@ -27,7 +27,7 @@ import type { RenderContext, Subject } from './blocks.js';
 import { locationOf, refOfGraph, refOfMarkdown } from './blocks.js';
 import { chainFrom, entriesOf, modulesBlockModel, pathOfKey, serviceLocator, systemModel, type Entry } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
-import { declarationMissing, erFormOf, kindDraws, systemPartOf, type KindView } from './kinds.js';
+import { declarationMissing, erFormOf, kindDraws, systemPartOf } from './kinds.js';
 import type { Chain, ChainStep, CodeLocation } from './model.js';
 import { sourceAddress } from './resolve.js';
 import { stateMachinesOf } from './state-machines.js';

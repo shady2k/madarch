@@ -48,14 +48,9 @@ export function addressOfFolder(path: string, after?: string): string {
   return `/k/folder?${query.toString()}`;
 }
 
-/** Where one file stands: every fact of it and its history, paged by the walk it ended on. */
-export function addressOfFile(path: string, after?: { walk: number; commit: string }): string {
-  const query = new URLSearchParams({ path });
-  if (after !== undefined) {
-    query.set('walk', String(after.walk));
-    query.set('at', after.commit);
-  }
-  return `/k/file?${query.toString()}`;
+/** Where one file stands: its entity page, the same page every other entity has. */
+export function addressOfFile(path: string, _after?: { walk: number; commit: string }): string {
+  return addressOfEntity(`code.file:${path}`);
 }
 
 /** Where one commit stands: its facts and the paths it changed. */
@@ -63,10 +58,6 @@ export function addressOfCommit(hash: string): string {
   return `/k/commit?${new URLSearchParams({ hash }).toString()}`;
 }
 
-/** Where one run's trace stands. */
-export function addressOfRun(run?: string): string {
-  return run === undefined || run === '' ? K_RUN : `${K_RUN}?${new URLSearchParams({ run }).toString()}`;
-}
 /** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
 export const addressOfTask = (id: string): string => `/k/task?${new URLSearchParams({ id }).toString()}`;
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
@@ -150,12 +141,11 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     return { name: 'folder', path: query.get('path') ?? '', after: query.get('after') };
   }
   if (path === '/k/file') {
+    // The file's page is its entity page (decision 0034): the old address goes there.
     const query = new URLSearchParams(search);
     const file = query.get('path');
     if (file === null || file === '') return { name: 'home' };
-    const walk = Number(query.get('walk'));
-    const at = query.get('at');
-    return { name: 'file', path: file, after: at !== null && at !== '' && Number.isInteger(walk) && walk >= 0 ? { walk, commit: at } : null };
+    return { name: 'entity', id: `code.file:${file}` };
   }
   if (path === '/k/commit') {
     const query = new URLSearchParams(search);

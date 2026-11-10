@@ -11,14 +11,10 @@
  * kept in the store (`knowledge_fill`), so a source view shows the bytes the
  * graph's spans were read from, and a restarted server still knows.
  */
-import { memberParent } from './blocks.js';
-import { GUIDE_OUTPUTS } from '../writer/guides/host-contract.js';
-import type { GuideContextFor, GuideHostFor } from '../writer/guides/host.js';
-import type { GuideKind, GuideLocale } from '../writer/guides/model.js';
-import { readGuidePage } from '../writer/guides/read.js';
-import { createGuideReadFactories, guideProductPin } from '../writer/guides/writer.js';
-import { createGraphStore, createRecordSchema } from '../graph/index.js';
-import { createGitSnapshotSource } from '../fill/snapshot.js';
+import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs.js';
+import { createRecordSchema } from '../graph/index.js';
+import { EMPTY_CONTRACT } from '../graph/contract.js';
+import { gitContractOf } from '../fill/stages/git-contract.js';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -28,11 +24,9 @@ import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 import { byCodePoint } from '../model/order.js';
 import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
-import { selfCommand } from '../product/self-command.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
 import { WORKFLOWS_FILE } from './workflows.js';
-import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
@@ -42,29 +36,30 @@ import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
-import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
+import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, WikiStatus, WriterState, WriterUnit } from './model.js';
-import { commitPage, filePage, folderPage, recordedFileCount, recordedFileFacts, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageFacts, type FilePageModel, type FolderPageModel } from './repository-view.js';
+import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { commitPage, filePage, folderPage, recordedFileCount, recordedFiles, repositoryOf, repositoryPage, type CommitPageModel, type FilePageModel, type FolderPageModel } from './repository-view.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
+import { traceFiles } from '../obs/trace.js';
+import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
-import { anchorLines, titleOfAnchor } from './anchors.js';
-import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
+import { anchorLines, documentAnchors, titleOfAnchor } from './anchors.js';
+import { adapterOf, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { WriterBounds } from './model.js';
-import { emptyModelAssignments, isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
+import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
-import { fileJournal, journalFolder, journalOfUnit, newRunId, NO_COUNTERS, readJournalFile, type Journal, type PageJournal } from '../writer/journal.js';
-import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
-import { CONTENT_LANGUAGES } from '../writer/prompts.js';
+import { journalFolder, journalOfUnit, NO_COUNTERS, readJournalFile, type Journal, type PageJournal } from '../writer/journal.js';
+import { PRODUCT_PATH, type UnitAgent } from '../writer/units.js';
+import { CONTENT_LANGUAGES } from '../writer/units.js';
 import type { DraftEnv } from '../product/home.js';
 import type { KindSummary } from './model.js';
-import { findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, recordFilePage, renderPage, listEntities, type PageResult } from './render.js';
+import { findSubject, kindSummaries, productTitleOf, renderPage, listEntities, searchWiki, type PageResult } from './render.js';
 import { catalogKinds, groupViews } from './catalog-view.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
-import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
 import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, invalidateInterruptedRun, readChangedPages } from './changed-pages.js';
 import { webLink } from './index/web-link.js';
 import { acpGraphJudge } from './graph-verdict-acp-judge.js';
@@ -95,7 +90,7 @@ import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose
 import { readKnowledgePages } from './index/index.js';
 import { rendersInProcess, warmRenderWorker } from './liquid.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
-import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type Problem, type ProblemCategories, type ProblemCategory, type ProblemItems, type ProblemListing, type ProblemSources, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
+import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type Problem, type ProblemCategories, type ProblemItems, type ProblemListing, type ProblemSources, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
@@ -122,8 +117,6 @@ const dedupeScopes = (scopes: readonly TaskScope[]): TaskScope[] => {
  */
 export { WikiReadError } from './read-error.js';
 
-/** How long the server keeps the previous snapshot open after a newer one is read, so a request in flight on it ends. */
-const SNAPSHOT_KEEP_MS = 3_000;
 /** A reader nobody has asked for this long is closed, and its memory given back; the next page opens it again. */
 const READER_IDLE_MS = 10 * 60_000;
 
@@ -140,9 +133,6 @@ export interface KnowledgeProductOptions {
   env?: DraftEnv;
   /** Starts the chosen agent for the writer; the production one starts the agent's ACP adapter. Tests inject a scripted agent. */
   agentFactory?: AgentFactory;
-  /** Host authority shared with the guide writer; never derived from guide front matter. */
-  guideContextFor?: GuideContextFor;
-  guideHostFor?: GuideHostFor;
   /** Where the knowledge wiki says what it could not do; the host's error log. */
   errorLog?: (line: string) => void;
   /** The least time between two snapshots of the store the fill writes, in milliseconds (default 8000). */
@@ -200,68 +190,6 @@ export function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransa
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-}
-
-/** Shares history reads only after the last temporal change in an immutable reader snapshot. */
-export function createSnapshotHistoryReader() {
-  type HistoryData = {
-    evidence: Awaited<ReturnType<GraphReader['historyEvidence']>>;
-    completed: ReadonlySet<number>;
-    landmarks: Awaited<ReturnType<GraphReader['landmarkPlan']>>;
-  };
-  type Entry = { boundary: Promise<number | null>; data?: Promise<HistoryData> };
-  const snapshots = new WeakMap<DatabaseOwner, Map<string, Entry>>();
-  return async (owner: DatabaseOwner, pin: Pick<RepositoryPin, 'name' | 'head'> & { readonly scope: string }, validAt: string, selection: HistorySelection): Promise<HistoryContext> => {
-    // Pin fields belong to this owner; never reread mutable caller state after an await.
-    const { name, scope, head } = pin;
-    const capturedMillis = Date.parse(validAt);
-    let entries = snapshots.get(owner);
-    if (entries === undefined) { entries = new Map(); snapshots.set(owner, entries); }
-    const key = JSON.stringify([name, scope, head]);
-    let entry = entries.get(key);
-    if (entry === undefined) {
-      const held: Entry = { boundary: owner.transaction('snapshot', async (tx) => {
-        // All current node/edge versions are a conservative superset of history's inputs.
-        // Round UP: an ISO millisecond must not cross a submillisecond boundary early.
-        const result = await tx.query<{ boundary_epoch_millis: string | null }>(`
-          SELECT ceil(extract(epoch FROM max(boundary)) * 1000)::text AS boundary_epoch_millis
-          FROM (
-            SELECT valid_from, valid_to FROM node_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity'
-            UNION ALL
-            SELECT valid_from, valid_to FROM edge_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity'
-          ) versions CROSS JOIN LATERAL (VALUES (valid_from), (valid_to)) bounds(boundary)
-          WHERE isfinite(boundary)`, [scope]);
-        const boundary = result.rows[0]?.boundary_epoch_millis;
-        // An absent/malformed result cannot certify the terminal interval.
-        return boundary === null ? null : typeof boundary === 'string' && /^-?\d+$/.test(boundary) && Number.isSafeInteger(Number(boundary)) ? Number(boundary) : Infinity;
-      }) };
-      entry = held;
-      entries.set(key, held);
-      void held.boundary.catch(() => { if (entries.get(key) === held) entries.delete(key); });
-    }
-    const boundary = await entry.boundary;
-    const terminal = Number.isFinite(capturedMillis) && (boundary === null || capturedMillis >= boundary);
-    const load = async (): Promise<HistoryData> => {
-      // Every statement uses this call's captured time, never a moving wall clock.
-      const graph = new GraphReader(owner, () => validAt);
-      const evidence = await graph.historyEvidence(scope);
-      // The record pass publishes trees and history; it records no extract-driver work item, so no tree is known
-      // complete here (madarch-8bdc.1.3: the extract driver is gone).
-      const completed: ReadonlySet<number> = new Set();
-      const landmarks = await graph.landmarkPlan(name, scope, head);
-      return { evidence, completed, landmarks };
-    };
-    let pending: Promise<HistoryData>;
-    if (!terminal) pending = load();
-    else {
-      pending = entry.data ??= load();
-      const held = entry;
-      void pending.catch(() => { if (held.data === pending) delete held.data; });
-    }
-    const { evidence, completed, landmarks } = await pending;
-    // Selection is never cached. A caller cannot mutate the retained landmark proof.
-    return selectHistory(selection, evidence, completed, landmarks === undefined ? undefined : structuredClone(landmarks));
-  };
 }
 
 /**
@@ -327,26 +255,18 @@ export class KnowledgeProduct {
   private fillRunId: string | undefined;
   /** What the last finished run's trace and the store's counts say: the end state's numbers. */
   private fillExtras: { counts?: FillState['counts']; run?: FillRunView; error?: FillErrorView } = {};
-  private stopping = false;
-  /** A person asked for a pause: the worker finishes the page and the commit in progress and ends before the next one. */
-  private pauseAsked = false;
   /** A person asked for a stop: the run ends now, and the page in progress stays as it was before the run. */
   private stopAsked = false;
   /** The pause kept beside the store was read into this product's state; one read is enough for the life of the process. */
   private pauseRestored = false;
-  /** What the run now under way was asked to do, and what a pause of it must keep for resume. */
-  private currentRun: PausedRun | undefined;
   /** The paused run a next fill takes up, if this product has one. */
   private pausedRun: PausedRun | undefined;
   private closed = false;
   private readonly listeners = new Set<() => void>();
   private readonly pins = new Map<string, RepositoryPin>();
-  private identity: ProductIdentity | undefined;
   private revision = 0;
   private writer: WriterState = { state: 'idle', agent: null, units: [] };
   private writerAgent: { close(): Promise<void> } | undefined;
-  /** The Problems page's open count, read once per revision and repository head (the navigation polls the status). */
-  private problemCount: { key: string; open: number } | undefined;
   private installing: Promise<unknown> | undefined;
   private choosing: Promise<unknown> = Promise.resolve();
   private choiceWrites = 0;
@@ -383,7 +303,6 @@ export class KnowledgeProduct {
   product(): ProductIdentity | { message: string } {
     const read = readProduct(this.options.productFolder);
     if (!read.ok) return { message: `${read.file}:${read.line}: ${read.message}` };
-    this.identity = read.product;
     return read.product;
   }
 
@@ -393,10 +312,6 @@ export class KnowledgeProduct {
     return productStoreFolder(this.options.productFolder, this.options.storeRoot);
   }
 
-  /** The primary store: the fill worker's alone while it runs. */
-  private graphPath(): string {
-    return storeDatabasePath(this.storeFolder());
-  }
 
   /**
    * Opens the store once, in this process (madarch-8bdc.9): the wiki reads the database the fill writes, directly. A store
@@ -440,10 +355,10 @@ export class KnowledgeProduct {
     if (await there()) return;
     for (let attempt = 1; ; attempt += 1) {
       try {
-        await createGraphStore(owner).createSchema();
         // This store's record tables too (madarch-8bdc.2.5): a store the fill has not run on is read for its repository
         // and its files, and a missing relation would be a failed page, not an empty one.
-        await createRecordSchema(owner);
+        const manifestRead = readKinds(this.options.productFolder);
+        await createRecordSchema(owner, manifestRead.present ? gitContractOf(manifestRead.manifest) : EMPTY_CONTRACT);
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
           await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
@@ -585,6 +500,11 @@ export class KnowledgeProduct {
     if (this.reader !== held) return;
     this.reader = undefined;
     this.opening = undefined;
+    // The store's fill-run queue is opened on this reader's owner and asks it for statements on pg-boss's own
+    // timer: it stops before the owner it borrows closes (madarch-8bdc.12), or the timer throws into the process.
+    const queue = this.fillQueue;
+    this.fillQueue = undefined;
+    if (queue !== undefined) await queue.stop().catch(() => undefined);
     await held.owner.close().catch(() => undefined);
   }
 
@@ -713,18 +633,14 @@ export class KnowledgeProduct {
       // No worker is writing for a paused run: the run ends here, and the pages it rewrote stand. The stop is marked
       // before the state changes, so a pause message still in the pipe is read as the stop it was ended by.
       this.stopAsked = true;
-      this.pauseAsked = false;
       this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.writer = { ...this.writer, state: 'stopped', current: undefined, ...(this.writer.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.pausedRun = undefined;
-      this.currentRun = undefined;
       this.clearPause();
       this.notify();
       return { ok: true, fill: this.fill, writer: this.writer };
     }
     this.stopAsked = true;
-    // Stop overrides Pause everywhere: a pause pressed before this confirmation is not replayed and leaves nothing to resume.
-    this.pauseAsked = false;
     this.pausedRun = undefined;
     const stopped = await this.controlRun('stop');
     if (stopped === undefined || !stopped.ok) return { ok: false, status: 409, message: stopped?.message ?? 'no fill of this product is running: there is nothing to stop' };
@@ -762,30 +678,7 @@ export class KnowledgeProduct {
     return join(this.storeFolder(), 'pause.json');
   }
 
-  /** What a run under way would need from a pause taken now: its language, its plan, and the pages it has published. */
-  private pauseSnapshot(): PausedRun | undefined {
-    const run = this.currentRun;
-    if (run === undefined) return undefined;
-    const plan = this.writer.plan ?? run.plan;
-    return {
-      ...run,
-      ...(plan === undefined ? {} : { plan }),
-      completedPages: [...new Set(this.writer.units.filter((unit) => unit.state === 'written').map((unit) => unit.path))],
-    };
-  }
 
-  /** Keeps the paused run beside the store, so a server that starts again shows the same run. A failure is logged. */
-  private async recordPause(): Promise<void> {
-    // A stop is terminal: it never leaves a resumable run behind, whatever pause was pressed before it.
-    if (this.stopAsked) return;
-    this.pausedRun = this.pauseSnapshot();
-    try {
-      await mkdir(dirname(this.pauseFile()), { recursive: true });
-      await writeFile(this.pauseFile(), `${JSON.stringify({ fill: this.fill, writer: this.writer, ...(this.pausedRun === undefined ? {} : { run: this.pausedRun }) }, null, 2)}\n`, 'utf8');
-    } catch (error) {
-      this.options.errorLog?.(`the knowledge wiki could not keep the pause of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
 
   /** Takes the pause off the store: the run it described was taken up or ended. A failure is logged. */
   private clearPause(): void {
@@ -873,8 +766,6 @@ export class KnowledgeProduct {
     }
     // The pages are in the language they were last written whole in: a run that failed half way leaves the old one on
     // record, so the next press writes them again. Pages from before the record are judged by what this press asks.
-    const written = this.pagesLanguage();
-    const languageChanged = resuming ? paused.languageChanged : written !== undefined ? written !== wanted : options.language !== undefined && options.language !== current;
     if (!resuming && options.language !== undefined && options.language !== read.manifest.language) {
       const set = setKindsLanguage(product.folder, options.language);
       if (set !== undefined) return { started: false, message: set, fill: this.fill };
@@ -882,23 +773,16 @@ export class KnowledgeProduct {
     }
     // The per-page editorial bound is a product setting (madarch-ztyq.9, review 199): read and validated before
     // the fill claims its slot, and carried to the worker so the writer enforces the same number the page shows.
-    let editorialRequestsPerPage: number;
     try {
-      editorialRequestsPerPage = this.editorialRequestsPerPage();
     } catch (error) {
       return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
     }
-    // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
-    this.stopping = false;
-    this.pauseAsked = false;
     this.stopAsked = false;
     // A resumed run takes the pause off the store: what stands there now is the run that starts, not the one it ended.
     this.clearPause();
     const asked = resuming ? paused : undefined;
     // A run limited to a task keeps the task it was pressed for; a resumed task carries the one it paused on.
     const task = asked?.task ?? options.task;
-    const taskPages = asked?.taskPages ?? options.taskPages;
-    const resume = asked?.plan === undefined ? undefined : { plan: asked.plan, completedPages: [...asked.completedPages] };
     const startedAt = (this.options.now?.() ?? new Date()).toISOString();
     // A run under way is marked before it starts: a server that restarts during it must not restore the list of the run
     // before. The old list is removed as the same act, so a failed or interrupted run leaves it unknown, not stale.
@@ -932,16 +816,6 @@ export class KnowledgeProduct {
     this.writer = seeded === undefined
       ? { state: writes ? 'waiting' : 'idle', agent, units: [] }
       : { ...seeded, state: writes ? 'waiting' : 'idle', current: undefined };
-    this.currentRun = {
-      language: wanted,
-      languageChanged,
-      languageFrom: resuming ? paused.languageFrom : written ?? current,
-      ...(task === undefined ? {} : { task }),
-      ...(taskPages === undefined ? {} : { taskPages }),
-      ...(resume === undefined ? {} : { plan: resume.plan }),
-      completedPages: resume?.completedPages ?? [],
-      ...(resuming ? { resumed: true } : {}),
-    };
     this.pausedRun = undefined;
     // The store opens before the press answers (madarch-8bdc.2.5): a page asked while the fill starts is answered from a
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
@@ -1082,10 +956,6 @@ export class KnowledgeProduct {
     return join(this.storeFolder(), ACTIVE_FILL_FILE);
   }
 
-  /** The file the changed pages of the last completed run are kept in. */
-  private changedPagesFile(): string {
-    return join(this.storeFolder(), CHANGED_PAGES_FILE);
-  }
 
   /**
    * A run that was under way when the server stopped cannot be restored: its result was never written, and the list
@@ -1119,110 +989,8 @@ export class KnowledgeProduct {
     }
   }
 
-  /** When the graph last published a work item, as the reader holds it: the line a run's changes are counted from. */
-  private async lastPublishedAt(): Promise<string | null> {
-    const owner = await this.open();
-    const rows = (await owner.run((tx) => tx.query<{ at: string | null }>(`SELECT max(published_at)::text AS at FROM work_item WHERE published_at IS NOT NULL`))).rows;
-    return rows[0]?.['at'] ?? null;
-  }
 
-  /**
-   * The pages a run changed, from the graph's own account of it: every node and every edge the run opened or closed, the
-   * pages of the entities that are still there, the page a touched statement belongs to through `statement-of`, and
-   * the Markdown pages whose file it wrote. A run that starts from an
-   * empty graph (`before` null) wrote every page; after it, only what it touched is named. A page the run removed is not
-   * named: there is no page left to open. Only the kinds the product declares are pages; the index's own nodes and
-   * sections are not.
-   */
-  private async pagesChangedSince(before: string | null): Promise<ChangedPage[]> {
-    const context = await this.context();
-    if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
-    const owner = await this.open();
-    // The version a page shows is the one valid now: a node recorded last, whose time ended, is not a page any more.
-    const at = this.validAt();
-    const visible = `v.valid_from <= $3::timestamptz AND $3::timestamptz < v.valid_to`;
-    const visibleEdge = `e.valid_from <= $3::timestamptz AND $3::timestamptz < e.valid_to`;
-    const rows = (await owner.run((tx) => tx.query<{ id: string | null; title: string | null; kind: string; page: boolean; properties: Record<string, unknown> | null }>(
-      `WITH published AS (
-         SELECT id FROM work_item WHERE published_at IS NOT NULL AND ($1::timestamptz IS NULL OR published_at > $1::timestamptz)
-       ), touched AS (
-         SELECT node_id FROM node_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
-         UNION SELECT src_id FROM edge_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
-         UNION SELECT dst_id FROM edge_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
-       ), touched_pages AS (
-         -- A statement's page is not touched when the statement's ground changes: the page is reached through statement-of.
-         SELECT DISTINCT pv.properties->>'id' AS id
-           FROM edge_version e
-           JOIN relation_type ek ON ek.id = e.relation_type_id
-           JOIN node_version sv ON sv.node_id = e.src_id AND sv.recorded_to = 'infinity' AND sv.valid_from <= $3::timestamptz AND $3::timestamptz < sv.valid_to
-           JOIN node_version pv ON pv.node_id = e.dst_id AND pv.recorded_to = 'infinity' AND pv.valid_from <= $3::timestamptz AND $3::timestamptz < pv.valid_to
-          WHERE ek.key = $4 AND e.recorded_to = 'infinity' AND ${visibleEdge}
-            AND sv.node_id IN (SELECT node_id FROM touched)
-       )
-       SELECT v.properties->>'recordKey' AS id, v.label AS title, k.key AS kind, false AS page, v.properties AS properties
-         FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-        WHERE v.recorded_to = 'infinity' AND v.properties ? 'recordKey' AND ${visible}
-          AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched))
-       UNION ALL
-       SELECT v.properties->>'id' AS id, v.label AS title, k.key AS kind, true AS page, v.properties AS properties
-         FROM node_version v JOIN node_kind k ON k.id = v.kind_id AND k.key = $2
-        WHERE v.recorded_to = 'infinity' AND v.properties ? 'id' AND ${visible}
-          AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched) OR v.properties->>'id' IN (SELECT id FROM touched_pages))`,
-      [before, PAGE_KIND, at, STATEMENT_OF]))).rows;
-    const found = new Map<string, ChangedPage>();
-    for (const row of rows) {
-      const id = row['id'];
-      if (id === null) continue;
-      if (row['page']) {
-        const entity = context.ctx.markdown.get(id);
-        if (entity === undefined) continue;
-        const declaration = context.manifest.kinds.get(entity.kind);
-        if (declaration === undefined) continue;
-        if (!found.has(id)) found.set(id, { id, title: markdownTitleOf(declaration.title, entity) });
-        continue;
-      }
-      const declaration = context.manifest.kinds.get(row['kind']);
-      if (declaration === undefined) continue;
-      const properties = row['properties'] ?? {};
-      const title = graphTitleOf(declaration.title, { key: id, kind: row['kind'], label: row['title'] ?? id, properties });
-      if (declaration.member !== undefined) {
-        // A member has no page of its own: what changed is the page of the entity that holds it, at the member's
-        // fragment. Naming the member's title would name a page a reader cannot open under that title.
-        const entity = (await context.ctx.graph.find(id)).find((candidate) => candidate.kind === row['kind']);
-        if (entity === undefined) continue;
-        const parent = await memberParent(context.ctx, { source: 'graph', entity }, declaration.member);
-        if (parent === undefined) continue;
-        const parentDeclaration = context.manifest.kinds.get(parent.kind);
-        if (parentDeclaration === undefined) continue;
-        if (!found.has(parent.key)) found.set(parent.key, { id: parent.key, title: graphTitleOf(parentDeclaration.title, parent) });
-        continue;
-      }
-      if (!found.has(id)) found.set(id, { id, title });
-    }
-    return [...found.values()].sort((a, b) => byCodePoint(a.id, b.id));
-  }
 
-  /** Records what the run changed: in the fill's state, beside its store, and to the streams. */
-  private async recordChangedPages(before: string | null | undefined): Promise<void> {
-    // A run that did not finish changed nothing the wiki may claim; one whose boundary is unknown would be a guess.
-    if (before === undefined || this.fill.state !== 'done' || this.writer.state === 'failed') return;
-    let changed: ChangedPage[];
-    try {
-      changed = await this.pagesChangedSince(before);
-    } catch (error) {
-      this.options.errorLog?.(`the knowledge wiki could not list the pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
-      return;
-    }
-    this.fill = { ...this.fill, changed };
-    this.changedPages = changed;
-    this.changedLoaded = true;
-    try {
-      await writeFile(this.changedPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, pages: changed })}\n`, 'utf8');
-    } catch (error) {
-      this.options.errorLog?.(`the knowledge wiki could not record which pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    this.notify();
-  }
 
   /** The pages the last fill changed, as kept beside the store; absent when none was recorded or it is not that run's. */
   private lastChangedPages(): ChangedPage[] | undefined {
@@ -1455,8 +1223,11 @@ export class KnowledgeProduct {
     const file = graphVerdictFile(this.storeFolder());
     const state = readGraphVerdictState(file);
     const roles = this.modelRoles();
-    const owner = await this.open();
-    const snapshot = await loadGraphSnapshot(owner);
+    // The validation owns its connection for the snapshot: the reader's owner may be closed as idle after the fill,
+    // while this validation is still starting (the fill role and the api role have different lifetimes).
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), btreeGist: true });
+    let snapshot: Awaited<ReturnType<typeof loadGraphSnapshot>>;
+    try { snapshot = await loadGraphSnapshot(owner); } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;
     const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
       env: this.env,
@@ -1911,7 +1682,8 @@ export class KnowledgeProduct {
     const read = this.kindsForStamp(product.folder);
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
-    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
+    const declared = new Set(gitContractOf(read.manifest).vertex.map((kind) => kind.name));
+    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, declared);
     const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope ?? undefined;
     const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
     const pins = snapshot?.pins ?? this.pins;
@@ -1960,7 +1732,7 @@ export class KnowledgeProduct {
     // The store's records answer the kind `code.file` (madarch-8bdc.2.5): the fill publishes the repository's paths in
     // the record tables, and a page of a past time is the temporal graph's alone, so a historical page is asked nothing
     // of them. The repository resolved is the one the wiki's repository pages show, the product's first declared one.
-    const records = history === undefined ? this.recordFiles(indexOwner) : undefined;
+    const records = history === undefined && declared.size > 0 ? this.recordFiles(indexOwner) : undefined;
     // A declared checkout that holds no commit is named with its path: the wiki says what it leaves unread rather than
     // failing, and the fill says the same of it. This reads a ref, never a document.
     const emptyRepositories: Finding[] = [];
@@ -2090,6 +1862,20 @@ export class KnowledgeProduct {
    * request of its own, not part of the status the navigation polls: the catalogue is the product's full map, and the
    * status keeps the kinds the wiki shows. Its counts are read over the store's newest snapshot, as the status's are.
    */
+  /**
+   * The wiki's search (madarch-o0d): the Markdown pages and the graph's entities whose title or text holds the words,
+   * grouped by kind, read from the same store the pages are read from. An empty query answers nothing.
+   */
+  async search(query: string, lang?: string): Promise<SearchView> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const common = { product: { name: product.name, id: product.id }, query: query.trim() };
+    const context = await this.context();
+    if ('absent' in context) return { ...common, language: 'en', groups: [], total: 0 };
+    const found = await searchWiki(context.ctx, common.query, lang);
+    return { ...common, language: context.manifest.language ?? 'en', ...found };
+  }
+
   async catalog(): Promise<CatalogView> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
@@ -2099,7 +1885,8 @@ export class KnowledgeProduct {
     let ctx = context.ctx;
     try {
       const owner = await this.open();
-      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+      const declared = new Set(gitContractOf(context.manifest).vertex.map((kind) => kind.name));
+      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
     }
@@ -2236,7 +2023,8 @@ export class KnowledgeProduct {
     let bound = ctx;
     try {
       const owner = await this.open();
-      bound = { ...ctx, graph: new GraphReader(owner, this.validAt), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
+      const declared = new Set(gitContractOf(ctx.manifest).vertex.map((kind) => kind.name));
+      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, declared), ...(ctx.records === undefined ? {} : { records: this.recordFiles(owner) }) };
 
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
@@ -2258,7 +2046,7 @@ export class KnowledgeProduct {
     const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
     if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
-    const run = this.runViewOf();
+    const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
       ...(run === null ? {} : { run }),
@@ -2356,10 +2144,29 @@ export class KnowledgeProduct {
   }
 
   /** The newest run's trace as the run page states it, or null when the store holds no trace. */
+  private runViewMemo: { key: string; view: FillRunView | null } | undefined;
+
   private runViewOf(runId?: string): FillRunView | null {
+    // A server trace is the api role's own request log, not the fill the status states: read the newest fill/update
+    // trace unless a caller names a run.
+    const candidates = traceFiles(this.storeFolder()).filter((one) => !one.runId.startsWith('server-'));
+    const chosenEntry = runId === undefined
+      ? candidates.sort((left, right) => {
+        const leftSize = (() => { try { return statSync(left.file).size; } catch { return 0; } })();
+        const rightSize = (() => { try { return statSync(right.file).size; } catch { return 0; } })();
+        return rightSize - leftSize || right.modifiedAt - left.modifiedAt;
+      })[0]
+      : candidates.find((one) => one.runId === runId);
+    const chosen = chosenEntry?.runId;
+    // The trace's size is its generation while a fill is still writing: a status answer made from a partial trace is
+    // not kept once the trace has grown.
+    const traceSize = (() => { try { return chosenEntry === undefined ? 0 : statSync(chosenEntry.file).size; } catch { return 0; } })();
+    const key = `${chosen ?? ''}|${this.fillRunId ?? ''}|${traceSize}`;
+    if (this.runViewMemo?.key === key) return this.runViewMemo.view;
+    if (chosen === undefined) return null;
     try {
-      const run = readTraceRun({ store: this.storeFolder(), ...(runId === undefined ? {} : { runId }) });
-      return {
+      const run = readTraceRun({ store: this.storeFolder(), runId: chosen });
+      const view: FillRunView = {
         runId: run.runId,
         startedAt: new Date(run.startedAtMs).toISOString(),
         finishedAt: new Date(run.endedAtMs).toISOString(),
@@ -2371,6 +2178,8 @@ export class KnowledgeProduct {
           slowest: step.slowest,
         })),
       };
+      this.runViewMemo = { key, view };
+      return view;
     } catch {
       // A store whose fill never ran holds no trace: nothing is made up for it.
       return null;
@@ -2660,24 +2469,10 @@ export class KnowledgeProduct {
    * `undefined` when the id names no file of the repository the wiki's repository pages show. The record tables are
    * read on the reader's own snapshot, the way the repository pages read them.
    */
-  private async recordedFileFacts(id: string): Promise<FilePageFacts | undefined> {
-    if (!id.startsWith('code.file:')) return undefined;
-    const owner = await this.open();
-    const repository = await repositoryOf(owner, this.repositories()[0]?.name ?? null);
-    if (repository === null) return undefined;
-    return await recordedFileFacts(owner, repository, id);
-  }
-
-  private readonly readSnapshotHistory = createSnapshotHistoryReader();
-
   async historyAt(selection: HistorySelection): Promise<HistoryContext> {
-    const owner = await this.open();
-    if (this.reader?.owner !== owner) return await this.historyAt(selection);
-    const pin = this.pins.get(selection.repo);
-    // A repository the store holds no temporal reading of has no history to read: its pages say so, and no statement
-    // is sent to a graph that holds no version of it.
-    if (pin === undefined || pin.scope === null) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
-    return await this.readSnapshotHistory(owner, { ...pin, scope: pin.scope }, this.validAt(), selection);
+    // The one graph carries no valid time: a dated read is not covered, and the page says so rather than
+    // answering the current facts under another date.
+    return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
   }
 
   async page(id: string, lang?: string, options: { defer?: boolean; only?: string; history?: HistorySelection } = {}): Promise<PageResult> {
@@ -2694,9 +2489,6 @@ export class KnowledgeProduct {
     // These operations can open their own snapshots; finish them before holding the reader pipe.
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const planned = history === undefined ? await this.plannedForPage(id) : undefined;
-    // A file the store holds has its page from the record tables, read before the page's own transaction: a record read
-    // opens a transaction of its own, and the page's transaction is one it cannot nest in.
-    const fileFacts = history === undefined ? await this.recordedFileFacts(id).catch(() => undefined) : undefined;
     const owner = await this.open();
     // A newer snapshot may replace this one while the page is being rendered (a fill swaps readers under open reads).
     // The rendered owner is still a store, so its page keeps its Problems badge.
@@ -2707,12 +2499,7 @@ export class KnowledgeProduct {
       const context = await this.context(history, { owner, transaction, validAt, pins });
       if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
       if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
-      // A file the store holds is a record, and its page states the record's facts: the reader the kind's catalogue
-      // lists is the one that answers here (`render.ts`), so a listing never names a file whose page the wiki cannot draw.
-      const recorded = fileFacts === undefined ? undefined : await recordFilePage(context.ctx, fileFacts, id, lang);
-      const result: PageResult = recorded === undefined
-        ? await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false })
-        : { ok: true, page: recorded };
+      const result: PageResult = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
       if (!result.ok) return result;
       const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
       // Which runs of the journal hold this page, so the page says «Как агент писал эту страницу» only where it can be read.
@@ -2752,40 +2539,8 @@ export class KnowledgeProduct {
     const file = resolve(ctx.productFolder, output.path);
     const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
     const base: PageModel = { id: output.id, kind, language: locale, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
-    const gap = (en: string, ru: string): PageResult => {
-      const message = `${file}:1: $.guide: ${locale === 'ru' ? ru : en}`;
-      return { ok: true, page: { ...base, blocks: [{ type: 'problem', block: 'guide', file, line: 1, message }], findings: [{ file, line: 1, message }] } };
-    };
-    if (declaration?.source !== 'markdown' || declaration.file === undefined) return gap('the registered guide output is not declared by this product', 'Этот продукт не объявляет зарегистрированное руководство');
-    if (history !== undefined) return gap('historical guide input proof is unavailable; current content was not substituted', 'Нет подтверждённых входных данных руководства на эту дату; текущая версия не подставлена');
-    try {
-      if ((this.options.guideContextFor === undefined) !== (this.options.guideHostFor === undefined)) return gap('guide context and verification authority must be supplied together', 'Контекст и проверяющая сторона руководства должны быть заданы вместе');
-      const productPin = guideProductPin(ctx.productFolder, [...this.pins.keys()]);
-      const repositories = [...this.pins.values()].map((pin) => ({ name: pin.name, commit: pin.commit })).concat({ name: productPin.id, commit: productPin.commit }).sort((a, b) => byCodePoint(a.name, b.name));
-      const valid = [...this.pins.values()].map((pin) => pin.effectiveTime).sort(byCodePoint).pop();
-      if (valid === undefined || repositories.some((pin) => pin.commit === '')) return gap('the repositories have no complete pinned input', 'Нет полных закреплённых входных данных репозиториев');
-      if ([...this.pins.values()].some((pin) => !this.repositories().some((repository) => repository.name === pin.name && repository.present))) return gap('a pinned source repository is unavailable', 'Закреплённый исходный репозиторий недоступен');
-      const owner = await this.open();
-      const defaults = createGuideReadFactories({ owner, store: createGraphStore(owner), output: ctx.productFolder,
-        snapshots: createGitSnapshotSource([...([...this.pins.values()].map((pin) => ({ id: pin.name, form: 'code' as const, root: this.repositories().find((repository) => repository.name === pin.name)?.path ?? join(ctx.productFolder, 'repos', pin.name), commit: pin.commit }))), productPin]),
-        scopeOf: (repository) => this.pins.get(repository)?.scope ?? undefined,
-      });
-      const contextFor = this.options.guideContextFor ?? defaults.guideContextFor;
-      const hostFor = this.options.guideHostFor ?? defaults.guideHostFor;
-      const current = await contextFor({ kind, locale, valid, repositories });
-      const currentCode = current?.repositories.filter((repository) => repository.name !== productPin.id).sort((a, b) => byCodePoint(a.name, b.name));
-      const requestedCode = repositories.filter((repository) => repository.name !== productPin.id);
-      if (current === undefined || !current.repositories.some((repository) => repository.name === productPin.id) || JSON.stringify(currentCode) !== JSON.stringify(requestedCode)) return gap('the current prepared input proof is unavailable or stale', 'Подтверждение текущих подготовленных данных недоступно или устарело');
-      const host = await hostFor({ kind, locale, context: current });
-      const root = realpathSync(ctx.productFolder);
-      const actual = realpathSync(file);
-      if (!insideFolder(root, relative(root, actual)) || !statSync(actual).isFile() || statSync(actual).size > 2 * 1024 * 1024) return gap('guide artifact is unsafe or exceeds 2097152 bytes; nothing was truncated', 'Файл руководства небезопасен или превышает 2097152 байта; данные не сокращены');
-      const read = await readGuidePage({ file, source: readFileSync(actual, 'utf8'), kind, locale, host });
-      if (!read.ok) return { ok: true, page: { ...base, findings: [...read.diagnostics], blocks: read.diagnostics.map((diagnostic) => ({ type: 'problem', block: 'guide', file: diagnostic.file, line: diagnostic.line, message: diagnostic.message })) } };
-      return { ok: true, page: { ...base, title: read.data.guide.title, findings: [...read.diagnostics], blocks: [{ type: 'guide', data: read.data }] } };
-    } catch {
-      return gap('guide artifact or source verification is unavailable; no success was inferred', 'Файл руководства или проверка источников недоступны; успех не предполагается');
-    }
+    const message = `${file}:1: $.guide: ${locale === 'ru' ? 'Руководство ещё не в графе: его пишет отдельный шаг, которого пока нет' : 'the guide is not in the graph yet: a later stage writes it'}`;
+    return { ok: true, page: { ...base, blocks: [{ type: 'problem', block: 'guide', file, line: 1, message }], findings: [{ file, line: 1, message }] } };
   }
 
   /** The planned changes one page stands in: its own entity, and the statements of it a task's grounds reach. */
@@ -2978,7 +2733,8 @@ export class KnowledgeProduct {
       if (!assembled.ok) return undefined;
       const only = assembled.page.blocks.length === 1 ? assembled.page.blocks[0] : undefined;
       if (only?.type !== 'guide') return { repo: null, path, title: assembled.page.title, markdown: assembled.page.findings.map((finding) => finding.message).join('\n'), resolutions: {}, anchors: {}, commit: null, planned: [] };
-      return { repo: null, path, title: assembled.page.title, markdown: only.data.markdown, resolutions: assembled.page.resolutions, anchors: {}, commit: null, planned: [] };
+      const guideText = (only.data as { markdown?: unknown }).markdown;
+      return { repo: null, path, title: assembled.page.title, markdown: typeof guideText === 'string' ? guideText : '', resolutions: assembled.page.resolutions, anchors: {}, commit: null, planned: [] };
     }
     if (!DOCUMENT_PATH.test(path)) return undefined;
     const context = await this.context();
@@ -3003,7 +2759,7 @@ export class KnowledgeProduct {
       title: documentTitle(markdown, path),
       markdown,
       resolutions,
-      anchors: Object.fromEntries(anchorLines(markdown)),
+      anchors: Object.fromEntries(documentAnchors(markdown).map((anchor) => [anchor, anchorLines(markdown).get(anchor)!])),
       commit: repo === null ? null : this.pins.get(repo)?.commit ?? null,
       planned: planned.sections,
       ...(planned.note === undefined ? {} : { plannedNote: planned.note }),
@@ -3433,7 +3189,7 @@ export class KnowledgeProduct {
     const listing = await collectProblems({
       productFolder: this.options.productFolder, owner,
       // The Problems page reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
-      graph: new GraphReader(owner, () => this.validAt()),
+      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, new Set(gitContractOf(context.manifest).vertex.map((kind) => kind.name))),
       settings: context.manifest.problems ?? defaultSettings(),
       ...(repository === undefined ? {} : { repository }),
       resolve: (url) => context.ctx.resolver.resolve(url), findings: [...context.findings, ...dismissals.problems.map((problem) => ({ file: problem.file, line: problem.line, message: problem.message }))],
@@ -3537,7 +3293,6 @@ export class KnowledgeProduct {
   /** Stops a running fill at its next commit and closes the store. */
   async close(): Promise<void> {
     this.closed = true;
-    this.stopping = true;
     if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
     await this.fillRun?.control('stop').catch(() => undefined);
@@ -3579,7 +3334,7 @@ export class KnowledgeHost {
   /** The root the products' stores stand in: what the fill role of this server is told to watch (madarch-8bdc.9). */
   readonly root: string;
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor' | 'fillQueued'> = {}) {
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'fillQueued'> = {}) {
     this.root = storeRoot;
   }
 

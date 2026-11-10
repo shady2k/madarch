@@ -9,7 +9,6 @@ import { readKinds, type Finding } from '../kinds.js';
 import { readMarkdownEntities } from '../markdown.js';
 import { readIndexedPage, PageReadError, type IndexedPage } from './page.js';
 
-import type { GitReader } from './grounds.js';
 
 ;
 ;
@@ -18,8 +17,6 @@ export type { IndexedPage,  } from './page.js';
 export { changedGrounds,  statementsRelyingOn } from './queries.js';
 export type { GroundChange,    RelyingStatement } from './queries.js';
 export {  gitReader } from './grounds.js';
-export type {  GitReader,  } from './grounds.js';
-export { documentSections,  } from './sections.js';
 ;
 ;
 ;

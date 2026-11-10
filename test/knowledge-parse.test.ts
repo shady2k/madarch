@@ -75,13 +75,13 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/kinds.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"'],
+      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
       [6, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [7, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, views, er, sequence, system, definition-block, listing, nav, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
       [9, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/kinds.yaml')).toBe(true);
@@ -229,11 +229,12 @@ describe('the starter set madarch new seeds', () => {
     // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
     // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
     expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', 'madarch/workflows.yaml',
+      'plugins/git/plugin.yaml', 'plugins/git/contract.yaml',
       'templates/entity.liquid',
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
       'templates/partials/relations.liquid', 'templates/partials/history.liquid',
       ...[
-        'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
+        'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'repository', 'directory', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
         'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task',
       ].map((name) => `templates/${name}.liquid`)]);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);

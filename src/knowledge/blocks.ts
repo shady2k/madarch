@@ -15,7 +15,7 @@ import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
-import type { KindsManifest, MemberDecl, PropertyDecl, PropertyFormat } from './kinds.js';
+import type { KindsManifest, MemberDecl, PropertyDecl } from './kinds.js';
 import type { MarkdownEntity } from './markdown.js';
 import { readBody } from './markdown.js';
 import type { Block, CallRow, CodeLocation, EntityRef, MemberRow, PropertyRow, RelatedGroup } from './model.js';
@@ -105,10 +105,6 @@ const toInt = (value: string | undefined, fallback: number, min: number, max: nu
 
 const list = (value: string | undefined): string[] | undefined => (value === undefined ? undefined : value.split(',').map((entry) => entry.trim()).filter(Boolean));
 
-/** A relation type as a reader reads it on an edge: the extractor prefix dropped. */
-function relationWord(relation: string): string {
-  return relation.startsWith('code.') ? relation.slice('code.'.length) : relation.startsWith('engine:') ? relation.slice('engine:'.length) : relation;
-}
 
 /** The edges the manifest declares for the entity's kind, resolved against the graph: only the ones whose other end exists. */
 export async function declaredNeighbors(ctx: RenderContext, subject: Subject): Promise<RelatedGroup[]> {
@@ -192,7 +188,7 @@ export function pageAttributes(subject: Subject, declared?: readonly string[]): 
 
 // ---- body -------------------------------------------------------------------------------------
 
-export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, file: string, line: number): Block {
+export function bodyBlock(_ctx: RenderContext, subject: Subject, block: string, file: string, line: number): Block {
   if (subject.source !== 'markdown') {
     return { type: 'problem', block, file, line, message: 'the body block shows the Markdown of a page; the entities of this kind come from the graph and have none' };
   }

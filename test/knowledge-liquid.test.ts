@@ -8,7 +8,7 @@
  * engine's output.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderLiquidPage, renderWorkers, residentMiB, templateSetOf } from '../src/knowledge/liquid.js';
@@ -157,7 +157,7 @@ describe('the blocks of the library', () => {
   test('the reader\'s language folds into the title, and a block is the same block whatever the language', async () => {
     const folder = product({ 'templates/page.liquid': '{% related title="Files" title-ru="Файлы" %}', 'templates/ru.liquid': '{% related title="Files" title-ru="Файлы" %}' });
     const asked: Record<string, string>[] = [];
-    const render = async (name: string, params: Readonly<Record<string, string>>): Promise<Block> => { asked.push({ ...params }); return related(String(params['title'])); };
+    const render = async (_name: string, params: Readonly<Record<string, string>>): Promise<Block> => { asked.push({ ...params }); return related(String(params['title'])); };
     await renderLiquidPage({ productFolder: folder, template: 'templates/page.liquid', data: {}, defer: false, deferred: [], render });
     await renderLiquidPage({ productFolder: folder, template: 'templates/ru.liquid', data: {}, lang: 'ru', defer: false, deferred: [], render });
     expect(asked).toEqual([{ title: 'Files' }, { title: 'Файлы' }]);

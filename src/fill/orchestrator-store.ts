@@ -34,7 +34,7 @@ import type { FillRun } from '../product/fill-runtime.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
-import { advanceUnitIn, type UnitRecord } from './state-store.js';
+import { advanceUnitIn } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 import { createSchemaOnce, SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 
@@ -181,14 +181,39 @@ const CACHE_VERSIONS_LOCK = 724_913_556;
  * `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock` even when the index is there, and that lock against a running
  * fill's transaction is the deadlock PostgreSQL's detail named for this check (madarch-8bdc.9).
  */
+/** The foreign keys the orchestrator's rows must satisfy: a run's stages, events and ends belong to the run, and every unit row to its generation. */
+const FOREIGN_KEYS: readonly { readonly table: string; readonly name: string; readonly columns: string; readonly ref: string; readonly refColumns: string }[] = [
+  { table: 'fill_run_configuration', name: 'fill_run_configuration_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
+  { table: 'fill_run_stage', name: 'fill_run_stage_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
+  { table: 'fill_event', name: 'fill_event_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
+  { table: 'fill_event', name: 'fill_event_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_control', name: 'fill_control_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
+  { table: 'fill_end', name: 'fill_end_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
+  { table: 'fill_unit_plan', name: 'fill_unit_plan_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_unit_plan', name: 'fill_unit_plan_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
+  { table: 'fill_unit_read', name: 'fill_unit_read_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_unit_draft', name: 'fill_unit_draft_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_unit_draft_part', name: 'fill_unit_draft_part_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_unit_split', name: 'fill_unit_split_parent_fk', columns: 'parent_unit_id, parent_generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_unit_split', name: 'fill_unit_split_child_fk', columns: 'child_unit_id, child_generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+  { table: 'fill_publication', name: 'fill_publication_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
+];
+
+/** The statement that adds one foreign key where it does not stand yet; `NOT VALID` keeps an older store's rows while new ones are checked. */
+const foreignKeySql = (key: (typeof FOREIGN_KEYS)[number]): string =>
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${key.name}') THEN ALTER TABLE ${key.table} ADD CONSTRAINT ${key.name} FOREIGN KEY (${key.columns}) REFERENCES ${key.ref} (${key.refColumns}) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID; END IF; END $$`;
+
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
   await withLocation(at, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async () => {
     await createSchemaOnce(database, {
       name: 'orchestrator',
-      parts: SCHEMA,
+      parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
       tables: ORCHESTRATOR_TABLES,
-      create: async (executor) => { for (const statement of SCHEMA) await executor.query(statement); },
+      create: async (executor) => {
+        for (const statement of SCHEMA) await executor.query(statement);
+        for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
+      },
     });
   });
   // The column a store of an older build lacks is added here, once, under its own lock: it is a migration beside the
@@ -404,7 +429,7 @@ function draftRecord(row: DraftRow): DraftRecord {
 
 /**
  * What a published generation's draft set holds afterwards: nothing. The facts it published are the
- * store's own rows (`fill_fact_holding`, by unit and generation), the row keeps the digest a repeated
+ * store's own rows (the fact holding table, by unit and generation), the row keeps the digest a repeated
  * request of that generation is judged by, and its `writes` — a unit's whole fact set as JSON, the
  * largest second copy of what the publication wrote — are dropped (madarch-tzte.21.11).
  */
@@ -449,11 +474,6 @@ export async function recordUnitDraftIn(
   return { unitId: options.unitId, generation: options.generation, digest, writes: options.writes, recordedAt: options.at, retractedAt: null };
 }
 
-/** The draft set of one unit generation, or null when it holds none. */
-async function readUnitDraft(database: OrchestratorDatabase, unitId: string, generation: number): Promise<DraftRecord | null> {
-  const at = here();
-  return run(at, database, `readUnitDraft(${unitId}/${generation})`, ['fill_unit_draft', 'fill_unit_draft_part'], async (executor) => readUnitDraftIn(executor, unitId, generation), 'snapshot');
-}
 
 /** The draft set of one unit generation inside a transaction the caller already opened. */
 export async function readUnitDraftIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftRecord | null> {
@@ -733,22 +753,6 @@ export interface PublicationRequest {
   readonly held?: { readonly digest: string; readonly writes: readonly StageDraftWrite[] };
 }
 
-/**
- * Publishes one unit generation exactly once, in one transaction of the
- * caller's: the checks decision 0027 names (the generation and the fence as the
- * machine holds them, the run's control and its cancellation intent), the
- * recorded reads rechecked, the machine's own `publish` step, the facts applied
- * through `apply`, and the uniquely constrained record. A repeated request with
- * the same identity and digest answers the existing record; a different digest
- * is refused and nothing is written.
- */
-async function publishUnit(
-  database: OrchestratorDatabase,
-  options: PublicationRequest,
-): Promise<PublicationOutcome> {
-  const at = here();
-  return run(at, database, `publishUnit(${options.unitId}/${options.generation})`, ['fill_publication', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_run', 'fill_transition'], async (executor) => publishUnitIn(executor, options), 'write');
-}
 
 /** The statement that reads the run's control of one generation's unit; `share` takes the run row's lock. */
 const controlSql = (share: boolean): string => `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id WHERE g.unit_id = $1 AND g.generation = $2${share ? ' FOR SHARE OF r' : ''}`;
@@ -881,7 +885,7 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     [options.unitId, options.generation, digest, facts, options.at],
   );
   // A publication does not keep both copies of what it published (madarch-tzte.21.11): the facts are
-  // `fill_fact_holding`'s rows for this unit and generation, and the draft set's `writes` was their input.
+  // the fact holding table's rows for this unit and generation, and the draft set's `writes` was their input.
   // The row stays — its digest is what a repeated request for this generation is judged by, so a replay
   // still answers the existing record — and its JSON, a whole unit's fact set written twice, goes: the
   // walk over the current madarch tree measured those copies at 43 MB of a 379 MB store.
@@ -960,11 +964,6 @@ export async function readRunControl(database: OrchestratorDatabase, runId: stri
   }, 'write');
 }
 
-/** One generation's publication record, or null when it was never published. */
-async function readPublication(database: OrchestratorDatabase, unitId: string, generation: number): Promise<PublicationRecord | null> {
-  const at = here();
-  return run(at, database, `readPublication(${unitId}/${generation})`, ['fill_publication'], async (executor) => readPublicationIn(executor, unitId, generation), 'snapshot');
-}
 
 /** One generation's publication record inside a transaction the caller already opened. */
 export async function readPublicationIn(executor: SqlExecutor, unitId: string, generation: number): Promise<PublicationRecord | null> {
@@ -972,14 +971,6 @@ export async function readPublicationIn(executor: SqlExecutor, unitId: string, g
   return rows[0] === undefined ? null : publicationRecord(rows[0]);
 }
 
-/** Every publication of one unit, oldest generation first: the record of what it published and when. */
-async function readPublications(database: OrchestratorDatabase, unitId: string): Promise<readonly PublicationRecord[]> {
-  const at = here();
-  return run(at, database, `readPublications(${unitId})`, ['fill_publication'], async (executor) => {
-    const { rows } = await executor.query<PublicationRow>('SELECT unit_id, generation, digest, facts, published_at FROM fill_publication WHERE unit_id = $1 ORDER BY generation ASC', [unitId]);
-    return rows.map(publicationRecord);
-  }, 'snapshot');
-}
 
 /** Every tracked read of one generation inside a transaction the caller already opened. */
 async function readUnitReadsIn(executor: SqlExecutor, unitId: string, generation: number): Promise<readonly TrackedRead[]> {

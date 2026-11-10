@@ -20,12 +20,12 @@ type RecordOwner = Parameters<typeof listFiles>[0];
 /** One file as a page shows it. */
 interface PageFile {
   readonly path: string;
-  readonly mode: string;
-  readonly blob: string;
-  readonly bytes: number;
+  readonly mode: string | null;
+  readonly blob: string | null;
+  readonly bytes: number | null;
   readonly lines: number | null;
-  readonly form: 'text' | 'binary';
-  readonly language: string;
+  readonly form: 'text' | 'binary' | null;
+  readonly language: string | null;
   readonly candidates: readonly string[];
 }
 
@@ -165,47 +165,8 @@ export async function recordedFileCount(owner: RecordOwner, repository: string, 
   }
 }
 
-/**
- * The facts one file's page states, by the id the kind `code.file` names it with (`code.file:<path>`): what the
- * repository's own file page shows of one path, and nothing of a graph that holds no version of it. `undefined` when
- * the id is not one of this kind's, or the store holds no such file.
- */
-export interface FilePageFacts {
-  readonly repository: string;
-  readonly asIsCommit: string | null;
-  readonly path: string;
-  readonly mode: string;
-  readonly blob: string;
-  readonly bytes: number;
-  readonly lines: number | null;
-  readonly form: 'text' | 'binary';
-  readonly language: string;
-  readonly candidates: readonly string[];
-  readonly created: { readonly date: string; readonly commit: string; readonly author: string } | null;
-  readonly modified: { readonly date: string; readonly commit: string; readonly author: string } | null;
-  readonly commitCount: number;
-  readonly authors: readonly string[];
-}
-
-/** The prefix the kind `code.file` names its entities with. */
-const FILE_KEY_PREFIX = 'code.file:';
 
 /** The facts of one file the store holds, by the page id of the kind `code.file`: `code.file:<path>`. */
-export async function recordedFileFacts(owner: RecordOwner, repository: string, id: string): Promise<FilePageFacts | undefined> {
-  if (!id.startsWith(FILE_KEY_PREFIX)) return undefined;
-  const path = id.slice(FILE_KEY_PREFIX.length);
-  if (path === '') return undefined;
-  const file = await fileFacts(owner, repository, path);
-  if (file === null) return undefined;
-  const facts = await repositoryFacts(owner, repository);
-  return {
-    repository, asIsCommit: facts?.asIsCommit ?? null, path,
-    mode: file.mode, blob: file.blob, bytes: file.bytes, lines: file.lines, form: file.form,
-    language: file.language, candidates: [...file.candidates],
-    created: file.created, modified: file.modified, commitCount: file.commitCount, authors: [...file.authors],
-  };
-}
-
 /**
  * One page of a repository's files in code-point order of their paths, and the exact number the listing holds: what
  * the wiki's kind `code.file` lists. The filter is a path prefix — a file stands at a place in a tree, and the

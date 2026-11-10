@@ -78,13 +78,6 @@ function set(next: TabsState): void {
   for (const listener of listeners) listener();
 }
 
-/** Forgets every tab (a test starts over; a product opened anew starts with its one tab). */
-function resetTabs(): void {
-  state = null;
-  counter = 0;
-  for (const listener of listeners) listener();
-}
-
 const subscribe = (listener: () => void): (() => void) => {
   listeners.add(listener);
   if (listeners.size === 1) window.addEventListener('popstate', onPop);

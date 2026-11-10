@@ -117,7 +117,7 @@ describe('an empty product', () => {
   test('the catalogue lists every kind the manifest declares, with a zero count for one nothing filled, and its own answer stays under the size bound', async () => {
     const status = await get('/products/bare/api/k/status');
     // The status still names the kinds with pages (and a member's row), and holds no catalogue of its own.
-    expect(status.body.kinds.length).toBe(65);
+    expect(status.body.kinds.length).toBe(67);
     expect(status.body.catalog).toBeUndefined();
     const response = await fetch(`${server.url}/products/bare/api/k/catalog`);
     const text = await response.text();

@@ -34,7 +34,6 @@ function put(folder: string, relativePath: string, text: string): void {
 let session: RepositorySession | undefined;
 let productCommit = '';
 let connectedCommit = '';
-let storeFolder = '';
 
 beforeAll(async () => {
   // The product's own repository: a manifest, a workflow, a source file and a commit.
@@ -65,7 +64,6 @@ beforeAll(async () => {
   mkdirSync(path.join(PRODUCT, 'repos'), { recursive: true });
   symlinkSync(connected, path.join(PRODUCT, 'repos', 'sample'), 'dir');
   session = await RepositorySession.open({ repository: PRODUCT, env: { ...process.env, MADARCH_HOME: HOME } });
-  storeFolder = session.stateFolder;
 }, 600_000);
 
 afterAll(async () => {

@@ -37,7 +37,7 @@
  * line there is a protocol error the agent reports as madarch's fault.
  */
 import { runningVersion } from '../product/version.js';
-import { UNIT_TOOLS, type UnitToolAnswer } from './unit-tools.js';
+import type { McpToolDefinition, UnitToolAnswer } from '../mcp/types.js';
 
 /** The protocol revisions this server knows, newest first. */
 export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
@@ -57,16 +57,9 @@ export const UNIT_MCP_INFO: McpServerInfo = { name: 'madarch-unit', version: run
 /** What a message answers a tool call with: the host this server proxies to (`createUnitToolsHost`). */
 type UnitToolCallForwarder = (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer>;
 
-/** A tool as `tools/list` answers it; the fill's unit tools are these, and so are another stage's own (the knowledge writer's). */
-export interface McpToolDefinition {
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema: Record<string, unknown>;
-}
-
 /** What this server serves and how one call is answered. */
 export interface UnitMcpOptions {
-  /** The tools `tools/list` answers; the unit's catalogue unless a caller names its own. */
+  /** The tools `tools/list` answers; a server that names none answers an empty catalogue. */
   readonly tools?: readonly McpToolDefinition[];
   /** Where a tool call goes: the host that owns the database. */
   readonly call: UnitToolCallForwarder;
@@ -117,7 +110,7 @@ function listed(tools: readonly McpToolDefinition[]): readonly Record<string, un
  * malformed that it names no id to answer to.
  */
 export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOptions): Promise<McpAnswer | null> {
-  const tools = options.tools ?? UNIT_TOOLS;
+  const tools = options.tools ?? [];
   if (typeof message !== 'object' || message === null || Array.isArray(message)) {
     return error(null, INVALID_REQUEST, 'a message of the Model Context Protocol is a JSON-RPC 2.0 object (src/fill/unit-mcp.ts)');
   }

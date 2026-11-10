@@ -25,8 +25,9 @@
  */
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
+import { traceKeepOf } from '../knowledge/settings.js';
 import { setPriority } from 'node:os';
-import { dirname, join as joinPath, normalize } from 'node:path';
+import { dirname, join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import type { Clock } from '../history-types.js';
@@ -46,8 +47,8 @@ import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import { selfCommand } from '../product/self-command.js';
-import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
-import { homeFromEnv, productsHome } from '../product/home.js';
+import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../mcp/types.js';
+import { productsHome } from '../product/home.js';
 import { KnowledgeHost, type AgentFactory, type KnowledgeProductOptions } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
 
@@ -294,7 +295,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   // The server's own trace: one span per request and the spans of the work a request asks for, kept beside
   // the state the server itself holds. A server told of no folder keeps none.
   const obsFolder = options.dataFolder ?? options.knowledgeRoot;
-  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}` });
+  const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}`, keep: traceKeepOf(process.env) });
   const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
   let sources: SourceStores | undefined;
   try {
@@ -642,6 +643,7 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/k/kind/<kind>.md|.json', match: (pathname) => kindFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.kindFile(request) },
         { method: 'GET', path: '/api/k/status', handle: (request: Request) => dependencies.knowledge!.status(request) },
         { method: 'GET', path: '/api/k/catalog', handle: (request: Request) => dependencies.knowledge!.catalog(request) },
+        { method: 'GET', path: '/api/k/search', handle: (request: Request) => dependencies.knowledge!.search(request) },
         { method: 'GET', path: '/api/k/page', handle: (request: Request) => dependencies.knowledge!.page(request) },
         { method: 'GET', path: '/api/k/block', handle: (request: Request) => dependencies.knowledge!.block(request) },
         { method: 'GET', path: '/api/k/statement', handle: (request: Request) => dependencies.knowledge!.statement(request) },

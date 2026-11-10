@@ -3,7 +3,6 @@
  * marker's shape and digest: no prose, no page reader. The writer builds a marker from a plain sentence and the
  * parsed page reads it from the HTML node the core wrote, so no sentence is ever recognised by its words.
  */
-import { sha256Hex } from '../graph/digest.js';
 
 const PREFIX = '<!-- madarch:empty-product-gap:';
 const SUFFIX = ' -->';
@@ -13,16 +12,6 @@ export interface EmptyProductGap {
   readonly section: string;
   /** SHA-256 of the core's sentence, read as a reader reads it. */
   readonly digest: string;
-}
-
-/** The digest a marker carries for an already plain sentence, in UTF-8. */
-export function emptyProductGapPlainDigest(plain: string): string {
-  return sha256Hex(new TextEncoder().encode(plain));
-}
-
-/** The marker line the core writes before a gap sentence, given the sentence's plain reading. */
-export function emptyProductGapMarkerFromPlain(section: string, plain: string): string {
-  return `${PREFIX}${section}:${emptyProductGapPlainDigest(plain)}${SUFFIX}`;
 }
 
 /** Reads the marker of a whole line, or `undefined` when the line is not a well-formed empty-product gap marker. */

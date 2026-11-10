@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { acpGraphJudge } from '../src/knowledge/graph-verdict-acp-judge.js';
 import { JudgeExecutionError } from '../src/knowledge/answer-key-judge.js';
 import type { GraphJudgeItem } from '../src/knowledge/graph-verdicts.js';
-import type { UnitAgent, UnitRequest, UnitRunStatus } from '../src/writer/run.js';
+import type { UnitAgent, UnitRequest, UnitRunStatus } from '../src/writer/units.js';
 
 const items: GraphJudgeItem[] = [
   {

@@ -22,11 +22,10 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageE
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, readRunConfiguration, readSealedChildren, readUnitReads, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
-import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/graph-reads.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
+import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
-import { startServer } from '../src/server/http.js';
 import { daemonFills } from '../src/product/daemon.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -359,7 +358,14 @@ describe('a retraction of a draft set', () => {
     // what the set held: reading it back parsed the whole set at the run's memory peak.
     const owner = await createTestDatabaseOwner();
     try {
+      await createFillStateSchema(owner);
       await createOrchestratorSchema(owner);
+      // The draft's foreign keys name the run and the generation it belongs to.
+      await owner.transaction('write', async (transaction) => {
+        await transaction.query(`INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ('run-retract', 'p', 'running', '{}'::jsonb, $1, $1)`, [NOW]);
+        await transaction.query(`INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ('modules:retracted', 'p', 'modules', 'modules', 1, $1)`, [NOW]);
+        await transaction.query(`INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ('modules:retracted', 1, 'run-retract', 'planned', 'd', 0, '{}'::jsonb, $1)`, [NOW]);
+      });
       const writes = Array.from({ length: 1_001 }, (_value, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
       const recorded = await recordUnitDraft(owner, { unitId: 'modules:retracted', generation: 1, writes, at: NOW });
       const statements: string[] = [];
@@ -678,18 +684,6 @@ describe('a split and its join', () => {
   });
 
 describe('staleness from tracked reads, empty results included', () => {
-  /** A stage that reads one query and drafts what it read. */
-  function readingStage(query: string): FillStage {
-    return fakeStage('snapshot', {
-      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
-      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
-      execute: (unit, context) => {
-        void context.graph.query(query).then(() => undefined);
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-        return { outcome: 'draft' };
-      },
-    });
-  }
 
   
   
@@ -903,7 +897,6 @@ describe('the service the background server owns', () => {
           configuration: () => undefined,
           graph: () => graph.reader,
           inputs: () => ({ commit: 'a1b2c3d4' }),
-          facts: { apply: async ({ unit, writes }) => { applied.push(unit.unitId); return writes.length; } },
         }),
       });
       expect(existsSync(databasePath)).toBe(false);
@@ -913,7 +906,7 @@ describe('the service the background server owns', () => {
       expect(result.settled).toBe(true);
       expect(result.state).toBe('succeeded');
       expect(result.units.every((unit) => unit.state === 'published')).toBe(true);
-      expect(applied).toHaveLength(4);
+      expect(applied).toHaveLength(0);
       expect(existsSync(databasePath)).toBe(true);
 
       // The status of the run is readable while the service is open, and the second run of the same
@@ -1249,15 +1242,6 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
     return rows.map((row) => row.singleton_key);
   }
 
-  /** Settles a unit's claim as the queue's own maintenance does: without the machine, and without the worker. */
-  async function settleClaimInQueue(opened: World, unitId: string): Promise<void> {
-    await opened.owner.run(async (transaction) => {
-      await transaction.query(
-        `UPDATE ${QUEUE_SCHEMA}.job SET state = 'completed', completed_on = now() WHERE name = $1 AND singleton_key = $2 AND state IN ('created', 'retry', 'active')`,
-        [QUEUE, unitId],
-      );
-    });
-  }
 
   /** What the run said about the attempt it stopped: the refusal's step and what became of its claim. */
   async function refusals(opened: World, runId: string): Promise<string[]> {
@@ -1612,4 +1596,37 @@ describe('the second planning epoch of a first fill (madarch-tzte.26.3)', () => 
     const events = await readProgress(opened.owner, 'run-2');
     expect(events.map((event) => event.kind)).not.toContain('run-replanned');
   });
+});
+
+describe('the fill tables reference each other', () => {
+  test('every run-scoped row names its run, and every unit row its unit and generation, by a foreign key', async () => {
+    const owner = await createTestDatabaseOwner();
+    try {
+      await createFillStateSchema(owner);
+      await createOrchestratorSchema(owner);
+      const found = await owner.run((transaction) => transaction.query<{ conname: string }>(
+        `SELECT conname FROM pg_constraint WHERE contype = 'f' AND conrelid::regclass::text LIKE 'fill\_%' ORDER BY conname`,
+      ));
+      expect(found.rows.map((row) => row.conname)).toEqual([
+        'fill_control_run_fk',
+        'fill_end_run_fk',
+        'fill_event_generation_fk',
+        'fill_event_run_fk',
+        'fill_publication_generation_fk',
+        'fill_run_configuration_run_fk',
+        'fill_run_stage_run_fk',
+        'fill_unit_draft_generation_fk',
+        'fill_unit_draft_part_generation_fk',
+        'fill_unit_generation_unit_fk',
+        'fill_unit_lease_generation_fk',
+        'fill_unit_plan_generation_fk',
+        'fill_unit_plan_run_fk',
+        'fill_unit_read_generation_fk',
+        'fill_unit_split_child_fk',
+        'fill_unit_split_parent_fk',
+      ]);
+    } finally {
+      await owner.close();
+    }
+  }, 60_000);
 });

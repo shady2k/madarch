@@ -10,6 +10,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { entityAddress } from '../knowledge/resolve.js';
+import { isTestPath } from '../knowledge/diagrams.js';
 import type { GraphEntity, GraphReader, RelationEdge } from '../knowledge/graph-read.js';
 import { ruleSpecs } from './rules.js';
 import type { ProblemDraft, ProblemLink, ProblemNote, ProblemScope, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
@@ -287,7 +288,10 @@ function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: Problem
 /** A file over the product's line threshold. */
 function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, threshold: number): ProblemDraft[] {
   return snapshot.files
-    .filter((file) => file.properties['role'] !== 'test' && (number(file.properties['lines']) ?? 0) >= threshold)
+    .filter((file) => {
+      const path = text(file.properties['path']) ?? pathOfKey(file.key);
+      return !isTestPath(path) && (number(file.properties['lines']) ?? 0) >= threshold;
+    })
     .map((file) => {
       const lines = number(file.properties['lines'])!;
       const path = text(file.properties['path']) ?? pathOfKey(file.key);
@@ -308,7 +312,7 @@ function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverit
 /** A file that is both large and often changed: size × churn over the thresholds. */
 function hotspots(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, thresholds: ProblemSettings['thresholds']): ProblemDraft[] {
   return snapshot.files
-    .filter((file) => file.properties['role'] !== 'test')
+    .filter((file) => !isTestPath(text(file.properties['path']) ?? pathOfKey(file.key)))
     .map((file) => ({ file, lines: number(file.properties['lines']) ?? 0, commits: number(file.properties['commitCount']) ?? 0 }))
     .filter((entry) => entry.lines >= thresholds.hotspotLines && entry.commits >= thresholds.hotspotCommits && entry.lines * entry.commits >= thresholds.hotspotScore)
     .map(({ file, lines, commits }) => {
@@ -420,7 +424,6 @@ function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: Problem
   const push = (variable: GraphEntity, name: string, definitions: readonly GraphEntity[], reason: string): void => {
     if (reported.has(variable.key)) return;
     reported.add(variable.key);
-    const files = [...new Set(definitions.map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
     const first = definitions[0]!;
     const path = first.span?.path ?? '';
     problems.push(draft(rule, severity, {

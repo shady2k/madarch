@@ -88,18 +88,6 @@ refuses to start, saying what to build. The server runs in three modes: with
 a data folder only it answers the model routes alone; with a product folder
 only it serves the wiki alone; with both, each is answered beside the other.
 
-**Graph pages** (`src/fill/graph-pages.ts`): the engine of the fill's own pages,
-read from the fill's fact store and never from a file (decision 0026,
-"Pages"). A page exists for the fact kinds the product registry may be about
-(`REGISTRY_KIND_MAPPINGS`'s `subject` role, read once in
-`src/fill/page-changes.ts`); one node's page model holds its facts with code
-links, its relations both ways, its coverage, its questions, its assumptions
-kept apart and its drafts marked, and the pages each publication touched are
-recorded in `fill_page_change` inside that publication's transaction
-(`src/fill/fact-store.ts`; the answers are kept in `src/fill/page-cache.ts`).
-No server route shows them since the documents app was removed
-(madarch-m38l.4): the knowledge wiki of decision 0029 is the one app.
-
 **The knowledge wiki's processes** (madarch-8bdc.9). One binary runs in a
 role per instance. `madarch --role api` (`src/server/http.ts`,
 `src/server/knowledge.ts`) serves HTTP, MCP and the built web files and reads
@@ -127,8 +115,9 @@ A repository is filled by `madarch fill` or the wiki's fill button: the fill
 runs the tree and history record passes of `src/fill/steps.ts`, reads git
 through `src/fill/stages/repository-facts.ts`, and publishes the rows through
 the record store (`src/graph/records.ts`). The server, the MCP server and the
-wiki read those records through the storage layer; `src/graph/publish.ts` is the
-one publication path for the graph store. A product's intended model is still
+wiki read those records through the storage layer. The engine's mechanism tables
+are `src/graph/one-graph.ts`, and each kind's attribute table is generated from its
+contract by `src/graph/contract.ts` (decision 0034). A product's intended model is still
 compiled and checked against its TypeBox schema (`src/model/`), and its pages
 are read from the product's working tree (`src/product-wiki/pages.ts`).
 

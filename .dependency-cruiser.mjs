@@ -36,7 +36,7 @@ export default {
       name: 'no-retired-surfaces',
       severity: 'error',
       comment:
-        'Decision 0033, item 6: the extract driver (src/extract), the fill_fact store\'s history and query surfaces (src/history, src/query) are replaced and deleted, never left for later. No module imports them: the fill reads git through the record passes (src/fill/stages/repository-facts.ts) and publishes through the record store (src/graph/records.ts).',
+        'Decision 0033, item 6: the extract driver (src/extract), the old fact store\'s history and query surfaces (src/history, src/query) are replaced and deleted, never left for later. No module imports them: the fill reads git through the record passes (src/fill/stages/repository-facts.ts) and publishes through the record store (src/graph/records.ts).',
       from: { pathNot: '^$' },
       to: { path: '^(src/extract|src/history|src/query)(/|$)' },
     },

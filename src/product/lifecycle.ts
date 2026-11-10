@@ -27,7 +27,6 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { ownRepository, porcelainStatus, runGit, sameFolder, type GitEnv } from './git.js';
 import {
   lineOf,
-  lineOfIndex,
   manifestNamed,
   manifestWithRepo,
   MANIFEST_FILE,

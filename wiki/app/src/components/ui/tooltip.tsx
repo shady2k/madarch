@@ -3,30 +3,6 @@
  * wiki's own design tokens (the ink/chrome graphite pair, the line border).
  * Radix's tooltip primitive underneath; the provider wraps the toolbar.
  */
-import { forwardRef, type ReactElement } from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { cn } from '@/lib/utils.js';
 
 export const TooltipProvider = TooltipPrimitive.Provider;
-const Tooltip = TooltipPrimitive.Root;
-const TooltipTrigger = TooltipPrimitive.Trigger;
-
-const TooltipContent = forwardRef<
-  HTMLDivElement,
-  React.ComponentProps<typeof TooltipPrimitive.Content>
->(function TooltipContent({ className, sideOffset = 6, ...props }, ref): ReactElement {
-  return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        ref={ref}
-        sideOffset={sideOffset}
-        className={cn(
-          'wiki-modal-layer rounded-[var(--radius-row)] border border-line bg-[var(--surface-menu)] px-2 py-1 text-small text-ink shadow-[var(--shadow-high)]',
-          'tooltip-surface [--tw-ring-color:transparent]',
-          className,
-        )}
-        {...props}
-      />
-    </TooltipPrimitive.Portal>
-  );
-});

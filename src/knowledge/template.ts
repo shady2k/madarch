@@ -122,14 +122,6 @@ export function blockIdentity(name: string, params: Readonly<Record<string, stri
 
 const PLACEHOLDER = /\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}/g;
 
-/** The names a text asks for with `{{name}}`, with their offsets' line within the text. */
-function placeholders(text: string): { name: string; line: number }[] {
-  const found: { name: string; line: number }[] = [];
-  text.split('\n').forEach((raw, index) => {
-    for (const match of raw.matchAll(PLACEHOLDER)) found.push({ name: match[1]!, line: index + 1 });
-  });
-  return found;
-}
 
 /** Escapes what Markdown would read as markup, so an attribute's value is shown as it is. */
 export function escapeMarkdown(value: string): string {

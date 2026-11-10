@@ -208,7 +208,7 @@ describe("a history figure is written in the words and the form the reader's lan
 
   test('an uncounted figure keeps its name and value, and the JSON keeps every figure structured', () => {
     const model = history('ru', [{ kind: 'added', value: '42' }, { kind: 'module', value: 'src/a.ts' }, { kind: 'commits', value: '1' }]);
-    expect(pageFileMarkdown(model, prefix).split('\n').find((line) => line.startsWith('- src/a.ts'))).toBe('- src/a.ts — added: 42, module: src/a.ts, 1 коммит');
+    expect(pageFileMarkdown(model, prefix).split('\n').find((line) => line.startsWith('- src/a.ts'))).toBe('- src/a.ts — +42, module: src/a.ts, 1 коммит');
     expect(pageFileDocument(model, prefix).sections[0]!.groups![0]!.items[0]!.figures).toEqual([
       { kind: 'added', value: '42' },
       { kind: 'module', value: 'src/a.ts' },

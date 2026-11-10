@@ -1,13 +1,16 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CommitPageModel, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FilePageModel, FillRunView, FillState, FolderPageModel, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
 
 /** The entity catalogue: every kind the manifest declares, with its words, its count and what fills it (madarch-8bdc.2.5). */
 export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJson<CatalogView>('read the entity catalogue', '/api/k/catalog', signal);
+
+/** The wiki-wide search: pages and entities by title and text, grouped by kind (madarch-o0d). */
+export const getSearch = (query: string, lang: string, signal?: AbortSignal): Promise<SearchView> => readJson<SearchView>('search the wiki', `/api/k/search?${new URLSearchParams({ q: query, lang: lang === 'ru' ? 'ru' : 'en' }).toString()}`, signal);
 
 /** One entity's page. */
 export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal, compose);
@@ -161,27 +164,6 @@ export const eventsAddress = (): string => appPath('/api/events');
 /** What starting the product over would remove and keep. */
 export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[] };
 
-const getResetPlan = (signal?: AbortSignal): Promise<ResetPlan> => readJson<ResetPlan>('read what starting over removes', '/api/k/reset', signal);
-
-/** Starts the product over; the answer is the server's refusal in words when it cannot. */
-async function resetProduct(): Promise<void> {
-  let response: Response;
-  try {
-    response = await fetch(appPath('/api/k/reset'), { method: 'POST' });
-  } catch (error) {
-    throw new RequestError('start over', `the request failed (${error instanceof Error ? error.message : String(error)})`);
-  }
-  if (response.ok) return;
-  let reason = `the server answered ${response.status}`;
-  try {
-    const body = (await response.json()) as { message?: unknown };
-    if (typeof body.message === 'string') reason = body.message;
-  } catch {
-    // the status stands
-  }
-  throw new RequestError('start over', reason, response.status);
-}
-
 // ---- the product settings page (madarch-m38l.11) -----------------------------------------------
 
 export const getProductSettings = (signal?: AbortSignal): Promise<ProductSettings> => readJson<ProductSettings>('read the product settings', '/api/k/product-settings', signal);
@@ -302,9 +284,6 @@ export const dismissProblem = (id: string, reason: string): Promise<{ file: stri
 
 /** «Создать задачу»: a task scoped to the place the problem names (madarch-m38l.14). */
 export const createProblemTask = (id: string): Promise<CreatedTask> => post<CreatedTask>('create a task from the problem', '/api/k/problem-task', { id });
-
-/** Which pages a refresh would touch and why, before it is pressed; `language` is the one the reader means to ask for. */
-export const getRefreshPlan = (language?: string, signal?: AbortSignal): Promise<RefreshPreview> => readJson<RefreshPreview>('plan the refresh', `/api/k/refresh-plan${language === undefined ? '' : `?language=${encodeURIComponent(language)}`}`, signal);
 
 async function post<T>(what: string, url: string, body: unknown): Promise<T> {
   let response: Response;

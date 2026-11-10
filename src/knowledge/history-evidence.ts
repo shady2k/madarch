@@ -2,7 +2,8 @@
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity, HistoryEvidence } from './graph-read.js';
 import type { HistoryShape } from './kinds.js';
-import type { HistoryNote, HistoryRow, HistorySection } from './model.js';
+import { GIT_FIELDS, GIT_WIKI } from '../fill/stages/git-contract.js';
+import type { HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 
 export interface HistoryProjection { sections: HistorySection[]; notes: HistoryNote[] }
 type Ref = (entity: GraphEntity) => NonNullable<HistoryRow['entity']>;
@@ -35,7 +36,7 @@ export function projectHistoryAcross(evidences: readonly HistoryEvidence[], limi
  */
 export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity | undefined, shape: HistoryShape, limit: number, ref: Ref): HistoryProjection {
   const entities = new Map(evidence.entities.map((entity) => [entity.key, entity]));
-  const commits = evidence.entities.filter((entity) => entity.kind === 'code.commit');
+  const commits = evidence.entities.filter((entity) => entity.kind === GIT_WIKI.commit);
   const nonMerge = new Set(commits.filter((commit) => commit.properties['merge'] !== true).map((commit) => commit.key));
   const edges = evidence.edges;
   const contained = new Map<string, string[]>();
@@ -55,14 +56,14 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
       if (seen.has(current)) continue;
       active.add(current); pending.push({ key: current, leaving: true });
       const entity = entities.get(current);
-      if (entity?.kind === 'code.file') { files.add(current); continue; }
+      if (entity?.kind === GIT_WIKI.file) { files.add(current); continue; }
       if (entity === undefined) { complete = false; continue; }
       const children = contained.get(current) ?? [];
       if (children.length === 0) complete = false;
       for (const child of children) {
         const kind = entities.get(child)?.kind;
         if (kind === undefined) { complete = false; continue; }
-        if (kind === 'code.file'
+        if (kind === GIT_WIKI.file
           || (entity.kind === 'code.package' && kind === 'code.module')
           || (entity.kind === 'code.service' && (kind === 'code.package' || kind === 'code.module'))) pending.push({ key: child, leaving: false });
         else if (child === current || kind !== 'code.package') complete = false;
@@ -70,7 +71,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     }
     return { files, complete };
   };
-  const renamed = edges.filter((edge) => edge.relation === 'code.renamed-to');
+  const renamed = edges.filter((edge) => edge.relation === GIT_WIKI.renamedTo);
   const identities = new Map<string, string>();
   const root = (key: string): string => {
     let next = key;
@@ -80,23 +81,66 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
   };
   for (const edge of renamed) { const left = root(edge.from); const right = root(edge.to); if (left !== right) identities.set(left, right); }
   const touched = new Map<string, Set<string>>();
-  for (const edge of edges) if (edge.relation === 'code.touched' && nonMerge.has(edge.from)) {
+  for (const edge of edges) if (edge.relation === GIT_WIKI.touched && nonMerge.has(edge.from)) {
     const key = root(edge.to);
     const held = touched.get(key) ?? new Set<string>(); held.add(edge.from); touched.set(key, held);
   }
-  const authorOf = new Map(edges.filter((edge) => edge.relation === 'code.authored').map((edge) => [edge.to, edge.from]));
+  const authorOf = new Map(edges.filter((edge) => edge.relation === GIT_WIKI.authored).map((edge) => [edge.to, edge.from]));
+  /** The touched edge of one commit and one file identity: what the commit did to the file. */
+  const touchedEdge = new Map<string, { properties: Record<string, unknown>; to: string }>();
+  for (const edge of edges) if (edge.relation === GIT_WIKI.touched) touchedEdge.set(`${edge.from}\u0000${root(edge.to)}`, { properties: edge.properties, to: edge.to });
+  /** The old file one rename edge names, by its new file and the commit that renamed it. */
+  const renamedFrom = new Map<string, string>();
+  for (const edge of renamed) {
+    const discriminator = edge.properties['discriminator'];
+    if (typeof discriminator === 'string' && discriminator !== '') renamedFrom.set(`${edge.from}\u0000${discriminator}`, edge.to);
+  }
+  /** What one commit changed in all: the files it touched and the lines it added and removed. */
+  const churnByCommit = new Map<string, { files: number; added: number; removed: number }>();
+  for (const edge of edges) if (edge.relation === GIT_WIKI.touched) {
+    const held = churnByCommit.get(edge.from) ?? { files: 0, added: 0, removed: 0 };
+    held.files += 1;
+    const added = edge.properties[GIT_FIELDS.added];
+    const removed = edge.properties[GIT_FIELDS.removed];
+    held.added += typeof added === 'number' ? added : 0;
+    held.removed += typeof removed === 'number' ? removed : 0;
+    churnByCommit.set(edge.from, held);
+  }
+  const figuresOf = (properties: Record<string, unknown> | undefined, oldPath: string | undefined): HistoryFigure[] => {
+    if (properties === undefined) return [];
+    const figures: HistoryFigure[] = [];
+    const change = properties[GIT_FIELDS.change];
+    const added = properties[GIT_FIELDS.added];
+    const removed = properties[GIT_FIELDS.removed];
+    if (typeof change === 'string') figures.push({ kind: 'change', value: change });
+    if (typeof added === 'number') figures.push({ kind: 'added', value: String(added) });
+    if (typeof removed === 'number') figures.push({ kind: 'removed', value: String(removed) });
+    if (oldPath !== undefined) figures.push({ kind: 'renamed', value: oldPath });
+    return figures;
+  };
   const row = (entity: GraphEntity): HistoryRow => ({ text: entity.label, entity: ref(entity), figures: [] });
   const sections: HistorySection[] = [];
   const notes: HistoryNote[] = [];
   const section = (role: HistorySection['role'], rows: HistoryRow[]): void => {
     if (rows.length > 0) sections.push({ role, total: rows.length, rows: rows.slice(0, limit) });
   };
-  const commitRows = (keys: ReadonlySet<string>): HistoryRow[] => commits.filter((commit) => keys.has(commit.key))
-    .sort((a, b) => byCodePoint(instant(b.properties['effectiveAt']), instant(a.properties['effectiveAt'])) || byCodePoint(a.key, b.key))
-    .map((commit) => ({ ...row(commit), when: day(commit.properties['effectiveAt']), ...(entities.get(authorOf.get(commit.key) ?? '') === undefined ? {} : { who: entities.get(authorOf.get(commit.key)!)!.label }) }));
+  const commitRows = (keys: ReadonlySet<string>, identity?: string): HistoryRow[] => commits.filter((commit) => keys.has(commit.key))
+    .sort((a, b) => byCodePoint(instant(b.properties[GIT_FIELDS.effectiveAt]), instant(a.properties[GIT_FIELDS.effectiveAt])) || byCodePoint(a.key, b.key))
+    .map((commit) => {
+      const edge = identity === undefined ? undefined : touchedEdge.get(`${commit.key}\u0000${identity}`);
+      const hash = typeof commit.properties[GIT_FIELDS.hash] === 'string' ? commit.properties[GIT_FIELDS.hash] : commit.key.slice(GIT_WIKI.commit.length + 1);
+      const old = edge === undefined ? undefined : renamedFrom.get(`${edge.to}\u0000${hash}`);
+      const author = entities.get(authorOf.get(commit.key) ?? '');
+      return {
+        ...row(commit),
+        when: day(commit.properties[GIT_FIELDS.effectiveAt]),
+        ...(author === undefined ? {} : { who: String(author.properties[GIT_FIELDS.name] ?? author.label) }),
+        figures: figuresOf(edge?.properties, old === undefined ? undefined : entities.get(old)?.label),
+      };
+    });
 
   if (shape === 'repositories') {
-    const dates = commits.map((commit) => day(commit.properties['effectiveAt'])).filter(Boolean).sort(byCodePoint);
+    const dates = commits.map((commit) => day(commit.properties[GIT_FIELDS.effectiveAt])).filter(Boolean).sort(byCodePoint);
     sections.push({ role: 'summary', total: 1, rows: [{ text: '', figures: [
       { kind: 'reachable', value: String(commits.length) },
       { kind: 'firstParent', value: String(commits.filter((commit) => commit.properties['onFirstParent'] === true).length) },
@@ -130,7 +174,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
   if (shape === 'path') {
     const identity = root(subject.key);
     const own = touched.get(identity) ?? new Set<string>();
-    section('commits', commitRows(own));
+    section('commits', commitRows(own, identity));
     const coupled: HistoryRow[] = [];
     for (const [key, changes] of touched) {
       if (key === identity) continue;
@@ -179,16 +223,31 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
   }
 
   if (shape === 'commit') {
-    const parents = edges.filter((edge) => edge.from === subject.key && edge.relation === 'code.parent').sort((a, b) => Number(a.properties['position']) - Number(b.properties['position']));
-    section('parents', parents.flatMap((edge) => { const parent = entities.get(edge.to); return parent === undefined ? [] : [row(parent)]; }));
+    const parents = edges.filter((edge) => edge.from === subject.key && edge.relation === GIT_WIKI.parent).sort((a, b) => Number(a.properties[GIT_FIELDS.position]) - Number(b.properties[GIT_FIELDS.position]));
+    section('parents', parents.flatMap((edge) => {
+      const parent = entities.get(edge.to);
+      if (parent === undefined) return [];
+      const churn = churnByCommit.get(parent.key);
+      const author = entities.get(authorOf.get(parent.key) ?? '');
+      return [{
+        ...row(parent),
+        when: day(parent.properties[GIT_FIELDS.effectiveAt]),
+        ...(author === undefined ? {} : { who: String(author.properties[GIT_FIELDS.name] ?? author.label) }),
+        figures: churn === undefined ? [] : [
+          { kind: 'files' as const, value: String(churn.files) },
+          ...(churn.added === 0 ? [] : [{ kind: 'added' as const, value: String(churn.added) }]),
+          ...(churn.removed === 0 ? [] : [{ kind: 'removed' as const, value: String(churn.removed) }]),
+        ],
+      }];
+    }));
     sections.push({ role: 'summary', total: 1, rows: [{ text: '', figures: (['authoredAt', 'committedAt', 'effectiveAt'] as const).flatMap((kind) => typeof subject.properties[kind] === 'string' ? [{ kind, value: String(subject.properties[kind]) }] : []) }] });
     const first = entities.get(parents[0]?.to ?? '');
-    if (first !== undefined && String(subject.properties['committedAt']) <= String(first.properties['committedAt'])) notes.push({ key: 'dateAnomaly', args: { parent: String(first.properties['committedAt']) } });
+    if (first !== undefined && String(subject.properties[GIT_FIELDS.committedAt]) <= String(first.properties[GIT_FIELDS.committedAt])) notes.push({ key: 'dateAnomaly', args: { parent: String(first.properties[GIT_FIELDS.committedAt]) } });
     if (subject.properties['merge'] === true) {
-      if (typeof subject.properties['mergedBranch'] === 'string') notes.push({ key: 'mergeBranch', args: { branch: subject.properties['mergedBranch'], date: day(subject.properties['effectiveAt']) } });
+      if (typeof subject.properties['mergedBranch'] === 'string') notes.push({ key: 'mergeBranch', args: { branch: subject.properties['mergedBranch'], date: day(subject.properties[GIT_FIELDS.effectiveAt]) } });
       const ancestry = (key: string): Set<string> => {
         const result = new Set<string>(); const pending = [key];
-        while (pending.length > 0) { const one = pending.pop()!; if (result.has(one)) continue; result.add(one); for (const edge of edges) if (edge.from === one && edge.relation === 'code.parent') pending.push(edge.to); }
+        while (pending.length > 0) { const one = pending.pop()!; if (result.has(one)) continue; result.add(one); for (const edge of edges) if (edge.from === one && edge.relation === GIT_WIKI.parent) pending.push(edge.to); }
         return result;
       };
       const main = ancestry(parents[0]?.to ?? '');

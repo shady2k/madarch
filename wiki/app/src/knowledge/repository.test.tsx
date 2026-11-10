@@ -11,7 +11,6 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
-import { FillCard } from './pages.js';
 import { CommitPage, FilePage, FileRows, FolderPage, RepositoryPage, RunPage, bytesText, instantText, mbText, msText } from './repository.js';
 import type { CommitPageModel, FilePageModel, FillRunView, FillStepView, FolderPageModel, PageHistoryRow, WikiStatus } from './types.js';
 

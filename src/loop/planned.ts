@@ -16,7 +16,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { closingCommit, type RepositoryRef } from './closure.js';
-import { impactOf, pathOfGround, type ImpactedStatement } from './impact.js';
+import { impactOf, type ImpactedStatement } from './impact.js';
 import { readTasks, scopePath, type PlannedTask, type TaskScope } from './tasks.js';
 
 /** The task a mark points at: enough for the badge to name it and to link to it. */
@@ -167,6 +167,3 @@ export function marksForPage(marks: PlannedMarks, page: string): Map<string, { t
 export function markForEntity(marks: PlannedMarks, id: string): PlannedEntity | undefined {
   return marks.entities.find((entity) => entity.id === id);
 }
-
-/** Whether a ground names a place at all: used where a caller wants the paths of a set of grounds. */
-const pathsOf = (grounds: readonly string[]): string[] => [...new Set(grounds.map(pathOfGround).filter((path): path is string => path !== undefined))].sort(byCodePoint);

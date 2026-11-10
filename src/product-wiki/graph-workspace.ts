@@ -25,7 +25,6 @@
  * for: the same model gives the same bytes on every machine, the element ids are
  * the model's own positions in code point order, and nothing here reads the clock.
  */
-import { createHash } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
 import { componentId } from '../wiki/archify.js';
 import type { ShapeDiagram as DiagramModel, ShapeElement as DiagramElement } from './diagram-shape.js';
@@ -56,21 +55,7 @@ export interface DiagramWorkspace {
   readonly componentIds: ReadonlyMap<string, string>;
 }
 
-/** The name a LikeC4 webcomponent's custom element takes: its generation prefix and `-view`. */
-function webcomponentElement(prefix: string): string {
-  return `${prefix}-view`;
-}
 
-/**
- * The generation prefix of one workspace's webcomponent, made from the
- * workspace's own bytes: the same text gives the same prefix on every machine, so
- * a bundle is cacheable by it, and two diagrams' bundles can stand on one page
- * without the second one's `customElements.define` colliding with the first's
- * (`likec4` defines the element unconditionally).
- */
-function webcomponentPrefix(workspace: string): string {
-  return `madarch-graph-${createHash('sha256').update(workspace).digest('hex').slice(0, 12)}`;
-}
 
 /**
  * The workspace of one diagram model, with every element's page link made by

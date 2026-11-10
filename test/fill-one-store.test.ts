@@ -9,7 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -58,7 +58,6 @@ async function openStore(path: string): Promise<DatabaseOwner> {
 
 describe('the one store of one product', () => {
   let store = '';
-  let snapshot = 0;
   let head = '';
 
   test('madarch fill-stages writes the store every caller resolves, and finishes it for a reader', async () => {

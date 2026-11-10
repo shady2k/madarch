@@ -401,13 +401,6 @@ function languageOf(text: string): string | undefined {
   return typeof value === 'string' && LABEL_LANGUAGES.includes(value) ? value : undefined;
 }
 
-/**
- * Brings the product's manifest and templates to the current starter set where no person edited them, writes the
- * templates that are absent, and answers what the set holds that an edited manifest lacks. Idempotent.
- */
-function rememberMadarchStarterFile(recordFile: string, path: string, text: string): void {
-  remember(recordFile, { [path]: text });
-}
 
 /** Records a changed starter file only when its bytes before the change prove madarch already owned it. */
 export function rememberChangedStarterFileIfOwned(productFolder: string, recordFile: string, path: string, previous: string, next: string): boolean {

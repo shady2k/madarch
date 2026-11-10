@@ -26,7 +26,6 @@
  * live beside the product's store, not in the graph.
  */
 import { createHash } from 'node:crypto';
-import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import type { ModelPair, ModelRoleView, ResolvedModelRole } from './model-roles.js';
 import { roleOf } from './model-roles.js';

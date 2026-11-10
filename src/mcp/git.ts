@@ -10,7 +10,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { withSpanSync } from '../obs/trace.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /** What the working tree changed about one path, as a reader needs to know it. */
@@ -55,24 +55,7 @@ function gitBytes(repository: string, args: readonly string[]): Buffer {
   }
 }
 
-/** The bytes of a path at one commit, or null when the commit holds none: the text an answer quotes from an unchanged file. */
-export function readCommitFile(repository: string, commit: string, path: string): Uint8Array | null {
-  try {
-    return gitBytes(repository, ['show', `${commit}:${path}`]);
-  } catch {
-    return null;
-  }
-}
 
-/** Whether the checkout names a commit at all: an empty repository cannot be served. */
-function hasCommit(repository: string): boolean {
-  try {
-    gitBytes(repository, ['rev-parse', '--verify', '--quiet', 'HEAD']);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** The commit HEAD names. */
 export function headCommit(repository: string): string {

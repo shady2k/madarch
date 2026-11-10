@@ -16,16 +16,12 @@
  * stage's (decision 0033, items 1 and 2, and the owner's separation of roles: a
  * strong model writes and analyses, a weak model or jev classifies).
  */
-import { execFile } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { runFill } from '../fill/run.js';
 import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 
-const execFileAsync = promisify(execFile);
 
 /**
  * The store's owner, as the orchestrator host names it: the type is derived from the host's own options, so this module
@@ -125,7 +121,7 @@ async function pinsOf(owner: StoreOwner): Promise<StorePin[]> {
     const facts = await repositoryFacts(owner, repository.name);
     const commits = facts?.commitCount ?? 0;
     pins.push({
-      name: repository.name, scope: null, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '',
+      name: repository.name, scope: facts?.nodeId ?? null, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '',
       effectiveTime: now, commits, filledCommits: commits, files: facts?.fileCount ?? 0, folders: facts?.directoryCount ?? 0,
     });
   }

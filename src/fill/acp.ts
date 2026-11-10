@@ -291,20 +291,6 @@ export function resolveExecutable(command: string, pathValue = process.env.PATH 
   return undefined;
 }
 
-/** What madarch prints for a session's tokens: the agent's own figures, or that it named none. */
-function describeUsage(usage: AcpSessionUsage): string {
-  if (!usage.reported) {
-    return usage.turns === 0
-      ? 'token usage not reported: no turn ran in this session'
-      : `token usage not reported: the agent gave none in ${usage.turns} turn${usage.turns === 1 ? '' : 's'}`;
-  }
-  const parts = [`input ${usage.inputTokens ?? 'not reported'}`, `output ${usage.outputTokens ?? 'not reported'}`];
-  if (usage.totalTokens !== undefined) parts.push(`total ${usage.totalTokens}`);
-  if (usage.thoughtTokens !== undefined) parts.push(`thought ${usage.thoughtTokens}`);
-  if (usage.cachedReadTokens !== undefined) parts.push(`cache read ${usage.cachedReadTokens}`);
-  if (usage.cachedWriteTokens !== undefined) parts.push(`cache write ${usage.cachedWriteTokens}`);
-  return parts.join(', ');
-}
 
 /**
  * Normalize one `session/update` payload. A variant the protocol defines but

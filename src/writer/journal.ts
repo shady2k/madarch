@@ -15,14 +15,11 @@
  * The journal is written by the process that serves the agent's tools, so it
  * records what the agent asked and was answered, not what the worker did.
  */
-import { appendFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
 
 const JOURNAL_SCHEMA = 'madarch.agent-journal@1';
-export const MAX_RESPONSE_CHARACTERS = 100_000;
-
 /**
  * What one call of a unit's tools read, could not resolve and produced (decision 0032, section 2): a
  * call count says how often a unit asked, and these say whether the asking did work. `sourceBytes`
@@ -63,22 +60,6 @@ export function addCounters(left: CallCounters, right: CallCounters): CallCounte
   };
 }
 
-/** What one call added: the counters after it, less the counters before it, never below zero. */
-export function betweenCounters(before: CallCounters, after: CallCounters): CallCounters {
-  const less = (now: number, was: number): number => Math.max(0, now - was);
-  return {
-    sourceBytes: { served: less(after.sourceBytes.served, before.sourceBytes.served), repeated: less(after.sourceBytes.repeated, before.sourceBytes.repeated) },
-    evidence: less(after.evidence, before.evidence),
-    unresolvedJoins: less(after.unresolvedJoins, before.unresolvedJoins),
-    produced: {
-      pages: less(after.produced.pages, before.produced.pages),
-      statements: less(after.produced.statements, before.produced.statements),
-      grounds: less(after.produced.grounds, before.produced.grounds),
-      links: less(after.produced.links, before.produced.links),
-      questions: less(after.produced.questions, before.produced.questions),
-    },
-  };
-}
 
 /** The whole number a record holds, and 0 for anything a line of an older or broken journal gives. */
 const whole = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0);
@@ -174,81 +155,9 @@ export interface Journal {
   record(context: JournalContext, entry: JournalEntry): void;
 }
 
-export function recordOf(context: JournalContext, entry: JournalEntry): JournalRecord {
-  // A guide's source is not counted either: its byte count would say how much of it there is.
-  if (context.privateGuide) entry = { ...entry, tool: 'guide-tool', arguments: { redacted: true }, response: entry.response === null ? null : '[guide result withheld]', reason: entry.reason === null ? null : '[guide refusal details withheld]', counters: NO_COUNTERS };
-  const response = entry.response;
-  const bytes = response === null ? 0 : Buffer.byteLength(response, 'utf8');
-  const truncated = response !== null && response.length > MAX_RESPONSE_CHARACTERS;
-  const traceId = context.run;
-  return {
-    schema: JOURNAL_SCHEMA,
-    time: entry.startedAt.toISOString(),
-    durationMs: Math.max(0, Math.round(entry.durationMs)),
-    traceId,
-    spanId: randomBytes(8).toString('hex'),
-    run: context.run,
-    unit: context.unit,
-    agent: context.agent,
-    model: context.model,
-    session: context.session,
-    kind: entry.kind,
-    tool: entry.tool,
-    arguments: entry.arguments ?? null,
-    response: response === null ? null : truncated ? response.slice(0, MAX_RESPONSE_CHARACTERS) : response,
-    responseBytes: bytes,
-    truncated,
-    isError: entry.isError,
-    outcome: entry.outcome,
-    reason: entry.reason,
-    counters: countersOf(entry.counters),
-    attributes: {
-      'gen_ai.operation.name': 'execute_tool',
-      'gen_ai.tool.name': entry.tool,
-      'gen_ai.agent.name': context.agent,
-      ...(context.model === null ? {} : { 'gen_ai.request.model': context.model }),
-      ...(context.session === null ? {} : { 'gen_ai.conversation.id': context.session }),
-      'madarch.run': context.run,
-      'madarch.unit': context.unit,
-    },
-  };
-}
-
-/** A run id that sorts by time: `run-<UTC time to the millisecond>-<4 random hex>`. */
-export function newRunId(now: Date = new Date()): string {
-  return `run-${now.toISOString().replace(/[-:]/g, '').replace('.', '')}-${randomBytes(2).toString('hex')}`;
-}
-
 /** The folder of a product's journals inside its machine-local store. */
 export const journalFolder = (storeFolder: string): string => path.join(storeFolder, 'journal');
 
-/**
- * Opens the journal of one run. The folder is made at the first record, so a
- * run that makes no call leaves nothing; a write that fails raises with the file
- * named: a journal that silently loses records would be worse than none.
- */
-export function fileJournal(folder: string, run: string): Journal {
-  const file = path.join(folder, `${run}.jsonl`);
-  let made = false;
-  return {
-    file,
-    run,
-    record(context, entry) {
-      try {
-        if (!made) { mkdirSync(folder, { recursive: true }); made = true; }
-        appendFileSync(file, `${JSON.stringify(recordOf(context, entry))}\n`, 'utf8');
-      } catch (error) {
-        throw new Error(`src/writer/journal.ts: the journal ${file} cannot be written: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    },
-  };
-}
-
-/** A journal that keeps its records in memory; tests read them. */
-function memoryJournal(run = 'run-test'): Journal & { readonly records: JournalRecord[] } {
-  const records: JournalRecord[] = [];
-  return { file: `memory:${run}`, run, records, record: (context, entry) => { records.push(recordOf(context, entry)); } };
-}
 
 export interface JournalRead {
   readonly records: readonly JournalRecord[];

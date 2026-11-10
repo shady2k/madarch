@@ -17,13 +17,27 @@
  * again when it ends.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { appendFileSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, type Attributes, type AttributeValue, type Span } from '@opentelemetry/api';
 import { BasicTracerProvider, type ReadableSpan, type SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 /** What a span may record about itself: counts, sizes, names and paths, never a value or a text it moved. */
 export type SpanAttributes = Readonly<Record<string, AttributeValue>>;
+
+/** Deletes every trace older than the newest `keep` runs, and the log beside each. */
+function trimTraces(folder: string, keep: number): void {
+  let names: string[];
+  try { names = readdirSync(folder); } catch { return; }
+  const files = names
+    .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.log.jsonl'))
+    .map((name) => ({ name, at: (() => { try { return statSync(join(folder, name)).mtimeMs; } catch { return 0; } })() }))
+    .sort((left, right) => right.at - left.at || (left.name < right.name ? 1 : left.name > right.name ? -1 : 0));
+  for (const held of files.slice(Math.max(1, keep))) {
+    rmSync(join(folder, held.name), { force: true });
+    rmSync(join(folder, held.name.replace(/\.jsonl$/u, '.log.jsonl')), { force: true });
+  }
+}
 
 /** One trace of one run: its file, its log beside it, and its buffer of lines not yet written. */
 /** One reading of the process's memory, at a moment of the run's own clock (`performance.now()`). */
@@ -45,6 +59,8 @@ export interface TraceRun {
   readonly samples: MemorySample[];
   /** The sampler, while the run is open. */
   timer?: ReturnType<typeof setInterval>;
+  /** The flusher, so a running server's trace is readable while it runs, not only at its close. */
+  flushTimer?: ReturnType<typeof setInterval>;
   /** The moment the run's trace was opened, in epoch milliseconds. */
   readonly startedAt: number;
   /** Whether log lines are printed to the process's own streams as they are written. */
@@ -109,7 +125,6 @@ const NOOP_SPAN = {
   spanContext: (): { traceId: string; spanId: string; traceFlags: number } => ({ traceId: '', spanId: '', traceFlags: 0 }),
 } as unknown as Span;
 
-const BUFFER_LINES = 256;
 
 /** A memory reading, kept for one millisecond: a span's start and end ask for it and both get the same cheap answer. */
 let memoryAt = -1;
@@ -126,7 +141,9 @@ function memory(): { rss: number; heap: number } {
 function pushLine(run: TraceRun, line: string): void {
   run.buffer.push(line);
   run.lines += 1;
-  if (run.buffer.length >= BUFFER_LINES) flushRun(run);
+  // A trace is evidence while the run is still open: a status read that follows a fast fill must see the spans, not
+  // wait for the buffer's size or the run's close. A fill now has hundreds of spans, so one append per span is cheap.
+  flushRun(run);
 }
 
 /** Writes what a run has buffered; a run whose file cannot be written is not the caller's to crash on. */
@@ -219,7 +236,7 @@ function traceFileName(runId: string): string {
 }
 
 /** Opens one run's trace: its file starts empty and its lines are buffered. */
-export function openTrace(options: { readonly store: string; readonly runId: string; readonly console?: boolean }): TraceRun {
+export function openTrace(options: { readonly store: string; readonly runId: string; readonly console?: boolean; readonly keep?: number }): TraceRun {
   enabled = process.env['MADARCH_TRACE'] !== 'off';
   const folder = join(options.store, 'traces');
   mkdirSync(folder, { recursive: true });
@@ -228,6 +245,8 @@ export function openTrace(options: { readonly store: string; readonly runId: str
   // A trace is this run's own record: a second start of one run id replaces the first, never appends to it.
   writeFileSync(file, '', 'utf8');
   writeFileSync(logFile, '', 'utf8');
+  // Retention: the last N runs stand, the older files go (decision 0034's trace is evidence, not an archive).
+  trimTraces(folder, options.keep ?? 20);
   const run: TraceRun = {
     runId: options.runId, store: options.store, file, logFile, startedAt: Date.now(), console: options.console === true,
     buffer: [], lines: 0, closed: !enabled, samples: [],
@@ -238,6 +257,8 @@ export function openTrace(options: { readonly store: string; readonly runId: str
     run.samples.push(sampleNow());
     run.timer = setInterval(() => { run.samples.push(sampleNow()); }, MEMORY_SAMPLE_MS);
     run.timer.unref?.();
+    run.flushTimer = setInterval(() => flushRun(run), 1_000);
+    run.flushTimer.unref?.();
   }
   latest = enabled ? run : undefined;
   return run;
@@ -251,6 +272,7 @@ export function runInTrace<T>(run: TraceRun, work: () => Promise<T>): Promise<T>
 /** Ends a run's trace: what is buffered is written, and later spans of the run are dropped rather than written after its end. */
 export function closeTrace(run: TraceRun): void {
   if (run.timer !== undefined) { clearInterval(run.timer); run.timer = undefined; }
+  if (run.flushTimer !== undefined) { clearInterval(run.flushTimer); run.flushTimer = undefined; }
   flushRun(run);
   run.closed = true;
   if (latest === run) latest = undefined;

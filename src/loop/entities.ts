@@ -32,17 +32,10 @@ export const QUESTIONS_FOLDER = 'docs/questions';
 export const CORRECTIONS_FOLDER = 'docs/corrections';
 export const QUESTION_KIND = 'question';
 export const CORRECTION_KIND = 'correction';
-/** The mark every person's writing carries on a local install (decision 0031): git's author is whatever the person set. */
-export const LOCAL_UNVERIFIED = 'local, not verified';
 
 export const QUESTION_TYPES = ['contradiction', 'ambiguous-term', 'undocumented', 'gap'] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
-/** Bounds on what an agent or a person may put in one file. */
-export const MAX_TITLE = 160;
-export const MAX_TEXT = 1200;
-export const MAX_SIDES = 4;
-export const MAX_ABOUT = 12;
 export const MAX_ANSWER = 8000;
 export const MAX_REASON = 4000;
 
@@ -410,11 +403,3 @@ function readFolder<T>(productFolder: string, folder: string, parse: (file: stri
 /** The questions of a product, in id order, and the files that are none. */
 export const readQuestions = (productFolder: string): Read<Question> => readFolder(productFolder, QUESTIONS_FOLDER, parseQuestion);
 export const readCorrections = (productFolder: string): Read<Correction> => readFolder(productFolder, CORRECTIONS_FOLDER, parseCorrection);
-
-/** A slug for a new entity that no file holds: the readable slug, then `-2`, `-3`. */
-function freeSlug(productFolder: string, folder: string, wanted: string): string {
-  const taken = new Set(filesOf(productFolder, folder).map((file) => file.replace(/^.*\//, '').replace(/\.md$/, '')));
-  let slug = wanted;
-  for (let n = 2; taken.has(slug); n += 1) slug = `${wanted}-${n}`;
-  return slug;
-}

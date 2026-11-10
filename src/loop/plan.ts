@@ -20,14 +20,11 @@
  * `unplaced`, never dropped.
  */
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { changedGrounds, documentSections, gitReader, readKnowledgePages, type GroundChange, type GitReader, type IndexedPage } from '../knowledge/index/index.js';
-import { NOTE_CHARACTERS, type ChangeNote, type EditBrief } from '../writer/edit.js';
-import { DOMAINS_FOLDER, PRODUCT_PATH, type UnitsInput, type UnitsNeeded } from '../writer/run.js';
+import { changedGrounds, gitReader, readKnowledgePages, type GroundChange, type IndexedPage } from '../knowledge/index/index.js';
+import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import { parseStatementRef, readCorrections, readQuestions, type Correction, type Question } from './entities.js';
 
 const run = promisify(execFile);
@@ -147,19 +144,10 @@ export function decide(input: DecideInput): RefreshPlan {
   };
 }
 
-// ---- gathering --------------------------------------------------------------------------------
 
-type Raw = Record<string, unknown>;
-
-/** The services that appeared in the graph after `since` (an ISO time) and that no page of the product names. */
-async function servicesSince(owner: DatabaseOwner, since: string, named: ReadonlySet<string>): Promise<string[]> {
-  const rows = (await owner.run((tx) => tx.query<Raw>(
-    `SELECT v.properties->>'recordKey' AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-     WHERE k.key = 'code.service' AND v.properties ? 'recordKey' AND v.recorded_to = 'infinity'
-     GROUP BY 1 HAVING min(v.valid_from) > $1::timestamptz AND bool_or(v.valid_to = 'infinity') ORDER BY 1`,
-    [since],
-  ))).rows;
-  return rows.map((row) => String(row['key'])).filter((key) => !named.has(key)).sort(byCodePoint);
+/** The one graph holds no code.service kind yet: a plan names no service the graph does not hold. */
+async function servicesSince(_owner: DatabaseOwner, _since: string, _named: ReadonlySet<string>): Promise<string[]> {
+  return [];
 }
 
 async function commitTime(repository: string, commit: string): Promise<string | undefined> {
@@ -215,118 +203,3 @@ export async function planRefresh(options: PlanOptions): Promise<Planned> {
 }
 
 // ---- what changed -----------------------------------------------------------------------------
-
-const MAX_NOTES_PER_PAGE = 40;
-
-/** The path a graph key names in the repository, when it names one. */
-function pathOfKey(key: string): string | undefined {
-  if (key.startsWith('code.file:') || key.startsWith('code.directory:')) return key.slice(key.indexOf(':') + 1);
-  if (key.startsWith('code.symbol:')) {
-    const rest = key.slice('code.symbol:'.length);
-    const hash = rest.indexOf('#');
-    return hash < 0 ? rest : rest.slice(0, hash);
-  }
-  return undefined;
-}
-
-const cutText = (text: string): string => (text.length > NOTE_CHARACTERS ? `${text.slice(0, NOTE_CHARACTERS)}\n[cut at ${NOTE_CHARACTERS} characters]` : text);
-
-async function diffOf(repository: string, from: string, to: string, path: string): Promise<string | null> {
-  try {
-    const { stdout } = await run('git', ['diff', '--no-color', '-U2', from, to, '--', path], { cwd: repository, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
-    return stdout.trim() === '' ? null : cutText(stdout.trim());
-  } catch {
-    return null;
-  }
-}
-
-async function textsOfGround(change: GroundChange, repository: string, reader: GitReader, now: string): Promise<{ before: string | null; after: string | null }> {
-  const written = change.writtenCommit;
-  if (written === null) return { before: null, after: null };
-  const doc = /^doc:([^#]+)#(.+)$/.exec(change.ground);
-  if (doc !== null) {
-    const sectionIn = async (commit: string): Promise<string | null> => {
-      const text = await reader.text(commit, doc[1]!);
-      return text === null ? null : documentSections(text).find((section) => section.anchor === doc[2]!.toLowerCase())?.text ?? null;
-    };
-    const before = await sectionIn(written);
-    const after = change.status === 'removed' ? null : await sectionIn(now);
-    return { before: before === null ? null : cutText(before), after: after === null ? null : cutText(after) };
-  }
-  const path = pathOfKey(change.ground);
-  if (path === undefined) return { before: null, after: null };
-  if (change.status === 'removed') {
-    const old = await reader.text(written, path);
-    return { before: old === null ? null : cutText(old.split('\n').slice(0, 80).join('\n')), after: null };
-  }
-  return { before: null, after: await diffOf(repository, written, now, path) };
-}
-
-/** The brief of each planned page: the page as it stands and what changed. Pages with no text yet get no brief. */
-async function briefsFor(planned: Planned): Promise<Map<string, EditBrief>> {
-  const { plan, inputs } = planned;
-  const { options } = inputs;
-  const reader = gitReader(options.repository.path);
-  const byId = new Map(inputs.pages.map((page) => [page.id, page] as const));
-  const questions = new Map(inputs.questions.map((question) => [question.slug, question] as const));
-  const corrections = new Map(inputs.corrections.map((correction) => [correction.slug, correction] as const));
-  const out = new Map<string, EditBrief>();
-  for (const entry of plan.pages) {
-    const page = byId.get(entry.id);
-    if (page === undefined) continue;
-    let current: string;
-    try {
-      current = readFileSync(join(options.productFolder, page.file), 'utf8');
-    } catch (error) {
-      throw new Error(`src/loop/plan.ts: ${join(options.productFolder, page.file)} cannot be read to be edited: ${(error as Error).message}`);
-    }
-    const notes: ChangeNote[] = [];
-    let omitted = 0;
-    const sentenceOf = (statement: string): string => page.statements.find((s) => s.id === statement)?.text ?? '';
-    for (const reason of entry.reasons) {
-      if (notes.length >= MAX_NOTES_PER_PAGE) { omitted += 1; continue; }
-      switch (reason.kind) {
-        case 'ground-changed':
-        case 'ground-removed': {
-          const change = inputs.grounds.find((candidate) => candidate.page === entry.id && candidate.statement === reason.statement && candidate.ground === reason.ground);
-          const texts = change === undefined ? { before: null, after: null } : await textsOfGround(change, options.repository.path, reader, options.commit);
-          notes.push({ kind: reason.kind, statement: reason.statement, sentence: sentenceOf(reason.statement), ground: reason.ground, ...texts });
-          break;
-        }
-        case 'answer': {
-          const question = questions.get(reason.question);
-          if (question?.answer == null) break;
-          notes.push({ kind: 'answer', question: question.slug, title: question.title, answer: question.answer.text, by: `${question.answer.by.name} <${question.answer.by.email}>`, at: question.answer.at, sides: question.sides });
-          break;
-        }
-        case 'correction': {
-          const correction = corrections.get(reason.correction);
-          if (correction === undefined) break;
-          notes.push({ kind: 'correction', correction: correction.slug, statement: parseStatementRef(correction.about)?.statement ?? correction.about, sentence: correction.statement, reason: correction.reason, by: `${correction.by.name} <${correction.by.email}>` });
-          break;
-        }
-        case 'new-service': notes.push({ kind: 'new-service', services: reason.services }); break;
-        case 'language': notes.push({ kind: 'language', from: reason.from, to: reason.to }); break;
-        case 'missing':
-        case 'missing-domain': break;
-      }
-    }
-    out.set(page.file, { current, notes, omitted });
-  }
-  return out;
-}
-
-/** The writer's seam: the plan as the writer reads it. */
-function neededFrom(planned: Planned, briefs: ReadonlyMap<string, EditBrief>): (input: UnitsInput) => UnitsNeeded {
-  return (input) => {
-    const paths = new Set(planned.plan.pages.map((page) => page.path));
-    const linked = input.productPage === null ? [] : [...input.productPage.matchAll(/\(madarch:domain:([a-z][a-z0-9-]*)\)/g)].map((match) => `${DOMAINS_FOLDER}/${match[1]}.md`);
-    const missing = linked.filter((path) => !input.domainPages.includes(path));
-    const first = input.productPage === null;
-    return {
-      product: first || paths.has(PRODUCT_PATH) || missing.length > 0,
-      domain: (path) => first || !input.domainPages.includes(path) || paths.has(path),
-      brief: (path) => briefs.get(path),
-    };
-  };
-}

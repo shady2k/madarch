@@ -17,7 +17,7 @@ import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { getCommit, getFile, getFileText, getFolder, getRun } from './api.js';
-import { addressOfCommit, addressOfFile, addressOfFolder, addressOfRun, K_RUN } from './routes.js';
+import { addressOfCommit, addressOfFile, addressOfFolder, K_RUN } from './routes.js';
 import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, SourceFile, WikiStatus } from './types.js';
 
 /** A number of bytes as a reader reads it. */
@@ -315,8 +315,7 @@ const FileTextView = memo(function FileTextView({ repository, path, commit }: { 
 
 /** One file: every fact the graph holds of it, its text, and the commits that touched it. */
 export function FilePage({ path, after, version }: { path: string; after: { walk: number; commit: string } | null; version: number }): React.ReactElement {
-  const { t, i18n } = useTranslation();
-  const language = i18n.resolvedLanguage ?? 'en';
+  const { t } = useTranslation();
   const key = `file:${path}:${after === null ? '' : `${after.walk}:${after.commit}`}`;
   useTabTitle(path);
   const { data, error } = useRead<{ file: FilePageModel }>(key, version, (signal) => getFile(path, after, signal));

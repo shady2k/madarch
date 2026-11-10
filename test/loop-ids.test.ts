@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { correctionId, questionFootnoteId, questionId, taskId } from '../src/loop/ids.js';
+import { correctionId, questionFootnoteId, taskId } from '../src/loop/ids.js';
 
 const sides = [
   { claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts', 'code.file:src/pricing.ts'] },
@@ -7,15 +7,7 @@ const sides = [
 ];
 
 describe('content-hash ids', () => {
-  test('a question id is the first 12 hex characters of its normalized content and grounds', () => {
-    const first = questionId({ type: 'contradiction', title: 'Which discount?', question: '  Which\n discount does an order get?  ', why: 'A shopper sees two numbers.', sides });
-    expect(first).toMatch(/^[0-9a-f]{12}$/);
-    expect(questionId({ type: 'contradiction', title: 'Which discount?', question: 'Which discount does an order get?', why: 'A shopper sees two numbers.', sides: [...sides].reverse() })).not.toBe(first);
-    expect(questionId({ type: 'contradiction', title: 'Which discount?', question: 'Which discount does an order get?', why: 'A shopper sees two numbers.', sides: [{ ...sides[0]!, grounds: [...sides[0]!.grounds].reverse() }, sides[1]!] })).toBe(first);
-    expect(questionId({ type: 'gap', title: 'Which discount?', question: 'Which discount does an order get?', why: 'A shopper sees two numbers.', sides })).not.toBe(first);
-    expect(questionId({ type: 'contradiction', title: 'Which discount?', question: 'Which discount does an order get?', why: 'A shopper sees two numbers.', sides: [sides[0]!, { ...sides[1]!, claim: 'The code applies whatever it is given.' }] })).not.toBe(first);
-  });
-
+  
   test('a correction id names its statement, its reason and the statement key', () => {
     const first = correctionId('Orders get a ten percent discount.', 'The caller chooses it.', 'domain:orders#ten-percent-discount');
     expect(first).toMatch(/^[0-9a-f]{12}$/);

@@ -1,51 +1,6 @@
 [
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/checked-writes.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/checked-writes.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/declared.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/diagrams.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/fact-store.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/fact-store.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/graph-pages.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/graph-reads.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/fill/narrative-outbox.ts",
-    "symbol": "src/sql-driver.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/fill/orchestrator-host.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
@@ -96,11 +51,6 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/knowledge/index/publish.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/knowledge/index/queries.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
@@ -147,21 +97,6 @@
   {
     "rule": "sql-only-in-storage-layer",
     "file": "src/product/cli.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/writer/guides/writer.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/writer/run.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
-    "file": "src/writer/view.ts",
     "symbol": "src/adapters/database-owner.ts"
   }
 ]

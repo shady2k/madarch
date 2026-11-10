@@ -357,6 +357,12 @@
     "cataloguePerson": "пишет человек",
     "catalogueNoTranslation": "нет перевода",
     "catalogueEmptyGroup": "Видов пока нет",
+    "searchPlaceholder": "Поиск по страницам и сущностям",
+    "searchLabel": "Поиск по вики",
+    "searchHint": "Поиск по страницам и сущностям (Ctrl/Cmd+K)",
+    "searchResults": "Результаты поиска",
+    "searchEmpty": "Ничего не найдено по этому запросу.",
+    "searchFailed": "Поиск не удалось прочитать: {{message}}",
     "groupOther": "Прочее",
     "tabs": "Открытые страницы",
     "closeTab": "Закрыть вкладку {{title}}",
@@ -578,6 +584,8 @@
       "snapshots": "Именованные снимки"
     },
     "historyFigure": {
+      "change": "{{value}}",
+      "renamed": "переименован из {{value}}",
       "added": "добавлено строк",
       "removed": "удалено строк",
       "symbols_one": "{{count}} символ",

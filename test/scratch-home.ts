@@ -35,8 +35,6 @@ import { RUN_SCRATCH_VARIABLE } from './run-scratch.js';
 export const ACCOUNT_HOME = userInfo().homedir;
 /** The one real products home, whose contents the guard never adds to. */
 export const REAL_PRODUCTS_HOME = join(ACCOUNT_HOME, 'madarch', 'products');
-/** What the load-time read saw, so "new since the tests started" is a fact. */
-const LOADED_AT = Date.now();
 const BEFORE = new Set(entriesAtLoad());
 function entriesAtLoad(): string[] {
   if (!existsSync(REAL_PRODUCTS_HOME) || !statSync(REAL_PRODUCTS_HOME).isDirectory()) return [];

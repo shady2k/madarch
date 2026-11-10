@@ -41,7 +41,7 @@
  * and for a row written beside this adapter.
  */
 import { PgBoss } from 'pg-boss';
-import type { CommandResponse, Db, Job, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
+import type { CommandResponse, Db, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
 import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
 import type { OuterTransaction } from '../history-types.js';
@@ -98,6 +98,8 @@ export interface PgBossQueueOptions {
    * the next pass takes it.
    */
   superviseIntervalSeconds?: number;
+  /** Where a pg-boss error is logged; the process's error stream when it is left out. */
+  log?: (line: string) => void;
 }
 
 /** The owner's pool, shaped for pg-boss: one statement per call, batches through `exec`. */
@@ -502,6 +504,13 @@ export async function createPgBossQueue(options: PgBossQueueOptions): Promise<Qu
   // `test/repository-wiki.test.ts` on two cores with one busy). pg-boss's own start retries exactly this case — "a
   // schema another process is still migrating" — when it is asked to, and the schema the other process made is what
   // this start wanted.
+  // pg-boss's own passes run on timers: a store that closed under one is an error event, and an error event with no
+  // listener ends the process. Log it with the store path and keep serving (madarch-8bdc.12).
+  boss.on('error', (error: Error) => {
+    const line = `pg-boss at ${owner.location}: ${error.message}`;
+    if (options.log !== undefined) options.log(line);
+    else console.error(line);
+  });
   await boss.start({ attempts: START_ATTEMPTS });
   await createStampTable(owner, schema);
   return new PgBossQueue(boss, owner, schema);
