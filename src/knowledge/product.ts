@@ -483,11 +483,17 @@ export class KnowledgeProduct {
   /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
   /** Opens the reader and waits for it: a server starts its products before the first request. */
   async warmNow(): Promise<void> {
-    if (this.closed) return;
-    await this.open().catch(() => undefined);
-    const context = await this.context().catch(() => undefined);
-    if (context !== undefined && !('absent' in context) && context.ctx.historyEvidence !== undefined) {
-      for (const repository of await context.ctx.graph.repositories()) await context.ctx.historyEvidence(repository.nodeId).catch(() => undefined);
+    try {
+      if (this.closed) return;
+      // A product with no store yet is not warmed: opening it would create the store at server start.
+      if (!existsSync(storeDatabasePath(this.storeFolder()))) return;
+      await this.open().catch(() => undefined);
+      const context = await this.context().catch(() => undefined);
+      if (context !== undefined && !('absent' in context) && context.ctx.historyEvidence !== undefined) {
+        for (const repository of await context.ctx.graph.repositories()) await context.ctx.historyEvidence(repository.nodeId).catch(() => undefined);
+      }
+    } catch {
+      // A product with no store yet has no history to warm; the first page opens it.
     }
   }
 
