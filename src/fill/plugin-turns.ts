@@ -76,6 +76,12 @@ export function pluginTurnUnitId(plugin: string, kind: string): string {
 /**
  * The units one fill's plugin turns plan: one per plugin and kind, so the plugin reads every document its kind names
  * through the host. A kind no plugin fills, or a product whose lock holds none of its plugins, plans nothing.
+ *
+ * A kind's turn is planned whether or not its pattern names a document the graph holds, and the plugin is what decides
+ * what it no longer sees: its complete answer retracts the entities the producer held and this answer does not state
+ * (decision 0035, item 7), so a declaration that narrowed a kind's pattern or moved a field — which committed in the
+ * product repository, and so moved the unit's inputs — has its old facts taken out by the very turn that reads the new
+ * declaration. A plan that skipped such a kind planned nothing, and the graph kept what the old declaration produced.
  */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
   const kinds = pluginKindsOf(wiring.manifest);
@@ -88,7 +94,6 @@ export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginT
   for (const kind of kinds) {
     const pattern = kind.terms?.[0];
     if (pattern === undefined) continue;
-    if (!files.some((file) => matchesAny([pattern], file.path))) continue;
     for (const plugin of [...(wiring.manifest.plugins?.values() ?? [])].sort((left, right) => byCodePoint(left.id, right.id))) {
       const lock = wiring.locks.get(plugin.id);
       if (lock === undefined || !fills(plugin, kind)) continue;
