@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input.js';
 import { KLink } from './blocks.js';
 import type { Block, FilesMapColour, FilesMapFile, FilesMapWindow } from './types.js';
-import { bytesText, countText, drawnLanguage, heatOf, measureOf, WINDOWS } from './files-measure.js';
+import { bytesText, countText, drawnLanguage, heatOf, languageSources, languageWords, measureOf, WINDOWS } from './files-measure.js';
 
 type FilesBlock = Extract<Block, { type: 'files' }>;
 
@@ -244,13 +244,13 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
         <TableBody>
           {page.map((row) => {
             const file = row.file;
-            const drawn = drawnLanguage(file);
+            const words = languageWords(file, t('knowledge.files.other'));
             return (
               <TableRow key={file.id} data-testid="files-row" data-path={file.path}>
                 <TableCell className="truncate px-2 font-mono text-[0.85em]" title={file.path}>
                   {file.href === null ? file.path : <KLink href={file.href} testId="files-row-link">{file.path}</KLink>}
                 </TableCell>
-                <TableCell className="whitespace-nowrap px-2 text-muted">{drawn ?? t('knowledge.files.other')}</TableCell>
+                <TableCell className="whitespace-nowrap px-2 text-muted" title={languageSources(file, t('knowledge.files.other')).join('\n')}>{words.length === 0 ? t('knowledge.files.other') : words.join(' · ')}</TableCell>
                 <TableCell className="whitespace-nowrap px-2 text-right text-muted tabular-nums">{file.lines === null ? '—' : countText(file.lines)}</TableCell>
                 <TableCell className="whitespace-nowrap px-2 text-right text-muted tabular-nums">{file.bytes === null ? '—' : bytesText(file.bytes)}</TableCell>
                 <TableCell className="whitespace-nowrap px-2 text-right tabular-nums" data-testid="files-row-heat">{countText(heatOf(file, window))}</TableCell>

@@ -1326,40 +1326,78 @@ export class GraphReader {
 
   /**
    * The rhythm of every file of a repository, in one statement: the commits that touched each file in three windows,
-   * the newest of them and the distinct authors. It is a bounded read on purpose (madarch-j9ao.1): the whole history
-   * evidence of a repository holds every commit and every edge, and a page that drew a map of files may not carry it.
-   * A merge repeats what its parents did and is not counted as a change of its own, as git's own path history does.
+   * the newest of them and the distinct authors. It reads the graph's opinions as they stand: every open opinion of a
+   * commit's date and of a signature's name is a value (a window counts a commit when any open date falls in it, and
+   * the newest change is the newest of them all), never the value of one producer picked over another. It is a bounded
+   * read on purpose (madarch-j9ao.1): the whole history evidence of a repository holds every commit and every edge, and
+   * a page that drew a map of files may not carry it. A merge repeats what its parents did and is not a change of its
+   * own, as git's own path history has it.
    */
   async fileRhythm(repository: string, windows: { readonly d30: string; readonly d90: string; readonly d365: string }): Promise<Map<string, FileRhythm>> {
     const answer = new Map<string, FileRhythm>();
     if (this.declared !== undefined && this.declared.size === 0) return answer;
     return await this.run(async (tx) => {
-      const found = await tx.query<{ path: string; d30: string; d90: string; d365: string; all_count: string; last: Date | string | null; authors: string[] | null }>(
-        `WITH tree AS (
-           SELECT f.node_id AS file_node, p.text AS path FROM ${GIT_TABLES.file} f
-           JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-           JOIN ${GIT_TABLES.path} p ON p.id = f.path_id
-           WHERE r.name = $1 AND EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.contains}' WHERE e.to_node = f.node_id)
-         ), marks AS (
-           SELECT e.to_node AS file_node, c.commit_date AS at, coalesce(sig.name, sig.email) AS author
-           FROM edge e JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.touched}'
-           JOIN ${GIT_TABLES.commit} c ON c.node_id = e.from_node
-           LEFT JOIN edge ae ON ae.to_node = c.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
-           LEFT JOIN ${GIT_TABLES.signature} sig ON sig.node_id = ae.from_node
-           WHERE c.commit_date IS NOT NULL
-             AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+      // The read is a set of aggregates joined once; the planner's default estimate for a CTE scan is a handful of rows
+      // and it nested-loops the whole map of marks over every file (measured: 156 ms against 7 ms on 1 800 files). The
+      // joins are hashes for this one statement, and the setting is put back as it was before the next read.
+      await tx.query('SET LOCAL enable_nestloop = off');
+      let found;
+      try {
+        found = await tx.query<{ path: string; d30: string; d90: string; d365: string; all_count: string; last: Date | string | null; authors: string[] | null }>(
+          `WITH tree AS MATERIALIZED (
+           SELECT f.id AS file_node, (f.key->>'path') AS path
+           FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}'
+           WHERE (f.key->'repository'->'key'->>'name') = $1 AND f.context_id = 1 AND NOT f.removed
+             AND EXISTS (SELECT 1 FROM edge c JOIN entity ce ON ce.id = c.entity_id AND ce.name = '${GIT_KINDS.contains}'
+                         WHERE c.to_node = f.id AND c.context_id = 1)
+         ), dates AS MATERIALIZED (
+           -- Every date the open opinions of a commit state, once per commit (the graph's opinions, no producer picked).
+           SELECT o.node_id AS commit_node, array_agg(DISTINCT o.commit_date) AS dates
+           FROM ${GIT_TABLES.commit} o
+           WHERE o.state = 'open' AND o.context_id = 1 AND o.commit_date IS NOT NULL
+           GROUP BY o.node_id
+         ), authors AS MATERIALIZED (
+           SELECT ae.to_node AS commit_node, array_agg(DISTINCT coalesce(sa.key->>'name', sa.key->>'email')) AS authors
+           FROM edge ae JOIN entity aee ON aee.id = ae.entity_id AND aee.name = '${GIT_KINDS.authored}'
+           JOIN node sa ON sa.id = ae.from_node AND sa.context_id = 1 AND NOT sa.removed
+           WHERE ae.context_id = 1 AND (sa.key ? 'name' OR sa.key ? 'email')
+           GROUP BY ae.to_node
+         ), parents AS MATERIALIZED (
+           SELECT p.from_node AS commit_node, count(*) AS held
+           FROM edge p JOIN entity pe ON pe.id = p.entity_id AND pe.name = '${GIT_KINDS.parent}'
+           WHERE p.context_id = 1
+           GROUP BY p.from_node
+         ), marks AS MATERIALIZED (
+           -- A commit's newest open date is the newest of every value the opinions state: no value is dropped and none
+           -- is preferred, and a window holds the commit when that newest date is in it.
+           SELECT e.to_node AS file_node, e.from_node AS commit_node, a.authors,
+                  (SELECT max(x) FROM unnest(d.dates) x) AS at
+           FROM edge e JOIN entity ee ON ee.id = e.entity_id AND ee.name = '${GIT_KINDS.touched}'
+           JOIN dates d ON d.commit_node = e.from_node
+           LEFT JOIN authors a ON a.commit_node = e.from_node
+           LEFT JOIN parents p ON p.commit_node = e.from_node
+           WHERE e.context_id = 1 AND coalesce(p.held, 0) <= 1
+         ), file_marks AS MATERIALIZED (
+           SELECT m.file_node,
+                  count(m.commit_node) FILTER (WHERE m.at >= $2::timestamptz) AS d30,
+                  count(m.commit_node) FILTER (WHERE m.at >= $3::timestamptz) AS d90,
+                  count(m.commit_node) FILTER (WHERE m.at >= $4::timestamptz) AS d365,
+                  count(m.commit_node) AS all_count,
+                  max(m.at) AS last
+           FROM marks m GROUP BY m.file_node
+         ), file_authors AS MATERIALIZED (
+           SELECT m.file_node, array_agg(DISTINCT a) AS authors FROM marks m, unnest(m.authors) a GROUP BY m.file_node
          )
-         SELECT t.path,
-                count(m.at) FILTER (WHERE m.at >= $2::timestamptz)::text AS d30,
-                count(m.at) FILTER (WHERE m.at >= $3::timestamptz)::text AS d90,
-                count(m.at) FILTER (WHERE m.at >= $4::timestamptz)::text AS d365,
-                count(m.at)::text AS all_count,
-                max(m.at) AS last,
-                coalesce(array_agg(DISTINCT m.author) FILTER (WHERE m.author IS NOT NULL), '{}') AS authors
-         FROM tree t LEFT JOIN marks m ON m.file_node = t.file_node
-         GROUP BY t.path`,
-        [repository, windows.d30, windows.d90, windows.d365],
-      );
+         SELECT t.path, coalesce(fm.d30, 0)::text AS d30, coalesce(fm.d90, 0)::text AS d90,
+                coalesce(fm.d365, 0)::text AS d365, coalesce(fm.all_count, 0)::text AS all_count,
+                fm.last, coalesce(fa.authors, '{}') AS authors
+         FROM tree t LEFT JOIN file_marks fm ON fm.file_node = t.file_node
+         LEFT JOIN file_authors fa ON fa.file_node = t.file_node`,
+          [repository, windows.d30, windows.d90, windows.d365],
+        );
+      } finally {
+        await tx.query('RESET enable_nestloop');
+      }
       for (const row of found.rows) {
         const last = row.last === null ? null : row.last instanceof Date ? row.last.toISOString() : new Date(row.last).toISOString();
         answer.set(row.path, {

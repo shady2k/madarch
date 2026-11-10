@@ -87,9 +87,25 @@ export const LANGUAGE_COLOURS: readonly string[] = [
   '#8d7fb0', '#b0745f', '#6f8f6a', '#9a8fa8', '#5f8fa8', '#a3895f',
 ];
 
-/** The language a file is drawn by: the one its claims accept, or none when they name several candidates. */
+/** The language a file is drawn by: the one its open opinions name, or none when they name several or none. */
 export function drawnLanguage(file: FilesMapFile): string | null {
   return file.language;
+}
+
+/**
+ * The language values a file's open opinions name, as a reader reads them: `unknown` is the same thing as no
+ * language, so it is the reader's word for the other, and the values are distinct and in code-point order. A value is
+ * never dropped: a file two opinions disagree about lists both.
+ */
+export function languageWords(file: FilesMapFile, other: string): string[] {
+  const words = new Set<string>();
+  for (const opinion of file.languages) words.add(opinion.language === 'unknown' ? other : opinion.language);
+  return [...words].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
+/** Every language value with the opinion that stated it, one per line: `TypeScript — linguist@9.5.0`. */
+export function languageSources(file: FilesMapFile, other: string): string[] {
+  return file.languages.map((opinion) => `${opinion.language === 'unknown' ? other : opinion.language} — ${opinion.saidBy}`);
 }
 
 /** A count of bytes as a reader reads it. */

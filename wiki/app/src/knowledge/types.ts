@@ -75,6 +75,8 @@ export type FilesMapFile = {
   lines: number | null;
   bytes: number | null;
   language: string | null;
+ /** Every open opinion's language and the producer that stated it. */
+  languages: { language: string; saidBy: string }[];
   /** Commits touching the file: 30 days, 90 days, a year, all. */
   heat: [number, number, number, number];
   last: string | null;
