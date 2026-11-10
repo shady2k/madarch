@@ -9,7 +9,7 @@
  * publishes nothing (decision 0035, item 4).
  */
 import { join } from 'node:path';
-import { PluginHost, type HostLimits, type UnitOutcome } from './host.js';
+import { PluginHost, type GraphAnswerer, type HostLimits, type UnitOutcome } from './host.js';
 import type { PluginContractDeclaration, PluginUnitRequest } from './protocol.js';
 import { byCodePoint } from '../model/order.js';
 
@@ -37,7 +37,19 @@ export interface ConformanceOptions {
   readonly cgroupParent?: string;
   readonly platform?: string;
   readonly releaseHashes?: readonly string[];
+  /**
+   * The graph a graph-reading plugin asks (decision 0035, item 15). The kit's own holds nothing: a plugin that reads
+   * the graph is held to the protocol and its contract, and it answers an empty graph — it publishes nothing either
+   * way. A caller that validates against real vertices passes its own.
+   */
+  readonly graph?: GraphAnswerer;
 }
+
+/** The kit's graph: no file vertex, and no value of one. */
+const EMPTY_GRAPH: GraphAnswerer = {
+  files: async () => [],
+  value: async (kind, _key, field) => { throw new Error(`the conformance kit's graph holds no ${JSON.stringify(kind)} to read ${JSON.stringify(field)} from: it validates the protocol, not the facts`); },
+};
 
 /**
  * The unit a kit probes a plugin with when its caller names none: the first
@@ -79,6 +91,7 @@ export async function checkConformance(options: ConformanceOptions): Promise<Con
     ...(options.cgroupParent === undefined ? {} : { cgroupParent: options.cgroupParent }),
     ...(options.platform === undefined ? {} : { platform: options.platform }),
     ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }),
+    graph: options.graph ?? EMPTY_GRAPH,
   });
   let session;
   try {

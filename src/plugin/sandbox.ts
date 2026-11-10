@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { bwrapForUse } from './bwrap-install.js';
 import { pluginInvocation } from './invocation.js';
+import { runtimeSandbox, type RuntimeSandbox } from './elf-runtime.js';
 import { PluginCgroup, cgroupParent, checkCgroupDelegation, checkUserNamespaces, type CgroupCounters, type CgroupLimits, type SetupProblem } from './cgroup.js';
 import { refusedCallNames, seccompFilter } from './seccomp.js';
 import { log } from '../obs/log.js';
@@ -123,12 +124,20 @@ function bindable(folder: string): boolean {
   return existsSync(folder);
 }
 
-/** The argument list of the sandbox's supervisor: everything the plugin may see, and nothing else. */
-export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: string; readonly seccompFile: string; readonly syncFd: number; readonly seccompFd: number; readonly rootUid: number | undefined }): string[] {
+/**
+ * The argument list of the sandbox's supervisor: everything the plugin may see, and nothing else.
+ *
+ * The runtime is bound at `/runtime/bun`, and the loader it names runs it from the paths the ELF states: the folders
+ * `runtimeSandbox` resolved (the interpreter's, its real file's, every library's and the search paths the file states)
+ * are bound read-only at their own paths, and a nix-ld shim's `NIX_LD`/`NIX_LD_LIBRARY_PATH` are carried in. Nothing
+ * else of the host's environment reaches the plugin.
+ */
+export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: string; readonly seccompFile: string; readonly syncFd: number; readonly seccompFd: number; readonly rootUid: number | undefined; readonly runtime?: RuntimeSandbox }): string[] {
+  const runtime = options.runtime ?? runtimeSandbox(spec.runtime, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
   const args: string[] = ['--unshare-all', '--clearenv', '--die-with-parent', '--new-session'];
   if (options.rootUid === 0) args.push('--uid', String(SANDBOX_UID), '--gid', String(SANDBOX_UID));
   args.push('--ro-bind', spec.runtime, '/runtime/bun');
-  for (const library of ['/lib', '/lib64', '/usr/lib']) if (bindable(library)) args.push('--ro-bind', library, library);
+  for (const folder of runtime.mounts) if (bindable(folder)) args.push('--ro-bind', folder, folder);
   args.push('--ro-bind', spec.closureFolder, '/plugin');
   if (spec.repository !== undefined) args.push('--ro-bind', spec.repository, '/repo');
   args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp');
@@ -136,6 +145,9 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   args.push('--chdir', '/plugin');
   args.push('--setenv', 'PATH', '/runtime', '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--setenv', 'LANG', 'C.UTF-8');
   for (const [name, value] of Object.entries(spec.environment ?? {}).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) args.push('--setenv', name, value);
+  // The two variables a nix-ld shim reads, from the host's own environment: the shim needs them to find a loader and
+  // its libraries inside the sandbox, and the environment is otherwise cleared.
+  for (const [name, value] of Object.entries(runtime.environment).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) args.push('--setenv', name, value);
   args.push('--seccomp', String(options.seccompFd));
   args.push('--sync-fd', String(options.syncFd));
   // A compiled madarch binary runs the plugin itself (`--plugin-entry`), a `bun` runtime runs the entry as its script:
@@ -166,6 +178,11 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
   const problem = await sandboxSetupProblem({ platform, cgroupParent: spec.cgroupParent, ...(spec.env === undefined ? {} : { env: spec.env }) });
   if (problem !== undefined) throw new Error(problem.message);
   const bwrap = await bwrapForUse(spec.env === undefined ? {} : { env: spec.env });
+  // What the runtime's own ELF states it needs is read before anything starts: a loader the sandbox cannot bind is a
+  // refusal naming it, never a plugin that exits with `execvp: No such file or directory`.
+  const runtime = runtimeSandbox(spec.runtime, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
+  if (runtime.refusal !== undefined) throw new Error(`${WHERE}:1: ${runtime.refusal}`);
+  for (const problem of runtime.problems) log.warn(`the sandbox could not resolve a runtime dependency: ${problem}`, { runtime: spec.runtime });
   mkdirSync(spec.workFolder, { recursive: true });
   const seccompFile = join(spec.workFolder, 'seccomp.bpf');
   writeFileSync(seccompFile, seccompFilter(platform));
@@ -180,7 +197,7 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
     // namespace's init and for the sync wait — and a fork inherits the cgroup of its parent, so moving only the spawned
     // process afterwards would leave the plugin's actual work outside the bounds. The shell writes its own pid, which
     // is the process bubblewrap becomes, and then execs: every descendant stands in the cgroup from its first byte.
-    child = spawn('/bin/sh', ['-c', 'echo $$ > "$1" || exit 97; shift; exec "$@"', 'sh', join(group.folder, 'cgroup.procs'), bwrap.binary, ...bwrapArguments(spec, { bwrap: bwrap.binary, seccompFile, syncFd: 3, seccompFd: 4, rootUid: typeof process.getuid === 'function' ? process.getuid() : undefined })], {
+    child = spawn('/bin/sh', ['-c', 'echo $$ > "$1" || exit 97; shift; exec "$@"', 'sh', join(group.folder, 'cgroup.procs'), bwrap.binary, ...bwrapArguments(spec, { bwrap: bwrap.binary, seccompFile, syncFd: 3, seccompFd: 4, rootUid: typeof process.getuid === 'function' ? process.getuid() : undefined, runtime })], {
       stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
     });
