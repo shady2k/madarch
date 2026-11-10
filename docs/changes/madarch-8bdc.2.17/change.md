@@ -85,9 +85,7 @@ that read per row; the new page reads it once per block.
   (its rows now name the author signature the commit's authored edge names).
 - CI wiki walk: `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json` passes.
 
-## Review round
-
-The history memo held 9 948 542 bytes of JSON for the two repositories of the madarch store
+The review round measured the history memo at 9 948 542 bytes of JSON for the two repositories of the madarch store
 (6 229 entities and 35 164 edges); the api role's RSS after opening every page kind cold was
 268 752 KiB and after ten minutes of polling every kind 256 308 KiB. The memo is gone; file and
 author pages read their own bounded evidence, and a repository/commit page reads none.
