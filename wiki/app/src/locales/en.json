@@ -37,6 +37,18 @@
     "language": "Choose language"
   },
   "knowledge": {
+    "dependencies": {
+      "title": "Dependency graph",
+      "intro": "The entities of the catalogue, one column per depth in the dependency order their declarations give: an entity stands after the entities it needs. The state is what the last fill left: filled, partial, or never filled.",
+      "count": "{{kinds}} entities in {{layers}} columns.",
+      "catalogue": "Choose entities in the catalogue",
+      "cycle": "The declarations form a cycle, drawn as it stands and refused by the manifest check: {{cycle}}",
+      "running": "A fill is running.",
+      "progress": "A fill is running: {{published}} of {{planned}} units published.",
+      "openFill": "Follow the fill",
+      "failed": "The last fill failed.",
+      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})"
+    },
     "repository": {
       "name": "Name",
       "language": "Language",
@@ -188,7 +200,10 @@
     "catalogueState": {
       "filled": "Filled",
       "partial": "Partial",
-      "never": "Never filled"
+      "never": "Never filled",
+      "waiting": "Waiting",
+      "running": "Running",
+      "failed": "Failed"
     },
     "catalogueByPlugin": "Its plugin: {{plugins}}",
     "catalogueCheckAll": "Check all",

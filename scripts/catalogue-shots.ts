@@ -150,10 +150,15 @@ try {
     for (const width of WIDTHS) {
       const page = await browser.newPage();
       await page.setViewport({ width, height: width >= 1000 ? 900 : 844, deviceScaleFactor: 1 });
-      await page.goto(`${server.url}/products/${draft.name}/catalogue`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
-      await page.waitForSelector('[data-testid="catalogue-panel"]', { timeout: 120_000 });
-      await page.waitForSelector('[data-testid="catalogue-check-section-requirements"]', { timeout: 120_000 });
-      await new Promise((rest) => setTimeout(rest, 400));
+      // The shots are of the Russian surfaces (the task asks for them in Russian): the app's own language key is set
+      // before any script of the app runs, exactly as the language menu writes it.
+      await page.evaluateOnNewDocument(() => { try { localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* a private context still renders */ } });
+      const open = async (path: string, waits: string[]): Promise<void> => {
+        await page.goto(`${server.url}/products/${draft.name}${path}`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+        for (const selector of waits) await page.waitForSelector(selector, { timeout: 120_000 });
+        await new Promise((rest) => setTimeout(rest, 300));
+      };
+      await open('/catalogue', ['[data-testid="catalogue-panel"]', '[data-testid="catalogue-check-section-requirements"]']);
       // Nothing covers the page: the first-open card is gone, and what stands at the top of the viewport and at its bottom
       // is the catalogue itself and its panel.
       const covered = await page.evaluate(() => {
@@ -166,6 +171,10 @@ try {
           const rect = row.getBoundingClientRect();
           return rect.bottom > 0 && rect.top < window.innerHeight && rect.height > 0;
         }).length;
+        const seen = [...document.querySelectorAll('[data-testid="catalogue-page"] [data-kind]')].filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > 0 && rect.top < window.innerHeight && rect.height > 0;
+        });
         return {
           roleCard: card !== null,
           top: top === null ? 'none' : (top.closest('[data-testid]')?.getAttribute('data-testid') ?? top.tagName),
@@ -173,7 +182,12 @@ try {
           heading: heading === undefined || heading === null ? null : { top: Math.round(heading.top), height: Math.round(heading.height) },
           headingVisible: heading !== undefined && heading !== null && heading.top >= 0 && heading.bottom <= window.innerHeight && heading.height > 0,
           visibleRows,
+          visibleNames: seen.slice(0, 6).map((row) => row.querySelector('[data-testid="catalogue-kind-name"], a')?.textContent?.trim() ?? ''),
           bottomIsPanel: inside(bottom, 'catalogue-panel'),
+          panelText: (document.querySelector('[data-testid="catalogue-panel"]')?.innerText ?? '').replace(/\s+/gu, ' ').trim().slice(0, 240),
+          russian: /[А-Яа-я]/u.test(document.querySelector('[data-testid="catalogue-page"] h1')?.textContent ?? ''),
+          oldWords: /этапа пока нет|пишет человек|заполняет писатель|no stage yet|written by a person|filled by the writer/iu.test(document.body.innerText ?? ''),
+          stages: [...document.querySelectorAll('[data-testid="catalogue-stage"]')].slice(0, 6).map((cell) => (cell.textContent ?? '').replace(/\s+/gu, ' ').trim()),
           text: (document.body.innerText ?? '').length,
         };
       });
@@ -211,11 +225,14 @@ try {
             document: document.documentElement.scrollWidth,
             panel: rect === undefined || rect === null ? null : { left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), top: Math.round(rect.top), bottom: Math.round(rect.bottom) },
             sections: document.querySelectorAll('[data-testid="fill-side-section"]').length,
+            names: [...document.querySelectorAll('[data-testid="fill-side-section"]')].slice(0, 6).map((section) => section.querySelector('span')?.textContent?.replace(/\s+/gu, ' ').trim() ?? ''),
+            panelText: (document.querySelector('[data-testid="fill-side-panel"]')?.innerText ?? '').replace(/\s+/gu, ' ').trim().slice(0, 400),
+            russian: /[А-Яа-я]/u.test(document.querySelector('[data-testid="fill-side-panel"]')?.textContent ?? ''),
           };
         });
         const panelInk = inkOf(panelShot);
         console.log(`fill panel at ${String(width)} px: ${JSON.stringify({ ...panelSize, pixels: panelInk })} → ${panelFile}`);
-        if (panelSize.document > panelSize.viewport || panelSize.sections < 2 || panelInk.distinct < 20) {
+        if (panelSize.document > panelSize.viewport || !panelSize.russian || panelSize.sections < 2 || panelInk.distinct < 20) {
           console.error(`the fill panel's shot at ${String(width)} px is not the panel it should be: ${JSON.stringify({ ...panelSize, pixels: panelInk })}`);
           process.exitCode = 1;
         }
@@ -226,11 +243,59 @@ try {
       writeFileSync(file, shot);
       const ink = inkOf(shot);
       console.log(`catalogue at ${String(width)} px: ${JSON.stringify({ ...sizes, ...covered, pixels: ink })} → ${file}`);
-      if (covered.roleCard || !covered.headingVisible || covered.visibleRows < 1 || !covered.bottomIsPanel || ink.distinct < 20 || ink.inkFraction < 0.01) {
+      if (covered.roleCard || !covered.headingVisible || !covered.russian || covered.oldWords || covered.stages.length < 1 || covered.visibleRows < 1 || !covered.bottomIsPanel || ink.distinct < 20 || ink.inkFraction < 0.01) {
         console.error(`the shot at ${String(width)} px is not the catalogue page it should be: ${JSON.stringify(covered)} ${JSON.stringify(ink)}`);
         process.exitCode = 1;
       }
       if (sizes.document > sizes.viewport) console.log(`horizontal scroll at ${String(width)} px: document ${String(sizes.document)} > viewport ${String(sizes.viewport)}`);
+      // The dependency graph is the third surface: the same product's entities in the order their declarations give.
+      page.on('pageerror', (error) => console.error(`the dependency page raised in the browser: ${String(error).slice(0, 400)}`));
+      // A page of its own for the graph: a reload of the app on one page proved flaky on this box (the catalogue's first
+      // read and its panel raced the second load).
+      const graphPage = await browser.newPage();
+      await graphPage.setViewport({ width, height: width >= 1000 ? 900 : 844, deviceScaleFactor: 1 });
+      await graphPage.evaluateOnNewDocument(() => { try { localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* a private context still renders */ } });
+      graphPage.on('pageerror', (error) => console.error(`the dependency page raised in the browser: ${String(error).slice(0, 400)}`));
+      await graphPage.goto(`${server.url}/products/${draft.name}/dependencies`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+      try {
+        await graphPage.waitForSelector('[data-testid="dependency-page"]', { timeout: 120_000 });
+        await graphPage.waitForSelector('[data-testid="dependency-node"]', { timeout: 120_000 });
+      } catch (error) {
+        console.error(`the dependency page drew no entity: ${String((await graphPage.evaluate(() => document.body.innerText)).slice(0, 600))}`);
+        throw error;
+      }
+      await new Promise((rest) => setTimeout(rest, 300));
+      await new Promise((rest) => setTimeout(rest, 300));
+      const graphShot = await graphPage.screenshot({ fullPage: false });
+      const graphFile = join(out, `dependencies-${String(width)}.png`);
+      writeFileSync(graphFile, graphShot);
+      const graphSize = await graphPage.evaluate(() => {
+        const frame = document.querySelector('[data-testid="dependencies-graph"]');
+        const heading = document.querySelector('[data-testid="dependency-page"] h1')?.getBoundingClientRect();
+        const nodes = [...document.querySelectorAll('[data-testid="dependency-node"]')];
+        const states: Record<string, number> = {};
+        for (const node of nodes) states[node.getAttribute('data-state') ?? 'none'] = (states[node.getAttribute('data-state') ?? 'none'] ?? 0) + 1;
+        return {
+          viewport: window.innerWidth,
+          document: document.documentElement.scrollWidth,
+          roleCard: document.querySelector('[data-testid="role-card"]') !== null,
+          headingVisible: heading !== undefined && heading !== null && heading.top >= 0 && heading.bottom <= window.innerHeight && heading.height > 0,
+          nodes: nodes.length,
+          states,
+          visible: nodes.filter((node) => { const rect = node.getBoundingClientRect(); return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth; }).slice(0, 10).map((node) => `${node.getAttribute('data-kind')}:${node.getAttribute('data-state')}`),
+          total: document.querySelector('[data-testid="dependencies-total"]')?.textContent ?? null,
+          russian: /[А-Яа-я]/u.test(document.querySelector('[data-testid="dependency-page"] h1')?.textContent ?? ''),
+          frame: frame === null ? null : { scroll: frame.scrollWidth, client: frame.clientWidth },
+          text: (document.body.innerText ?? '').length,
+        };
+      });
+      const graphInk = inkOf(graphShot);
+      console.log(`dependencies at ${String(width)} px: ${JSON.stringify({ ...graphSize, pixels: graphInk })} → ${graphFile}`);
+      if (graphSize.document > graphSize.viewport || graphSize.roleCard || !graphSize.headingVisible || !graphSize.russian || graphSize.nodes < 3 || Object.keys(graphSize.states).length < 1 || graphInk.distinct < 20 || graphInk.inkFraction < 0.01) {
+        console.error(`the dependency page's shot at ${String(width)} px is not the graph it should be: ${JSON.stringify({ ...graphSize, pixels: graphInk })}`);
+        process.exitCode = 1;
+      }
+      await graphPage.close();
       await page.close();
     }
   } finally {

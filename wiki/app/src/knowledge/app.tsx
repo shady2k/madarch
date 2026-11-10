@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -22,6 +22,7 @@ import { getProducts, startFill } from './api.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { DependencyPage } from './dependency-page.js';
 import { FillSidePanel } from './fill-panel.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
@@ -29,7 +30,7 @@ import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfEntity, addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfEntity, addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -262,6 +263,10 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         <a href={appPath(WIKI_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
+        </a>
+        <a href={appPath(WIKI_DEPENDENCIES)} className={link(route.name === 'dependencies')} aria-current={route.name === 'dependencies' ? 'page' : undefined} data-testid="nav-dependencies" {...pick(WIKI_DEPENDENCIES)}>
+          <Share2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('knowledge.dependencies.title')}</span>
         </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
@@ -647,7 +652,7 @@ function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => vo
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'dependencies' ? t('knowledge.dependencies.title') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -867,6 +872,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
+  else if (route.name === 'dependencies') view = <DependencyPage version={version} status={status} />;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;

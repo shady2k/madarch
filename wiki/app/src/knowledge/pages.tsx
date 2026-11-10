@@ -21,7 +21,7 @@ import { HistoryBar } from './history-bar.js';
 import { AgentChoice, useAgentChoice, WriterLine } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
-import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DOCS, WIKI_PROBLEMS } from './routes.js';
+import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
@@ -784,6 +784,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="catalogue-checks">
           <Button variant="default" size="default" data-testid="catalogue-check-all" onClick={() => setMany(all.map((kind) => kind.kind), false)}>{t('knowledge.catalogueCheckAll')}</Button>
           <Button variant="default" size="default" data-testid="catalogue-uncheck-all" onClick={() => { setChecked(new Set()); setFailure(null); }}>{t('knowledge.catalogueUncheckAll')}</Button>
+          <KLink href={WIKI_DEPENDENCIES} testId="catalogue-dependencies">{t('knowledge.dependencies.title')}</KLink>
         </div>
       </header>
       {sections.map((section) => {

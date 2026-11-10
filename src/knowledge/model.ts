@@ -383,6 +383,12 @@ export interface CatalogKindView {
   plugins?: readonly string[];
   /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
   dependsOn?: readonly string[];
+  /**
+   * The newest generation of the kind's plugin turn, as the store's state machine names it (`planned`, `running`,
+   * `published`, `failed`, ...), absent when the kind's turn never ran (madarch-stm0.6, the dependency graph). The page
+   * reads it beside `state`, which is what the reader calls the outcome.
+   */
+  turn?: string;
   /** How much of the kind stands: filled, partial (a turn of it failed or never finished), or never filled at all. */
   state: 'filled' | 'partial' | 'never';
   /** What one fill of this kind would cost, as the producer declares it and the graph measures it (madarch-stm0.6). */

@@ -1928,7 +1928,7 @@ export class KnowledgeProduct {
       language: context.manifest.language ?? 'en',
       groups: groupViews(context.manifest),
       kinds: await catalogKinds(ctx, {
-        stateOf: (kind) => turns.get(kind),
+        turnOf: (kind) => turns.get(kind),
         // A kind whose table stands is measured by the graph; one with no table has no measured volume (madarch-stm0.6).
         generatedOf: (kind) => generated !== undefined && generated.has(kind),
       }),

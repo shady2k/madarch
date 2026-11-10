@@ -187,6 +187,8 @@ export type CatalogKindView = {
   plugins?: string[];
   /** The kinds this one's declaration says must finish first. */
   dependsOn?: string[];
+  /** The newest generation of the kind's fill turn (`planned`, `running`, `published`, `failed`, ...); absent when it never ran. */
+  turn?: string;
   /** How much of the kind stands: filled, partial (a turn failed or did not finish), or never filled. */
   state: 'filled' | 'partial' | 'never';
   /** What one fill of this kind would cost, as the graph measures it and its producer declares it. */

@@ -85,7 +85,8 @@ function estimateOf(count: number, generated: boolean | undefined, measured: num
  * Every kind the manifest declares, as the catalogue page lists it, in the manifest's order.
  */
 export async function catalogKinds(ctx: RenderContext, turns: {
-  readonly stateOf?: (kind: string) => string | undefined;
+  /** The newest generation of the kind's plugin turn, as the store's machine names it; absent when it never ran. */
+  readonly turnOf?: (kind: string) => string | undefined;
   /** Whether the store holds a table of the kind, so its volume is measured rather than unknown. */
   readonly generatedOf?: (kind: string) => boolean;
 } = {}): Promise<CatalogKindView[]> {
@@ -97,6 +98,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     const plugins = pluginsOf(decl);
     const count = numbers.count(kind, decl?.source);
     const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
+    const turn = turns.turnOf?.(kind);
     return {
       kind, area, subgroup,
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),
@@ -108,7 +110,8 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       filled: producer !== undefined && producer !== 'person',
       ...(plugins.length === 0 ? {} : { plugins }),
       ...(dependsOn.length === 0 ? {} : { dependsOn }),
-      state: stateOf(count, turns.stateOf?.(kind)),
+      ...(turn === undefined ? {} : { turn }),
+      state: stateOf(count, turn),
       estimate: estimateOf(count, turns.generatedOf?.(kind), count),
     };
   };
