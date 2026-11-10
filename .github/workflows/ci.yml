@@ -180,10 +180,11 @@ jobs:
       # its count (or one the file does not name) fails, and a class below it is
       # printed so the baseline can be lowered. The baseline may only go down.
       # The fixture is small, but the walk is the whole training product in en
-      # and ru (about 3 minutes here), so the step is bounded at 15 minutes.
+      # and ru (about 3 minutes here), so the step is bounded at 15 minutes. The
+      # fill runs the product's plugins, so the walk runs in the delegated cgroup.
       - name: Walk every page of the filled training product
         run: |
-          timeout 900 bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json --json "$RUNNER_TEMP/wiki-walk.json"
+          timeout 900 scripts/plugin-sandbox-cgroup.sh bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json --json "$RUNNER_TEMP/wiki-walk.json"
       # The wiki app has its own package and lockfile, so its checks run beside
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
