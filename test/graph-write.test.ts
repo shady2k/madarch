@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { generatedTableName } from '../src/graph/contract.js';
+import { createRecordSchema, publishTree } from '../src/graph/records.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -33,8 +35,9 @@ function product(): string {
   writeFileSync(join(folder, 'plugins', 'glossary', 'contract.json'), JSON.stringify({
     id: 'glossary', version: '1.0.0',
     outputs: { vertices: [{ kind: 'doc.term', key: ['name'], fields: [
-      { name: 'name', claim: 'authoritative', type: 'text', meaning: 'the term', example: 'Fill', required: true },
-      { name: 'definition', claim: 'claimed', type: 'text', meaning: 'what it means', example: 'a run', required: true },
+      { name: 'name', type: 'text', meaning: 'the term', example: 'Fill', required: true },
+      { name: 'definition', type: 'text', meaning: 'what it means', example: 'a run', required: true },
+      { name: 'strict', type: 'text', meaning: 'a word the producer settles', example: 'yes', required: false },
     ] }], edges: [] },
   }));
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: glossary, version: 1.0.0, closure: ${HASH}, path: plugins/glossary }\n`);
@@ -48,6 +51,7 @@ function product(): string {
     '    fields:',
     '      - { name: name, type: text, binding: "glossary@1.name" }',
     '      - { name: definition, type: text, binding: "glossary@1.definition" }',
+    '      - { name: strict, type: text, nullable: true, binding: "glossary@1.strict" }',
     '    key: [name]',
     'plugins:',
     '  - { id: glossary, version: 1, path: plugins/glossary, inputs: [doc.term], outputs: [doc.term], closure: [plugins/glossary/contract.json] }',
@@ -74,7 +78,8 @@ afterAll(async () => { await owner.close(); });
 function term(name: string, definition: string): VertexDraft {
   return {
     kind: 'doc.term', key: { name },
-    claims: [{ field: 'definition', value: definition, evidence: { repository: 'madarch', commit: 'c0ffee', path: 'docs/glossary.md', lineStart: 3, lineEnd: 4 } }],
+    values: { definition },
+    evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 3, line_end: 4 }],
     producer: 'glossary', producerVersion: '1.0.0',
   };
 }
@@ -83,7 +88,7 @@ describe('the manifest makes the table and the writer fills it', () => {
   test('the kind has a column for every field it states and none for its key', async () => {
     expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term']);
     // The key is the vertex's; the fields are the columns of the opinion table, claimed ones included.
-    expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition']);
+    expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'strict']);
     expect(contract.vertex[0]?.key).toEqual(['name']);
   });
 
@@ -97,7 +102,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     const opinions = await owner.transaction('snapshot', async (tx) => await tx.query<{ said_by: string; state: string; definition: string; evidence: readonly Record<string, unknown>[] }>(`SELECT said_by, state, definition, evidence FROM ${table}`));
     expect(opinions.rows).toHaveLength(1);
     expect(opinions.rows[0]).toMatchObject({ said_by: 'glossary@1.0.0', state: 'open', definition: 'one run' });
-    expect(opinions.rows[0]?.evidence).toEqual([{ repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 3, line_end: 4 }]);
+    expect(opinions.rows[0]?.evidence).toEqual([{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 3, line_end: 4 }]);
     // The key is the vertex's, once, and no opinion repeats it.
     const nodes = await owner.transaction('snapshot', async (tx) => await tx.query<{ key: unknown }>('SELECT key FROM node'));
     expect(nodes.rows.map((row) => row.key)).toEqual([{ name: 'Fill' }]);
@@ -133,7 +138,8 @@ describe('the manifest makes the table and the writer fills it', () => {
     const table = contract.vertex[0]!.table;
     const vertex = (producer: string, definition: string): VertexDraft => ({
       kind: 'doc.term', key: { name: 'Run' },
-      claims: [{ field: 'definition', value: definition, evidence: { repository: 'madarch', commit: 'c0ffee', path: 'docs/glossary.md', lineStart: 1, lineEnd: 2 } }],
+      values: { definition },
+      evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 1, line_end: 2 }],
       producer, producerVersion: '1.0.0',
     });
     await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [
@@ -153,6 +159,103 @@ describe('the manifest makes the table and the writer fills it', () => {
     // when the term was removed, and the second producer's stands alone.
     const [fill] = await reader.list('doc.term', { limit: 20 }).then((page) => page.rows.filter((one) => one.label === 'Fill'));
     expect(fill?.properties['definition']).toBe('the one run');
+  });
+
+  test('a producer\'s new version supersedes its old version\'s opinion, and a removal by one producer leaves another\'s', async () => {
+    const table = contract.vertex[0]!.table;
+    const vertex = (producer: string, version: string, definition: string, name = 'Supersede'): VertexDraft => ({
+      kind: 'doc.term', key: { name }, values: { definition },
+      evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 1, line_end: 2 }],
+      producer, producerVersion: version,
+    });
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: vertex('glossary', '1.0.0', 'first') }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: vertex('glossary', '2.0.0', 'second') }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: vertex('other', '1.0.0', 'theirs') }]));
+    const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ said_by: string; definition: string }>(`SELECT said_by, definition FROM ${table} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND (n.key->>'name') = 'Supersede' ORDER BY said_by`));
+    // One producer stands once, whatever its version; a second producer's opinion stands beside it.
+    expect(open.rows).toEqual([{ said_by: 'glossary@2.0.0', definition: 'second' }, { said_by: 'other@1.0.0', definition: 'theirs' }]);
+    // A removal by one producer closes only its own opinions: the vertex stands while another opinion is open.
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex-removal', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Supersede' }, producer: 'glossary' } }]));
+    const removed = await owner.transaction('snapshot', async (tx) => await tx.query<{ removed: boolean; open: string }>(`SELECT n.removed, (SELECT count(*)::text FROM ${table} o WHERE o.node_id = n.id AND o.state = 'open') AS open FROM node n WHERE (n.key->>'name') = 'Supersede'`));
+    expect(removed.rows[0]).toEqual({ removed: false, open: '1' });
+    expect((await producerEntities(owner, contract, 'doc.term', 'glossary')).map((one) => one.key['name'])).not.toContain('Supersede');
+  });
+
+  test('a publication states the producer\'s whole opinion: a field it leaves out is no opinion of that field', async () => {
+    const table = contract.vertex[0]!.table;
+    const vertex = (values: Record<string, unknown>): VertexDraft => ({ kind: 'doc.term', key: { name: 'Omitted' }, values, producer: 'glossary', producerVersion: '1.0.0' });
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: vertex({ definition: 'a', strict: 'yes' }) }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: vertex({ definition: 'b' }) }]));
+    const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ definition: string; strict: string | null; state: string }>(`SELECT definition, strict, state FROM ${table} o JOIN node n ON n.id = o.node_id WHERE (n.key->>'name') = 'Omitted' ORDER BY o.id`));
+    expect(open.rows).toEqual([{ definition: 'a', strict: 'yes', state: 'closed' }, { definition: 'b', strict: null, state: 'open' }]);
+  });
+
+  test('declarations resolve before references: a file naming a repository no vertex holds still publishes, and the reference is recorded', async () => {
+    // A file whose key names a repository the contract declares and no vertex holds: it is declared, its opinion stands,
+    // and the reference is recorded for the consistency check — never a publication failure, never an invented vertex.
+    const file = (name: string): VertexDraft => ({ kind: 'doc.term', key: { name }, values: { definition: 'a term' }, producer: 'glossary', producerVersion: '1.0.0' });
+    const graph: GraphContract = {
+      vertex: [
+        ...contract.vertex,
+        { name: 'doc.page', table: generatedTableName('doc.page', 'vertex'), fields: [{ name: 'repo', type: 'text', reference: 'doc.term' }, { name: 'path', type: 'text' }, { name: 'title', type: 'text' }], key: ['repo', 'path'], capability: 'glossary' },
+      ],
+      edge: [], dictionary: [],
+    };
+    await createOneGraphSchema(owner, graph);
+    const page: VertexDraft = { kind: 'doc.page', key: { repo: { kind: 'doc.term', key: { name: 'Nowhere' } }, path: 'a.md' }, values: { title: 'A page' }, producer: 'glossary', producerVersion: '1.0.0' };
+    const written = await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: page }]));
+    expect(written).toBeGreaterThan(0);
+    const held = await owner.transaction('snapshot', async (tx) => await tx.query<{ field: string; target_entity: string; target_key: unknown }>('SELECT field, target_entity, target_key FROM unresolved_reference'));
+    expect(held.rows).toEqual([{ field: 'repo', target_entity: 'doc.term', target_key: { name: 'Nowhere' } }]);
+    // The reference stands once the term is declared: the next publication of the page clears its record.
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: file('Nowhere') }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: page }]));
+    const cleared = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM unresolved_reference'));
+    expect(cleared.rows[0]?.n).toBe('0');
+  });
+
+  test('a store whose graph predates this shape resets as one and needs a fill; the journal is kept', async () => {
+    const old = await createTestDatabaseOwner();
+    try {
+      // The pre-change shape, as this repository held it: `kind`, `node(kind_id)`, `edge(kind_id)`, `claim`, `evidence`.
+      for (const statement of [
+        `CREATE TABLE kind (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL UNIQUE, sort text NOT NULL, repeats boolean NOT NULL DEFAULT false, discriminator text)`,
+        `CREATE TABLE node (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind_id bigint NOT NULL REFERENCES kind (id), uid uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE)`,
+        `CREATE TABLE edge (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind_id bigint NOT NULL REFERENCES kind (id), from_node bigint NOT NULL REFERENCES node (id), to_node bigint NOT NULL REFERENCES node (id), discriminator text NOT NULL DEFAULT '', context_id bigint NOT NULL DEFAULT 1)`,
+        `CREATE TABLE claim (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, node_id bigint NOT NULL REFERENCES node (id), attribute text NOT NULL, value jsonb NOT NULL)`,
+        `CREATE TABLE evidence (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, claim_id bigint REFERENCES claim (id))`,
+        `CREATE TABLE operation (id uuid PRIMARY KEY, author bigint REFERENCES node (id), change jsonb NOT NULL, at timestamptz NOT NULL DEFAULT now(), machine text NOT NULL DEFAULT '', session text NOT NULL DEFAULT '', words text NOT NULL DEFAULT '')`,
+        `INSERT INTO kind (name, sort) VALUES ('file', 'node')`,
+        `INSERT INTO node (kind_id) SELECT id FROM kind WHERE name = 'file'`,
+        `INSERT INTO node (kind_id) SELECT id FROM kind WHERE name = 'file'`,
+        `INSERT INTO operation (id, author, change) SELECT gen_random_uuid(), id, '{}'::jsonb FROM node LIMIT 1`,
+      ]) await old.run(async (tx) => await tx.query(statement));
+      const made = await createOneGraphSchema(old);
+      expect(made.reset).toBe(true);
+      const tables = await old.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname IN ('claim', 'evidence', 'kind')`));
+      expect(tables.rows).toEqual([]);
+      const nodes = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM node'));
+      expect(nodes.rows[0]?.n).toBe('0');
+      const journal = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string; author: string | null }>('SELECT count(*)::text AS n, min(author::text) AS author FROM operation'));
+      expect(journal.rows[0]).toEqual({ n: '1', author: null });
+      // The empty graph takes a fill: a publication writes its rows again.
+      await createRecordSchema(old);
+      const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [], gaps: [] });
+      expect(counts.inserted).toBeGreaterThan(0);
+    } finally {
+      await old.close();
+    }
+  }, 120_000);
+
+  test('two concurrent declarations of one vertex both find it', async () => {
+    const draft: VertexDraft = { kind: 'doc.term', key: { name: 'Concurrent' }, values: { definition: 'one' }, producer: 'glossary', producerVersion: '1.0.0' };
+    const [left, right] = await Promise.all([
+      owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: draft }])),
+      owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: draft }])),
+    ]);
+    expect(left + right).toBeGreaterThan(0);
+    const nodes = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM node WHERE key @> '{"name":"Concurrent"}'::jsonb`));
+    expect(nodes.rows[0]?.n).toBe('1');
   });
 
   test('a kind the contract does not declare is refused by the writer, naming it', async () => {

@@ -179,14 +179,23 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       for (const vertex of outcome.result.vertices) {
         if (vertex.kind !== unit.kind.name) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}`);
         answered.add(canonicalKey(vertex.key));
-        // Each opinion stands on the evidence of its own entity's claims, never on another entity's.
-        const where = draftEvidence(vertex.claims?.[0]?.evidence);
         draft.write({ kind: 'vertex', evidence: unit.kind.name, value: {
           kind: vertex.kind,
           key: vertex.key,
-          ...(vertex.attributes === undefined ? {} : { attributes: vertex.attributes }),
-          claims: (vertex.claims ?? []).map((claim) => ({ field: claim.field, value: claim.value, evidence: draftEvidence(claim.evidence) ?? where ?? {} })),
-          ...(where === undefined ? {} : { evidence: where }),
+          ...(vertex.values === undefined ? {} : { values: vertex.values }),
+          ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
+          producer: unit.plugin.id,
+          producerVersion: unit.lock.version,
+        } });
+      }
+      for (const edge of outcome.result.edges ?? []) {
+        draft.write({ kind: 'edge', evidence: unit.kind.name, value: {
+          kind: edge.kind,
+          from: edge.from,
+          to: edge.to,
+          ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
+          ...(edge.values === undefined ? {} : { values: edge.values }),
+          ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
           producer: unit.plugin.id,
           producerVersion: unit.lock.version,
         } });

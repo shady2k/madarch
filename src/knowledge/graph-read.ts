@@ -33,6 +33,12 @@ export interface GraphEvidence {
   lineStart: number | null;
   lineEnd: number | null;
   commit: string | null;
+  /** What the evidence names: a file place, a conversation or another opinion (the amendment's point 7). */
+  type?: 'file' | 'conversation' | 'opinion';
+  /** A conversation's or an opinion's id. */
+  id?: string;
+  speaker?: string | null;
+  at?: string | null;
   /** The opinion that stated the value: the producer and its version, the agent, or a person's node. */
   saidBy?: string;
 }
@@ -45,8 +51,20 @@ export interface GraphEntity {
   nodeIds: string[];
   scope: string;
   span?: SourceSpan;
-  /** Where the entity's claims were read, one per claim's evidence: a term's page links to its definitions. */
+  /** Where the entity's values were read, one per opinion's evidence: a term's page links to its definitions. */
   evidence?: readonly GraphEvidence[];
+  /** Every field value with the opinion that stated it: value-to-source, never one picked silently (A4). */
+  opinions?: readonly GraphEntityOpinion[];
+}
+
+/** One field value and the opinion that stated it: its stable id, its producer and version, its language, its evidence. */
+export interface GraphEntityOpinion {
+  readonly field: string;
+  readonly value: unknown;
+  readonly opinionId: string;
+  readonly producer: string;
+  readonly lang: string | null;
+  readonly evidence: readonly GraphEvidence[];
 }
 
 /**
@@ -173,38 +191,44 @@ const REPOSITORY_KEY = (alias: string): string => `(${alias}.key->'repository'->
 /** The path a file, folder or gitlink names in its key. */
 const PATH_KEY = (alias: string): string => `(${alias}.key->>'path')`;
 
-/** The tree's open opinion of one file, folder or gitlink node, under an alias. */
-const TREE_OPINION = (alias: string, table: string, node: string, columns: readonly string[]): string =>
-  `LEFT JOIN LATERAL (SELECT ${columns.map((one) => `o."${one}"`).join(', ')} FROM ${table} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-tree' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
-const LINGUIST_OPINION = `LEFT JOIN LATERAL (SELECT o."lang", o."languages" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'linguist' ORDER BY o."id" DESC LIMIT 1) l ON true`;
-const COMMIT_OPINION = `LEFT JOIN LATERAL (SELECT o."subject", o."author_date", o."author_offset_min", o."commit_date", o."commit_offset_min" FROM ${GIT_TABLES.commit} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' ORDER BY o."id" DESC LIMIT 1) c ON true`;
-const REPOSITORY_OPINION = `LEFT JOIN LATERAL (SELECT o."url", o."default_branch" FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-tree' ORDER BY o."id" DESC LIMIT 1) r ON true`;
+/** One open opinion of a node's table as a jsonb array: its id, its producer and version, its language, its evidence. */
+const OPINIONS_OF = (table: string, node: string, columns: readonly string[]): string =>
+  `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence"${columns.map((column) => `, '${column}', o."${column}"`).join('')}) ORDER BY o."id")
+     FROM ${table} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND o."context_id" = 1)`;
 
 const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
   CASE WHEN k.name = '${GIT_KINDS.repository}' THEN (n.key->>'name') ELSE ${REPOSITORY_KEY('n')} END AS repository_name,
-  r.url AS repository_url, r.default_branch, ${REPOSITORY_KEY('n')} AS scope_repository_name,
-  ${PATH_KEY('n')} AS path, fg.mode, b.hash AS blob, b.bytes::text AS bytes, b.form, b.lines::text AS lines,
-  (n.key->>'hash') AS commit_hash, c.subject,
-  to_char(c.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_clock, c.author_offset_min,
-  to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_clock, c.commit_offset_min,
-  (SELECT count(*)::int FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id) AS parent_count,
-  (n.key->>'name') AS signature_name, (n.key->>'email') AS email,
-  (SELECT sa.key->>'name' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_name,
-  (SELECT sa.key->>'email' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_email,
-  l.lang AS language, l.languages,
+  ${REPOSITORY_KEY('n')} AS scope_repository_name,
+  ${PATH_KEY('n')} AS path,
+  (n.key->>'hash') AS commit_hash, (n.key->>'name') AS signature_name, (n.key->>'email') AS email,
+  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
+      'mode', o."mode", 'blob_id', o."blob_id", 'languages', o."languages",
+      'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
+    FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
+    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'])} END AS commit_opinions,
+  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'])} END AS repository_opinions,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id) ELSE 0 END AS parent_count,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'name' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) END AS commit_author_name,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'email' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) END AS commit_author_email,
   (CASE WHEN k.name = '${GIT_KINDS.repository}' THEN n.id
-    WHEN k.name IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}', '${GIT_KINDS.gitlink}') THEN (SELECT rn.id FROM node rn JOIN entity re ON re.id = rn.entity_id AND re.name = '${GIT_KINDS.repository}' WHERE rn.key->>'name' = ${REPOSITORY_KEY('n')} LIMIT 1)
+    WHEN k.name IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}', '${GIT_KINDS.gitlink}') THEN scoper.id
     ELSE coalesce(
       (SELECT min(he.from_node) FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}' WHERE he.to_node = n.id),
       (SELECT min(h2.from_node) FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
          JOIN edge h2 ON h2.to_node = ae.to_node AND h2.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') WHERE ae.from_node = n.id)
     ) END)::text AS scope
- FROM node n JOIN entity k ON k.id = n.entity_id
- ${REPOSITORY_OPINION}
- ${TREE_OPINION('fg', GIT_TABLES.file, 'n', ['mode', 'blob_id'])}
- LEFT JOIN ${GIT_TABLES.blob} b ON b.id = fg."blob_id"
- ${COMMIT_OPINION}
- ${LINGUIST_OPINION}`;
+ FROM node n JOIN entity k ON k.id = n.entity_id AND NOT n.removed
+ LEFT JOIN node scoper ON scoper.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.repository}') AND scoper.key->>'name' = coalesce(n.key->>'name', ${REPOSITORY_KEY('n')})`;
+
+/**
+ * The same rows without the opinion aggregates: the history reads answer labels, keys and edges, and loading every open
+ * opinion of a walk-size repository for them is work no page of theirs shows.
+ */
+const ENTITY_SELECT_PLAIN = ENTITY_SELECT
+  .replace(/CASE WHEN k\.name = '\$\{GIT_KINDS\.file\}' THEN[\s\S]*?END AS file_opinions,/, 'NULL AS file_opinions,')
+  .replace(/CASE WHEN k\.name = '\$\{GIT_KINDS\.commit\}' THEN[\s\S]*?END AS commit_opinions,/, 'NULL AS commit_opinions,')
+  .replace(/CASE WHEN k\.name = '\$\{GIT_KINDS\.repository\}' THEN[\s\S]*?END AS repository_opinions,/, 'NULL AS repository_opinions,');
 
 /** A value with the keys of every object in code point order, so two equal values render equal. */
 function canonical(value: unknown): unknown {
@@ -216,20 +240,26 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-/** The places one opinion's evidence list names, as a reader holds them. */
-function evidencePlaces(value: unknown): readonly { repository: string | null; path: string | null; lineStart: number | null; lineEnd: number | null; commit: string | null }[] {
+/** The places one opinion's evidence list names, as a reader holds them: a file place, a conversation or an opinion. */
+function evidencePlaces(value: unknown): readonly GraphEvidence[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    if (entry === null || typeof entry !== 'object') return [];
+  const out: GraphEvidence[] = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object') continue;
     const held = entry as Record<string, unknown>;
-    return [{
+    if (held['type'] === 'conversation') out.push({ type: 'conversation', id: String(held['id'] ?? ''), speaker: typeof held['speaker'] === 'string' ? held['speaker'] : null, at: typeof held['at'] === 'string' ? held['at'] : null, field: '', repository: null, path: null, lineStart: null, lineEnd: null, commit: null });
+    else if (held['type'] === 'opinion') out.push({ type: 'opinion', id: String(held['id'] ?? ''), field: '', repository: null, path: null, lineStart: null, lineEnd: null, commit: null });
+    else out.push({
+      type: 'file',
+      field: '',
       repository: typeof held['repository'] === 'string' ? held['repository'] : null,
       path: typeof held['path'] === 'string' ? held['path'] : null,
       lineStart: typeof held['line_start'] === 'number' ? held['line_start'] : null,
       lineEnd: typeof held['line_end'] === 'number' ? held['line_end'] : null,
       commit: typeof held['commit_or_digest'] === 'string' ? held['commit_or_digest'] : null,
-    }];
-  });
+    });
+  }
+  return out;
 }
 
 /** A text as a SQL literal: a kind's name stands in the counts that name it. */
@@ -256,6 +286,66 @@ function valueOfColumn(value: unknown, type: GeneratedKindRead['types'][string])
   return value;
 }
 
+/** One open opinion of an entity, as the reader holds it: its id, its producer, its language, its evidence, its values. */
+interface GraphOpinion {
+  readonly id: string;
+  readonly producer: string;
+  readonly saidBy: string;
+  readonly lang: string | null;
+  readonly evidence: readonly { readonly field: string; readonly value: unknown }[];
+  readonly values: Readonly<Record<string, unknown>>;
+}
+
+/** The opinions one aggregate column reads, from the jsonb array the statement builds. */
+function graphOpinions(value: unknown, fields: readonly string[]): GraphOpinion[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const held = (entry ?? {}) as Record<string, unknown>;
+    const saidBy = String(held['said_by'] ?? '');
+    const at = saidBy.lastIndexOf('@');
+    const language = held['lang'] === null || held['lang'] === undefined ? null : String(held['lang']);
+    const places = Array.isArray(held['evidence']) ? held['evidence'] as readonly Record<string, unknown>[] : [];
+    return {
+      id: String(held['id'] ?? ''),
+      saidBy,
+      producer: at < 0 ? saidBy : saidBy.slice(0, at),
+      lang: language,
+      evidence: places.map((one) => ({ field: '', value: one })),
+      values: Object.fromEntries(fields.map((field) => [field, held[field]])),
+    };
+  });
+}
+
+/** One field's values across opinions, each with its source. */
+function fieldOpinions(opinions: readonly GraphOpinion[], field: string): { readonly value: unknown }[] {
+  return opinions.flatMap((opinion) => (opinion.values[field] === null || opinion.values[field] === undefined ? [] : [{ value: opinion.values[field] }]));
+}
+
+/** One field's value when every opinion that states it agrees, else the list of their distinct values. */
+function agreedValue(opinions: readonly GraphOpinion[], field: string): unknown {
+  const values = fieldOpinions(opinions, field).map((one) => one.value);
+  const distinct = new Map(values.map((one) => [JSON.stringify(one), one]));
+  if (distinct.size === 0) return undefined;
+  return distinct.size === 1 ? values[0] : [...distinct.values()];
+}
+
+/** One entity's opinions as the wiki holds them: every value with its opinion id, producer, language and evidence. */
+function entityOpinions(opinions: readonly GraphOpinion[]): GraphEntityOpinion[] {
+  const out: GraphEntityOpinion[] = [];
+  for (const opinion of opinions) {
+    for (const [field, value] of Object.entries(opinion.values)) {
+      if (value === null || value === undefined) continue;
+      out.push({ field, value, opinionId: opinion.id, producer: opinion.saidBy, lang: opinion.lang, evidence: evidencePlaces(opinionEvidence(opinion)) });
+    }
+  }
+  return out;
+}
+
+/** The raw evidence list of one opinion. */
+function opinionEvidence(opinion: GraphOpinion): unknown {
+  return opinion.evidence.map((one) => one.value);
+}
+
 function keyOf(row: Raw): string {
   const kind = String(row['kind']);
   if (kind === `${GIT_KINDS.repository}`) return `code.repository:${String(row['repository_name'])}`;
@@ -280,30 +370,36 @@ function entityOf(row: Raw): GraphEntity {
   const graphKind = String(row['kind']);
   const kind = WIKI_KIND[graphKind] ?? graphKind;
   const properties: Record<string, unknown> = { recordKey: keyOf(row) };
+  const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'languages']);
+  const commitOpinions = graphOpinions(row['commit_opinions'], ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min']);
+  const repositoryOpinions = graphOpinions(row['repository_opinions'], ['url', 'default_branch']);
   if (graphKind === `${GIT_KINDS.repository}`) {
     properties['name'] = row['repository_name'];
-    properties['url'] = row['repository_url'];
-    properties['defaultBranch'] = row['default_branch'];
+    properties['url'] = agreedValue(repositoryOpinions, 'url');
+    properties['defaultBranch'] = agreedValue(repositoryOpinions, 'default_branch');
   } else if (graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`) {
     properties['repository'] = row['scope_repository_name'];
     properties['path'] = row['path'];
     if (graphKind === `${GIT_KINDS.file}`) {
-      properties['mode'] = row['mode'];
-      properties['blob'] = row['blob'];
-      properties['bytes'] = row['bytes'] === null || row['bytes'] === undefined ? undefined : Number(row['bytes']);
-      properties['form'] = row['form'];
-      properties['lines'] = row['lines'] === null || row['lines'] === undefined ? undefined : Number(row['lines']);
-      // The language dataset's opinion: the one language when it names one, and every candidate it weighed.
-      const language = typeof row['language'] === 'string' ? row['language'] : undefined;
-      const candidates = Array.isArray(row['languages']) ? row['languages'].filter((one): one is string => typeof one === 'string') : [];
-      properties['language'] = language;
-      properties['candidates'] = candidates.length === 0 && language !== undefined ? [language] : candidates;
+      // Every field the opinions agree on is its value; fields they differ on stand as every value, with the opinions
+      // beside them (A4: nothing wins by rule).
+      properties['mode'] = agreedValue(fileOpinions, 'mode');
+      properties['blob'] = agreedValue(fileOpinions, 'blob');
+      const bytes = agreedValue(fileOpinions, 'bytes');
+      properties['bytes'] = bytes === undefined ? undefined : typeof bytes === 'string' ? Number(bytes) : bytes;
+      properties['form'] = agreedValue(fileOpinions, 'form');
+      const lines = agreedValue(fileOpinions, 'lines');
+      properties['lines'] = lines === undefined ? undefined : typeof lines === 'string' ? Number(lines) : lines;
+      const languages = agreedValue(fileOpinions, 'languages');
+      const candidates = Array.isArray(languages) && languages.every((one) => typeof one === 'string') ? languages as string[] : [];
+      properties['language'] = agreedValue(fileOpinions, 'lang');
+      properties['candidates'] = candidates;
     }
   } else if (graphKind === `${GIT_KINDS.commit}`) {
     properties['hash'] = row['commit_hash'];
-    properties['subject'] = row['subject'];
-    properties['authoredAt'] = gitDateOf(row['author_clock'] as string | null, row['author_offset_min'] as number | null);
-    properties['committedAt'] = gitDateOf(row['commit_clock'] as string | null, row['commit_offset_min'] as number | null);
+    properties['subject'] = agreedValue(commitOpinions, 'subject');
+    properties['authoredAt'] = gitDateOf(agreedValue(commitOpinions, 'author_date') as string | null, agreedValue(commitOpinions, 'author_offset_min') as number | null);
+    properties['committedAt'] = gitDateOf(agreedValue(commitOpinions, 'commit_date') as string | null, agreedValue(commitOpinions, 'commit_offset_min') as number | null);
     properties['effectiveAt'] = properties['committedAt'];
     properties['merge'] = Number(row['parent_count'] ?? 0) > 1;
     properties['onFirstParent'] = true;
@@ -313,11 +409,16 @@ function entityOf(row: Raw): GraphEntity {
     properties['name'] = row['signature_name'];
     properties['email'] = row['email'];
   }
+  const opinions = [...entityOpinions(fileOpinions), ...entityOpinions(commitOpinions), ...entityOpinions(repositoryOpinions)];
+  const evidence: GraphEvidence[] = [];
+  for (const one of opinions) for (const place of one.evidence) evidence.push(Object.assign({}, place, { field: one.field, ...(one.producer === '' ? {} : { saidBy: one.producer }) }));
   const span = spanOf(properties['span']) ?? spanFromProvenance(properties);
   return {
     key: presentedKey(kind, properties), kind, label: labelOf(row), properties,
     nodeIds: [String(row['node_id'])], scope: String(row['scope'] ?? ''),
     ...(span === undefined ? {} : { span }),
+    ...(evidence.length === 0 ? {} : { evidence }),
+    ...(opinions.length === 0 ? {} : { opinions }),
   };
 }
 
@@ -412,7 +513,7 @@ export interface GraphCommitFacts {
   readonly commitOffsetMin: number;
   readonly subject: string;
   readonly parents: readonly string[];
-  readonly changed: readonly { readonly path: string; readonly change: string; readonly added: number | null; readonly removed: number | null; readonly previousPath: string | null; readonly href: string | null }[];
+  readonly changed: readonly { readonly path: string; readonly change: string | null; readonly added: number | null; readonly removed: number | null; readonly previousPath: string | null; readonly href: string | null }[];
 }
 
 /** The text one file held at one commit, or why the graph holds none of that version. */
@@ -641,15 +742,15 @@ export class GraphReader {
 
   /**
    * The rows of one manifest-declared kind as the wiki's entities: the vertex's key, and every open opinion of the
-   * kind's fields. A field one value stands for is that value; a field several open opinions disagree on is every value
-   * with the opinion that stated it, never one picked silently (A4 of the amendment: nothing wins by rule).
+   * kind's fields. A field every opinion agrees on is that value; a field they differ on is every value, and every
+   * value carries its opinion's id, producer, language and evidence, so no value is ever shown without its source.
    */
   private async generatedEntities(tx: OuterTransaction, decl: GeneratedKindRead, rows: readonly Raw[]): Promise<GraphEntity[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => String(row['node_id']));
-    const opinionColumns = ['t.node_id::text AS node', 't.said_by', 't.said_at', 't.evidence', 't.lang', ...decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`)];
+    const opinionColumns = ['t.node_id::text AS node', 't.id::text AS opinion_id', 't.said_by', 't.lang', 't.evidence', ...decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`)];
     const opinions = await tx.query<Raw>(
-      `SELECT ${opinionColumns.join(', ')} FROM ${decl.table} t WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' ORDER BY t.id`,
+      `SELECT ${opinionColumns.join(', ')} FROM ${decl.table} t WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id`,
       [`{${ids.join(',')}}`],
     );
     const held = new Map<string, Raw[]>();
@@ -665,23 +766,25 @@ export class GraphReader {
       const key = `${decl.kind}:${keyValues.join('/')}`;
       const properties: Record<string, unknown> = {};
       for (const column of decl.key) properties[column] = valueOfColumn(keyObject[column], decl.types[column] ?? 'text');
+      const entityOpinions: GraphEntityOpinion[] = [];
       const evidence: GraphEvidence[] = [];
-      const stated = held.get(node) ?? [];
       for (const column of decl.columns) {
-        const values: unknown[] = [];
-        for (const opinion of stated) {
+        const stated: unknown[] = [];
+        for (const opinion of held.get(node) ?? []) {
           const value = valueOfColumn(opinion[column], decl.types[column] ?? 'text');
           if (value === null || value === undefined) continue;
-          const rendered = JSON.stringify(canonical(value));
-          if (!values.some((one) => JSON.stringify(canonical(one)) === rendered)) values.push(value);
-          for (const place of evidencePlaces(opinion['evidence'])) evidence.push({ field: column, saidBy: String(opinion['said_by']), ...place });
+          stated.push(value);
+          const places = evidencePlaces(opinion['evidence']).map((place) => Object.assign({}, place, { field: column, saidBy: String(opinion['said_by']) }));
+          entityOpinions.push({ field: column, value, opinionId: String(opinion['opinion_id']), producer: String(opinion['said_by']), lang: typeof opinion['lang'] === 'string' ? opinion['lang'] : null, evidence: places });
+          evidence.push(...places);
         }
-        if (values.length === 1) properties[column] = values[0];
-        else if (values.length > 1) properties[column] = values;
+        const distinct = new Map(stated.map((one) => [JSON.stringify(canonical(one)), one]));
+        if (distinct.size === 1) properties[column] = stated[0];
+        else if (distinct.size > 1) properties[column] = [...distinct.values()];
       }
       properties['recordKey'] = key;
       const label = keyValues[0] ?? key;
-      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope: '', ...(evidence.length === 0 ? {} : { evidence }) };
+      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope: '', ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
     });
   }
 
@@ -769,7 +872,7 @@ export class GraphReader {
 
   private async entitiesOfIds(tx: OuterTransaction, ids: readonly string[]): Promise<Map<string, GraphEntity>> {
     if (ids.length === 0) return new Map();
-    const found = await tx.query<Raw>(`${ENTITY_SELECT} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
+    const found = await tx.query<Raw>(`${ENTITY_SELECT_PLAIN} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
     const held = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
     // A node the code kinds' select did not answer is one of a manifest-declared kind: its table answers it.
     const missing = ids.filter((id) => !held.has(id));
@@ -1086,17 +1189,16 @@ export class GraphReader {
            SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
            WHERE he.from_node = $1::bigint
          )
-         SELECT count(*)::int AS commits,
-                count(*) FILTER (WHERE (
+         SELECT count(DISTINCT hc.commit)::int AS commits,
+                count(DISTINCT hc.commit) FILTER (WHERE (
                   SELECT count(*) FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}'
                   WHERE pe.from_node = hc.commit
                 ) > 1)::int AS merges,
                 (SELECT count(DISTINCT ae.from_node)::int FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
                   JOIN hc h2 ON h2.commit = ae.to_node) AS authors,
-                to_char(min(co.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS since,
-                to_char(max(co.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS until
-         FROM hc JOIN node c ON c.id = hc.commit
-         LEFT JOIN LATERAL (SELECT o.commit_date FROM ${GIT_TABLES.commit} o WHERE o.node_id = c.id AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git-history' ORDER BY o.id DESC LIMIT 1) co ON true`,
+                to_char(min(o.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS since,
+                to_char(max(o.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS until
+         FROM hc JOIN ${GIT_TABLES.commit} o ON o.node_id = hc.commit AND o.state = 'open' AND o.context_id = 1`,
         [scope],
       );
       const row = summary.rows[0] ?? { commits: 0, merges: 0, authors: 0, since: null, until: null };
@@ -1156,7 +1258,7 @@ export class GraphReader {
     if (this.declared !== undefined && this.declared.size === 0) return { entities: [], edges: [] };
     return await this.run(async (tx) => {
       const found = await tx.query<Raw>(
-        `${ENTITY_SELECT} WHERE
+        `${ENTITY_SELECT_PLAIN} WHERE
            n.id = $1::bigint
            OR (n.key->'repository'->'key'->>'name') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
            OR n.id IN (SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint)
@@ -1268,7 +1370,7 @@ export class GraphReader {
         );
       const nodeIds = new Set<string>(subject.nodeIds);
       for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
-      const entityRows = await tx.query<Raw>(`${ENTITY_SELECT} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
+      const entityRows = await tx.query<Raw>(`${ENTITY_SELECT_PLAIN} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
       const entities = entityRows.rows.map(entityOf);
       const byId = new Map(entityRows.rows.map((row) => [String(row['node_id']), entityOf(row)]));
       const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];

@@ -32,6 +32,7 @@ import { byCodePoint } from '../../../src/model/order.js';
 /** The rules, as a reader names them. The order is the order of the list's sort. */
 export const ARCHITECTURE_RULES = [
   'graph-single-writer',
+  'graph-writes-in-writer',
   'no-retired-surfaces',
   'no-unreachable-code',
   'one-fill-entry',

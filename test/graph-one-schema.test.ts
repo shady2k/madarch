@@ -6,13 +6,16 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { ONE_GRAPH_TABLES, createOneGraphSchema } from '../src/graph/one-graph.js';
+import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { OPINION_FIELDS, generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
+/** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+
 const RECORD_TABLES = [
-  ...ONE_GRAPH_TABLES,
+  ...MECHANISM_TABLES,
   ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
   ...GIT_CONTRACT.edge.map((kind) => generatedTableName(kind.name, 'edge')),
   ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
@@ -180,6 +183,50 @@ describe('an edge stands apart and says when it may repeat', () => {
     const edge = await owner!.transaction('write', async (tx) => (await tx.query<{ id: string }>('INSERT INTO edge (entity_id, from_node, to_node) VALUES ($1::bigint, $2::bigint, $3::bigint) RETURNING id::text AS id', [touched, commit, file])).rows[0]!.id);
     expect(await refusal(`INSERT INTO ${GIT_TABLES.touched} (edge_id, said_by, change, added, removed) VALUES ($1::bigint, 'git-history@1', 'added', 3, 0)`, [edge])).toBeNull();
     expect(await refusal(`INSERT INTO ${GIT_TABLES.touched} (edge_id, said_by, change, added, removed) VALUES ($1::bigint, 'git-history@1', 'exploded', 3, 0)`, [edge])).toMatch(/_check/u);
+  }, 120_000);
+});
+
+describe('a confirmation is per field, and the database refuses a second one', () => {
+  test('one confirmed opinion stands per node, field, language and context', async () => {
+    const file = await nodeOf('file', { repository: { kind: 'repository', key: { name: 'confirmed' } }, path: 'a.ts' });
+    const confirmed = `INSERT INTO ${GIT_TABLES.file} (node_id, said_by, state, confirmed_field, lang) VALUES ($1::bigint, $2, 'confirmed', $3, $4)`;
+    expect(await refusal(confirmed, [file, 'agent', 'mode', 'en'])).toBeNull();
+    // The same field in the same language and context: the partial unique index refuses the second.
+    expect(await refusal(confirmed, [file, 'agent', 'mode', 'en'])).toMatch(/_confirmed/u);
+    // A field of its own, a null language, and another language are tuples of their own.
+    expect(await refusal(confirmed, [file, 'agent', 'blob_id', 'en'])).toBeNull();
+    expect(await refusal(confirmed, [file, 'agent', 'mode', null])).toBeNull();
+    expect(await refusal(confirmed, [file, 'agent', 'mode', 'ru'])).toBeNull();
+    // A confirmed row names exactly one field, and an open row names none.
+    expect(await refusal(confirmed, [file, 'agent', null, 'en'])).toMatch(/_check/u);
+    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, confirmed_field) VALUES ($1::bigint, 'agent', 'mode')`, [file])).toMatch(/_check/u);
+  }, 120_000);
+});
+
+describe('evidence is a tagged list, and a path lookup keeps repository and path from one entry', () => {
+  test('a file place, a conversation and an opinion stand in one list', async () => {
+    const file = await nodeOf('file', { repository: { kind: 'repository', key: { name: 'evidence' } }, path: 'a.ts' });
+    expect(await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', $2::jsonb)`, [file, JSON.stringify([
+      { type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 3, line_end: 4 },
+      { type: 'conversation', id: 'talk-2026-11-10', speaker: 'the owner', at: '2026-11-10T21:00:00Z' },
+      { type: 'opinion', id: '42' },
+    ])])).toBeNull();
+    const held = await owner!.transaction('snapshot', async (tx) => await tx.query<{ evidence: readonly Record<string, unknown>[] }>(`SELECT evidence FROM ${GIT_TABLES.file} WHERE node_id = $1::bigint`, [file]));
+    expect(held.rows[0]?.evidence.map((one) => one['type'])).toEqual(['file', 'conversation', 'opinion']);
+  }, 120_000);
+
+  test('the opinions resting on one repository and one path are one containment lookup, served by the evidence index', async () => {
+    const file = await nodeOf('file', { repository: { kind: 'repository', key: { name: 'evidence' } }, path: 'b.ts' });
+    await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', $2::jsonb)`, [file, JSON.stringify([{ type: 'file', repository: 'R', commit_or_digest: 'c', path: 'P', line_start: 1, line_end: 2 }])]);
+    // A file place of another repository holds the same path: the containment query keeps both from one entry.
+    await refusal(`INSERT INTO ${GIT_TABLES.file} (node_id, said_by, evidence) VALUES ($1::bigint, 'agent', $2::jsonb)`, [file, JSON.stringify([{ type: 'file', repository: 'Other', commit_or_digest: 'c', path: 'P' }])]);
+    const found = await owner!.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE evidence @> '[{"type":"file","repository":"R","path":"P"}]'::jsonb`, []));
+    expect(found.rows[0]?.n).toBe('1');
+    const plan = await owner!.transaction('snapshot', async (tx) => {
+      await tx.query('SET LOCAL enable_seqscan = off');
+      return await tx.query<Record<string, unknown>>(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ${GIT_TABLES.file} WHERE evidence @> '[{"type":"file","repository":"R","path":"P"}]'::jsonb`);
+    });
+    expect(JSON.stringify(plan.rows)).toContain(`${GIT_TABLES.file}_evidence`);
   }, 120_000);
 });
 

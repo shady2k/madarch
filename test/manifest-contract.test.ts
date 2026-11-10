@@ -20,8 +20,8 @@ const CONTRACT = {
   version: '1.0.0',
   outputs: {
     vertices: [
-      { kind: 'a', key: ['name'], fields: [{ name: 'name', claim: 'authoritative', type: 'text', meaning: 'the name of a', example: 'one', required: true }, { name: 'tag', claim: 'claimed', type: 'text', meaning: 'a tag', example: 'tag', required: true }] },
-      { kind: 'b', key: ['name'], fields: [{ name: 'name', claim: 'authoritative', type: 'text', meaning: 'the name of b', example: 'two', required: true }, { name: 'note', claim: 'claimed', type: 'text', meaning: 'a note', example: 'note', required: false }] },
+      { kind: 'a', key: ['name'], fields: [{ name: 'name', type: 'text', meaning: 'the name of a', example: 'one', required: true }, { name: 'tag', type: 'text', meaning: 'a tag', example: 'tag', required: true }] },
+      { kind: 'b', key: ['name'], fields: [{ name: 'name', type: 'text', meaning: 'the name of b', example: 'two', required: true }, { name: 'note', type: 'text', meaning: 'a note', example: 'note', required: false }] },
     ],
     edges: [],
   },
@@ -59,9 +59,9 @@ describe('the manifest contract preflight', () => {
     expect(findings(text)).toContainEqual(expect.stringContaining('kind "b": field "note" names no producer'));
   });
 
-  test('a second producer of an authoritative field is refused, naming the field', () => {
+  test('a second producer of a field is accepted: no field is authoritative (A1)', () => {
     const text = VALID.replace("producers: [git] }\n      - { name: note", "producers: [git, other] }\n      - { name: note");
-    expect(findings(text)).toContainEqual(expect.stringContaining('kind "b": field "name" is authoritative and names 2 producers: an authoritative field has one producer'));
+    expect(findings(text)).toEqual([]);
   });
 
   test('a dependency cycle is refused, naming the kinds', () => {
@@ -80,11 +80,9 @@ describe('the manifest contract preflight', () => {
     expect(findings(text)).toContainEqual(expect.stringContaining('plugin "git": input "a" is outside the dependency closure of its earliest output kind "b"'));
   });
 
-  test('a claimed field in the natural key is refused', () => {
+  test('any declared field may stand in the natural key: the key is the vertex\'s, and no field is authoritative', () => {
     const text = VALID.replace('    key: [name]\n    depends-on: [a]', '    key: [note]\n    depends-on: [a]');
-    // The second kind's key names its claimed note; the first kind keeps its own key.
-    const found = findings(text);
-    expect(found).toContainEqual(expect.stringContaining('kind "b": key field "note" is claimed: a key field is authoritative'));
+    expect(findings(text)).toEqual([]);
   });
 });
 

@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
 import { commitFacts } from '../src/graph/records.js';
-import { ONE_GRAPH_TABLES } from '../src/graph/one-graph.js';
+
 import { generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
@@ -23,8 +23,11 @@ import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let repository = '';
+/** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+
 const RECORD_TABLES = [
-  ...ONE_GRAPH_TABLES,
+  ...MECHANISM_TABLES,
   ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
   ...GIT_CONTRACT.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
   ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
@@ -163,10 +166,10 @@ describe('the two passes over one fixture', () => {
     const historyCounts = await publishHistory(owner, history);
     // One file's blob moved: the file's row is updated, the new commit's vertex and its row and the
     // as-is edge are added, and the edge to the commit the repository stood at before is removed.
-    // Every other row stands: inserted 3 (the commit vertex, its row and the as-is edge), updated 1
-    // (the file), deleted 1 (the old as-is edge).
+    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 2 (the file's
+    // opinion and the dataset's, each now resting on the new commit as its evidence), deleted 1 (the old as-is edge).
     expect(treeCounts.inserted).toBe(3);
-    expect(treeCounts.updated).toBe(1);
+    expect(treeCounts.updated).toBe(2);
     expect(treeCounts.deleted).toBe(1);
     expect(historyCounts.inserted).toBeGreaterThan(0);
     expect(historyCounts.updated + historyCounts.unchanged).toBeGreaterThan(0);

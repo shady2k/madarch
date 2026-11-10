@@ -28,9 +28,9 @@ function product(manifest: string, contract?: unknown): string {
 const CONTRACT = {
   id: 'g', version: '1.0.0',
   outputs: { vertices: [{ kind: 'doc.term', key: ['name'], fields: [
-    { name: 'name', claim: 'authoritative', type: 'text', meaning: 'the term', example: 'x', required: true },
-    { name: 'definition', claim: 'claimed', type: 'text', meaning: 'what it means', example: 'y', required: true },
-    { name: 'rank', claim: 'authoritative', type: 'integer', meaning: 'its place', example: 1, required: false },
+    { name: 'name', type: 'text', meaning: 'the term', example: 'x', required: true },
+    { name: 'definition', type: 'text', meaning: 'what it means', example: 'y', required: true },
+    { name: 'rank', type: 'integer', meaning: 'its place', example: 1, required: false },
   ] }], edges: [] },
 };
 

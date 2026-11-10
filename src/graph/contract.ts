@@ -26,7 +26,7 @@
  * never drops data in silence.
  */
 import { createHash } from 'node:crypto';
-import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
+import type { OuterTransaction } from '../adapters/database-owner.js';
 
 /** The sort of table a generated name belongs to: a vertex's opinions, an edge's, or a dictionary. */
 export type TableSort = 'vertex' | 'edge' | 'dictionary';
@@ -107,7 +107,7 @@ export interface GraphContract {
   readonly dictionary: readonly DictionaryContract[];
 }
 
-/** Where a value was read: the repository, the commit or digest, the path and the lines (decision 0035, item 7). */
+/** Where a file value was read: the repository, the commit or content digest, the path and the lines (decision 0035, item 7). */
 export interface ClaimEvidenceDraft {
   readonly repository?: string;
   readonly commit?: string;
@@ -116,16 +116,14 @@ export interface ClaimEvidenceDraft {
   readonly lineEnd?: number;
 }
 
-/**
- * One claim a producer makes of a field (decision 0034, its amendment A1): a value and the evidence under it. It is
- * not written beside an authoritative value any more: every value a producer states is an opinion of the fields of
- * the kind, and a claim is the way a result names one of them.
- */
-export interface ClaimDraft {
-  readonly field: string;
-  readonly value: unknown;
-  readonly evidence?: ClaimEvidenceDraft;
-}
+/** One tagged evidence entry the graph stores (the amendment's point 7): a file place, a conversation, an opinion. */
+export type EvidenceEntry =
+  | { readonly type: 'file'; readonly repository?: string; readonly commit_or_digest?: string; readonly path?: string; readonly line_start?: number; readonly line_end?: number }
+  | { readonly type: 'conversation'; readonly id: string; readonly speaker?: string; readonly at?: string }
+  | { readonly type: 'opinion'; readonly id: string };
+
+/** One evidence entry as a draft states it: a plugin's file place, or any tagged entry a producer gives. */
+export type EvidenceDraft = ClaimEvidenceDraft | EvidenceEntry;
 
 /** One entity a producer names: its kind and the values of its key's fields (decision 0034, item 14). */
 export interface EntityRefDraft {
@@ -137,20 +135,19 @@ export interface EntityRefDraft {
 export type KeyValueDraft = string | number | EntityRefDraft;
 
 /**
- * One vertex a producer publishes: its kind, its natural key, the values it states of the kind's fields, the evidence
- * those values rest on, and the language of a text value. The values of the key's fields are the entity's identity and
- * are not opinions; every other value is.
+ * One vertex a producer publishes: its kind, its natural key, the field values it states, the evidence those values
+ * rest on, and the language of a text value. The values of the key's fields are the entity's identity and are not
+ * opinions; every other value is. One draft is the producer's whole opinion of the entity: a field it leaves out is a
+ * field it has no opinion on.
  */
 export interface VertexDraft {
   readonly kind: string;
   /** The entity's natural key values, by the kind's key fields; a reference is its entity's kind and key. */
   readonly key: Readonly<Record<string, KeyValueDraft>>;
   /** The field values this producer states, by field name; a field it did not read is left out. */
-  readonly attributes?: Readonly<Record<string, unknown>>;
-  /** The same, as claims with their own evidence, as a plugin's result names them. */
-  readonly claims?: readonly ClaimDraft[];
-  /** Where the vertex's values were read. */
-  readonly evidence?: ClaimEvidenceDraft;
+  readonly values?: Readonly<Record<string, unknown>>;
+  /** Where the values were read, as tagged entries (a file place, a conversation, an opinion). */
+  readonly evidence?: readonly EvidenceDraft[];
   /** The language of the text value the opinion states; null for a value that is no text. */
   readonly lang?: string;
   readonly producer: string;
@@ -219,10 +216,14 @@ function sameType(actual: string, field: FieldContract): boolean {
  * on, the language of a text value, the opinion a translation came from and that source's digest, and its context.
  */
 const OPINION_COLUMNS: readonly string[] = [
-  `"id" bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY`,
+  // One id for the whole graph, from one sequence: `{type: 'opinion', id}` means the same thing in every entity's table.
+  `"id" bigint PRIMARY KEY DEFAULT nextval('opinion_id')`,
   `"said_by" text NOT NULL CHECK (said_by <> '')`,
   `"said_at" timestamptz NOT NULL DEFAULT now()`,
   `"state" text NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'confirmed', 'closed'))`,
+  // The field a confirmed row settles: one field per confirmed opinion, so the database can refuse a second one for
+  // the same node, field, language and context (the partial unique index below).
+  `"confirmed_field" text`,
   `"reason" text`,
   `"confirmed_with" jsonb`,
   `"evidence" jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(evidence) = 'array')`,
@@ -230,10 +231,11 @@ const OPINION_COLUMNS: readonly string[] = [
   `"translated_from" bigint`,
   `"source_digest" text`,
   `"context_id" bigint NOT NULL DEFAULT 1 REFERENCES context (id)`,
+  `CHECK ((state = 'confirmed') = (confirmed_field IS NOT NULL))`,
 ];
 
 /** The columns a reader or a writer names without the kind's own: the opinion's own, in the order `OPINION_COLUMNS`. */
-export const OPINION_FIELDS = ['id', 'said_by', 'said_at', 'state', 'reason', 'confirmed_with', 'evidence', 'lang', 'translated_from', 'source_digest', 'context_id'] as const;
+export const OPINION_FIELDS = ['id', 'said_by', 'said_at', 'state', 'confirmed_field', 'reason', 'confirmed_with', 'evidence', 'lang', 'translated_from', 'source_digest', 'context_id'] as const;
 
 /** Makes or migrates one opinion table: its owner column, the opinion's own columns and the kind's fields. */
 async function makeTable(tx: OuterTransaction, table: string, fields: readonly FieldContract[], key: readonly string[], owner: 'node_id' | 'edge_id', kind: string, checks: readonly string[] = [], indexes: readonly { readonly name: string; readonly columns: readonly string[] }[] = []): Promise<void> {
@@ -280,6 +282,11 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
   // The opinions resting on one path are found without a scan: the evidence list is indexed as a document.
   await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(`${table}_owner`, 'index')} ON ${name} (${quote(owner, 'column')}, "state", "id")`);
   await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(`${table}_evidence`, 'index')} ON ${name} USING gin ("evidence" jsonb_path_ops)`);
+  // A row's fields are matched by the producer's name, its language and its context; a lookup by any of them is indexed.
+  await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(`${table}_producer`, 'index')} ON ${name} (split_part("said_by", '@', 1), ${quote(owner, 'column')}, "lang", "context_id") WHERE "state" = 'open'`);
+  // At most one confirmed opinion of one field of one node in one language and one context (A4; the review of stage 1,
+  // finding 11). A null language is a language of its own here, so the index treats nulls as equal.
+  await tx.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${quote(`${table}_confirmed`, 'index')} ON ${name} (${quote(owner, 'column')}, "confirmed_field", "lang", "context_id") NULLS NOT DISTINCT WHERE "state" = 'confirmed'`);
   for (const one of indexes) {
     if (key.includes(one.columns[0] ?? '')) continue;
     await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(one.name, 'index')} ON ${name} (${one.columns.map((column) => quote(column, 'column')).join(', ')})`);
@@ -370,22 +377,17 @@ async function pruneKinds(tx: OuterTransaction, contract: GraphContract): Promis
 
 /**
  * Creates or migrates every table a contract declares, and registers its kinds; a kind the contract no longer
- * declares loses its table and its rows, so a product that removes a kind from its manifest holds no table of it. The
- * caller must have made the mechanism tables (`createOneGraphSchema`) in the same store.
+ * declares loses its table and its rows, so a product that removes a kind from its manifest holds no table of it. It
+ * runs inside the transaction the caller holds: `createOneGraphSchema` makes the mechanism and the product's tables
+ * in one transaction, so a crash leaves one shape, never half of one.
  */
-export async function createContractTables(owner: DatabaseOwner, contract: GraphContract): Promise<void> {
-  await owner.transaction('write', async (tx) => {
-    // One contract migration at a time for this store (decision 0034, item 14): the lock is held to the transaction's
-    // commit, so two first fills cannot create the same generated table concurrently and lose to the catalog's unique
-    // type name. The key is the store's location, the same string every owner of the store names.
-    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [owner.location]);
-    for (const dictionary of contract.dictionary) await makeDictionary(tx, tableOf(dictionary, 'dictionary'), dictionary);
-    for (const vertex of contract.vertex) await makeTable(tx, tableOf(vertex, 'vertex'), vertex.fields, vertex.key, 'node_id', vertex.name, vertex.checks ?? [], vertex.indexes ?? []);
-    // Every edge kind's table holds its opinions, with or without fields: the evidence of an edge has its home there too.
-    for (const edge of contract.edge) await makeTable(tx, tableOf(edge, 'edge'), edge.fields, [], 'edge_id', edge.name, edge.checks ?? [], edge.indexes ?? []);
-    await registerKinds(tx, contract);
-    await pruneKinds(tx, contract);
-  });
+export async function createContractTablesIn(tx: OuterTransaction, contract: GraphContract): Promise<void> {
+  for (const dictionary of contract.dictionary) await makeDictionary(tx, tableOf(dictionary, 'dictionary'), dictionary);
+  for (const vertex of contract.vertex) await makeTable(tx, tableOf(vertex, 'vertex'), vertex.fields, vertex.key, 'node_id', vertex.name, vertex.checks ?? [], vertex.indexes ?? []);
+  // Every edge kind's table holds its opinions, with or without fields: the evidence of an edge has its home there too.
+  for (const edge of contract.edge) await makeTable(tx, tableOf(edge, 'edge'), edge.fields, [], 'edge_id', edge.name, edge.checks ?? [], edge.indexes ?? []);
+  await registerKinds(tx, contract);
+  await pruneKinds(tx, contract);
 }
 
 /** The contract a manifest's declarations make: the capability's own tables for every kind it binds. */

@@ -40,7 +40,7 @@
           "properties": {
             "protocol": {
               "type": "string",
-              "const": "madarch.plugins/1",
+              "const": "madarch.plugins/2",
               "description": "The protocol version this plugin speaks."
             },
             "name": {
@@ -131,7 +131,6 @@
                           "type": "object",
                           "required": [
                             "name",
-                            "claim",
                             "type",
                             "meaning",
                             "example",
@@ -141,19 +140,6 @@
                             "name": {
                               "type": "string",
                               "minLength": 1
-                            },
-                            "claim": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "const": "authoritative"
-                                },
-                                {
-                                  "type": "string",
-                                  "const": "claimed"
-                                }
-                              ],
-                              "description": "An authoritative field is a column with one producer; a claimed field is one tools may dispute."
                             },
                             "type": {
                               "anyOf": [
@@ -198,7 +184,7 @@
                             }
                           },
                           "additionalProperties": false,
-                          "description": "One field of a declared kind: its type, its meaning, an example, whether it is required, and whether it is authoritative or claimed."
+                          "description": "One field of a declared kind: its type, its meaning, an example and whether it is required. Every value a producer states of it is an opinion."
                         },
                         "description": "The fields it writes beside the key."
                       }
@@ -238,7 +224,6 @@
                           "type": "object",
                           "required": [
                             "name",
-                            "claim",
                             "type",
                             "meaning",
                             "example",
@@ -248,19 +233,6 @@
                             "name": {
                               "type": "string",
                               "minLength": 1
-                            },
-                            "claim": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "const": "authoritative"
-                                },
-                                {
-                                  "type": "string",
-                                  "const": "claimed"
-                                }
-                              ],
-                              "description": "An authoritative field is a column with one producer; a claimed field is one tools may dispute."
                             },
                             "type": {
                               "anyOf": [
@@ -305,7 +277,7 @@
                             }
                           },
                           "additionalProperties": false,
-                          "description": "One field of a declared kind: its type, its meaning, an example, whether it is required, and whether it is authoritative or claimed."
+                          "description": "One field of a declared kind: its type, its meaning, an example and whether it is required. Every value a producer states of it is an opinion."
                         }
                       }
                     },
@@ -861,7 +833,7 @@
     }
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/shady2k/madarch/schema/v1/plugin-protocol.schema.json",
+  "$id": "https://github.com/shady2k/madarch/schema/v2/plugin-protocol.schema.json",
   "title": "Madarch extraction plugin protocol",
   "description": "One message of the host/plugin protocol, contract version 1: JSON-RPC 2.0 over newline delimited JSON on the plugin's standard input and output. The plugin introduces itself (introduce), the host hands it units (unit), and the plugin answers with a PluginUnitResult, progress, heartbeats and errors. Every kind and field a message names is declared in the introduction's outputs. The host asks pause, resume and stop, and sends cancel; a pause suspends the heartbeat deadline, a stop asks for the unit to finish and the plugin to exit, and a cancel kills the whole tree."
 }

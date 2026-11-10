@@ -8,7 +8,7 @@ const introduce = {
   id: 'introduce',
   method: 'introduce',
   params: {
-    protocol: 'madarch.plugins/1',
+    protocol: 'madarch.plugins/2',
     name: 'plugin-deaf',
     version: '1.0.0',
     rights: { network: 'none' },

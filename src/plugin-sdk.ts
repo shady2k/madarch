@@ -8,9 +8,9 @@
  *     import { definePlugin } from 'madarch-plugin-sdk';
  *
  *     await definePlugin({
- *       contract: { vertices: [{ kind: 'file', key: ['path'], fields: [{ name: 'path', claim: 'authoritative', type: 'text', meaning: 'the path', example: 'a.ts', required: true }, { name: 'size', claim: 'authoritative', type: 'integer', meaning: 'its size', example: 12, required: false }] }], edges: [] },
+ *       contract: { vertices: [{ kind: 'file', key: ['path'], fields: [{ name: 'path', type: 'text', meaning: 'the path', example: 'a.ts', required: true }, { name: 'size', type: 'integer', meaning: 'its size', example: 12, required: false }] }], edges: [] },
  *       extract(unit) {
- *         return { vertices: [{ kind: 'file', key: unit.key, attributes: { size: 12 } }], end: { state: 'complete' } };
+ *         return { vertices: [{ kind: 'file', key: unit.key, values: { size: 12 } }], end: { state: 'complete' } };
  *       },
  *     });
  *
@@ -23,7 +23,7 @@
  */
 
 /** The protocol version this SDK speaks. */
-export const PROTOCOL_VERSION = 'madarch.plugins/1';
+export const PROTOCOL_VERSION = 'madarch.plugins/2';
 
 /** One entity named by its kind and key values. */
 export interface EntityRef {
@@ -40,29 +40,21 @@ export interface Evidence {
   readonly lineEnd?: number;
 }
 
-/** One claim of a claimed field. */
-export interface Claim {
-  readonly field: string;
-  readonly value: unknown;
-  readonly evidence?: Evidence;
-}
-
-/** One vertex a unit produced. */
+/** One vertex a unit produced: its key, and the field values of one opinion with the evidence it stands on. */
 export interface VertexResult {
   readonly kind: string;
   readonly key: Readonly<Record<string, string | number>>;
-  readonly attributes?: Readonly<Record<string, unknown>>;
-  readonly claims?: readonly Claim[];
+  readonly values?: Readonly<Record<string, unknown>>;
+  readonly evidence?: Evidence;
 }
 
-/** One edge a unit produced. */
+/** One edge a unit produced: its ends, and the field values of one opinion with the evidence it stands on. */
 export interface EdgeResult {
   readonly kind: string;
   readonly from: EntityRef;
   readonly to: EntityRef;
   readonly discriminator?: string;
-  readonly attributes?: Readonly<Record<string, unknown>>;
-  readonly claims?: readonly Claim[];
+  readonly values?: Readonly<Record<string, unknown>>;
   readonly evidence?: Evidence;
 }
 
@@ -114,7 +106,6 @@ export interface ExtractContext {
 /** One field of a declared kind (decision 0035, item 18): its type, meaning, an example and whether it is required. */
 export interface FieldDeclaration {
   readonly name: string;
-  readonly claim: 'authoritative' | 'claimed';
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   /** What the field is, in plain words, for the person binding it in the product's manifest. */
   readonly meaning: string;

@@ -108,7 +108,7 @@ export interface FieldDecl {
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   readonly nullable?: boolean;
-  /** Whether the field is authoritative (one producer, a column) or claimed (many producers, claims only). */
+  /** The role the manifest states for the field, for the agent's description; no value is authoritative (A1). */
   readonly role?: 'authoritative' | 'claimed';
   /** The producers the manifest names for the field; an authoritative field names exactly one. */
   readonly producers?: readonly string[];
@@ -128,7 +128,6 @@ export interface FieldDecl {
 /** One field a plugin declares for one of its output kinds (decision 0035, item 18). */
 export interface PluginFieldDecl {
   readonly name: string;
-  readonly claim: 'authoritative' | 'claimed';
   readonly type: FieldDecl['type'];
   readonly meaning: string;
   readonly example: unknown;
@@ -877,7 +876,6 @@ function readPluginContract(productFolder: string, id: string, path: string, man
     for (const keyField of vertex.key) {
       const declared = fields.find((field) => field.name === keyField);
       if (declared === undefined) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which its fields do not declare` });
-      else if (declared.claim !== 'authoritative') findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which the contract declares ${declared.claim}: a key field is authoritative` });
     }
     vertices.push({ kind: vertex.kind, key: vertex.key, fields });
   }
@@ -1586,7 +1584,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         continue;
       }
       if (declared.type !== field.type) findings.push({ file, line, message: `kind "${name}": field "${field.name}" is ${field.type}, and the plugin's field ${binding.plugin}@${binding.major}.${binding.field} is ${declared.type}: a manifest field takes the type its plugin declares` });
-      if (field.role !== undefined && field.role !== declared.claim) findings.push({ file, line, message: `kind "${name}": field "${field.name}" is ${field.role}, and the plugin's field ${binding.plugin}@${binding.major}.${binding.field} is ${declared.claim}` });
       const held = byPlugin.get(binding.plugin);
       if (held === undefined) byPlugin.set(binding.plugin, { plugin, output, fields: [field] });
       else held.fields.push(field);
@@ -1608,8 +1605,8 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       for (const keyField of kind.key) {
         const bound = entry.fields.find((field) => field.name === keyField);
         const declared = entry.output.fields.find((one) => one.name === keyField);
-        if (bound === undefined || declared === undefined || declared.claim !== 'authoritative') {
-          findings.push({ file, line: kind.line, message: `kind "${name}": key field "${keyField}" must be an authoritative field the plugin "${id}" writes, and ${bound === undefined ? 'the manifest binds it to no plugin field' : `the plugin's field is ${declared?.claim ?? 'not declared'}`}` });
+        if (bound === undefined || declared === undefined) {
+          findings.push({ file, line: kind.line, message: `kind "${name}": key field "${keyField}" must be a field the plugin "${id}" writes, and ${bound === undefined ? 'the manifest binds it to no plugin field' : 'the plugin declares no such field'}` });
         }
       }
     }
@@ -1646,7 +1643,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     if (field.binding === undefined) {
       if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
       if (field.role === undefined) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" states whether it is authoritative or claimed` });
-      if (field.role === 'authoritative' && producers.length > 1) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" is authoritative and names ${String(producers.length)} producers: an authoritative field has one producer` });
     } else if (producers.length > 0) {
       findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names its producer twice, as a binding and as producers: a field names one` });
     }
@@ -1658,10 +1654,6 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       if (seen.has(field.name)) findings.push({ file, line: field.line ?? kind.line, message: `kind "${name}": field "${field.name}" stands once` });
       seen.add(field.name);
       checkField(name, field, kind.line, false);
-    }
-    for (const keyField of kind.key ?? []) {
-      const field = (kind.fields ?? []).find((one) => one.name === keyField);
-      if (field?.role === 'claimed') findings.push({ file, line: field.line ?? kind.line, message: `kind "${name}": key field "${keyField}" is claimed: a key field is authoritative` });
     }
   }
   for (const [name, edge] of edges) for (const field of edge.fields) checkField(name, field, edge.line, true);

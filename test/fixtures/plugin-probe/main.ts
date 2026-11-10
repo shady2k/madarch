@@ -35,13 +35,13 @@ function behaviorOf(unit: Unit): string {
   return typeof held === 'string' ? held : 'normal';
 }
 
-/** A vertex of the probe kind, with one authoritative field and one claimed one. */
+/** A vertex of the probe kind, with two field values and the evidence they were read at. */
 function probeVertex(id: string): VertexResult {
   return {
     kind: 'probe',
     key: { id },
-    attributes: { size: 12 },
-    claims: [{ field: 'language', value: 'typescript', evidence: { path: `probe/${id}.ts`, lineStart: 1, lineEnd: 2 } }],
+    values: { size: 12, language: 'typescript' },
+    evidence: { path: `probe/${id}.ts`, lineStart: 1, lineEnd: 2 },
   };
 }
 
@@ -108,7 +108,7 @@ await definePlugin({
   heartbeatMs: 600_000,
   contract: {
     vertices: [
-      { kind: 'probe', key: ['id'], fields: [{ name: 'size', claim: 'authoritative', type: 'integer', meaning: 'the size', example: 12, required: true }, { name: 'language', claim: 'claimed', type: 'text', meaning: 'the language', example: 'typescript', required: false }] },
+      { kind: 'probe', key: ['id'], fields: [{ name: 'size', type: 'integer', meaning: 'the size', example: 12, required: true }, { name: 'language', type: 'text', meaning: 'the language', example: 'typescript', required: false }] },
     ],
     edges: [{ kind: 'probe-link', from: 'probe', to: 'probe' }],
   },

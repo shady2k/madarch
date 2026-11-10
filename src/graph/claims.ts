@@ -13,7 +13,7 @@
  */
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, VertexDraft, VertexRemovalDraft } from './contract.js';
-import { publishGraphDrafts } from './write.js';
+import { publishGraphDrafts, type EdgeDraft } from './write.js';
 
 /** One unit's draft set, as the orchestrator holds it: a write's kind and its value. */
 export interface DraftWriteLike {
@@ -30,7 +30,8 @@ export interface DraftWriteLike {
  */
 export async function publishGraphWrites(executor: SqlExecutor, contract: GraphContract, writes: readonly DraftWriteLike[]): Promise<number> {
   const vertices = writes.filter((write) => write.kind === 'vertex').map((write) => write.value as VertexDraft);
+  const edges = writes.filter((write) => write.kind === 'edge').map((write) => write.value as EdgeDraft);
   const removals = writes.filter((write) => write.kind === 'vertex-removal').map((write) => write.value as VertexRemovalDraft);
-  if (vertices.length === 0 && removals.length === 0) return 0;
-  return await publishGraphDrafts(executor, contract, { vertices, removals });
+  if (vertices.length === 0 && edges.length === 0 && removals.length === 0) return 0;
+  return await publishGraphDrafts(executor, contract, { vertices, edges, removals });
 }
