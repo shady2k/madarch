@@ -55,7 +55,7 @@ afterAll(async () => {
 
 describe('the Problems page in levels', () => {
   test('the categories count every rule, and the status count is their open sum', async () => {
-    const categories = await get('/api/k/problems');
+    const categories = await get('/api/problems');
     expect(categories.status).toBe(200);
     expect(categories.body.categories.some((category: { rule: string }) => category.rule === 'wiki.unreadable-file')).toBe(true);
     const unreadable = categories.body.categories.find((category: { rule: string }) => category.rule === 'wiki.unreadable-file');
@@ -65,24 +65,24 @@ describe('the Problems page in levels', () => {
     let problemsOpen: number | undefined;
     for (let i = 0; i < 200 && typeof problemsOpen !== 'number'; i += 1) {
       if (i > 0) await new Promise((rest) => setTimeout(rest, 10));
-      const status = await get('/api/k/status');
+      const status = await get('/api/status');
       expect(status.status).toBe(200);
       problemsOpen = status.body.loop.problemsOpen;
     }
     expect(problemsOpen).toBe(openSum);
-    const settled = await get('/api/k/status');
+    const settled = await get('/api/status');
     expect(settled.body.findingCount).toBe(categories.body.total);
   }, 60_000);
 
   test('the sources of a category are pages, and walking every page counts the category', async () => {
-    const categories = (await get('/api/k/problems')).body;
+    const categories = (await get('/api/problems')).body;
     const category = categories.categories.find((one: { rule: string }) => one.rule === 'wiki.unreadable-file');
     let after: string | undefined;
     let pages = 0;
     let sources = 0;
     let items = 0;
     for (;;) {
-      const path = `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`;
+      const path = `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`;
       const page = await get(path);
       expect(page.status).toBe(200);
       expect(page.body.sources.length).toBeLessThanOrEqual(100);
@@ -91,7 +91,7 @@ describe('the Problems page in levels', () => {
         sources += source.count;
         let cursor: string | undefined;
         for (;;) {
-          const itemsPath = `/api/k/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`;
+          const itemsPath = `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`;
           const listed = await get(itemsPath);
           expect(listed.status).toBe(200);
           expect(listed.body.problems.length).toBeLessThanOrEqual(100);
@@ -109,12 +109,12 @@ describe('the Problems page in levels', () => {
   }, 60_000);
 
   test('status and glossary carry a count, never the findings, and stay small', async () => {
-    const status = await get('/api/k/status');
+    const status = await get('/api/status');
     expect(status.status).toBe(200);
     expect(Object.hasOwn(status.body, 'findings')).toBe(false);
     expect(typeof status.body.findingCount).toBe('number');
     expect(status.bytes).toBeLessThan(200_000);
-    const glossary = await get('/api/k/glossary');
+    const glossary = await get('/api/glossary');
     expect(glossary.status).toBe(200);
     expect(Object.hasOwn(glossary.body, 'findings')).toBe(false);
     expect(typeof glossary.body.findingCount).toBe('number');
@@ -122,7 +122,7 @@ describe('the Problems page in levels', () => {
   }, 60_000);
 
   test('a page bound beyond 100 is refused, with the accepted range', async () => {
-    const refused = await get('/api/k/problems?limit=101');
+    const refused = await get('/api/problems?limit=101');
     expect(refused.status).toBe(400);
     expect(refused.body.error.message).toContain('1 to 100');
   });

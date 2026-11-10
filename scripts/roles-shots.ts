@@ -122,13 +122,13 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null);
   await page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 });
   await shoot(page, '02-own-wiki-home');
-  await page.goto(`${clean.url}/products/madarch-wiki/k/e/${encode('domain:fill')}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${clean.url}/products/madarch-wiki/e/${encode('domain:fill')}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('a.term-link', { timeout: 60_000 });
   await shoot(page, '03-a-page-with-term-links');
-  await page.goto(`${clean.url}/products/madarch-wiki/k/glossary`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${clean.url}/products/madarch-wiki/glossary`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid=glossary-term]', { timeout: 60_000 });
   await shoot(page, '04-own-glossary');
-  await page.goto(`${clean.url}/products/madarch-wiki/k/e/${encode('doc:docs/glossary.md#основание')}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${clean.url}/products/madarch-wiki/e/${encode('doc:docs/glossary.md#основание')}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-block=term]', { timeout: 60_000 });
   await shoot(page, '05-a-term-page');
   await page.close();
@@ -146,7 +146,7 @@ try {
     await probe.waitForFunction(() => document.querySelector('[data-testid=fill-card]') === null, { timeout: 1_500_000, polling: 2000 });
   }
   await probe.close();
-  const page = await open(busy.url, '/products/shop/k');
+  const page = await open(busy.url, '/products/shop/');
   await page.waitForSelector('[data-testid=help-link]', { timeout: 60_000 });
   await shoot(page, '06-product-with-help-icon');
   await page.click('[data-testid=role-menu]');
@@ -158,23 +158,23 @@ try {
   await page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 });
   await shoot(page, '08-help-icon-opens-the-documentation');
   const setRole = async (role: string): Promise<void> => {
-    const answer = await fetch(`${busy.url}/products/shop/api/k/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) });
+    const answer = await fetch(`${busy.url}/products/shop/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) });
     if (!answer.ok) throw new Error(`the role ${role} was not kept: ${await answer.text()}`);
   };
   for (const [role, name] of [['developer', '09-function-as-developer'], ['product', '10-function-as-product']] as const) {
     await setRole(role);
-    const view = await open(busy.url, `/products/shop/k/e/${encode(PAY)}`, 1440, 1700);
+    const view = await open(busy.url, `/products/shop/e/${encode(PAY)}`, 1440, 1700);
     await view.waitForSelector('[data-testid=entity-page]', { timeout: 120_000 });
     await view.waitForFunction((wanted) => document.querySelector('[data-testid=role-current]')?.textContent !== '' && wanted, {}, true);
     await shoot(view, name);
     await view.close();
   }
   await setRole('everything');
-  const glossary = await open(busy.url, '/products/shop/k/glossary', 1440, 1500);
+  const glossary = await open(busy.url, '/products/shop/glossary', 1440, 1500);
   await glossary.waitForSelector('[data-testid=glossary-term]', { timeout: 120_000 });
   await shoot(glossary, '11-product-glossary-with-ambiguous-term');
   await glossary.close();
-  const domain = await open(busy.url, `/products/shop/k/e/${encode('domain:payment')}`, 1440, 1100);
+  const domain = await open(busy.url, `/products/shop/e/${encode('domain:payment')}`, 1440, 1100);
   await domain.waitForSelector('a.term-link', { timeout: 120_000 });
   await shoot(domain, '12-term-links-in-a-product-page');
   await domain.close();

@@ -3,7 +3,7 @@ import { closeTab, currentAddress, openInNewTab, syncFrontTabAddress, tabsState 
 import { publishSettings } from '../src/knowledge/roles.js';
 import { setShowGrounds } from '../src/knowledge/preferences.js';
 
-/** One tab at `/k`, no tab the last test opened. */
+/** One tab at the wiki's home, no tab the last test opened. */
 export function resetTabs(): void {
   // A tab of its own at the page the window is on, with no title from the last case; the old tabs go.
   const address = currentAddress();

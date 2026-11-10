@@ -482,7 +482,7 @@ describe('judging', () => {
     const result = await runGraphVerdicts({ snapshot: { nodes: unknownNodes(2), edges: [] }, roles: NO_ROLES, budgets: DEFAULT_GRAPH_VERDICT_BUDGETS });
     expect(result.metrics.modelCalls).toBe(0);
     expect(result.rows.every((row) => row.verdict === 'unreviewed' && row.source === 'none')).toBe(true);
-    expect(result.rows[0]?.reason).toContain('/k/settings');
+    expect(result.rows[0]?.reason).toContain('/settings');
     expect(result.rows[0]?.reason).toContain('Model roles');
   });
 

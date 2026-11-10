@@ -6,7 +6,7 @@
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KLink } from './blocks.js';
-import { K_PROBLEMS } from './routes.js';
+import { WIKI_PROBLEMS } from './routes.js';
 
 export function FailureNote({ scope, code, message }: { scope: 'fill' | 'writer'; code: string | undefined; message: string | undefined }): ReactElement | null {
   const { t, i18n } = useTranslation();
@@ -19,7 +19,7 @@ export function FailureNote({ scope, code, message }: { scope: 'fill' | 'writer'
     <div data-testid="failure-note" data-code={code}>
       <p className="m-0">{t(key)}</p>
       <p className="mb-0 mt-1 text-small">
-        <KLink href={K_PROBLEMS}>{t('errors.problems')}</KLink>
+        <KLink href={WIKI_PROBLEMS}>{t('errors.problems')}</KLink>
         {message !== undefined && message !== '' && (
           <>
             {' · '}

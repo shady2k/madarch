@@ -52,6 +52,6 @@ describe('the product page history block keeps its link to the full history', ()
     if (block.type !== 'history') throw new Error(`not a history block: ${block.type}`);
     expect(block.sections.map((section) => section.role)).toEqual(['summary', 'hotspots']);
     expect(block.sections.reduce((count, section) => count + section.rows.length, 0)).toBe(6);
-    expect(block.more).toEqual({ href: '/k/kind/code.file', label: 'All files' });
+    expect(block.more).toEqual({ href: '/kind/code.file', label: 'All files' });
   });
 });

@@ -18,7 +18,7 @@ import { navGroups, TabBar } from './app.js';
 import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
 import { resetPreferences, resetTabs } from '../../test/reset.js';
 import { Root as AppRoot } from './root.js';
-import { addressOfStatement, kRouteOf } from './routes.js';
+import { addressOfStatement, wikiRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
 import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, setTabTitle, frontTab, syncFrontTabAddress, useTabTitle } from './tabs.js';
 import type { Block, CatalogKindView, CatalogView, DocumentListing, KindSummary, Resolution, StatementModel, WikiStatus } from './types.js';
@@ -57,7 +57,7 @@ afterEach(() => {
   rendered = undefined;
   document.body.innerHTML = '';
   delete (globalThis as { fetch?: unknown }).fetch;
-  window.history.replaceState({}, '', '/k');
+  window.history.replaceState({}, '', '/');
   window.sessionStorage.clear();
   window.localStorage.clear();
   resetTabs();
@@ -80,8 +80,8 @@ const BODY = [
 ].join('\n');
 
 const resolutions: Record<string, Resolution> = {
-  'madarch:product:shop': { state: 'ok', target: 'madarch:product:shop', kind: 'product', label: 'The shop', href: '/k/e/product%3Ashop' },
-  'madarch:code.symbol:a.ts#F': { state: 'ok', target: 'madarch:code.symbol:a.ts#F', kind: 'code.symbol', label: 'F', href: '/k/e/code.symbol%3Aa.ts%23F', location: { repo: 'shop', path: 'a.ts', lineStart: 2, lineEnd: 9, href: '/k/src?repo=shop&path=a.ts&line=2' } },
+  'madarch:product:shop': { state: 'ok', target: 'madarch:product:shop', kind: 'product', label: 'The shop', href: '/e/product%3Ashop' },
+  'madarch:code.symbol:a.ts#F': { state: 'ok', target: 'madarch:code.symbol:a.ts#F', kind: 'code.symbol', label: 'F', href: '/e/code.symbol%3Aa.ts%23F', location: { repo: 'shop', path: 'a.ts', lineStart: 2, lineEnd: 9, href: '/src?repo=shop&path=a.ts&line=2' } },
 };
 
 function tree(text: string, showGrounds: boolean): MNode {
@@ -138,7 +138,7 @@ describe('the cut agrees with the engine\'s on formatted text and repeated sente
     const root = tree('Requests are retried three times.[^a] Other words come in between here.\n\nRequests are retried three times.[^b]\n\n[^a]: [a](madarch:code.file:a)\n[^b]: [b](madarch:code.file:b)\n', false);
     const turns = root.children!.filter((node) => node.type === 'paragraph').flatMap((node) => node.children!.filter((child) => child.type === 'statement')).map((node) => [plainText(node), node.data!.hProperties!['data-turn']]);
     expect(turns).toEqual([['Requests are retried three times.', '0'], ['Other words come in between here.', '0'], ['Requests are retried three times.', '1']]);
-    expect(addressOfStatement('page:x', 'Requests are retried three times.', 1)).toBe('/k/statement?id=page%3Ax&sentence=Requests+are+retried+three+times.&n=1');
+    expect(addressOfStatement('page:x', 'Requests are retried three times.', 1)).toBe('/statement?id=page%3Ax&sentence=Requests+are+retried+three+times.&n=1');
   });
 });
 
@@ -169,22 +169,22 @@ describe('Markdown read as statements', () => {
     const container = into(createElement(KMarkdown, { text, resolutions, statements: { pageId: 'domain:payment', showGrounds: false } }));
     await until(() => container.querySelector('[data-testid=statement]') !== null, 'the statement');
     const link = container.querySelector('a')!;
-    expect(link.getAttribute('href')).toBe('/k/e/code.symbol%3Aa.ts%23F');
+    expect(link.getAttribute('href')).toBe('/e/code.symbol%3Aa.ts%23F');
     expect(container.querySelector('[data-testid=code-place]')).toBeNull();
   });
 
   test('a click on a sentence opens its statement in a new tab; a click on a link inside it does not', async () => {
     const container = into(createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card for [the order](madarch:code.symbol:a.ts#F) now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } }));
     await until(() => container.querySelector('[data-testid=statement]') !== null, 'the statement');
-    expect(frontTab().address).toBe('/k');
+    expect(frontTab().address).toBe('/');
     (container.querySelector('a') as HTMLElement).click();
-    expect(frontTab().address).toBe('/k');
+    expect(frontTab().address).toBe('/');
     (container.querySelector('[data-testid=statement]') as HTMLElement).click();
     const sentence = 'Checkout asks payments to authorize the card for the order now.';
     // The opening waits one click interval, so that a double click can select first.
     await until(() => frontTab().address === addressOfStatement('domain:payment', sentence), 'the statement tab');
-    expect(kRouteOf('/k/statement', `?id=domain%3Apayment&sentence=${encodeURIComponent(sentence)}`)).toEqual({ name: 'statement', id: 'domain:payment', sentence, turn: 0 });
-    expect(kRouteOf('/k/statement', `?id=domain%3Apayment&sentence=x&n=2`)).toEqual({ name: 'statement', id: 'domain:payment', sentence: 'x', turn: 2 });
+    expect(wikiRouteOf('/statement', `?id=domain%3Apayment&sentence=${encodeURIComponent(sentence)}`)).toEqual({ name: 'statement', id: 'domain:payment', sentence, turn: 0 });
+    expect(wikiRouteOf('/statement', `?id=domain%3Apayment&sentence=x&n=2`)).toEqual({ name: 'statement', id: 'domain:payment', sentence: 'x', turn: 2 });
     expect(window.location.pathname + window.location.search).toBe(addressOfStatement('domain:payment', sentence));
   });
 
@@ -201,7 +201,7 @@ describe('Markdown read as statements', () => {
     statement.click();
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(before);
-    expect(frontTab().address).toBe('/k');
+    expect(frontTab().address).toBe('/');
   });
 
   test('a click whose sentence was asked for on a page the reader left opens nothing', async () => {
@@ -213,8 +213,8 @@ describe('Markdown read as statements', () => {
     rendered?.unmount();
     rendered = undefined;
     await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(window.location.pathname).toBe('/k');
-    expect(frontTab().address).toBe('/k');
+    expect(window.location.pathname).toBe('/');
+    expect(frontTab().address).toBe('/');
   });
 
   test('clicking two different sentences quickly opens both statements', async () => {
@@ -243,7 +243,7 @@ describe('Markdown read as statements', () => {
     statement.click();
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(before);
-    expect(frontTab().address).toBe('/k');
+    expect(frontTab().address).toBe('/');
   });
 
   test('a drag across a sentence selects text and opens nothing; a click after it, with the selection gone, opens the statement', async () => {
@@ -260,7 +260,7 @@ describe('Markdown read as statements', () => {
     expect(selection.toString()).toContain('Checkout asks payments');
     statement.click();
     expect(tabCount()).toBe(before);
-    expect(frontTab().address).toBe('/k');
+    expect(frontTab().address).toBe('/');
     selection.removeAllRanges();
     // A click that only dismisses a selection: the press found it, the click finds it gone.
     selection.addRange(range);
@@ -268,7 +268,7 @@ describe('Markdown read as statements', () => {
     selection.removeAllRanges();
     statement.click();
     expect(tabCount()).toBe(before);
-    expect(frontTab().address).toBe('/k');
+    expect(frontTab().address).toBe('/');
     statement.click();
     await until(() => tabCount() === before + 1, 'the statement tab');
   });
@@ -295,59 +295,59 @@ describe('Markdown read as statements', () => {
 
 describe('the tabs', () => {
   test('a page opened in a new tab stands beside the one in front and comes to the front; the address follows; the same page is switched to, not opened twice', () => {
-    expect(currentAddress()).toBe('/k');
-    openInNewTab('/k/e/domain%3Apayment');
-    expect(frontTab().address).toBe('/k/e/domain%3Apayment');
-    expect(window.location.pathname).toBe('/k/e/domain%3Apayment');
-    openInNewTab('/k/catalogue');
-    openInNewTab('/k/e/domain%3Apayment');
-    expect(frontTab().address).toBe('/k/e/domain%3Apayment');
-    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/k', '/k/e/domain%3Apayment', '/k/catalogue']);
+    expect(currentAddress()).toBe('/');
+    openInNewTab('/e/domain%3Apayment');
+    expect(frontTab().address).toBe('/e/domain%3Apayment');
+    expect(window.location.pathname).toBe('/e/domain%3Apayment');
+    openInNewTab('/catalogue');
+    openInNewTab('/e/domain%3Apayment');
+    expect(frontTab().address).toBe('/e/domain%3Apayment');
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/', '/e/domain%3Apayment', '/catalogue']);
   });
 
   test('browser Back and Forward bring the open tab that holds the history address forward, another section of it included', async () => {
     // The tab bar is what listens to the window's moves.
     const container = into(createElement(TabBar));
     await until(() => container.querySelector('[data-testid=tab]') !== null, 'the tab bar');
-    openInNewTab('/k/catalogue');
-    openInNewTab('/k/doc?path=a.md#one');
+    openInNewTab('/catalogue');
+    openInNewTab('/doc?path=a.md#one');
     const tabs = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs as { key: string; address: string }[];
-    const catalogue = tabs.find((tab) => tab.address === '/k/catalogue')!;
-    const doc = tabs.find((tab) => tab.address === '/k/doc?path=a.md#one')!;
+    const catalogue = tabs.find((tab) => tab.address === '/catalogue')!;
+    const doc = tabs.find((tab) => tab.address === '/doc?path=a.md#one')!;
     // The current document links to a catalogue already held in another tab.
-    linkHandlers('/k/catalogue').onClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
+    linkHandlers('/catalogue').onClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
     expect(frontTab().key).toBe(catalogue.key);
     // Back to another section of the same document: its own tab comes forward and names where the window is now.
-    window.history.pushState({}, '', '/k/doc?path=a.md#two');
+    window.history.pushState({}, '', '/doc?path=a.md#two');
     window.dispatchEvent(new Event('popstate'));
     expect(frontTab().key).toBe(doc.key);
-    expect(frontTab().address).toBe('/k/doc?path=a.md#two');
+    expect(frontTab().address).toBe('/doc?path=a.md#two');
     // Forward, to the catalogue again.
-    window.history.pushState({}, '', '/k/catalogue');
+    window.history.pushState({}, '', '/catalogue');
     window.dispatchEvent(new Event('popstate'));
     expect(frontTab().key).toBe(catalogue.key);
-    expect(frontTab().address).toBe('/k/catalogue');
+    expect(frontTab().address).toBe('/catalogue');
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
   });
 
   test('a plain click on a link to a page another tab holds focuses that tab; another section of an open document is the same page', () => {
-    openInNewTab('/k/catalogue');
-    openInNewTab('/k/doc?path=a.md');
+    openInNewTab('/catalogue');
+    openInNewTab('/doc?path=a.md');
     const catalogue = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs[1].key as string;
     const link = document.createElement('a');
-    const handlers = linkHandlers('/k/catalogue');
+    const handlers = linkHandlers('/catalogue');
     link.addEventListener('click', (event) => handlers.onClick(event as never));
     document.body.append(link);
     link.click();
     link.remove();
     expect(frontTab().key).toBe(catalogue);
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
-    openInNewTab('/k/doc?path=a.md#section');
-    expect(frontTab().address).toBe('/k/doc?path=a.md#section');
+    openInNewTab('/doc?path=a.md#section');
+    expect(frontTab().address).toBe('/doc?path=a.md#section');
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
     // Another section of the document in front: the tab and the window name it.
-    openInNewTab('/k/doc?path=a.md#other');
-    expect(frontTab().address).toBe('/k/doc?path=a.md#other');
+    openInNewTab('/doc?path=a.md#other');
+    expect(frontTab().address).toBe('/doc?path=a.md#other');
     expect(window.location.hash).toBe('#other');
   });
 
@@ -356,10 +356,10 @@ describe('the tabs', () => {
     const container = into(createElement('div', null, createElement(TabBar), createElement(Page)));
     await until(() => frontTab().title === 'Home page', 'the title');
     const shown = (): string => container.querySelector('[data-testid=tab][data-active=true]')!.textContent ?? '';
-    window.history.pushState({}, '', '/k/catalogue');
+    window.history.pushState({}, '', '/catalogue');
     window.dispatchEvent(new Event('popstate'));
     // The window moved: the tab names where it is now, so its title is the loading one until the mounted page names it again.
-    await until(() => frontTab().address === '/k/catalogue', 'the move');
+    await until(() => frontTab().address === '/catalogue', 'the move');
     await until(() => frontTab().title === 'Home page', 'the title written again');
     expect(shown()).toContain('Home page');
     expect(shown()).not.toMatch(/Loading|Загрузка/);
@@ -367,69 +367,69 @@ describe('the tabs', () => {
 
   test('a tab is switched to and closed; the neighbour comes to the front; the last tab stays', async () => {
     const container = into(createElement(TabBar));
-    openInNewTab('/k/catalogue');
-    openInNewTab('/k/docs');
+    openInNewTab('/catalogue');
+    openInNewTab('/docs');
     await until(() => container.querySelectorAll('[data-testid=tab]').length === 3, 'three tabs');
     setTabTitle(frontTab().key, 'Documents');
     await until(() => container.textContent!.includes('Documents'), 'the title');
     const tabs = [...container.querySelectorAll<HTMLElement>('[data-testid=tab] [role=tab]')];
     tabs[0]!.click();
-    expect(window.location.pathname).toBe('/k');
+    expect(window.location.pathname).toBe('/');
     await until(() => container.querySelector('[data-active=true] [role=tab]')!.textContent !== 'Documents', 'the first tab in front');
     (container.querySelectorAll('[data-testid=tab-close]')[0] as HTMLElement).click();
     await until(() => container.querySelectorAll('[data-testid=tab]').length === 2, 'two tabs');
-    expect(frontTab().address).toBe('/k/catalogue');
+    expect(frontTab().address).toBe('/catalogue');
     closeTab(frontTab().key);
     closeTab(frontTab().key);
     await until(() => container.querySelectorAll('[data-testid=tab]').length === 1, 'one tab left');
     expect(container.querySelector('[data-testid=tab-close]')).toBeNull();
-    expect(frontTab().address).toBe('/k/docs');
+    expect(frontTab().address).toBe('/docs');
   });
 
   test('a plain click shows the page in the tab in front; a control click or a middle click opens a new tab', async () => {
     // The tab bar is what listens to the window's moves.
     const container = into(createElement(TabBar));
     await until(() => container.querySelector('[data-testid=tab]') !== null, 'the tab bar');
-    const handlers = linkHandlers('/k/catalogue');
+    const handlers = linkHandlers('/catalogue');
     const click = (init: { ctrlKey?: boolean; button?: number }, via: 'onClick' | 'onAuxClick' = 'onClick'): void => {
       handlers[via]({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, ...init, preventDefault: () => undefined } as never);
     };
     click({});
-    expect(frontTab().address).toBe('/k/catalogue');
+    expect(frontTab().address).toBe('/catalogue');
     activateTab(frontTab().key);
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.length).toBe(1);
     click({ ctrlKey: true });
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.length).toBe(1);
     // the address is the front tab's: a ctrl click on a different address opens a second tab
-    linkHandlers('/k/docs').onClick({ shiftKey: false, altKey: false, ctrlKey: true, metaKey: false, button: 0, preventDefault: () => undefined } as never);
-    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/k/catalogue', '/k/docs']);
-    linkHandlers('/k/e/x').onAuxClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 1, preventDefault: () => undefined } as never);
-    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/k/catalogue', '/k/docs', '/k/e/x']);
+    linkHandlers('/docs').onClick({ shiftKey: false, altKey: false, ctrlKey: true, metaKey: false, button: 0, preventDefault: () => undefined } as never);
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/catalogue', '/docs']);
+    linkHandlers('/e/x').onAuxClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 1, preventDefault: () => undefined } as never);
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/catalogue', '/docs', '/e/x']);
     // shift is the browser's: nothing changes
-    linkHandlers('/k/other').onClick({ shiftKey: true, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
+    linkHandlers('/other').onClick({ shiftKey: true, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.length).toBe(3);
   });
 
   test('the back button moves the tab in front to the page the window is on, and a link to a section of the same page is remembered by its tab', async () => {
     const container = into(createElement(TabBar));
     await until(() => container.querySelector('[data-testid=tab]') !== null, 'the tab bar');
-    window.history.pushState({}, '', '/k/docs');
+    window.history.pushState({}, '', '/docs');
     window.dispatchEvent(new Event('popstate'));
-    await until(() => frontTab().address === '/k/docs', 'the tab following the window');
-    window.history.pushState({}, '', '/k/doc?path=a.md#one');
+    await until(() => frontTab().address === '/docs', 'the tab following the window');
+    window.history.pushState({}, '', '/doc?path=a.md#one');
     window.dispatchEvent(new Event('popstate'));
-    expect(frontTab().address).toBe('/k/doc?path=a.md#one');
+    expect(frontTab().address).toBe('/doc?path=a.md#one');
     // A link to another section of the document moves the hash without a move of the page.
-    window.history.replaceState({}, '', '/k/doc?path=a.md#two');
+    window.history.replaceState({}, '', '/doc?path=a.md#two');
     syncFrontTabAddress();
-    expect(frontTab().address).toBe('/k/doc?path=a.md#two');
-    openInNewTab('/k/catalogue');
+    expect(frontTab().address).toBe('/doc?path=a.md#two');
+    openInNewTab('/catalogue');
     activateTab(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs[0].key);
-    expect(window.location.pathname + window.location.search + window.location.hash).toBe('/k/doc?path=a.md#two');
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe('/doc?path=a.md#two');
     // Back: the window returns to the earlier page and the tab in front shows it.
-    window.history.replaceState({}, '', '/k/docs');
+    window.history.replaceState({}, '', '/docs');
     window.dispatchEvent(new Event('popstate'));
-    await until(() => frontTab().address === '/k/docs', 'the tab after back');
+    await until(() => frontTab().address === '/docs', 'the tab after back');
   });
 });
 
@@ -491,7 +491,7 @@ describe('the navigation by group', () => {
 describe('the catalogue', () => {
   /** The catalogue's own request answered by a stub, as the server sends it. */
   const answer = (catalog: CatalogView): void => {
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/k/catalog')
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/catalog')
       ? new Response(JSON.stringify(catalog))
       : new Response('{}', { status: 404 });
   };
@@ -518,7 +518,7 @@ describe('the catalogue', () => {
     const groups = [...container.querySelectorAll('[data-testid=catalogue-group]')].map((section) => section.getAttribute('data-group'));
     expect(groups).toEqual(['code', 'history']);
     const row = container.querySelector('[data-kind="code.file"]')!;
-    expect(row.querySelector('a')!.getAttribute('href')).toBe('/k/kind/code.file');
+    expect(row.querySelector('a')!.getAttribute('href')).toBe('/kind/code.file');
     expect(row.querySelector('a')!.textContent).toBe('Files');
     expect(row.textContent).toContain('A file of a code repository.');
     expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('1159 statements');
@@ -594,8 +594,8 @@ describe('the catalogue', () => {
 
 describe('the reasons a row stands in a list', () => {
   const refs: Block = { type: 'refs', title: 'Linked from', total: 2, rows: [
-    { entity: { id: 'domain:payment', kind: 'domain', label: 'Payment', href: '/k/e/domain%3Apayment' }, note: '3 statements grounded in it', noteKey: 'statements', noteArgs: { count: 3 } },
-    { entity: { id: 'doc:x#L4', kind: 'document', label: 'docs/x.md:4', href: '/k/doc?path=docs%2Fx.md' }, note: 'see UC-2 for the payment' },
+    { entity: { id: 'domain:payment', kind: 'domain', label: 'Payment', href: '/e/domain%3Apayment' }, note: '3 statements grounded in it', noteKey: 'statements', noteArgs: { count: 3 } },
+    { entity: { id: 'doc:x#L4', kind: 'document', label: 'docs/x.md:4', href: '/doc?path=docs%2Fx.md' }, note: 'see UC-2 for the payment' },
   ] };
 
   test('a reason that has a key is said in the reader\'s language and a quotation from a document is shown as it is', async () => {
@@ -617,7 +617,7 @@ describe('the reasons a row stands in a list', () => {
 
 describe('the statement view', () => {
   const statement: StatementModel = {
-    page: { id: 'domain:payment', kind: 'domain', label: 'Payment', href: '/k/e/domain%3Apayment' },
+    page: { id: 'domain:payment', kind: 'domain', label: 'Payment', href: '/e/domain%3Apayment' },
     name: 'checkout-asks-payments-authorize',
     sentence: 'Checkout asks payments to authorize the card for the order total.',
     paragraph: 'Checkout asks payments to authorize the card for the order total.',
@@ -626,15 +626,15 @@ describe('the statement view', () => {
     grounded: true,
     relying: [],
     grounds: [
-      { url: 'madarch:doc:docs/requirements.md#uc-2', resolution: { state: 'ok', target: 'madarch:doc:docs/requirements.md#uc-2', kind: 'doc.use-case', label: 'UC-2 Pay', href: '/k/e/doc%3Adocs%2Frequirements.md%23uc-2', entity: 'doc:docs/requirements.md#uc-2' }, excerpt: { type: 'text', markdown: '**UC-2 Pay**\n\nCheckout asks payments to authorize the card.', place: { repo: null, path: 'docs/requirements.md', lineStart: 9, lineEnd: 12, href: '/k/doc?path=docs%2Frequirements.md#uc-2' } } },
-      { url: 'madarch:code.symbol:a.ts#pay', resolution: { state: 'ok', target: 'x', kind: 'code.symbol', label: 'PaymentService.pay', href: '/k/e/code.symbol%3Aa.ts%23pay' }, excerpt: { type: 'code', location: { repo: 'shop', path: 'a.ts', lineStart: 4, lineEnd: 6, href: '/k/src?repo=shop&path=a.ts&line=4' }, language: 'typescript', firstLine: 2, text: 'const a = 1;\n\nasync pay() {\n  return 1;\n}\n\nconst b = 2;', marked: { start: 4, end: 6 }, truncated: false } },
+      { url: 'madarch:doc:docs/requirements.md#uc-2', resolution: { state: 'ok', target: 'madarch:doc:docs/requirements.md#uc-2', kind: 'doc.use-case', label: 'UC-2 Pay', href: '/e/doc%3Adocs%2Frequirements.md%23uc-2', entity: 'doc:docs/requirements.md#uc-2' }, excerpt: { type: 'text', markdown: '**UC-2 Pay**\n\nCheckout asks payments to authorize the card.', place: { repo: null, path: 'docs/requirements.md', lineStart: 9, lineEnd: 12, href: '/doc?path=docs%2Frequirements.md#uc-2' } } },
+      { url: 'madarch:code.symbol:a.ts#pay', resolution: { state: 'ok', target: 'x', kind: 'code.symbol', label: 'PaymentService.pay', href: '/e/code.symbol%3Aa.ts%23pay' }, excerpt: { type: 'code', location: { repo: 'shop', path: 'a.ts', lineStart: 4, lineEnd: 6, href: '/src?repo=shop&path=a.ts&line=4' }, language: 'typescript', firstLine: 2, text: 'const a = 1;\n\nasync pay() {\n  return 1;\n}\n\nconst b = 2;', marked: { start: 4, end: 6 }, truncated: false } },
       { url: 'madarch:code.symbol:a.ts#gone', resolution: { state: 'broken', target: 'x', reason: 'no entity "code.symbol:a.ts#gone" in the graph', why: { code: 'no-entity', key: 'code.symbol:a.ts#gone' } }, excerpt: null },
     ],
     resolutions: {},
   };
 
   function answer(model: StatementModel): void {
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/k/statement') ? new Response(JSON.stringify(model)) : new Response('{}', { status: 404 }));
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/statement') ? new Response(JSON.stringify(model)) : new Response('{}', { status: 404 }));
   }
 
   test('the sentence, its paragraph and every ground with its excerpt: the use case\'s text, the lines of code with the cited ones marked, and a broken ground with its reason', async () => {
@@ -658,20 +658,20 @@ describe('the statement view', () => {
   });
 
   test('a ground that is a service is a card with its facts, what it is connected to and its page; no code is drawn', async () => {
-    const card: StatementModel = { ...statement, grounds: [{ url: 'madarch:code.service:payments', resolution: { state: 'ok', target: 'x', kind: 'code.service', label: 'payments', href: '/k/e/code.service%3Apayments' }, excerpt: { type: 'entity', entity: { id: 'code.service:payments', kind: 'code.service', label: 'payments', href: '/k/e/code.service%3Apayments' }, facts: [{ name: 'language', value: 'typescript' }], related: [{ relation: 'code.serves', direction: 'out', total: 7, rows: [{ entity: { id: 'code.route:POST:/payments', kind: 'code.route', label: 'POST /payments', href: null }, count: 1 }] }] } }] };
+    const card: StatementModel = { ...statement, grounds: [{ url: 'madarch:code.service:payments', resolution: { state: 'ok', target: 'x', kind: 'code.service', label: 'payments', href: '/e/code.service%3Apayments' }, excerpt: { type: 'entity', entity: { id: 'code.service:payments', kind: 'code.service', label: 'payments', href: '/e/code.service%3Apayments' }, facts: [{ name: 'language', value: 'typescript' }], related: [{ relation: 'code.serves', direction: 'out', total: 7, rows: [{ entity: { id: 'code.route:POST:/payments', kind: 'code.route', label: 'POST /payments', href: null }, count: 1 }] }] } }] };
     answer(card);
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
     await until(() => container.querySelector('[data-excerpt=entity]') !== null, 'the card');
     const shown = container.querySelector('[data-excerpt=entity]')!;
     expect(shown.querySelector('[data-testid=card-facts]')!.textContent).toContain('typescript');
     expect(shown.querySelector('[data-testid=card-related]')!.textContent).toContain('POST /payments');
-    expect(shown.querySelector('[data-testid=card-page] a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
+    expect(shown.querySelector('[data-testid=card-page] a')!.getAttribute('href')).toBe('/e/code.service%3Apayments');
     expect(container.querySelector('[data-excerpt=code]')).toBeNull();
     expect(container.textContent).not.toContain('package.json');
   });
 
   test('a code place that has a web address offers it, named by the host; one without offers none', async () => {
-    const withWeb: StatementModel = { ...statement, grounds: [{ ...statement.grounds[1]!, excerpt: { ...(statement.grounds[1]!.excerpt as Extract<NonNullable<StatementModel['grounds'][number]['excerpt']>, { type: 'code' }>), location: { repo: 'shop', path: 'a.ts', lineStart: 4, lineEnd: 6, href: '/k/src?repo=shop&path=a.ts&line=4', web: { host: 'GitHub', url: `${PAGE_HOST}/blob/abc/a.ts#L4-L6` } } } }] };
+    const withWeb: StatementModel = { ...statement, grounds: [{ ...statement.grounds[1]!, excerpt: { ...(statement.grounds[1]!.excerpt as Extract<NonNullable<StatementModel['grounds'][number]['excerpt']>, { type: 'code' }>), location: { repo: 'shop', path: 'a.ts', lineStart: 4, lineEnd: 6, href: '/src?repo=shop&path=a.ts&line=4', web: { host: 'GitHub', url: `${PAGE_HOST}/blob/abc/a.ts#L4-L6` } } } }] };
     answer(withWeb);
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
     await until(() => container.querySelector('[data-testid=web-place]') !== null, 'the web link');
@@ -693,17 +693,17 @@ describe('the statement view', () => {
     const row = container.querySelector('[data-testid=statement-relying] tbody tr')!;
     expect(row.textContent).toContain('Online shop');
     expect(row.textContent).toContain('UC-2 Pay');
-    expect(row.querySelectorAll('a')[1]!.getAttribute('href')).toContain('/k/statement?id=product%3Ashop');
+    expect(row.querySelectorAll('a')[1]!.getAttribute('href')).toContain('/statement?id=product%3Ashop');
   });
 
   test('a person says why the statement is wrong: the reason is posted against the statement\'s name, and the answer says where it was saved', async () => {
     const posts: string[] = [];
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (url.includes('/api/k/correction')) {
+      if (url.includes('/api/correction')) {
         posts.push(String(init?.body));
         return new Response(JSON.stringify({ correction: 'c', id: 'correction:c', file: 'docs/corrections/c.md', committed: true, by: { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:00:00.000Z' }), { status: 201 });
       }
-      return url.includes('/api/k/statement') ? new Response(JSON.stringify(statement)) : new Response('{}', { status: 404 });
+      return url.includes('/api/statement') ? new Response(JSON.stringify(statement)) : new Response('{}', { status: 404 });
     };
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
     await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
@@ -755,7 +755,7 @@ describe('the statement view', () => {
 describe('the sources', () => {
   test('each source shows its title with the path small under it; the filter matches either', async () => {
     const listing: DocumentListing = { documents: [{ repo: null, path: 'docs/vision.md', title: 'The vision' }, { repo: null, path: 'notes/ideas.md', title: 'ideas' }], truncated: [] };
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/k/documents') ? new Response(JSON.stringify(listing)) : new Response('{}', { status: 404 }));
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/documents') ? new Response(JSON.stringify(listing)) : new Response('{}', { status: 404 }));
     const container = into(createElement(DocumentsPage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=documents-page]') !== null, 'the page');
     expect(container.querySelector('h1')!.textContent).toBe('Sources');
@@ -783,13 +783,13 @@ describe('every route names its tab', () => {
   /** The shapes the shell asks for on every page, and the one page a route reads when `page` is given. */
   const serve = (state: WikiStatus, page: unknown | null = null, pending: Promise<Response> | null = null): void => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/status')) return json(state);
-      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
-      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
-      if (url.includes('/api/k/page')) return pending ?? (page === null ? json({ message: 'no page' }, 404) : json(page));
-      if (url.includes('/api/k/view')) return json({ renderer: 'mermaid', views: [] });
+      if (url.endsWith('/api/status')) return json(state);
+      if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.includes('/api/page')) return pending ?? (page === null ? json({ message: 'no page' }, 404) : json(page));
+      if (url.includes('/api/view')) return json({ renderer: 'mermaid', views: [] });
       return json({ message: 'not here' }, 404);
     };
   };
@@ -797,32 +797,32 @@ describe('every route names its tab', () => {
 
   const routes: { address: string; selector: string; expected?: string; state?: WikiStatus; page?: unknown }[] = [
     // The home of an empty product (the owner's case): the introduction, and the product's name on the tab.
-    { address: '/k', selector: '[data-testid=overview]', expected: 'shop', state: status({ filled: false, home: null, repositories: [{ name: 'shop', filled: false }] }) },
+    { address: '/', selector: '[data-testid=overview]', expected: 'shop', state: status({ filled: false, home: null, repositories: [{ name: 'shop', filled: false }] }) },
     // A filled home whose page the server names.
-    { address: '/k', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
+    { address: '/', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
     // A filled home that is its repository's page (the demo's shape).
-    { address: '/k', selector: '[data-testid=repository-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }) },
-    { address: '/k/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
-    { address: '/k/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
-    { address: '/k/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
-    { address: '/k/src?repo=shop&path=a.ts&line=2', selector: '[data-testid=source-error]', expected: 'a.ts' },
-    { address: '/k/folder?path=docs', selector: '[data-testid=repository-refused]', expected: 'docs' },
-    { address: '/k/file?path=docs/x.md', selector: '[data-testid=entity-page]', expected: 'docs/x.md', page: pageModel('code.file:docs/x.md', 'docs/x.md') },
-    { address: '/k/commit?hash=abc123', selector: '[data-testid=repository-refused]', expected: 'abc123' },
-    { address: '/k/run', selector: '[data-testid=repository-refused]', expected: 'The run' },
-    { address: '/k/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },
-    { address: '/k/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
-    { address: '/k/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },
-    { address: '/k/glossary', selector: '[data-testid=glossary-page]', expected: 'Glossary' },
-    { address: '/k/questions', selector: '[data-testid=questions-error]', expected: 'Questions' },
-    { address: '/k/questions/missing', selector: '[data-testid=question-error]', expected: 'There is no such question' },
-    { address: '/k/problems', selector: '[data-testid=problems-error]', expected: 'Problems' },
-    { address: '/k/settings', selector: '[data-testid=settings-error]', expected: 'Product settings' },
-    { address: '/k/journal?id=product%3Ashop', selector: '[data-testid=journal-error]', expected: 'How the agent wrote this page' },
-    { address: '/k/fill', selector: '[data-testid=fill-page]', expected: 'Fill' },
-    { address: '/k/tasks', selector: '[data-testid=tasks-error]', expected: 'Tasks' },
-    { address: '/k/task?id=t1', selector: '[data-testid=task-page-error]', expected: 'The tasks could not be read' },
-    { address: '/k/statement?id=product%3Ashop&sentence=The%20shop%20takes%20orders', selector: '[data-testid=statement-error]', expected: 'The shop takes orders' },
+    { address: '/', selector: '[data-testid=repository-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }) },
+    { address: '/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
+    { address: '/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
+    { address: '/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
+    { address: '/src?repo=shop&path=a.ts&line=2', selector: '[data-testid=source-error]', expected: 'a.ts' },
+    { address: '/folder?path=docs', selector: '[data-testid=repository-refused]', expected: 'docs' },
+    { address: '/file?path=docs/x.md', selector: '[data-testid=entity-page]', expected: 'docs/x.md', page: pageModel('code.file:docs/x.md', 'docs/x.md') },
+    { address: '/commit?hash=abc123', selector: '[data-testid=repository-refused]', expected: 'abc123' },
+    { address: '/run', selector: '[data-testid=repository-refused]', expected: 'The run' },
+    { address: '/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },
+    { address: '/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
+    { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },
+    { address: '/glossary', selector: '[data-testid=glossary-page]', expected: 'Glossary' },
+    { address: '/questions', selector: '[data-testid=questions-error]', expected: 'Questions' },
+    { address: '/questions/missing', selector: '[data-testid=question-error]', expected: 'There is no such question' },
+    { address: '/problems', selector: '[data-testid=problems-error]', expected: 'Problems' },
+    { address: '/settings', selector: '[data-testid=settings-error]', expected: 'Product settings' },
+    { address: '/journal?id=product%3Ashop', selector: '[data-testid=journal-error]', expected: 'How the agent wrote this page' },
+    { address: '/fill', selector: '[data-testid=fill-page]', expected: 'Fill' },
+    { address: '/tasks', selector: '[data-testid=tasks-error]', expected: 'Tasks' },
+    { address: '/task?id=t1', selector: '[data-testid=task-page-error]', expected: 'The tasks could not be read' },
+    { address: '/statement?id=product%3Ashop&sentence=The%20shop%20takes%20orders', selector: '[data-testid=statement-error]', expected: 'The shop takes orders' },
   ];
 
   for (const route of routes) {
@@ -845,7 +845,7 @@ describe('every route names its tab', () => {
     let answer!: (response: Response) => void;
     const held = new Promise<Response>((resolve) => { answer = resolve; });
     serve(status({ home: 'product:shop', filled: true }), null, held);
-    window.history.replaceState({}, '', '/k');
+    window.history.replaceState({}, '', '/');
     const container = into(createElement(AppRoot));
     await until(() => container.querySelector('[data-testid=tab][data-active=true]') !== null, 'the tab bar');
     await until(() => activeTab(container) === loading(), 'the loading name');

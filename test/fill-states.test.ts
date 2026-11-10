@@ -43,11 +43,11 @@ const json = async (server: StartedServer, productName: string, path: string): P
 
 /** Presses the fill and follows the status while it runs, answering every answer it saw. */
 async function press(server: StartedServer, name: string): Promise<Record<string, unknown>[]> {
-  const pressed = await fetch(`${server.url}/products/${name}/api/k/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
+  const pressed = await fetch(`${server.url}/products/${name}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
   expect(pressed.status).toBe(202);
   const seen: Record<string, unknown>[] = [];
   for (let attempt = 0; attempt < 1200; attempt++) {
-    const status = await json(server, name, '/api/k/status');
+    const status = await json(server, name, '/api/status');
     seen.push(status.body);
     const fill = status.body['fill'] as Record<string, unknown>;
     if (fill['state'] !== 'running') return seen;
@@ -80,7 +80,7 @@ describe('the fill states', () => {
     });
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
-      const empty = await json(server, 'states', '/api/k/status');
+      const empty = await json(server, 'states', '/api/status');
       expect((empty.body['fill'] as Record<string, unknown>)['state']).toBe('idle');
       expect(empty.body['filled']).toBe(false);
 

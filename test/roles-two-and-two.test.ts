@@ -85,13 +85,13 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
   test('one press fills the product once, every unit publishes once, and both api instances answer from it', async () => {
     const base = (instance: StartedServer): string => `${instance.url}/products/shop`;
     // The wiki is open before the press, as a reader's browser has it: a page that the fill has not written yet answers 404.
-    for (const path of ['/api/k/status', '/api/k/entities?kind=code.file&limit=100', `/api/k/page?id=${encodeURIComponent(PAY)}`]) {
+    for (const path of ['/api/status', '/api/entities?kind=code.file&limit=100', `/api/page?id=${encodeURIComponent(PAY)}`]) {
       const response = await fetch(base(api[0]!) + path);
       const body = await response.text();
       expect([200, 404], `${path}: ${body}`).toContain(response.status);
     }
     // The press goes to the first api instance; the fill is claimed by one of the two fill processes.
-    const press = await fetch(`${base(api[0]!)}/api/k/fill`, { method: 'POST' });
+    const press = await fetch(`${base(api[0]!)}/api/fill`, { method: 'POST' });
     expect(press.status).toBe(202);
     const started = Date.now();
     // The other instance answers "idle" until the fill process has written the run: the press answers before the run
@@ -100,7 +100,7 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     while (state !== 'done' && state !== 'failed' && Date.now() - started < 600_000) {
       await new Promise((rest) => setTimeout(rest, 250));
       // The second api instance answers the status: the fill's state is the store's, not the pressing process's.
-      const status = await (await fetch(`${base(api[1]!)}/api/k/status`)).json() as { fill: { state: string } };
+      const status = await (await fetch(`${base(api[1]!)}/api/status`)).json() as { fill: { state: string } };
       state = status.fill.state;
     }
     expect(state, `the fill did not end within 10 minutes: ${JSON.stringify(state)}`).toBe('done');
@@ -123,14 +123,14 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // Both api instances answer the pages the fill published, and they answer the same thing: the pages themselves are
     // identical byte for byte, and the status answers the same kinds and repository (the moment each process learned of
     // the run is its own, so the fill's own timestamps are not compared).
-    for (const path of ['/api/k/entities?kind=code.file&limit=100', '/api/k/entities?kind=code.symbol&limit=100', '/api/k/documents']) {
+    for (const path of ['/api/entities?kind=code.file&limit=100', '/api/entities?kind=code.symbol&limit=100', '/api/documents']) {
       const first = await fetch(base(api[0]!) + path);
       const second = await fetch(base(api[1]!) + path);
       expect(first.status, path).toBe(200);
       expect(second.status, path).toBe(200);
       expect(await first.text(), path).toBe(await second.text());
     }
-    const statuses = await Promise.all(api.map(async (instance) => await (await fetch(`${base(instance)}/api/k/status`)).json() as { fill: { state: string }; kinds: unknown; repository: unknown }));
+    const statuses = await Promise.all(api.map(async (instance) => await (await fetch(`${base(instance)}/api/status`)).json() as { fill: { state: string }; kinds: unknown; repository: unknown }));
     for (const status of statuses) expect(status.fill.state).toBe('done');
     expect(statuses[1]!.kinds).toEqual(statuses[0]!.kinds);
     expect(statuses[1]!.repository).toEqual(statuses[0]!.repository);

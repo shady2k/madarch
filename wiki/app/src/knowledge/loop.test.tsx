@@ -10,7 +10,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { PlanList, ProblemsPage, QuestionPage, QuestionsPage } from './loop.js';
-import { addressOfQuestion, kRouteOf } from './routes.js';
+import { addressOfQuestion, wikiRouteOf } from './routes.js';
 import type { Problem, ProblemCategories, ProblemCategory, ProblemItems, ProblemSources, QuestionDetail, QuestionListing, QuestionRow, RefreshPlan } from './types.js';
 
 type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
@@ -68,10 +68,10 @@ const detail = (state: QuestionRow['state'], extra: Partial<QuestionDetail> = {}
   answer: state === 'open' ? null : { text: 'Ten percent for every order.', by: ADA, at: '2026-10-23T11:00:00.000Z' },
   resolvedAt: state === 'closed' ? '2026-10-23T12:00:00.000Z' : null,
   resolutions: {
-    'doc:README.md#discounts': { state: 'ok', target: 'madarch:doc:README.md#discounts', kind: 'document', label: 'README.md#discounts', href: '/k/doc?path=README.md#discounts' },
-    'code.symbol\u003asrc/pricing.ts#discountFor': { state: 'ok', target: 'x', kind: 'code.symbol', label: 'discountFor', href: null, location: { repo: 'shop', path: 'src/pricing.ts', lineStart: 1, lineEnd: 3, href: '/k/src?repo=shop&path=src%2Fpricing.ts&line=1' } },
+    'doc:README.md#discounts': { state: 'ok', target: 'madarch:doc:README.md#discounts', kind: 'document', label: 'README.md#discounts', href: '/doc?path=README.md#discounts' },
+    'code.symbol\u003asrc/pricing.ts#discountFor': { state: 'ok', target: 'x', kind: 'code.symbol', label: 'discountFor', href: null, location: { repo: 'shop', path: 'src/pricing.ts', lineStart: 1, lineEnd: 3, href: '/src?repo=shop&path=src%2Fpricing.ts&line=1' } },
     'code.file\u003asrc/gone.ts': { state: 'broken', target: 'x', reason: 'no entity "code.file\u003asrc/gone.ts" in the graph' },
-    'domain:orders': { state: 'ok', target: 'x', kind: 'domain', label: 'Orders', href: '/k/e/domain%3Aorders' },
+    'domain:orders': { state: 'ok', target: 'x', kind: 'domain', label: 'Orders', href: '/e/domain%3Aorders' },
   },
   ...extra,
 });
@@ -90,11 +90,11 @@ describe('the questions page', () => {
     const rows = [...page.querySelectorAll('[data-testid=question-row]')];
     expect(rows.map((r) => r.getAttribute('data-question'))).toEqual(['a-open', 'b-open', 'c-answered', 'd-closed']);
     expect(rows[1]!.textContent).toContain('Ambiguous term');
-    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/questions/a-open');
+    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/questions/a-open');
     expect(rows[0]!.textContent).toContain('Asked while writing');
     expect(rows[2]!.textContent).toContain('the next refresh uses the answer');
     expect(rows[3]!.textContent).toContain('closed by');
-    expect(rows[3]!.querySelector('a[href="/k/e/domain%3Aorders"]')).not.toBeNull();
+    expect(rows[3]!.querySelector('a[href="/e/domain%3Aorders"]')).not.toBeNull();
   });
 
   test('no questions says when the agent asks one; files that could not be read are named, never left out', async () => {
@@ -129,7 +129,7 @@ describe('a question\'s page', () => {
     expect(sides.every((side) => side.classList.contains('min-w-0'))).toBe(true);
     expect(sides[0]!.parentElement!.classList.contains('[overflow-wrap:anywhere]')).toBe(true);
     expect(sides.map((side) => side.querySelector('p')!.textContent)).toEqual(['The README says every order gets ten percent.', 'The code applies the percentage its caller passes.']);
-    expect(sides[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/doc?path=README.md#discounts');
+    expect(sides[0]!.querySelector('a')!.getAttribute('href')).toBe('/doc?path=README.md#discounts');
     expect(sides[1]!.querySelector('[data-testid=code-place]')!.textContent).toBe('src/pricing.ts:1–3');
     expect(sides[1]!.querySelector('[data-testid=ref-broken]')!.getAttribute('title')).toBe('no entity "code.file\u003asrc/gone.ts" in the graph');
     expect(page.querySelector('[data-testid=question-affects]')!.textContent).toContain('Orders'.toLowerCase());
@@ -142,7 +142,7 @@ describe('a question\'s page', () => {
     let refused = true;
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
-      if (url.endsWith('/api/k/answer')) {
+      if (url.endsWith('/api/answer')) {
         if (refused) { refused = false; return json({ error: { message: 'git has no user.name for /product, so the wiki cannot say who wrote this' } }, 409); }
         return json({ question: 'discount-percentage', state: 'answered', committed: false, note: 'the file was written but git could not commit it', by: ADA, at: '2026-10-23T11:00:00.000Z' });
       }
@@ -163,7 +163,7 @@ describe('a question\'s page', () => {
     (page.querySelector('[data-testid=answer-save]') as HTMLButtonElement).click();
     await until(() => page.querySelector('[data-testid=answer-refused]') !== null, 'the refusal');
     expect(page.querySelector('[data-testid=answer-refused]')!.textContent).toBe('Could not save the answer: git has no user.name for /product, so the wiki cannot say who wrote this');
-    expect(calls.at(-1)).toBe('POST /api/k/answer {"question":"discount-percentage","text":"Ten percent for every order."}');
+    expect(calls.at(-1)).toBe('POST /api/answer {"question":"discount-percentage","text":"Ten percent for every order."}');
     expect(refreshed).toBe(0);
     (page.querySelector('[data-testid=answer-save]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
@@ -188,7 +188,7 @@ describe('a question\'s page', () => {
     await until(() => page.querySelector('[data-testid=answer-closed]') !== null, 'the closed note');
     expect(page.querySelector('[data-testid=question-state]')!.textContent).toBe('Closed');
     expect(page.querySelector('[data-testid=answer-closed]')!.textContent).toContain('a refresh used this answer on');
-    expect(page.querySelector('[data-testid=answer-closed] a')!.getAttribute('href')).toBe('/k/e/domain%3Aorders');
+    expect(page.querySelector('[data-testid=answer-closed] a')!.getAttribute('href')).toBe('/e/domain%3Aorders');
   });
 
   test('a question that is not there says why', async () => {
@@ -224,8 +224,8 @@ describe('the problems page', () => {
       return start < 0 ? [] : rows.slice(start, start + 100);
     };
     return async (url: string, _init?: RequestInit): Promise<Response> => {
-      if (url.endsWith('/api/k/problem-task')) return json({ task: { slug: 'fix-security-sql-input', id: 'task:fix-security-sql-input', file: 'docs/tasks/fix-security-sql-input.md', title: 'Fix', status: 'open' }, state: 'created', committed: true });
-      if (url.endsWith('/api/k/problem-dismiss')) return json({ file: 'docs/problems/sql.md', committed: true });
+      if (url.endsWith('/api/problem-task')) return json({ task: { slug: 'fix-security-sql-input', id: 'task:fix-security-sql-input', file: 'docs/tasks/fix-security-sql-input.md', title: 'Fix', status: 'open' }, state: 'created', committed: true });
+      if (url.endsWith('/api/problem-dismiss')) return json({ file: 'docs/problems/sql.md', committed: true });
       const parsed = new URL(url, 'http://localhost');
       const rule = parsed.searchParams.get('rule');
       const source = parsed.searchParams.get('source');
@@ -332,12 +332,12 @@ describe('the problems page', () => {
       ...problem('sql-input', {
         reason: 'req.query.q reaches selectOrders, which builds SQL text by joining strings, and db.query runs that text as it is.',
         file: 'src/orders.ts', line: 35, page: null, pageTitle: null, statement: null, sentence: null,
-        place: { label: 'src/orders.ts:35', href: '/k/e/code.file%3Asrc%2Forders.ts', key: 'code.file:src/orders.ts' },
-        entity: { label: 'db.query', href: '/k/e/code.sql-sink%3Asrc%2Forders.ts%2335', key: 'code.sql-sink:src/orders.ts#35' },
+        place: { label: 'src/orders.ts:35', href: '/e/code.file%3Asrc%2Forders.ts', key: 'code.file:src/orders.ts' },
+        entity: { label: 'db.query', href: '/e/code.sql-sink%3Asrc%2Forders.ts%2335', key: 'code.sql-sink:src/orders.ts#35' },
         evidence: [
-          { label: 'req.query.q', href: '/k/e/code.input%3Areq.query.q', key: 'code.input:req.query.q' },
-          { label: 'selectOrders', href: '/k/e/code.sql-build%3Asrc%2Forders.ts%2330', key: 'code.sql-build:src/orders.ts#30' },
-          { label: 'db.query', href: '/k/e/code.sql-sink%3Asrc%2Forders.ts%2335', key: 'code.sql-sink:src/orders.ts#35' },
+          { label: 'req.query.q', href: '/e/code.input%3Areq.query.q', key: 'code.input:req.query.q' },
+          { label: 'selectOrders', href: '/e/code.sql-build%3Asrc%2Forders.ts%2330', key: 'code.sql-build:src/orders.ts#30' },
+          { label: 'db.query', href: '/e/code.sql-sink%3Asrc%2Forders.ts%2335', key: 'code.sql-sink:src/orders.ts#35' },
         ],
       }),
       id: 'security.sql-input\u0000code.sql-sink:src/orders.ts#35\u0000code.sql-build:src/orders.ts#30',
@@ -345,19 +345,19 @@ describe('the problems page', () => {
     };
     const documents: Problem = {
       ...problem('document-contradiction', { id: 'd1', reason: 'The README says ten percent; the code applies what its caller passes.', file: 'docs/questions/discount-percentage.md', line: 1 }),
-      place: { label: 'docs/questions/discount-percentage.md:1', href: '/k/src?path=docs%2Fquestions%2Fdiscount-percentage.md&line=1', key: null }, entity: { label: 'Which discount?', href: '/k/questions/discount-percentage', key: 'question:discount' },
-      evidence: [{ label: 'Which discount?', href: '/k/questions/discount-percentage', key: 'question:discount' }],
+      place: { label: 'docs/questions/discount-percentage.md:1', href: '/src?path=docs%2Fquestions%2Fdiscount-percentage.md&line=1', key: null }, entity: { label: 'Which discount?', href: '/questions/discount-percentage', key: 'question:discount' },
+      evidence: [{ label: 'Which discount?', href: '/questions/discount-percentage', key: 'question:discount' }],
     };
     const wiki = problem('broken-link', {
       id: 'w1',
-      place: { label: 'domain:orders', href: '/k/e/domain%3Aorders', key: 'domain:orders' }, entity: { label: 'Orders', href: '/k/e/domain%3Aorders', key: 'domain:orders' },
+      place: { label: 'domain:orders', href: '/e/domain%3Aorders', key: 'domain:orders' }, entity: { label: 'Orders', href: '/e/domain%3Aorders', key: 'domain:orders' },
     });
     let dismissed = false;
     const calls: string[] = [];
     const base = serve([code, documents, wiki]);
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
-      if (url.endsWith('/api/k/problem-dismiss')) dismissed = true;
+      if (url.endsWith('/api/problem-dismiss')) dismissed = true;
       return await base(url, init);
     };
     let refreshed = 0;
@@ -370,7 +370,7 @@ describe('the problems page', () => {
     expect(row.querySelector('[data-testid=problem-sonar]')!.textContent).toBe('Vulnerability');
     expect(row.querySelector('[data-testid=problem-severity]')!.textContent).toBe('Blocker');
     expect(row.querySelector('[data-testid=problem-reason]')!.textContent).toContain('req.query.q reaches selectOrders');
-    expect(row.querySelector('[data-testid=problem-place] a')!.getAttribute('href')).toBe('/k/e/code.file%3Asrc%2Forders.ts');
+    expect(row.querySelector('[data-testid=problem-place] a')!.getAttribute('href')).toBe('/e/code.file%3Asrc%2Forders.ts');
     expect(row.querySelector('[data-testid=problem-place] a:nth-of-type(2)')!.textContent).toBe('db.query');
     expect([...row.querySelectorAll('[data-testid=problem-evidence] a')].map((link) => link.textContent)).toEqual(['req.query.q', 'selectOrders', 'db.query']);
     expect(row.querySelector('[data-testid=problem-evidence]')!.textContent).toStartWith('Evidence: req.query.q → selectOrders → db.query');
@@ -379,7 +379,7 @@ describe('the problems page', () => {
     (row.querySelector('[data-testid=problem-task]') as HTMLButtonElement).click();
     await until(() => row.querySelector('[data-testid=problem-done]') !== null, 'the created task');
     const problemId = 'security.sql-input\u0000code.sql-sink:src/orders.ts#35\u0000code.sql-build:src/orders.ts#30';
-    expect(calls.at(-1)).toBe(`POST /api/k/problem-task ${JSON.stringify({ id: problemId })}`);
+    expect(calls.at(-1)).toBe(`POST /api/problem-task ${JSON.stringify({ id: problemId })}`);
     expect(refreshed).toBe(1);
     (row.querySelector('[data-testid=problem-not-a-problem]') as HTMLButtonElement).click();
     await until(() => row.querySelector('[data-testid=problem-dismiss-reason]') !== null, 'the dismissal form');
@@ -390,7 +390,7 @@ describe('the problems page', () => {
     await until(() => !(row.querySelector('[data-testid=problem-dismiss-confirm]') as HTMLButtonElement).disabled, 'the enabled dismissal');
     (row.querySelector('[data-testid=problem-dismiss-confirm]') as HTMLButtonElement).click();
     await until(() => row.querySelector('[data-testid=problem-done]') !== null, 'the dismissal');
-    expect(calls.some((call) => call === `POST /api/k/problem-dismiss ${JSON.stringify({ id: problemId, reason: 'The query is built from a constant.' })}`)).toBe(true);
+    expect(calls.some((call) => call === `POST /api/problem-dismiss ${JSON.stringify({ id: problemId, reason: 'The query is built from a constant.' })}`)).toBe(true);
     expect(dismissed).toBe(true);
   });
 
@@ -452,12 +452,12 @@ describe('the refresh plan', () => {
 
 describe('the routes of the loop', () => {
   test('questions, a question and the problems have addresses; a question or a correction opened as an entity opens the loop\'s page', () => {
-    expect(kRouteOf('/k/questions')).toEqual({ name: 'questions' });
-    expect(kRouteOf('/k/questions/discount-percentage')).toEqual({ name: 'question', slug: 'discount-percentage' });
-    expect(kRouteOf('/k/problems')).toEqual({ name: 'problems' });
-    expect(kRouteOf('/k/e/question%3Adiscount-percentage')).toEqual({ name: 'question', slug: 'discount-percentage' });
-    expect(kRouteOf('/k/e/correction%3Ac')).toEqual({ name: 'problems' });
-    expect(kRouteOf('/k/e/domain%3Aorders')).toEqual({ name: 'entity', id: 'domain:orders' });
-    expect(addressOfQuestion('discount-percentage')).toBe('/k/questions/discount-percentage');
+    expect(wikiRouteOf('/questions')).toEqual({ name: 'questions' });
+    expect(wikiRouteOf('/questions/discount-percentage')).toEqual({ name: 'question', slug: 'discount-percentage' });
+    expect(wikiRouteOf('/problems')).toEqual({ name: 'problems' });
+    expect(wikiRouteOf('/e/question%3Adiscount-percentage')).toEqual({ name: 'question', slug: 'discount-percentage' });
+    expect(wikiRouteOf('/e/correction%3Ac')).toEqual({ name: 'problems' });
+    expect(wikiRouteOf('/e/domain%3Aorders')).toEqual({ name: 'entity', id: 'domain:orders' });
+    expect(addressOfQuestion('discount-percentage')).toBe('/questions/discount-percentage');
   });
 });

@@ -31,7 +31,7 @@ import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.j
  * every other browser request names its full method and URL and fails.
  */
 const FRAME_ORIGIN = 'http://localhost';
-const FRAME_PATH = '/api/k/view-frame';
+const FRAME_PATH = '/api/view-frame';
 const FRAME_DOCUMENT = '<!doctype html><html><head><meta charset="utf-8"><title>archify</title></head><body data-frame-document="archify"></body></html>';
 type BrowserRequest = { method: string; url: string };
 const frameNavigations: BrowserRequest[] = [];
@@ -89,7 +89,7 @@ afterEach(() => {
   }
 });
 
-const node = (id: string, label: string, hops: number, href: string | null = `/k/e/${encodeURIComponent(id)}`) => ({ id, kind: 'code.symbol', label, href, hops });
+const node = (id: string, label: string, hops: number, href: string | null = `/e/${encodeURIComponent(id)}`) => ({ id, kind: 'code.symbol', label, href, hops });
 const HOOD: Neighborhood = {
   center: 'pay',
   nodes: [node('pay', 'PaymentService.pay', 0), node('routes', 'paymentRoutes', 1), node('repo', 'PrismaPaymentRepository.create', 1), node('table', 'payments', 1, null)],
@@ -113,7 +113,7 @@ describe('the neighbourhood', () => {
     expect(x('repo')).toBeGreaterThan(x('pay'));
     // Depth 1: the table is a neighbour of a neighbour, and is not drawn.
     expect(boxes.map((box) => box.getAttribute('data-node')).sort()).toEqual(['pay', 'repo', 'routes']);
-    expect(boxes.find((box) => box.getAttribute('data-node') === 'routes')!.querySelector('a')!.getAttribute('href')).toBe('/k/e/routes');
+    expect(boxes.find((box) => box.getAttribute('data-node') === 'routes')!.querySelector('a')!.getAttribute('href')).toBe('/e/routes');
     expect([...container.querySelectorAll('[data-testid^=depth-]')].map((chip) => chip.getAttribute('aria-label'))).toEqual(['1 hop from this page', '2 hops from this page']);
     expect(container.querySelector('[data-testid=more-chip]')!.textContent).toBe('+4 more calls');
     expect(container.querySelector('figcaption')!.textContent).toBe('Showing 3 of 9.');
@@ -131,19 +131,19 @@ describe('the neighbourhood', () => {
     const opened: string[] = [];
     const container = into(createElement(DiagramOpenProvider, { onOpen: (href: string) => { opened.push(href); }, children: createElement(BlockView, { block: graphBlock(), resolutions: {} }) }));
     await until(() => container.querySelector('[data-testid=hood-node] a') !== null, 'the links');
-    const link = [...container.querySelectorAll('[data-testid=hood-node] a')].find((a) => a.getAttribute('href') === '/k/e/routes')! as unknown as HTMLElement;
+    const link = [...container.querySelectorAll('[data-testid=hood-node] a')].find((a) => a.getAttribute('href') === '/e/routes')! as unknown as HTMLElement;
     link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
     link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, shiftKey: true }));
-    expect(opened).toEqual(['/k/e/routes']);
+    expect(opened).toEqual(['/e/routes']);
   });
 
   test('with no host hook a click opens the node\'s page in a new tab of the wiki, and the same page again switches to its tab', async () => {
     resetTabs();
     const container = into(createElement(BlockView, { block: graphBlock(), resolutions: {} }));
     await until(() => container.querySelector('[data-testid=hood-node] a') !== null, 'the links');
-    const link = [...container.querySelectorAll('[data-testid=hood-node] a')].find((a) => a.getAttribute('href') === '/k/e/routes')! as unknown as HTMLElement;
+    const link = [...container.querySelectorAll('[data-testid=hood-node] a')].find((a) => a.getAttribute('href') === '/e/routes')! as unknown as HTMLElement;
     link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
-    expect(frontTab().address).toBe('/k/e/routes');
+    expect(frontTab().address).toBe('/e/routes');
     link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
     resetTabs();
   });
@@ -160,7 +160,7 @@ describe('the neighbourhood', () => {
     const plus = [...container.querySelectorAll('[data-testid=hood-node]')].find((box) => box.getAttribute('data-node') === 'routes')!.querySelector('[data-testid=expand-node]')! as unknown as HTMLElement;
     plus.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     await until(() => [...container.querySelectorAll('[data-testid=hood-node]')].some((box) => box.getAttribute('data-node') === 'app'), 'the opened node');
-    expect(calls).toEqual(['/api/k/neighborhood?id=routes&limit=8']);
+    expect(calls).toEqual(['/api/neighborhood?id=routes&limit=8']);
   });
 
   test('a failed opening is said with the reason, and the picture stays', async () => {
@@ -198,8 +198,8 @@ const CONTAINER: DiagramView = {
   title: 'Containers',
   label: 'Containers',
   elements: [
-    { id: 'code.service:payments', label: 'payments', kind: 'container', detail: 'TypeScript', href: '/k/e/code.service%3Apayments', dashed: false, drill: { spec: { type: 'c4-component', subject: 'code.service:payments' }, title: 'Components' } },
-    { id: 'code.database:payments', label: 'payments', kind: 'database', href: '/k/e/code.database%3Apayments', dashed: false },
+    { id: 'code.service:payments', label: 'payments', kind: 'container', detail: 'TypeScript', href: '/e/code.service%3Apayments', dashed: false, drill: { spec: { type: 'c4-component', subject: 'code.service:payments' }, title: 'Components' } },
+    { id: 'code.database:payments', label: 'payments', kind: 'database', href: '/e/code.database%3Apayments', dashed: false },
     { id: 'external:x', label: 'card network', kind: 'external', href: null, dashed: true },
   ],
   edges: [
@@ -217,7 +217,7 @@ const COMPONENTS: DiagramView = {
   spec: { type: 'c4-component', subject: 'code.service:payments' },
   title: 'Components: payments',
   label: 'Components',
-  elements: [{ id: 'code.module:domain', label: 'src/domain', kind: 'component', detail: '4 files', href: '/k/e/m', dashed: false }],
+  elements: [{ id: 'code.module:domain', label: 'src/domain', kind: 'component', detail: '4 files', href: '/e/m', dashed: false }],
   edges: [],
   notes: [],
   empty: null,
@@ -231,9 +231,9 @@ const SEQUENCE: DiagramView = {
   spec: { type: 'sequence', subject: 'domain:payment', entry: 'route' },
   title: 'Chain: POST /payments',
   label: 'POST /payments',
-  elements: [{ id: 'lane:Caller', label: 'Caller', kind: 'person', href: null, dashed: true }, { id: 'lane:payments', label: 'payments', kind: 'participant', href: '/k/e/code.service%3Apayments', dashed: false }],
+  elements: [{ id: 'lane:Caller', label: 'Caller', kind: 'person', href: null, dashed: true }, { id: 'lane:payments', label: 'payments', kind: 'participant', href: '/e/code.service%3Apayments', dashed: false }],
   edges: [
-    { from: 'lane:Caller', to: 'lane:payments', label: 'POST /payments', dashed: false, step: 1, kind: 'route', href: '/k/e/route', note: 'middleware: authenticate' },
+    { from: 'lane:Caller', to: 'lane:payments', label: 'POST /payments', dashed: false, step: 1, kind: 'route', href: '/e/route', note: 'middleware: authenticate' },
     { from: 'lane:payments', to: 'lane:payments', label: 'consumes payments.events', dashed: true, why: 'the graph holds no order for this step', step: 2, kind: 'consume', href: null },
   ],
   notes: [],
@@ -266,7 +266,7 @@ describe('the drawn views', () => {
     expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('likec4');
     // The LikeC4 tab draws inside the page and reads its laid-out model from the server's own frame answer; the
     // archify tab frames the page the server renders.
-    await until(() => asked.some((url) => url.includes('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
+    await until(() => asked.some((url) => url.includes('/api/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
     (container.querySelector('[data-testid=renderer-archify]') as HTMLElement).click();
     await until(() => container.querySelector('iframe')?.getAttribute('src')?.includes('renderer=archify') === true, 'the archify frame');
     const source = `${viewFrameAddress(CONTAINER.query, 'archify', 'en')}&fullscreen=0`;
@@ -300,7 +300,7 @@ describe('the drawn views', () => {
     expect([...container.querySelectorAll('[role=tab]')].map((tab) => tab.textContent)).toEqual(['Mermaid']);
     const steps = [...container.querySelectorAll('[data-testid=view-step]')];
     expect(steps).toHaveLength(2);
-    expect(steps[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/e/route');
+    expect(steps[0]!.querySelector('a')!.getAttribute('href')).toBe('/e/route');
     expect(steps[0]!.textContent).toContain('middleware: authenticate');
     expect(steps[1]!.getAttribute('data-dashed')).toBe('true');
     expect(container.querySelector('[data-testid=view-why]')!.textContent).toContain('the graph holds no order for this step');
@@ -315,12 +315,12 @@ describe('the drawn views', () => {
     const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
     await until(() => container.querySelector('[data-testid=view-drill]') !== null, 'the drill-down');
     const rows = [...container.querySelectorAll('[data-testid=view-element]')];
-    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
+    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/e/code.service%3Apayments');
     expect(rows[2]!.getAttribute('data-dashed')).toBe('true');
     (container.querySelector('[data-testid=view-drill]') as HTMLElement).click();
     await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'the components view');
     // The drill-down asks the server for the view; the LikeC4 tab reads its own model frame beside it.
-    expect(asked.filter((url) => url.startsWith('/api/k/view?'))).toEqual(['/api/k/view?type=c4-component&subject=code.service%3Apayments&lang=en']);
+    expect(asked.filter((url) => url.startsWith('/api/view?'))).toEqual(['/api/view?type=c4-component&subject=code.service%3Apayments&lang=en']);
     (container.querySelector('[data-testid=view-up]') as HTMLElement).click();
     await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Containers', 'the way back up');
   });
@@ -343,7 +343,7 @@ describe('the drawn views', () => {
     const undo = bindMermaid(root, CONTAINER.elements, 'c4-container', (href) => opened.push(href));
     (root.querySelector('#flowchart-n0-3') as unknown as HTMLElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     (root.querySelector('#flowchart-n2-5') as unknown as HTMLElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    expect(opened).toEqual(['/k/e/code.service%3Apayments']);
+    expect(opened).toEqual(['/e/code.service%3Apayments']);
     undo();
   });
 });
@@ -358,7 +358,7 @@ describe('a deferred diagram', () => {
     const block: Block = { type: 'deferred', block: 'graph', title: 'Around this function', id: 'graph-1a2b3c4d5e6f' };
     const container = into(createElement(BlockView, { block, resolutions: {}, pageId: 'code.symbol:x' }));
     await until(() => container.querySelector('[data-testid=hood-node]') !== null, 'the diagram');
-    expect(asked).toEqual(['/api/k/block?id=code.symbol%3Ax&block=graph-1a2b3c4d5e6f&lang=en']);
+    expect(asked).toEqual(['/api/block?id=code.symbol%3Ax&block=graph-1a2b3c4d5e6f&lang=en']);
     rendered?.unmount();
     document.body.innerHTML = '';
     (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no block known as graph-1a2b3c4d5e6f' }), { status: 404 });
@@ -372,7 +372,7 @@ describe('the treemap', () => {
   test('a treemap whose files were changed once says so in the singular', async () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
     try {
-      const block: Block = { type: 'treemap', title: 'Files by size and change', scope: '', total: 1, maxChurn: 1, notes: [], files: [{ id: 'f1', path: 'src/order_service.go', href: '/k/e/f1', lines: 40, churn: 1 }] };
+      const block: Block = { type: 'treemap', title: 'Files by size and change', scope: '', total: 1, maxChurn: 1, notes: [], files: [{ id: 'f1', path: 'src/order_service.go', href: '/e/f1', lines: 40, churn: 1 }] };
       const container = into(createElement(BlockView, { block, resolutions: {} }));
       await until(() => container.querySelector('[data-testid=treemap-file]') !== null, 'the cells');
       expect(container.querySelector('[data-testid=treemap-legend]')!.textContent).toContain('(up to 1 commit)');
@@ -394,8 +394,8 @@ describe('the treemap', () => {
       const block: Block = {
         type: 'treemap', title: 'Files by size and change', scope: '', total: 3, maxChurn: 28, notes: [],
         files: [
-          { id: 'f1', path: 'src/order_service.go', href: '/k/e/f1', lines: 400, churn: 28 },
-          { id: 'f2', path: 'src/pricing.go', href: '/k/e/f2', lines: 100, churn: 2 },
+          { id: 'f1', path: 'src/order_service.go', href: '/e/f1', lines: 400, churn: 28 },
+          { id: 'f2', path: 'src/pricing.go', href: '/e/f2', lines: 100, churn: 2 },
           { id: 'f3', path: 'README.md', href: null, lines: 40, churn: 0 },
         ],
       };
@@ -487,7 +487,7 @@ test('renderer title definitions include group names, exclude ER attributes and 
 
 
 test('an oversized picture links to all raw members and relationships in the adjacent list', async () => {
-  const elements = Array.from({ length: 45 }, (_, index) => ({ id: `member:${index}`, label: `member-${index}`, kind: 'node', href: `/k/e/${index}`, dashed: false }));
+  const elements = Array.from({ length: 45 }, (_, index) => ({ id: `member:${index}`, label: `member-${index}`, kind: 'node', href: `/e/${index}`, dashed: false }));
   const view: DiagramView = { ...CONTAINER, elements: elements.slice(0, 40), fullElements: elements, fullEdges: [{ from: 'member:43', to: 'member:44', label: 'not lost', dashed: false }], marker: 'Showing 40 of 45.' };
   const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
   await until(() => container.querySelector('[data-testid=view-full-list-link]') !== null, 'the full-list link');
@@ -505,11 +505,11 @@ test('an ER table offers only Mermaid and keeps its page link under the picture'
   const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
   await until(() => container.querySelector('[data-testid=renderer-mermaid]') !== null, 'the Mermaid ER tab');
   expect(container.querySelectorAll('[data-testid=renderer-archify], [data-testid=renderer-likec4]')).toHaveLength(0);
-  expect(container.querySelector('[data-testid=view-elements] a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
+  expect(container.querySelector('[data-testid=view-elements] a')!.getAttribute('href')).toBe('/e/code.service%3Apayments');
 });
 
 test('folded synthetic groups keep separate drill controls while the complete raw list stays unchanged', async () => {
-  const raw = Array.from({ length: 42 }, (_, index) => ({ id: `service:${index}`, label: `service-${index}`, kind: 'container', href: `/k/e/service-${index}`, dashed: false }));
+  const raw = Array.from({ length: 42 }, (_, index) => ({ id: `service:${index}`, label: `service-${index}`, kind: 'container', href: `/e/service-${index}`, dashed: false }));
   const groups = ['a', 'z'].map(folder => ({ id: `folder:${folder}`, label: folder, kind: 'container', href: null, dashed: false, standsFor: 21, drill: { spec: { type: 'c4-container' as const, subject: '', scope: folder }, title: folder } }));
   const view: DiagramView = { ...CONTAINER, elements: groups, fullElements: raw, fullEdges: [], marker: '42 elements fold into 2 folders; open a folder to see its members.' };
   const asked: string[] = [];
@@ -521,5 +521,5 @@ test('folded synthetic groups keep separate drill controls while the complete ra
   if (!button) throw new Error('the first folded group has no drill control');
   button.click();
   await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'folder drill answer');
-  expect(asked.filter(url => url.startsWith('/api/k/view?'))).toEqual(['/api/k/view?type=c4-container&subject=&scope=a&lang=en']);
+  expect(asked.filter(url => url.startsWith('/api/view?'))).toEqual(['/api/view?type=c4-container&subject=&scope=a&lang=en']);
 });

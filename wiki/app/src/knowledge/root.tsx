@@ -8,12 +8,12 @@
 import { useEffect, type ReactElement } from 'react';
 import { appPath } from '../app-base.js';
 import { KnowledgeApp } from './app.js';
-import { K_HOME, kRouteOf } from './routes.js';
+import { WIKI_HOME, wikiRouteOf } from './routes.js';
 
 export function Root(): ReactElement {
   // An address the knowledge wiki does not know (the front door, an old bookmark) opens its home page.
   useEffect(() => {
-    if (kRouteOf(window.location.pathname, window.location.search) === null) window.history.replaceState({}, '', appPath(K_HOME));
+    if (wikiRouteOf(window.location.pathname, window.location.search) === null) window.history.replaceState({}, '', appPath(WIKI_HOME));
   }, []);
   return <KnowledgeApp />;
 }

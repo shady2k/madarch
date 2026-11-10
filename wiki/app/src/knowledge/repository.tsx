@@ -17,7 +17,7 @@ import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { getCommit, getFile, getFileText, getFolder, getRun } from './api.js';
-import { addressOfCommit, addressOfFile, addressOfFolder, K_RUN } from './routes.js';
+import { addressOfCommit, addressOfFile, addressOfFolder, WIKI_RUN } from './routes.js';
 import type { CommitPageModel, FilePageModel, FillRunView, FolderPageModel, PageFile, RepositoryFactsView, SourceFile, WikiStatus } from './types.js';
 
 /** A number of bytes as a reader reads it. */
@@ -167,7 +167,7 @@ export function RepositoryPage({ status, version }: { status: WikiStatus; versio
           {repository.steps.history ? t('knowledge.repository.historyRan') : t('knowledge.repository.historyNotRun')}
           {finished === undefined ? '' : ` · ${t('knowledge.repository.filledAt', { when: finished, wall: msText(run!.wallMs) })}`}
         </p>
-        <p className="mt-2 mb-0 text-small"><KLink href={K_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
+        <p className="mt-2 mb-0 text-small"><KLink href={WIKI_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
       </header>
       <AsIsLine repository={repository.name} commit={repository.asIsCommit} />
       {(status.fill.unread ?? []).length > 0 && (

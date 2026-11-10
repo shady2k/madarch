@@ -13,7 +13,7 @@ import { ProblemsPage } from './loop.js';
 import { SettingsPage } from './settings.js';
 import { showsProgress } from './app.js';
 import { Root as AppRoot } from './root.js';
-import { kRouteOf } from './routes.js';
+import { wikiRouteOf } from './routes.js';
 import type { AgentChoices, ProductSettings, StarterOffer, WikiStatus } from './types.js';
 
 beforeAll(async () => {
@@ -102,12 +102,12 @@ describe('the product settings page', () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
       const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
       if (init?.method === 'POST') calls.push({ url, body });
-      if (url.endsWith('/api/k/product-settings')) return json(current);
-      if (url.endsWith('/api/k/agent-choices') || url.includes('/api/k/agent-choices?')) return json(choices);
-      if (url.endsWith('/api/k/agents')) return json({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', install: null }, { id: 'codex', label: 'Codex', installed: false, login: 'unknown', loginDetail: '', install: { package: '@zed-industries/codex-acp', version: '1.0.0', size: '40 MB', folder: '/h/agents' } }], chosen: { id: 'claude-code', label: 'Claude Code' } });
-      if (url.endsWith('/api/k/model-role')) return json({ role: (body as { role: string }).role, pair: null, roles: current.roles });
-      if (url.includes('/api/k/graph-verdicts')) return json(init?.method === 'POST' ? { budgets: body } : { file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 0, judgeItems: 0, modelCalls: 0 }, total: 0, offset: 0, limit: 0, rows: [] });
-      if (url.endsWith('/api/k/rewrite-pages') || url.endsWith('/api/k/start-fresh') || url.endsWith('/api/k/agent')) return json({});
+      if (url.endsWith('/api/product-settings')) return json(current);
+      if (url.endsWith('/api/agent-choices') || url.includes('/api/agent-choices?')) return json(choices);
+      if (url.endsWith('/api/agents')) return json({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', install: null }, { id: 'codex', label: 'Codex', installed: false, login: 'unknown', loginDetail: '', install: { package: '@zed-industries/codex-acp', version: '1.0.0', size: '40 MB', folder: '/h/agents' } }], chosen: { id: 'claude-code', label: 'Claude Code' } });
+      if (url.endsWith('/api/model-role')) return json({ role: (body as { role: string }).role, pair: null, roles: current.roles });
+      if (url.includes('/api/graph-verdicts')) return json(init?.method === 'POST' ? { budgets: body } : { file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 0, judgeItems: 0, modelCalls: 0 }, total: 0, offset: 0, limit: 0, rows: [] });
+      if (url.endsWith('/api/rewrite-pages') || url.endsWith('/api/start-fresh') || url.endsWith('/api/agent')) return json({});
       return json({ message: 'not here' }, 404);
     };
   }
@@ -152,7 +152,7 @@ describe('the product settings page', () => {
     select.value = 'codex';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     await until(() => calls.length === 1, 'the role assignment');
-    expect(calls[0]!.url).toContain('/api/k/model-role');
+    expect(calls[0]!.url).toContain('/api/model-role');
     expect(calls[0]!.body).toEqual({ role: 'classification', agent: 'codex', install: true });
   });
 
@@ -160,8 +160,8 @@ describe('the product settings page', () => {
     // The agents are asked for and never answer: the row still stands with the name a reader knows, because the settings
     // bring the names of the agents they name (madarch-j6ho.2).
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/product-settings')) return json(settings());
-      if (url.endsWith('/api/k/agents')) return await new Promise<Response>(() => undefined);
+      if (url.endsWith('/api/product-settings')) return json(settings());
+      if (url.endsWith('/api/agents')) return await new Promise<Response>(() => undefined);
       return json({ message: 'not here' }, 404);
     };
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
@@ -195,7 +195,7 @@ describe('the product settings page', () => {
     expect(model.value).toBe('sonnet');
     model.value = 'opus';
     model.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await until(() => calls.some((call) => call.url.endsWith('/api/k/model-role')), 'the classifier’s model save');
+    await until(() => calls.some((call) => call.url.endsWith('/api/model-role')), 'the classifier’s model save');
     expect(calls.at(-1)!.body).toEqual({ role: 'classification', agent: 'claude-code', model: 'opus' });
     // The analysis role asks for the same agent’s choices and offers its own reasoning level.
     const reasoning = page.querySelector('[data-testid=settings-role-reasoning-analysis]') as HTMLSelectElement;
@@ -228,8 +228,8 @@ describe('the product settings page', () => {
 
   test('an agent that reports no model says so, and a failed question shows the agent\'s words with a way to ask again', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/product-settings')) return json(settings());
-      if (url.includes('/api/k/agent-choices')) return json({ message: 'Claude Code could not tell its models: it did not answer within 60000 ms' }, 409);
+      if (url.endsWith('/api/product-settings')) return json(settings());
+      if (url.includes('/api/agent-choices')) return json({ message: 'Claude Code could not tell its models: it did not answer within 60000 ms' }, 409);
       return json({ agents: [], chosen: null });
     };
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
@@ -266,7 +266,7 @@ describe('the product settings page', () => {
     expect(calls).toEqual([]);
     (dialog.querySelector('[data-testid=danger-confirm]') as HTMLElement).click();
     await until(() => calls.length === 1, 'the start from scratch');
-    expect(calls[0]!.url).toContain('/api/k/start-fresh');
+    expect(calls[0]!.url).toContain('/api/start-fresh');
     expect(calls[0]!.body).toEqual({ preview: settings().danger.fresh });
   });
 
@@ -314,7 +314,7 @@ describe('the product settings page', () => {
     const calls: { url: string; body: unknown }[] = [];
     stub(calls);
     const plain = (globalThis as { fetch: (url: string, init?: RequestInit) => Promise<Response> }).fetch;
-    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => (url.endsWith('/api/k/start-fresh') ? json({ fillRefused: 'the repositories shop are not checked out' }) : plain(url, init));
+    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => (url.endsWith('/api/start-fresh') ? json({ fillRefused: 'the repositories shop are not checked out' }) : plain(url, init));
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
     await until(() => page.querySelector('[data-testid=danger-fresh-open]') !== null, 'the button');
     (page.querySelector('[data-testid=danger-fresh-open]') as HTMLElement).click();
@@ -335,7 +335,7 @@ describe('the product settings page', () => {
     expect(dialog.textContent).not.toContain('graph store');
     (dialog.querySelector('[data-testid=danger-confirm]') as HTMLElement).click();
     await until(() => calls.length === 1, 'the rewrite');
-    expect(calls[0]!.url).toContain('/api/k/rewrite-pages');
+    expect(calls[0]!.url).toContain('/api/rewrite-pages');
   });
 
   test('the same page reads in Russian', async () => {
@@ -369,16 +369,16 @@ describe('the product settings page', () => {
     const urls: string[] = [];
     const posts: unknown[] = [];
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST' && url.includes('/api/k/graph-verdicts')) { posts.push(JSON.parse(String(init.body))); return json({ budgets: JSON.parse(String(init.body)) }); }
-      if (url.includes('/api/k/graph-verdicts')) {
+      if (init?.method === 'POST' && url.includes('/api/graph-verdicts')) { posts.push(JSON.parse(String(init.body))); return json({ budgets: JSON.parse(String(init.body)) }); }
+      if (url.includes('/api/graph-verdicts')) {
         urls.push(url);
         if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 3, judgeItems: 0, modelCalls: 0 }, report, total: 0, offset: 0, limit: 0, rows: [] });
         // The view's table asks for the rows that are not valid, one page at a time.
         return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: false, metrics: { checked: 1, reused: 3, judgeItems: 1, modelCalls: 0 }, report: { ...report, totals: { ...report.totals, items: 4 } }, total: 1, offset: 0, limit: 100, rows: [row] });
       }
-      if (url.endsWith('/api/k/product-settings')) return json(settings());
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.includes('/api/k/agent-choices')) return json(choices);
+      if (url.endsWith('/api/product-settings')) return json(settings());
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.includes('/api/agent-choices')) return json(choices);
       return json({ message: 'not here' }, 404);
     };
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
@@ -425,16 +425,16 @@ describe('the product settings page', () => {
     };
     const urls: string[] = [];
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.includes('/api/k/graph-verdicts')) {
+      if (url.includes('/api/graph-verdicts')) {
         urls.push(url);
         if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 150, judgeItems: 0, modelCalls: 0 }, report, total: 150, offset: 0, limit: 0, rows: [] });
         const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? '0');
         const rows = Array.from({ length: offset === 0 ? 100 : 50 }, (_, index) => row(offset + index + 1));
         return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 150, judgeItems: 0, modelCalls: 0 }, report, total: 150, offset, limit: 100, rows });
       }
-      if (url.endsWith('/api/k/product-settings')) return json(settings());
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.includes('/api/k/agent-choices')) return json(choices);
+      if (url.endsWith('/api/product-settings')) return json(settings());
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.includes('/api/agent-choices')) return json(choices);
       return json({ message: 'not here' }, 404);
     };
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
@@ -459,7 +459,7 @@ describe('the starter set on the Problems page', () => {
   test('lists what the set holds and the manifest lacks, each with «Add», and adds exactly the one pressed', async () => {
     const posted: unknown[] = [];
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/k/starter')) { posted.push(JSON.parse(String(init!.body))); return json({ written: ['madarch/kinds.yaml'] }); }
+      if (url.endsWith('/api/starter')) { posted.push(JSON.parse(String(init!.body))); return json({ written: ['madarch/kinds.yaml'] }); }
       return json(categories(OFFERS));
     };
     const page = into(createElement(ProblemsPage, { version: 0 }));
@@ -518,7 +518,7 @@ describe('a failure is told once, in the reader\'s language', () => {
     await until(() => note.querySelector('[data-testid=failure-note]') !== null, 'the note');
     expect(note.querySelector('[data-testid=failure-note] p')!.textContent).toBe('The pages were written, but they could not be added to the index.');
     expect(note.textContent).not.toContain('madarch/kinds.yaml:5');
-    expect(note.querySelector('a')!.getAttribute('href')).toBe('/k/problems');
+    expect(note.querySelector('a')!.getAttribute('href')).toBe('/problems');
     (note.querySelector('[data-testid=failure-details]') as HTMLElement).click();
     await until(() => note.querySelector('[data-testid=failure-detail]') !== null, 'the detail');
     expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toBe(detail);
@@ -539,9 +539,9 @@ describe('a failure is told once, in the reader\'s language', () => {
 });
 
 describe('where the settings are and where the progress is', () => {
-  test('the route /k/settings is the settings page', () => {
-    expect(kRouteOf('/k/settings')).toEqual({ name: 'settings' });
-    expect(kRouteOf('/products/shop/k/settings/')).toEqual({ name: 'settings' });
+  test('the route /settings is the settings page', () => {
+    expect(wikiRouteOf('/settings')).toEqual({ name: 'settings' });
+    expect(wikiRouteOf('/products/shop/settings/')).toEqual({ name: 'settings' });
   });
 
   test('the fill\'s card is drawn above the product\'s page and an entity, and above no other page', () => {
@@ -558,17 +558,17 @@ describe('where the settings are and where the progress is', () => {
 
   test('the bottom of the sidebar links to the settings, counts actual problems but not starter offers, and removes «Start over»', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/status')) return json(status({ starterOffers: 56, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
-      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
-      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.endsWith('/api/status')) return json(status({ starterOffers: 56, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
+      if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
       return json({ message: 'not here' }, 404);
     };
-    window.history.replaceState({}, '', '/k');
+    window.history.replaceState({}, '', '/');
     const app = into(createElement(AppRoot));
     await until(() => app.querySelector('[data-testid=nav-settings]') !== null, 'the settings link');
-    expect(app.querySelector('[data-testid=nav-settings]')!.getAttribute('href')).toBe('/k/settings');
+    expect(app.querySelector('[data-testid=nav-settings]')!.getAttribute('href')).toBe('/settings');
     expect(app.querySelector('[data-testid=nav-settings]')!.textContent).toBe('Product settings');
     expect(app.querySelector('[data-testid=start-over]')).toBeNull();
     expect(app.querySelector('[data-testid=nav-problems-count]')!.textContent).toBe('4');

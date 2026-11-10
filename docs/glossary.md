@@ -277,10 +277,11 @@ Madarch's own React app built by Vite from `wiki/app/`, served by the local
 madarch server to show a product's wiki.
 
 **Page**:
-What a product's wiki shows at `/p/`, from one of two sources: a document page,
-one Markdown file under the product's `docs/` or its `README.md`, read from git
-at every ask; or a graph page, a view of one page-worthy graph node read from
-the fill's fact store, never a file in git (decision 0026, "Pages").
+What a product's wiki shows, from one of two sources: a document page, one
+Markdown file under the product's `docs/` or its `README.md`, read from git at
+every ask and shown at `/doc?path=<its path within the product>`; or a graph
+page, a view of one page-worthy graph node read from the fill's fact store,
+never a file in git, shown at `/e/<id>` (decision 0026, "Pages").
 
 **Diagram tab**:
 One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify

@@ -7,7 +7,7 @@ import { HistoryBar } from './history-bar.js';
 import type { HistoryContext } from './types.js';
 
 let root: Root | undefined;
-beforeAll(() => GlobalRegistrator.register({ url: 'http://localhost/k/e/code.file%3Aindex.ts' }));
+beforeAll(() => GlobalRegistrator.register({ url: 'http://localhost/e/code.file%3Aindex.ts' }));
 afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = ''; });
 afterAll(async () => {
   // React schedules passive cleanup after unmount; keep the DOM alive until it drains.

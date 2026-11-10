@@ -14,7 +14,7 @@
             "path": "src/alpha.ts",
             "lineStart": 1,
             "lineEnd": 2,
-            "href": "/k/src/alpha.ts"
+            "href": "/src/alpha.ts"
           },
           "language": "ts",
           "text": "const value = 1;\nconst label = 'The alpha value is one.';"
@@ -39,7 +39,7 @@
             "path": "src/beta.ts",
             "lineStart": 1,
             "lineEnd": 1,
-            "href": "/k/src/beta.ts"
+            "href": "/src/beta.ts"
           },
           "language": "ts",
           "text": "const beta = 2;"
@@ -60,7 +60,7 @@
             "path": "src/gamma.ts",
             "lineStart": 1,
             "lineEnd": 2,
-            "href": "/k/src/gamma.ts"
+            "href": "/src/gamma.ts"
           },
           "language": "ts",
           "text": "function send() {}\n// send has no retry and no timeout."

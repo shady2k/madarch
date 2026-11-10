@@ -91,11 +91,11 @@ const noLoading = async (page: Page, where: string): Promise<void> => {
 
 try {
   // The fill reads the training repository into the graph; it asks for no agent (the pages are the sample pages).
-  const answer = await fetch(`${base}/products/shop/api/k/fill`, { method: 'POST' });
+  const answer = await fetch(`${base}/products/shop/api/fill`, { method: 'POST' });
   if (!answer.ok) fail(`the fill was refused: ${answer.status} ${await answer.text()}`);
   const until = Date.now() + 900_000;
   for (;;) {
-    const status = await (await fetch(`${base}/products/shop/api/k/status`)).json() as { fill: { state: string; message?: string } };
+    const status = await (await fetch(`${base}/products/shop/api/status`)).json() as { fill: { state: string; message?: string } };
     if (status.fill.state === 'done') break;
     if (status.fill.state === 'failed') fail(`the fill failed: ${status.fill.message ?? ''}`);
     if (Date.now() > until) fail(`the fill did not finish in 15 minutes: ${JSON.stringify(status.fill)}`);
@@ -115,7 +115,7 @@ try {
 
   const SHOP_SENTENCE = 'The shop takes orders from shoppers and charges their cards through a payments service.';
   const PAY_SENTENCE = 'Checkout asks payments to authorize the card for the order\'s total.';
-  const statementUrl = (id: string, sentence: string): string => `/products/shop/k/statement?id=${encode(id)}&sentence=${encode(sentence)}`;
+  const statementUrl = (id: string, sentence: string): string => `/products/shop/statement?id=${encode(id)}&sentence=${encode(sentence)}`;
 
   // The sidebar scrolls when its groups are open: its scrollbar, classic or overlay, never covers the counts.
   for (const mode of ['classic', 'overlay'] as const) {
@@ -131,7 +131,7 @@ try {
           await page.evaluateOnNewDocument((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the browser's own language */ } }, lang);
           await page.setViewport({ width: 1150, height: 420 });
           await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
-          await page.goto(`${base}/products/shop/k/docs`, { waitUntil: 'domcontentloaded' });
+          await page.goto(`${base}/products/shop/docs`, { waitUntil: 'domcontentloaded' });
           await page.waitForSelector('[data-testid=nav-group]', { timeout: 120_000 });
           for (let round = 0; round < 12; round += 1) {
             const closed = await page.$('[data-testid=nav-group][aria-expanded=false]');
@@ -166,7 +166,7 @@ try {
         const tag = `${lang}-${scheme}-${size}`;
         console.log(`walk ${tag}`);
         // Sources: titles, paths under them, no harness files.
-        const sources = await open('/products/shop/k/docs', lang, scheme, width, height);
+        const sources = await open('/products/shop/docs', lang, scheme, width, height);
         await sources.waitForSelector('[data-testid=document-row]', { timeout: 120_000 });
         const rows = await sources.evaluate(() => [...document.querySelectorAll('[data-testid=document-row]')].map((row) => [row.querySelector('a')!.textContent ?? '', row.querySelector('[data-testid=document-path]')!.textContent ?? '']));
         if (rows.some(([title, path]) => title === path || /\.md$/i.test(title ?? ''))) fail(`${tag}: a source is shown by its file name: ${JSON.stringify(rows)}`);
@@ -175,7 +175,7 @@ try {
         await noLoading(sources, `${tag} sources`);
         // The glossary terms are listed once: the top-level glossary, not again under the pages by kind.
         if (size === 'wide') {
-          const kinds = await sources.evaluate(() => [...document.querySelectorAll('nav a[href*="/k/kind/"]')].map((link) => link.getAttribute('href') ?? ''));
+          const kinds = await sources.evaluate(() => [...document.querySelectorAll('nav a[href*="/kind/"]')].map((link) => link.getAttribute('href') ?? ''));
           if (kinds.some((href) => decodeURIComponent(href).includes('doc.term'))) fail(`${tag}: the glossary terms are listed again under the pages by kind: ${JSON.stringify(kinds)}`);
         }
         await shoot(sources, `${tag}-01-sources`);
@@ -199,7 +199,7 @@ try {
         const kindWord = lang === 'ru' ? 'Сервис' : 'Service';
         if (!shown.kind.includes(kindWord)) fail(`${tag}: the service card does not name its kind «${kindWord}»: ${JSON.stringify(shown)}`);
         // The link carries the product's mount; the page it names is the service's.
-        if (!shown.page.endsWith('/k/e/code.service%3Apayments')) fail(`${tag}: the service card links ${shown.page}, not its page`);
+        if (!shown.page.endsWith('/e/code.service%3Apayments')) fail(`${tag}: the service card links ${shown.page}, not its page`);
         if (!shown.facts.includes('language') || !shown.related.includes('payments')) fail(`${tag}: the service card does not show what the code says of it and what it is connected to: ${JSON.stringify(shown)}`);
         await noLoading(card, `${tag} card`);
         await shoot(card, `${tag}-02-service-ground-card`);
@@ -212,7 +212,7 @@ try {
 
       // The page, a drag across a sentence, a page opened twice.
       const tag = `${lang}-${scheme}-wide`;
-      const page = await open(`/products/shop/k/e/${encode('product:shop')}`, lang, scheme, 1150, 800);
+      const page = await open(`/products/shop/e/${encode('product:shop')}`, lang, scheme, 1150, 800);
       await page.waitForSelector('[data-testid=statement]', { timeout: 120_000 });
       await noLoading(page, `${tag} home`);
       const before = (await tabs(page)).length;
@@ -291,7 +291,7 @@ try {
     // The bars stay while a long page scrolls, and an anchor lands below them.
     for (const [width, height, size] of [[1150, 700, 'wide'], [390, 800, 'phone']] as const) {
       const tag = `${lang}-light-${size}`;
-      const long = await open('/products/shop/k/doc?path=docs%2Flong.md', lang, 'light', width, height);
+      const long = await open('/products/shop/doc?path=docs%2Flong.md', lang, 'light', width, height);
       await long.waitForSelector('[data-testid=tab-bar]', { timeout: 120_000 });
       await long.waitForFunction(() => document.querySelectorAll('h2').length >= 20, { timeout: 60_000 });
       const barTop = (): Promise<number> => long.evaluate(() => Math.round(document.querySelector('[data-testid=tab-bar]')!.getBoundingClientRect().top));

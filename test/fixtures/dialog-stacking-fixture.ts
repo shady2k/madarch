@@ -29,11 +29,11 @@ const server = await startServer({
   env: { ...process.env, HOME: user, MADARCH_HOME: join(user, 'madarch') },
 });
 try {
-  const started = await fetch(`${server.url}/products/training/api/k/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const started = await fetch(`${server.url}/products/training/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   if (started.status !== 202) throw new Error(`the fill was refused: ${started.status} ${await started.text()}`);
   let done = false;
   for (let attempt = 0; attempt < 600; attempt += 1) {
-    const status = await (await fetch(`${server.url}/products/training/api/k/status`)).json() as { fill?: { state?: string; message?: string } };
+    const status = await (await fetch(`${server.url}/products/training/api/status`)).json() as { fill?: { state?: string; message?: string } };
     if (status.fill?.state === 'done') { done = true; break; }
     if (status.fill?.state === 'failed') throw new Error(`the fill failed: ${status.fill.message ?? 'no message'}`);
     await new Promise((rest) => setTimeout(rest, 250));

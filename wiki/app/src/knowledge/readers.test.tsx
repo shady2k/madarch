@@ -53,7 +53,7 @@ afterEach(() => {
 
 const term = (title: string, extra: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
   id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
-  repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false, href: `/k/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...extra,
+  repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false, href: `/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...extra,
 });
 
 describe('what a role opens', () => {
@@ -86,7 +86,7 @@ describe('what a role opens', () => {
       id: 'code.symbol:a.ts#f', kind: 'code.symbol', title: 'f', trail: [], resolutions: {}, findings: [], notes: [],
       blocks: [
         { type: 'markdown', markdown: 'A function.' },
-        { type: 'source', title: 'Source', location: { repo: 'shop', path: 'a.ts', lineStart: 1, lineEnd: 2, href: '/k/src?path=a.ts' }, language: 'typescript', text: 'export function f() {}', truncated: false },
+        { type: 'source', title: 'Source', location: { repo: 'shop', path: 'a.ts', lineStart: 1, lineEnd: 2, href: '/src?path=a.ts' }, language: 'typescript', text: 'export function f() {}', truncated: false },
         { type: 'related', title: 'Relations', groups: [] },
       ],
     };
@@ -120,7 +120,7 @@ describe('what a role opens', () => {
     await until(() => container.querySelector('[data-testid=entity-page]') !== null, 'the page with problems');
     const badge = container.querySelector('[data-testid=page-problems]')!;
     expect(badge.textContent).toBe('3 problems');
-    expect(badge.querySelector('a')!.getAttribute('href')).toBe('/k/problems');
+    expect(badge.querySelector('a')!.getAttribute('href')).toBe('/problems');
     rendered?.unmount();
     document.body.innerHTML = '';
     (globalThis as { fetch?: unknown }).fetch = async () => Response.json(base);
@@ -196,8 +196,8 @@ describe('the glossary page and a term\'s block', () => {
       term('Payment token', { definition: 'The proof a provider returns.', ambiguous: 'also the vault reference; see [the question](madarch:doc:docs/reference.md#question)', line: 7 }),
     ],
     resolutions: {
-      'madarch:doc:docs/reference.md#manifest': { state: 'ok', target: 'madarch:doc:docs/reference.md#manifest', kind: 'document', label: 'docs/reference.md#manifest', href: '/k/doc?path=docs%2Freference.md#manifest' },
-      'madarch:doc:docs/reference.md#question': { state: 'ok', target: 'madarch:doc:docs/reference.md#question', kind: 'document', label: 'docs/reference.md#question', href: '/k/doc?path=docs%2Freference.md#question' },
+      'madarch:doc:docs/reference.md#manifest': { state: 'ok', target: 'madarch:doc:docs/reference.md#manifest', kind: 'document', label: 'docs/reference.md#manifest', href: '/doc?path=docs%2Freference.md#manifest' },
+      'madarch:doc:docs/reference.md#question': { state: 'ok', target: 'madarch:doc:docs/reference.md#question', kind: 'document', label: 'docs/reference.md#question', href: '/doc?path=docs%2Freference.md#question' },
     },
     findingCount: 0,
   };
@@ -222,7 +222,7 @@ describe('the glossary page and a term\'s block', () => {
     expect(items[0]!.querySelector('[data-testid=term-ambiguous-badge]')).toBeNull();
     expect(items[1]!.getAttribute('data-ambiguous')).toBe('true');
     expect(items[1]!.querySelector('[data-testid=term-ambiguous-badge]')!.textContent).toBe('Ambiguous');
-    expect(items[1]!.querySelector('[data-testid=term-ambiguous] a')!.getAttribute('href')).toBe('/k/doc?path=docs%2Freference.md#question');
+    expect(items[1]!.querySelector('[data-testid=term-ambiguous] a')!.getAttribute('href')).toBe('/doc?path=docs%2Freference.md#question');
     expect(items[1]!.querySelector('[data-testid=term-ground]')!.textContent).toContain('docs/glossary.md:7');
   });
 
@@ -239,7 +239,7 @@ describe('the glossary page and a term\'s block', () => {
     const container = into(createElement(GlossaryPage, { version: 1 }));
     await until(() => container.querySelector('[data-testid=glossary-findings]') !== null, 'the findings count');
     expect(container.querySelector('[data-testid=glossary-findings]')!.textContent).toContain('Findings: 1');
-    expect(container.querySelector('[data-testid=glossary-findings] a')!.getAttribute('href')).toBe('/k/problems');
+    expect(container.querySelector('[data-testid=glossary-findings] a')!.getAttribute('href')).toBe('/problems');
   });
 
   test('a product with no glossary says what a glossary is; a read that fails shows its reason', async () => {
@@ -260,7 +260,7 @@ describe('the glossary page and a term\'s block', () => {
     expect(container.textContent).toContain('The proof a provider returns.');
     expect(container.querySelector('[data-testid=term-names]')!.textContent).toContain('PaymentToken');
     expect(container.querySelector('[data-testid=term-ambiguous]')!.textContent).toContain('also the vault reference');
-    expect(container.querySelector('a[href="/k/doc?path=docs%2Freference.md#manifest"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/doc?path=docs%2Freference.md#manifest"]')).not.toBeNull();
   });
 });
 
@@ -357,7 +357,7 @@ describe('the «?» in the top bar', () => {
     const container = into(createElement(HelpLink, { products, current: 'shop' }));
     await until(() => container.querySelector('[data-testid=help-link]') !== null, 'the icon');
     const link = container.querySelector('[data-testid=help-link]')!;
-    expect(link.getAttribute('href')).toBe('/products/madarch-wiki/k');
+    expect(link.getAttribute('href')).toBe('/products/madarch-wiki/');
     expect(link.getAttribute('aria-label')).toBe('madarch documentation');
   });
 

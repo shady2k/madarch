@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { layoutNeighborhood, layoutTreemap, mergeHood, NODE_H, NODE_W, textWidth, fit } from './layout.js';
 import type { Neighborhood } from '../types.js';
 
-const node = (id: string, hops = 1) => ({ id, kind: 'code.symbol', label: id, href: `/k/e/${id}`, hops });
+const node = (id: string, hops = 1) => ({ id, kind: 'code.symbol', label: id, href: `/e/${id}`, hops });
 const HOOD: Neighborhood = {
   center: 'c',
   nodes: [node('c', 0), node('caller1'), node('caller2'), node('callee1'), node('callee2'), node('table'), node('callerOfCaller', 2)],

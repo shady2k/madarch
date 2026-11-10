@@ -172,7 +172,7 @@ beforeAll(async () => {
     repositories: ['shop'],
     commitOf: () => null,
     resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), readDocument: readSource, repositories: () => ['shop'],
-    locate: (entity) => (entity.span === undefined ? undefined : { repo: 'shop', path: entity.span.path, lineStart: entity.span.lineStart, lineEnd: entity.span.lineEnd, href: `/k/src?repo=shop&path=${encodeURIComponent(entity.span.path)}&line=${entity.span.lineStart}` }) }),
+    locate: (entity) => (entity.span === undefined ? undefined : { repo: 'shop', path: entity.span.path, lineStart: entity.span.lineStart, lineEnd: entity.span.lineEnd, href: `/src?repo=shop&path=${encodeURIComponent(entity.span.path)}&line=${entity.span.lineStart}` }) }),
     repoOfScope: (id) => repoOfScope.get(id),
     readSource,
   };
@@ -232,7 +232,7 @@ describe('template text and the service page', () => {
     expect(files.groups).toHaveLength(1);
     expect(files.groups[0]!.relation).toBe('code.contains');
     expect(files.groups[0]!.rows.map((row) => [row.entity.id, row.hops])).toEqual([[FILE_A, 3], [FILE_B, 3]]);
-    expect(files.groups[0]!.rows.every((row) => row.entity.href === `/k/e/${encodeURIComponent(row.entity.id)}`)).toBe(true);
+    expect(files.groups[0]!.rows.every((row) => row.entity.href === `/e/${encodeURIComponent(row.entity.id)}`)).toBe(true);
   });
 
   test('the graph block holds the entity and what is linked to it as nodes and edges, naming how many are shown of how many, with the filter\'s relations', async () => {
@@ -240,7 +240,7 @@ describe('template text and the service page', () => {
     const graph = block(model, 'graph');
     const hood = graph.neighborhood;
     expect(hood.center).toBe(SERVICE);
-    expect(hood.nodes.find((entry) => entry.id === SERVICE)).toMatchObject({ label: 'billing', hops: 0, href: `/k/e/${encodeURIComponent(SERVICE)}` });
+    expect(hood.nodes.find((entry) => entry.id === SERVICE)).toMatchObject({ label: 'billing', hops: 0, href: `/e/${encodeURIComponent(SERVICE)}` });
     // The manifest's declared edge joins the service to its package; the package, the Markdown pages that name it, both ends are nodes.
     expect(hood.edges).toContainEqual({ from: SERVICE, to: PACKAGE, relation: 'code.contains', count: 1 });
     expect(hood.edges).toContainEqual({ from: 'domain:billing', to: SERVICE, relation: 'relates', count: 1 });
@@ -272,7 +272,7 @@ describe('the function page', () => {
       [AUDIT, 1, 'svc/billing/src/a.ts', 9, 'shop'],
       [HANDLE, 1, 'svc/billing/src/b.ts', 3, 'shop'],
     ]);
-    expect(callers.rows[1]!.site?.href).toBe('/k/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fb.ts&line=3');
+    expect(callers.rows[1]!.site?.href).toBe('/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fb.ts&line=3');
     const callees = block(model, 'callees');
     expect(callees.rows.map((row) => row.entity.id)).toEqual([AUDIT]);
     expect(callees.rows[0]!.entity.location).toMatchObject({ path: 'svc/billing/src/a.ts', lineStart: 8, lineEnd: 10 });
@@ -284,7 +284,7 @@ describe('the function page', () => {
     expect(source.language).toBe('typescript');
     expect(source.text).toBe(A_TS.split('\n').slice(2, 6).join('\n'));
     expect(source.truncated).toBe(false);
-    expect(source.location.href).toBe('/k/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fa.ts&line=3');
+    expect(source.location.href).toBe('/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fa.ts&line=3');
   });
 
   test('the sequence block follows the calls out of the function, a step for each, in the source order of the places the graph read them at, and says what it does not model', async () => {
@@ -300,7 +300,7 @@ describe('the function page', () => {
     ]);
     expect(chain!.edges[2]!.note).toBe('called again; its steps are shown above');
     expect(chain!.edges[0]!.location).toMatchObject({ path: 'svc/billing/src/b.ts', lineStart: 3 });
-    expect(chain!.edges.every((edge) => edge.href === `/k/e/${encodeURIComponent(edge.step === 2 ? AUDIT : CHARGE)}`)).toBe(true);
+    expect(chain!.edges.every((edge) => edge.href === `/e/${encodeURIComponent(edge.step === 2 ? AUDIT : CHARGE)}`)).toBe(true);
     expect(chain!.notes.join(' ')).toContain('branches, loops, error paths and repeated calls are not modelled');
     expect(chain!.renderers).toEqual(['mermaid']);
     expect(chain!.mermaidSource).toContain('sequenceDiagram');
@@ -391,9 +391,9 @@ describe('Markdown pages, links and grounds', () => {
 
   test('every madarch: link of the body is resolved: a key and a document section are ok, a missing key and a missing section are broken with the reason', async () => {
     const { resolutions } = await page('domain:billing');
-    expect(resolutions[`madarch:${CHARGE}`]).toMatchObject({ state: 'ok', kind: 'code.symbol', label: 'charge', href: `/k/e/${encodeURIComponent(CHARGE)}`, location: { repo: 'shop', path: 'svc/billing/src/a.ts', lineStart: 3, lineEnd: 6, href: '/k/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fa.ts&line=3' } });
+    expect(resolutions[`madarch:${CHARGE}`]).toMatchObject({ state: 'ok', kind: 'code.symbol', label: 'charge', href: `/e/${encodeURIComponent(CHARGE)}`, location: { repo: 'shop', path: 'svc/billing/src/a.ts', lineStart: 3, lineEnd: 6, href: '/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fa.ts&line=3' } });
     expect(resolutions[`madarch:${K('code.symbol', 'svc/none.ts#gone')}`]).toEqual({ state: 'broken', why: { code: 'no-entity', key: K('code.symbol', 'svc/none.ts#gone') }, target: `madarch:${K('code.symbol', 'svc/none.ts#gone')}`, reason: `no entity "${K('code.symbol', 'svc/none.ts#gone')}" in the graph or among the product's Markdown pages` });
-    expect(resolutions['madarch:doc:docs/handbook.md#money']).toMatchObject({ state: 'ok', href: '/k/doc?repo=shop&path=docs%2Fhandbook.md#money' });
+    expect(resolutions['madarch:doc:docs/handbook.md#money']).toMatchObject({ state: 'ok', href: '/doc?repo=shop&path=docs%2Fhandbook.md#money' });
     expect(resolutions['madarch:doc:docs/handbook.md#nothing']).toMatchObject({ state: 'broken', reason: 'the document "docs/handbook.md" (in shop) has no section "nothing"' });
     expect(resolutions['madarch:doc:docs/none.md']).toMatchObject({ state: 'broken', reason: 'no document "docs/none.md" in the product repository or its code repositories' });
     expect(resolutions['madarch:product:shop']).toMatchObject({ state: 'ok', kind: 'product', label: 'The shop' });
@@ -411,7 +411,7 @@ describe('Markdown pages, links and grounds', () => {
     const rows = related.groups[0]!.rows;
     expect(rows.map((row) => row.entity.id)).toEqual([SERVICE, CHARGE, K('code.symbol', 'svc/none.ts#gone')]);
     expect(rows[2]!.entity.broken).toBe(`no entity "${K('code.symbol', 'svc/none.ts#gone')}" in the graph or among the product's Markdown pages`);
-    expect(rows[0]!.entity.href).toBe(`/k/e/${encodeURIComponent(SERVICE)}`);
+    expect(rows[0]!.entity.href).toBe(`/e/${encodeURIComponent(SERVICE)}`);
   });
 
   test('document sections are found by heading slug, by an explicit id and by a label opening the line', () => {

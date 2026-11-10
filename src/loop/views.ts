@@ -9,6 +9,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { changedGrounds, gitReader, readKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
 import { KINDS_FILE, type FindingKind } from '../knowledge/kinds.js';
+import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
@@ -331,7 +332,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   }
   for (const miss of input.unplaced ?? []) {
     const file = miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md`;
-    const entity = miss.kind === 'question' ? { label: miss.slug, href: `/k/questions/${encodeURIComponent(miss.slug)}`, key: `question:${miss.slug}` } : null;
+    const entity = miss.kind === 'question' ? { label: miss.slug, href: questionAddress(miss.slug), key: `question:${miss.slug}` } : null;
     add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, fixer: 'person', target: miss.slug, reason: miss.reason, file, entity }, input.settings, notes));
   }
   // Grounds and links that name nothing.

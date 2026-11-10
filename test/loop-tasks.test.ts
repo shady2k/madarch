@@ -214,7 +214,7 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   // The product's reader is a process of its own: the first ask pays for its start, so it is warmed here.
-  const warmed = await fetch(`${server.url}/products/${SHOP}/api/k/tasks`);
+  const warmed = await fetch(`${server.url}/products/${SHOP}/api/tasks`);
   expect(warmed.status).toBe(200);
 }, 120_000);
 
@@ -225,10 +225,10 @@ afterAll(async () => {
 
 describe('the task an answer proposes', () => {
   test('the answered question proposes the document side the answer says to change, as the section that is wrong', async () => {
-    const before = await get('/api/k/tasks');
+    const before = await get('/api/tasks');
     expect(before.status).toBe(200);
     expect(before.body).toEqual({ tasks: [], open: 0, closed: 0, problems: [], notes: [] });
-    const proposal = await post('/api/k/task-propose', { question: 'discount-percentage', choice: 'code' });
+    const proposal = await post('/api/task-propose', { question: 'discount-percentage', choice: 'code' });
     expect(proposal.status).toBe(200);
     expect(proposal.body.choice).toBe('code');
     expect(proposal.body.title).toBe('Update the documents: Is the discount ten percent or what the caller passes?');
@@ -251,22 +251,22 @@ describe('the task an answer proposes', () => {
     // The grounds stay the answer's whole evidence, whichever side the task changes.
     expect(proposal.body.impact.grounds).toEqual(['doc:README.md#discounts']);
     // The other choice changes the code side, which is the file the answer names.
-    const docs = await post('/api/k/task-propose', { question: 'discount-percentage', choice: 'docs' });
+    const docs = await post('/api/task-propose', { question: 'discount-percentage', choice: 'docs' });
     expect(docs.status).toBe(200);
     expect(docs.body.title).toBe('Fix the code: Is the discount ten percent or what the caller passes?');
     expect(docs.body.choice).toBe('docs');
     expect(docs.body.scope).toEqual([CODE_FILE]);
     expect(docs.body.grounds).toEqual(DISCOUNT_GROUNDS);
     // A proposal writes nothing: the product still holds no task.
-    expect((await get('/api/k/tasks')).body.tasks).toEqual([]);
+    expect((await get('/api/tasks')).body.tasks).toEqual([]);
   }, 60_000);
 
   test('a question nobody answered is a 409 naming its file, and a choice that is neither code nor docs is a 400 naming the field', async () => {
-    const unanswered = await post('/api/k/task-propose', { question: 'tax-timing', choice: 'code' });
+    const unanswered = await post('/api/task-propose', { question: 'tax-timing', choice: 'code' });
     expect(unanswered.status).toBe(409);
     expect(unanswered.body.error.field).toBe('question');
     expect(unanswered.body.error.message).toBe('docs/questions/tax-timing.md:1: the question tax-timing has no answer yet, so it proposes no task: answer it first');
-    const other = await post('/api/k/task-propose', { question: 'discount-percentage', choice: 'other' });
+    const other = await post('/api/task-propose', { question: 'discount-percentage', choice: 'other' });
     expect(other.status).toBe(400);
     expect(other.body.error.field).toBe('choice');
     expect(other.body.error.message).toBe('"choice" is code (the code is right, the documents are old) or docs (the documents are right, the code must change)');
@@ -275,9 +275,9 @@ describe('the task an answer proposes', () => {
 
 describe('confirming the proposal as a task', () => {
   test('the confirmed task is a file of the product, committed as the person, and listed open with its scope words', async () => {
-    const proposal = await post('/api/k/task-propose', { question: 'discount-percentage', choice: 'code' });
+    const proposal = await post('/api/task-propose', { question: 'discount-percentage', choice: 'code' });
     expect(proposal.status).toBe(200);
-    const created = await post('/api/k/task-create', { question: 'discount-percentage', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    const created = await post('/api/task-create', { question: 'discount-percentage', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
     expect(created.status).toBe(201);
     const made = created.body.task;
     discountTask = { id: made.id, slug: made.slug, title: made.title, file: made.file, at: made.at };
@@ -320,7 +320,7 @@ describe('confirming the proposal as a task', () => {
       'created-by': { ...READER },
       'created-at': at,
     });
-    const listing = await get('/api/k/tasks');
+    const listing = await get('/api/tasks');
     expect(listing.status).toBe(200);
     expect(listing.body).toEqual({
       tasks: [{
@@ -336,7 +336,7 @@ describe('confirming the proposal as a task', () => {
         grounds: DISCOUNT_GROUNDS,
         // The place as a reader says it (madarch-m38l.14, the owner's review): the section's heading and its document's
         // title, each a link; the stored words stay for a tooltip.
-        scope: [{ scope: DISCOUNT_SECTION, words: 'README.md#discounts', place: { kind: 'section', label: 'Discounts', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#discounts', path: 'README.md', words: 'README.md#discounts' } }],
+        scope: [{ scope: DISCOUNT_SECTION, words: 'README.md#discounts', place: { kind: 'section', label: 'Discounts', where: 'Shop', href: '/doc?repo=orders-code&path=README.md#discounts', path: 'README.md', words: 'README.md#discounts' } }],
         closedBy: null,
         impact: { pages: expect.any(Number), statements: 0 },
       }],
@@ -349,20 +349,20 @@ describe('confirming the proposal as a task', () => {
   }, 60_000);
 
   test('a task that already exists, and a confirmation with no scope, are refused with the file they name', async () => {
-    const again = await post('/api/k/task-create', { question: 'discount-percentage', title: discountTask.title, grounds: DISCOUNT_GROUNDS, scope: [DISCOUNT_SECTION] });
+    const again = await post('/api/task-create', { question: 'discount-percentage', title: discountTask.title, grounds: DISCOUNT_GROUNDS, scope: [DISCOUNT_SECTION] });
     // A task that exists is a conflict the reader can act on: the route answers it as src/knowledge/product.ts's LoopRefusal says.
     expect(again.status).toBe(409);
     expect(again.body.message).toBe(`docs/tasks/${discountTask.slug}.md:1: a task with this id already exists`);
-    const noScope = await post('/api/k/task-create', { question: 'discount-percentage', title: 'Update the documents: change nothing', grounds: ['doc:README.md#discounts'], scope: [] });
+    const noScope = await post('/api/task-create', { question: 'discount-percentage', title: 'Update the documents: change nothing', grounds: ['doc:README.md#discounts'], scope: [] });
     expect(noScope.status).toBe(400);
     expect(noScope.body.message).toBe('docs/tasks:1: a confirmed task needs a scope: the section, lines, symbol or statement it changes');
-    expect((await get('/api/k/tasks')).body.tasks.length).toBe(1);
+    expect((await get('/api/tasks')).body.tasks.length).toBe(1);
   }, 30_000);
 });
 
 describe('where the planned change shows', () => {
   test('the document section the task names is marked as its scope, and a document no task names is marked nothing', async () => {
-    const document = await get('/api/k/document?repo=orders-code&path=README.md');
+    const document = await get('/api/document?repo=orders-code&path=README.md');
     expect(document.status).toBe(200);
     expect(document.body.planned).toEqual([{
       anchor: 'discounts',
@@ -370,12 +370,12 @@ describe('where the planned change shows', () => {
       task: { id: `task:${discountTask.slug}`, slug: discountTask.slug, title: discountTask.title, file: `docs/tasks/${discountTask.slug}.md` },
       how: 'scope',
     }]);
-    const unplanned = await get('/api/k/document?repo=orders-code&path=NOTES.md');
+    const unplanned = await get('/api/document?repo=orders-code&path=NOTES.md');
     expect(unplanned.status).toBe(200);
     expect(unplanned.body.planned).toEqual([]);
     // One task read whole: the section its scope names, and the graph nodes it marks — the section's own document key and
     // the pages the change reaches (src/loop/planned.ts:94-118).
-    const detail = await get(`/api/k/task?id=${discountTask.id}`);
+    const detail = await get(`/api/task?id=${discountTask.id}`);
     expect(detail.status).toBe(200);
     expect(detail.body.marks.sections).toBe(1);
     expect(detail.body.marks.statements).toBe(detail.body.impact.statements.length);
@@ -383,7 +383,7 @@ describe('where the planned change shows', () => {
     expect(detail.body.writable).toEqual(['docs/domains/orders.md']);
     expect(detail.body.impact.counts.statements).toBe(0);
     expect(detail.body.impact.pages.map((page: { id: string }) => page.id)).toContain('domain:orders');
-    const missing = await get('/api/k/task?id=task:no-such-task');
+    const missing = await get('/api/task?id=task:no-such-task');
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toBe('there is no task task:no-such-task: docs/tasks/no-such-task.md is not in the product repository');
   }, 60_000);
@@ -392,15 +392,15 @@ describe('where the planned change shows', () => {
 describe('closing a task by a commit', () => {
   test('a commit that names the task and changes the file its scope names closes it; a commit that misses either does not', async () => {
     // A second task, from the same open question answered now: its scope is the README's tax section alone.
-    const answered = await post('/api/k/answer', { question: 'tax-timing', text: 'Tax is added when the order is placed.' });
+    const answered = await post('/api/answer', { question: 'tax-timing', text: 'Tax is added when the order is placed.' });
     expect(answered.status).toBe(200);
     expect(answered.body).toMatchObject({ question: 'tax-timing', state: 'answered', committed: true });
-    const proposal = await post('/api/k/task-propose', { question: 'tax-timing', choice: 'code' });
+    const proposal = await post('/api/task-propose', { question: 'tax-timing', choice: 'code' });
     expect(proposal.status).toBe(200);
     expect(proposal.body.title).toBe('Update the documents: Is tax added at checkout or when the order is placed?');
     expect(proposal.body.grounds).toEqual(['doc:README.md#tax']);
     expect(proposal.body.scope).toEqual([TAX_SECTION]);
-    const created = await post('/api/k/task-create', { question: 'tax-timing', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    const created = await post('/api/task-create', { question: 'tax-timing', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
     expect(created.status).toBe(201);
     const made = created.body.task;
     taxTask = { id: made.id, slug: made.slug, title: made.title, file: made.file, at: made.at };
@@ -417,13 +417,13 @@ describe('closing a task by a commit', () => {
 
     // 1. It names the task but changes only the code file: the scope is the README section, so nothing closes.
     commitCode('src/a.ts', 'export function discount(percent: number): number {\n  return percent / 100;\n}\n', `Divide the discount by a hundred\n\nTask: ${taxTask.slug}`, afterWriting(1));
-    const namesOnly = await get('/api/k/tasks');
+    const namesOnly = await get('/api/tasks');
     expect(taskRowOf(namesOnly, taxTask.id).status).toBe('open');
     expect(taskRowOf(namesOnly, taxTask.id).closedBy).toBeNull();
 
     // 2. It changes the README but names no task: nothing closes either.
     commitCode('README.md', '# Shop\n\n## Discounts\n\nEvery order gets ten percent, as this README always said.\n\n## Tax\n\nTax is added at checkout.\n', 'Rewrite the discount section', afterWriting(2));
-    const changesOnly = await get('/api/k/tasks');
+    const changesOnly = await get('/api/tasks');
     expect(taskRowOf(changesOnly, taxTask.id).status).toBe('open');
     expect(taskRowOf(changesOnly, taxTask.id).closedBy).toBeNull();
 
@@ -434,11 +434,11 @@ describe('closing a task by a commit', () => {
     const recorded = git(repository, ['log', '-1', '--format=%H%x1f%cI%x1f%s']).trim().split('\x1f');
     expect(recorded.length).toBe(3);
     expect(recorded[0]).toBe(closing);
-    const closed = await get('/api/k/tasks');
+    const closed = await get('/api/tasks');
     const row = taskRowOf(closed, taxTask.id);
     expect(row.status).toBe('closed');
     expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: recorded[1], subject: 'Say when tax is added' });
-    expect(row.scope).toEqual([{ scope: TAX_SECTION, words: 'README.md#tax', place: { kind: 'section', label: 'Tax', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#tax', path: 'README.md', words: 'README.md#tax' } }]);
+    expect(row.scope).toEqual([{ scope: TAX_SECTION, words: 'README.md#tax', place: { kind: 'section', label: 'Tax', where: 'Shop', href: '/doc?repo=orders-code&path=README.md#tax', path: 'README.md', words: 'README.md#tax' } }]);
     // The other task is untouched by these commits: none of them names it.
     expect(taskRowOf(closed, discountTask.id).status).toBe('open');
   }, 60_000);
@@ -447,12 +447,12 @@ describe('closing a task by a commit', () => {
     // A section's scope is the whole section — from its heading to the line before the next heading — whatever named or
     // unnamed blocks it holds inside (madarch-ztyq.3). The reading that ended it at its next anchor cut it off at its
     // first bold item, so the commit below touched no scope and the task stayed open.
-    const answered = await post('/api/k/answer', { question: 'refund-window', text: 'Thirty days from the capture.' });
+    const answered = await post('/api/answer', { question: 'refund-window', text: 'Thirty days from the capture.' });
     expect(answered.status).toBe(200);
-    const proposal = await post('/api/k/task-propose', { question: 'refund-window', choice: 'code' });
+    const proposal = await post('/api/task-propose', { question: 'refund-window', choice: 'code' });
     expect(proposal.status).toBe(200);
     expect(proposal.body.scope).toEqual([REFUND_SECTION]);
-    const created = await post('/api/k/task-create', { question: 'refund-window', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    const created = await post('/api/task-create', { question: 'refund-window', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
     expect(created.status).toBe(201);
     const task: { id: string; slug: string; at: string } = created.body.task;
     const commitReadme = (text: string, message: string, date: string): string => {
@@ -468,25 +468,25 @@ describe('closing a task by a commit', () => {
       `Say how a refund is paid back\n\nTask: ${task.slug}`,
       new Date(Date.parse(task.at) + 4000).toISOString(),
     );
-    const row = taskRowOf(await get('/api/k/tasks'), task.id);
+    const row = taskRowOf(await get('/api/tasks'), task.id);
     expect(row.status).toBe('closed');
     expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: expect.any(String), subject: 'Say how a refund is paid back' });
     expect(row.scope).toEqual([{
       scope: REFUND_SECTION,
       words: 'README.md#refunds',
-      place: { kind: 'section', label: 'Refunds', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#refunds', path: 'README.md', words: 'README.md#refunds' },
+      place: { kind: 'section', label: 'Refunds', where: 'Shop', href: '/doc?repo=orders-code&path=README.md#refunds', path: 'README.md', words: 'README.md#refunds' },
     }]);
   }, 60_000);
 
   test('a task scoped to one list item is not closed by a commit that changes its sibling', async () => {
     // A list item covers only its own lines: the scope is the item, not the section round it (madarch-ztyq.3, the review
     // of finding 4). The sibling item stands two lines above it in the same section.
-    const answered = await post('/api/k/answer', { question: 'refund-amount', text: 'A refund gives back at most what was captured.' });
+    const answered = await post('/api/answer', { question: 'refund-amount', text: 'A refund gives back at most what was captured.' });
     expect(answered.status).toBe(200);
-    const proposal = await post('/api/k/task-propose', { question: 'refund-amount', choice: 'code' });
+    const proposal = await post('/api/task-propose', { question: 'refund-amount', choice: 'code' });
     expect(proposal.status).toBe(200);
     expect(proposal.body.scope).toEqual([REFUND_ITEM_SCOPE]);
-    const created = await post('/api/k/task-create', { question: 'refund-amount', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    const created = await post('/api/task-create', { question: 'refund-amount', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
     expect(created.status).toBe(201);
     const task: { id: string; slug: string; at: string } = created.body.task;
     const readme = (): string => readFileSync(join(repository, 'README.md'), 'utf8');
@@ -499,10 +499,10 @@ describe('closing a task by a commit', () => {
     };
     // The sibling item changes: the task stays open, because that line is not its scope.
     commit(`Say the refund window again\n\nTask: ${task.slug}`, (text) => text.replace('A refund is asked within thirty days of the capture.', 'A refund is asked within thirty days of the capture, in writing.'), 2);
-    expect(taskRowOf(await get('/api/k/tasks'), task.id)).toMatchObject({ status: 'open', closedBy: null });
+    expect(taskRowOf(await get('/api/tasks'), task.id)).toMatchObject({ status: 'open', closedBy: null });
     // The task's own item changes: it closes with that commit.
     const closing = commit(`Cap the refund at the capture\n\nTask: ${task.slug}`, (text) => text.replace('A refund never exceeds the captured total.', 'A refund never exceeds the captured total, in part or in full.'), 4);
-    const row = taskRowOf(await get('/api/k/tasks'), task.id);
+    const row = taskRowOf(await get('/api/tasks'), task.id);
     expect(row.status).toBe('closed');
     expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: expect.any(String), subject: 'Cap the refund at the capture' });
     expect(row.scope[0].place).toMatchObject({ kind: 'section', label: 'Full amount', path: 'README.md' });
@@ -511,7 +511,7 @@ describe('closing a task by a commit', () => {
 
 describe('closing a task by hand', () => {
   test('a person closes a task in the wiki; the file says closed, and closing it again is refused', async () => {
-    const closed = await post('/api/k/task-close', { id: discountTask.id });
+    const closed = await post('/api/task-close', { id: discountTask.id });
     expect(closed.status).toBe(200);
     expect(closed.body.state).toBe('closed');
     expect(closed.body.committed).toBe(true);
@@ -524,16 +524,16 @@ describe('closing a task by hand', () => {
     expect(front['status']).toBe('closed');
     expect(front['closed-by']).toBe('person');
     expect(typeof front['closed-at']).toBe('string');
-    const row = taskRowOf(await get('/api/k/tasks'), discountTask.id);
+    const row = taskRowOf(await get('/api/tasks'), discountTask.id);
     expect(row.status).toBe('closed');
     expect(row.closedBy).toEqual({ person: true, at: front['closed-at'] as string });
-    const again = await post('/api/k/task-close', { id: discountTask.id });
+    const again = await post('/api/task-close', { id: discountTask.id });
     // Closing a closed task is a conflict the reader can act on.
     expect(again.status).toBe(409);
     expect(again.body.message).toBe(`docs/tasks/${discountTask.slug}.md:1: the task ${discountTask.slug} is already closed`);
     // A task closed by hand marks nothing, and the other one closed by its commit marks nothing either: the planned
     // change is gone from the document (src/loop/planned.ts:82-89).
-    const document = await get('/api/k/document?repo=orders-code&path=README.md');
+    const document = await get('/api/document?repo=orders-code&path=README.md');
     expect(document.body.planned).toEqual([]);
   }, 60_000);
 });

@@ -10,6 +10,7 @@
  * figure the block shows comes from an edge or a property of the graph: no
  * page read runs Git.
  */
+import { kindAddress } from './addresses.js';
 import type { GraphEntity } from './graph-read.js';
 import { HISTORY_SHAPES, type HistoryShape } from './kinds.js';
 import { GIT_WIKI } from '../fill/stages/git-contract.js';
@@ -122,7 +123,7 @@ function moreOf(ctx: RenderContext, params: Readonly<Record<string, string>>, la
   const decl = ctx.manifest.kinds.get(kind);
   if (decl === undefined) return `the manifest ${ctx.manifest.file} declares no kind "${kind}": the history block cannot say where its rest lives`;
   const label = params['more'] ?? decl.labels?.[lang ?? ctx.language]?.many ?? kind;
-  return { href: `/k/kind/${kind}`, label };
+  return { href: kindAddress(kind), label };
 }
 
 /** The history block: the story of a task, a commit or an author, from the graph's own facts. */

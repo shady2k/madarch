@@ -26,6 +26,7 @@
  * live beside the product's store, not in the graph.
  */
 import { createHash } from 'node:crypto';
+import { SETTINGS_ADDRESS } from './addresses.js';
 import { byCodePoint } from '../model/order.js';
 import type { ModelPair, ModelRoleView, ResolvedModelRole } from './model-roles.js';
 import { roleOf } from './model-roles.js';
@@ -1051,7 +1052,7 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
         lastUnsure = [];
       }
     } else if (classification.pair === null) {
-      for (const one of admitted) remember({ ...one.base, verdict: 'unreviewed', reason: `${one.base.reason}; no judge is assigned: assign Classification and Analysis in /k/settings (section Model roles)`, source: 'none', evidenceHash: one.hash, configHash });
+      for (const one of admitted) remember({ ...one.base, verdict: 'unreviewed', reason: `${one.base.reason}; no judge is assigned: assign Classification and Analysis in ${SETTINGS_ADDRESS} (section Model roles)`, source: 'none', evidenceHash: one.hash, configHash });
       remaining = [];
     }
 

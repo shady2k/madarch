@@ -151,7 +151,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
     empty = await startServer({ ...common, productHome: emptyHome, knowledgeRoot: join(work, 'store-a') });
     busy = await startServer({ ...common, productHome: busyHome, knowledgeRoot: join(work, 'store-b') });
     // The first page of a product waits for its reader to start (a process of its own): the tests below do not.
-    for (const [server, path] of [[empty, '/products/madarch-wiki/api/k/status'], [busy, '/products/madarch-wiki/api/k/status'], [busy, '/products/my-product/api/k/status']] as const) {
+    for (const [server, path] of [[empty, '/products/madarch-wiki/api/status'], [busy, '/products/madarch-wiki/api/status'], [busy, '/products/my-product/api/status']] as const) {
       for (let tries = 0; ; tries += 1) {
         if ((await fetch(`${server.url}${path}`)).ok) break;
         if (tries > 60) throw new Error(`the status at ${path} never answered; the server said:\n${errors.join('\n')}`);
@@ -179,11 +179,11 @@ describe('the products-home server with madarch\'s own wiki', () => {
     expect(root.location).toBe('/products/my-product/');
     const products = await get(busy, '/api/products');
     expect(products.body.products).toEqual([{ name: 'Example docs', folder: 'madarch-wiki', own: true }, { name: 'My product', folder: 'my-product' }]);
-    const own = await get(busy, '/products/madarch-wiki/api/k/status');
+    const own = await get(busy, '/products/madarch-wiki/api/status');
     expect(own.body.own).toBe(true);
     expect(own.body.home).toBe('product:docs');
     expect(Object.keys(own.body.roles)).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'designer', 'security-engineer', 'platform-devops', 'product-lead']);
-    expect((await get(busy, '/products/my-product/api/k/status')).body.own).toBeUndefined();
+    expect((await get(busy, '/products/my-product/api/status')).body.own).toBeUndefined();
     // Serving the wiki writes nothing into it, so the refresh can fast-forward it.
     expect(ownGit(join(madarchHome, 'madarch-wiki'), ['status', '--porcelain', '--untracked-files=all'])).toBe('');
   });
@@ -202,14 +202,14 @@ describe('the products-home server with madarch\'s own wiki', () => {
   });
 
   test('the own wiki is documentation: no fill, no start over', async () => {
-    const fill = await get(busy, '/products/madarch-wiki/api/k/fill', { method: 'POST' });
+    const fill = await get(busy, '/products/madarch-wiki/api/fill', { method: 'POST' });
     expect(fill.status).toBe(409);
     expect(fill.body.message).toContain('documentation');
-    expect((await get(busy, '/products/madarch-wiki/api/k/reset', { method: 'POST' })).status).toBe(403);
+    expect((await get(busy, '/products/madarch-wiki/api/reset', { method: 'POST' })).status).toBe(403);
   });
 
   test('the glossary reads only the store: no fill stage writes its terms yet, so it answers none', async () => {
-    const answer = await get(busy, '/products/madarch-wiki/api/k/glossary');
+    const answer = await get(busy, '/products/madarch-wiki/api/glossary');
     if (answer.status !== 200) throw new Error(`the glossary answered ${answer.status} ${JSON.stringify(answer.body)}; the server said:\n${errors.join('\n')}`);
     // The answer carries a count, never the list (madarch-8bdc.2.5): no stage writes a term, so the count is zero.
     expect(answer.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
@@ -217,21 +217,40 @@ describe('the products-home server with madarch\'s own wiki', () => {
 
   test('a document section is no page: no fill stage reads the products documents at request time', async () => {
     const id = encodeURIComponent('doc:docs/glossary.md#payment-token');
-    const page = await get(busy, `/products/madarch-wiki/api/k/page?id=${id}`);
+    const page = await get(busy, `/products/madarch-wiki/api/page?id=${id}`);
     expect(page.status).toBe(404);
   });
 
+  test('the page files stand at /e and /kind; a former /k address is unknown, answered 404 for the same id', async () => {
+    const id = 'product:docs';
+    const page = await get(busy, `/products/madarch-wiki/e/${encodeURIComponent(id)}.json`);
+    expect(page.status).toBe(200);
+    expect(page.body).toMatchObject({ schema: 'madarch.page.v1', id });
+    const formerHome = await get(busy, '/products/madarch-wiki/k');
+    expect(formerHome.status).toBe(404);
+    const formerEntity = await get(busy, `/products/madarch-wiki/k/e/${encodeURIComponent(id)}`);
+    expect(formerEntity.status).toBe(404);
+    const formerPage = await get(busy, `/products/madarch-wiki/k/e/${encodeURIComponent(id)}.json`);
+    expect(formerPage.status).toBe(404);
+    expect(formerPage.body.message).toContain('no such path');
+    const formerKind = await get(busy, `/products/madarch-wiki/k/kind/product.json`);
+    expect(formerKind.status).toBe(404);
+    const formerApi = await get(busy, `/products/madarch-wiki/api/k/status`);
+    expect(formerApi.status).toBe(404);
+    expect(formerApi.body.message).toContain('no such path');
+  });
+
   test('the role is asked once: unasked, then kept in the madarch home for every product; a role outside the list is refused', async () => {
-    expect((await get(busy, '/products/my-product/api/k/settings')).body).toMatchObject({ role: 'everything', asked: false });
-    const chosen = await get(busy, '/products/my-product/api/k/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'developer' }) });
+    expect((await get(busy, '/products/my-product/api/settings')).body).toMatchObject({ role: 'everything', asked: false });
+    const chosen = await get(busy, '/products/my-product/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'developer' }) });
     expect(chosen.body).toMatchObject({ role: 'developer', asked: true });
     expect(JSON.parse(readFileSync(join(madarchHome, 'settings.json'), 'utf8'))).toMatchObject({ role: 'developer', roleAsked: true });
     // Another product, another server: the same machine, the same answer.
-    expect((await get(empty, '/products/madarch-wiki/api/k/settings')).body).toMatchObject({ role: 'developer', asked: true });
-    const refused = await get(busy, '/products/my-product/api/k/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'janitor' }) });
+    expect((await get(empty, '/products/madarch-wiki/api/settings')).body).toMatchObject({ role: 'developer', asked: true });
+    const refused = await get(busy, '/products/my-product/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'janitor' }) });
     expect(refused.status).toBe(400);
     expect(refused.body.message).toContain('"janitor"');
-    const crossSite = await get(busy, '/products/my-product/api/k/settings', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: JSON.stringify({ role: 'tester' }) });
+    const crossSite = await get(busy, '/products/my-product/api/settings', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: JSON.stringify({ role: 'tester' }) });
     expect(crossSite.status).toBe(403);
     expect(readFileSync(join(madarchHome, 'settings.json'), 'utf8')).toContain('developer');
   });
@@ -241,7 +260,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
     const good = readFileSync(file, 'utf8');
     writeFileSync(file, '{broken');
     try {
-      const answer = await get(busy, '/products/my-product/api/k/settings');
+      const answer = await get(busy, '/products/my-product/api/settings');
       expect(answer.status).toBe(500);
       expect(answer.body.message).toContain(file);
     } finally {

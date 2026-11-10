@@ -4,6 +4,7 @@ import { appPath } from '../app-base.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Input } from '@/components/ui/input.js';
 import { currentAddress, linkHandlers } from './tabs.js';
+import { ENTITY_ADDRESS_PREFIX } from './routes.js';
 import type { HistoryContext, PageModel } from './types.js';
 
 /** Explicit dates never silently become today's code, including a covered tree without this entity. */
@@ -11,7 +12,7 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
   const { t } = useTranslation();
   const [repo, setRepo] = useState(history?.repo ?? navigation?.[0]?.repo ?? '');
   const [date, setDate] = useState(history?.at ?? '');
-  const codePage = decodeURIComponent(currentAddress().split('?')[0]!).startsWith('/k/e/code.');
+  const codePage = decodeURIComponent(currentAddress().split('?')[0]!).startsWith(`${ENTITY_ADDRESS_PREFIX}code.`);
   if (history === undefined && (!codePage || navigation === undefined || navigation.length === 0)) return null;
   const address = (at: string | null, repository = history?.repo ?? repo): string => {
     const url = new URL(currentAddress(), 'https://wiki.invalid');

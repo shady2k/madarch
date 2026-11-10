@@ -109,7 +109,7 @@ async function shoot(page: Page, name: string, fullPage = false): Promise<void> 
 }
 try {
   // The role is chosen, so the first-run card does not stand in the pictures.
-  const chosen = await fetch(`${base}/products/shop/api/k/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'everything' }) });
+  const chosen = await fetch(`${base}/products/shop/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'everything' }) });
   if (!chosen.ok) throw new Error(`the role was not kept: ${await chosen.text()}`);
   // The product is filled through the wiki, as a person would (the page needs its graph).
   const probe = await open('/products/shop/', 1150, 900, 'light');
@@ -121,11 +121,11 @@ try {
   await probe.close();
   for (const scheme of ['light', 'dark'] as const) {
     for (const [width, height, size] of [[1150, 900, 'wide'], [390, 800, 'phone']] as const) {
-      const page = await open(`/products/shop/k/e/${encodeURIComponent('domain:payment')}`, width, height, scheme);
+      const page = await open(`/products/shop/e/${encodeURIComponent('domain:payment')}`, width, height, scheme);
       await page.waitForSelector('[data-testid=journal-link]', { timeout: 120_000 });
       await shoot(page, `${scheme}-${size}-page-with-link`);
       await page.close();
-      const journalPage = await open(`/products/shop/k/journal?id=${encodeURIComponent('domain:payment')}`, width, height, scheme);
+      const journalPage = await open(`/products/shop/journal?id=${encodeURIComponent('domain:payment')}`, width, height, scheme);
       await journalPage.waitForSelector('[data-testid=journal-row]', { timeout: 60_000 });
       await shoot(journalPage, `${scheme}-${size}-journal`);
       // One refused row opened: its reason, arguments and response.

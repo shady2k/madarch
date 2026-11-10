@@ -20,7 +20,7 @@ import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
 import { KindLabels } from './kind-names.js';
 import { KindPage } from './pages.js';
-import { addressOfDocument, kRouteOf, kindPlural, kindWord } from './routes.js';
+import { addressOfDocument, wikiRouteOf, kindPlural, kindWord } from './routes.js';
 import { kindNameOf } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { relativeDocument } from './blocks.js';
@@ -83,15 +83,15 @@ describe('highlighting', () => {
 });
 
 describe('routes', () => {
-  test('the wiki lives under /k, at a product\'s prefix too; anything else is not its route', () => {
-    expect(kRouteOf('/k')).toEqual({ name: 'home' });
-    expect(kRouteOf('/products/shop/k/')).toEqual({ name: 'home' });
-    expect(kRouteOf('/products/shop/k/e/code.symbol%3Aa.ts%23f')).toEqual({ name: 'entity', id: 'code.symbol:a.ts#f' });
-    expect(kRouteOf('/k/kind/code.file')).toEqual({ name: 'kind', kind: 'code.file' });
-    expect(kRouteOf('/k/src', '?repo=r&path=a%2Fb.ts&line=12')).toEqual({ name: 'source', repo: 'r', path: 'a/b.ts', line: 12 });
-    expect(kRouteOf('/k/src', '?path=a.ts')).toEqual({ name: 'source', repo: null, path: 'a.ts', line: null });
-    expect(kRouteOf('/p/docs/x.md')).toBeNull();
-    expect(kRouteOf('/')).toBeNull();
+  test('the wiki lives at the root, at a product\'s prefix too; anything else is not its route', () => {
+    expect(wikiRouteOf('/')).toEqual({ name: 'home' });
+    expect(wikiRouteOf('/products/shop/')).toEqual({ name: 'home' });
+    expect(wikiRouteOf('/products/shop/e/code.symbol%3Aa.ts%23f')).toEqual({ name: 'entity', id: 'code.symbol:a.ts#f' });
+    expect(wikiRouteOf('/kind/code.file')).toEqual({ name: 'kind', kind: 'code.file' });
+    expect(wikiRouteOf('/src', '?repo=r&path=a%2Fb.ts&line=12')).toEqual({ name: 'source', repo: 'r', path: 'a/b.ts', line: 12 });
+    expect(wikiRouteOf('/src', '?path=a.ts')).toEqual({ name: 'source', repo: null, path: 'a.ts', line: null });
+    expect(wikiRouteOf('/p/docs/x.md')).toBeNull();
+    expect(wikiRouteOf('/nope')).toBeNull();
   });
 
   test('a kind is a word for a reader: the extractor prefix dropped, and a plural', () => {
@@ -106,7 +106,7 @@ describe('routes', () => {
 
 describe('Markdown with grounds', () => {
   const resolutions: Record<string, Resolution> = {
-    'madarch:code.symbol:a.ts#f': ok('madarch:code.symbol:a.ts#f', 'f', '/k/e/code.symbol%3Aa.ts%23f', { location: { repo: 'shop', path: 'a.ts', lineStart: 2, lineEnd: 9, href: '/k/src?repo=shop&path=a.ts&line=2' } }),
+    'madarch:code.symbol:a.ts#f': ok('madarch:code.symbol:a.ts#f', 'f', '/e/code.symbol%3Aa.ts%23f', { location: { repo: 'shop', path: 'a.ts', lineStart: 2, lineEnd: 9, href: '/src?repo=shop&path=a.ts&line=2' } }),
     'madarch:code.table:t': ok('madarch:code.table:t', 't', null),
     'madarch:code.symbol:a.ts#gone': { state: 'broken', target: 'madarch:code.symbol:a.ts#gone', reason: 'no entity "code.symbol:a.ts#gone" in the graph' },
   };
@@ -115,9 +115,9 @@ describe('Markdown with grounds', () => {
   test('a ground that resolves is a link to the entity\'s page; one that does not is shown as broken with its reason, never linked', async () => {
     const container = into(createElement(KMarkdown, { text, resolutions }));
     await until(() => container.querySelector('section[data-footnotes]') !== null, 'the footnotes');
-    const links = [...container.querySelectorAll('a')].filter((anchor) => anchor.getAttribute('href')?.startsWith('/k/e/'));
+    const links = [...container.querySelectorAll('a')].filter((anchor) => anchor.getAttribute('href')?.startsWith('/e/'));
     expect(links.length).toBeGreaterThanOrEqual(2);
-    expect(links[0]!.getAttribute('href')).toBe('/k/e/code.symbol%3Aa.ts%23f');
+    expect(links[0]!.getAttribute('href')).toBe('/e/code.symbol%3Aa.ts%23f');
     const broken = container.querySelector('[data-testid=ref-broken]')!;
     expect(broken.textContent).toContain('gone');
     expect(broken.textContent).toContain('broken');
@@ -126,7 +126,7 @@ describe('Markdown with grounds', () => {
     // A reference to code opens the source at its line beside the page.
     const place = container.querySelector('[data-testid=code-place]')!;
     expect(place.textContent).toBe('a.ts:2–9');
-    expect(place.closest('a')!.getAttribute('href')).toBe('/k/src?repo=shop&path=a.ts&line=2');
+    expect(place.closest('a')!.getAttribute('href')).toBe('/src?repo=shop&path=a.ts&line=2');
     const unpaged = container.querySelector('[data-testid=ref-unpaged]')!;
     expect(unpaged.textContent).toBe('t');
     expect(unpaged.closest('a')).toBeNull();
@@ -139,13 +139,13 @@ describe('Markdown with grounds', () => {
 });
 
 describe('the blocks', () => {
-  const place = { repo: 'shop', path: 'svc/a.ts', lineStart: 3, lineEnd: 6, href: '/k/src?repo=shop&path=svc%2Fa.ts&line=3' };
+  const place = { repo: 'shop', path: 'svc/a.ts', lineStart: 3, lineEnd: 6, href: '/src?repo=shop&path=svc%2Fa.ts&line=3' };
 
   test('related is a table per relation: the name links to the page, the kind is a badge, the place opens the source at its line, a cut says how many are shown', async () => {
     const block: Block = {
       type: 'related', title: 'Files',
       groups: [{ relation: 'code.contains', direction: 'out', total: 5, rows: [
-        { entity: { id: 'code.file:a.ts', kind: 'code.file', label: 'a.ts', href: '/k/e/code.file%3Aa.ts', location: place }, count: 2 },
+        { entity: { id: 'code.file:a.ts', kind: 'code.file', label: 'a.ts', href: '/e/code.file%3Aa.ts', location: place }, count: 2 },
         { entity: { id: 'code.table:t', kind: 'code.table', label: 't', href: null }, count: 1 },
         { entity: { id: 'code.symbol:none', kind: 'code.symbol', label: 'none', href: null, broken: 'no entity "code.symbol:none"' }, count: 1 },
       ] }],
@@ -154,7 +154,7 @@ describe('the blocks', () => {
     await until(() => container.querySelector('table') !== null, 'the table');
     const rows = [...container.querySelectorAll('tbody tr')];
     expect(rows).toHaveLength(3);
-    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/e/code.file%3Aa.ts');
+    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/e/code.file%3Aa.ts');
     expect(rows[0]!.textContent).toContain('×2');
     expect(rows[0]!.textContent).toContain('File');
     expect(rows[0]!.querySelector('[data-testid=code-place]')!.closest('a')!.getAttribute('href')).toBe(place.href);
@@ -189,13 +189,13 @@ describe('the blocks', () => {
   test('callers list each caller with the call site as a link to the source at its line, and say how many there are in all', async () => {
     const block: Block = {
       type: 'callers', title: 'Callers', total: 5,
-      rows: [{ entity: { id: 'code.symbol:b', kind: 'code.symbol', label: 'handle', href: '/k/e/code.symbol%3Ab' }, sites: 2, site: { repo: 'shop', path: 'svc/b.ts', lineStart: 9, lineEnd: 9, href: '/k/src?repo=shop&path=svc%2Fb.ts&line=9' } }],
+      rows: [{ entity: { id: 'code.symbol:b', kind: 'code.symbol', label: 'handle', href: '/e/code.symbol%3Ab' }, sites: 2, site: { repo: 'shop', path: 'svc/b.ts', lineStart: 9, lineEnd: 9, href: '/src?repo=shop&path=svc%2Fb.ts&line=9' } }],
     };
     const container = into(createElement(BlockView, { block, resolutions: {} }));
     await until(() => container.querySelector('table') !== null, 'the table');
     const row = container.querySelector('tbody tr')!;
     expect(row.querySelector('a')!.textContent).toBe('handle');
-    expect(row.querySelector('[data-testid=code-place]')!.closest('a')!.getAttribute('href')).toBe('/k/src?repo=shop&path=svc%2Fb.ts&line=9');
+    expect(row.querySelector('[data-testid=code-place]')!.closest('a')!.getAttribute('href')).toBe('/src?repo=shop&path=svc%2Fb.ts&line=9');
     expect(row.textContent).toContain('2');
     expect(container.querySelector('[data-testid=calls-cut]')!.textContent).toBe('Showing 1 of 5.');
   });
@@ -329,7 +329,7 @@ const OFFERS = [
 function stubFetch(calls: string[], others: (url: string, init?: RequestInit) => Response = () => new Response(JSON.stringify({ fill: { state: 'running' } }), { status: 202 })): void {
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
-    if (url.endsWith('/api/k/agents')) return new Response(JSON.stringify({ agents: OFFERS, chosen: null }));
+    if (url.endsWith('/api/agents')) return new Response(JSON.stringify({ agents: OFFERS, chosen: null }));
     return others(url, init);
   };
 }
@@ -363,7 +363,7 @@ describe('the empty home', () => {
   });
 
   test('a document kind says plainly that no fill stage writes it yet', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/k/entities') ? emptyListing('doc.use-case') : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }));
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/entities') ? emptyListing('doc.use-case') : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }));
     const kind: KindSummary = { kind: 'doc.use-case', source: 'document', single: false, count: 0, origins: ['person'] };
     const container = into(createElement(KindLabels.Provider, { value: [kind] }, createElement(KindPage, { kind: 'doc.use-case', version: 1 })));
     await until(() => container.querySelector('[data-testid=kind-empty]') !== null, 'the empty kind');
@@ -386,7 +386,7 @@ describe('the fill card', () => {
     expect(container.textContent).toContain('(training)');
     (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['GET /api/k/agents', 'POST /api/k/fill {"agent":null}']);
+    expect(calls).toEqual(['GET /api/agents', 'POST /api/fill {"agent":null}']);
   });
 
   test('a refusal of the server is shown in its own words', async () => {
@@ -467,7 +467,7 @@ describe('the agent stage', () => {
     await until(() => container.querySelector('[data-testid=fill-start]')!.textContent === 'Start the fill and let Claude Code write the pages', 'the button');
     (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['GET /api/k/agents', 'POST /api/k/agent {"agent":"claude-code","install":true}', 'POST /api/k/fill {"agent":"claude-code","language":"en"}']);
+    expect(calls).toEqual(['GET /api/agents', 'POST /api/agent {"agent":"claude-code","install":true}', 'POST /api/fill {"agent":"claude-code","language":"en"}']);
   });
 
   test('a filled product with no pages offers the agent on a card whose button needs a chosen agent', async () => {
@@ -478,8 +478,8 @@ describe('the agent stage', () => {
     expect(container.textContent).toContain('Let an agent write the product pages');
     expect((container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).disabled).toBe(true);
     expect(container.textContent).toContain('Choose Claude Code or Codex to let an agent write.');
-    await until(() => calls.includes('GET /api/k/agents'), 'the agent request');
-    expect(calls).toEqual(['GET /api/k/agents']);
+    await until(() => calls.includes('GET /api/agents'), 'the agent request');
+    expect(calls).toEqual(['GET /api/agents']);
   });
 
   test('the product pages say a stage is under way in one line, with no paths and the way to the fill page', async () => {
@@ -496,7 +496,7 @@ describe('the agent stage', () => {
     const line = container.querySelector('[data-testid=writer-line]')!;
     // Of the run's seven pages, not of the two taken up so far.
     expect(line.querySelector('[data-testid=writer-line-words]')!.textContent).toBe('Claude Code is writing the pages: 1 of 7 written; now domain:ordering.');
-    expect(line.querySelector('[data-testid=writer-line-open]')!.getAttribute('href')).toBe('/k/fill');
+    expect(line.querySelector('[data-testid=writer-line-open]')!.getAttribute('href')).toBe('/fill');
     // The paths of the pages are the engineer's: they are not on the product pages.
     expect(line.textContent).not.toContain('docs/product.md');
     expect(line.querySelectorAll('[data-testid=writer-unit]').length).toBe(0);
@@ -533,7 +533,7 @@ describe('the agent stage', () => {
     const units = [...container.querySelectorAll('[data-testid=fill-unit]')];
     // The server says which pages have a journal; the page shows the way only to the one that does.
     expect(units.map((unit) => unit.querySelector('[data-testid=fill-unit-journal]') === null)).toEqual([false, true, true]);
-    expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/k/journal?id=product%3Ashop');
+    expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/journal?id=product%3Ashop');
   });
 
   test('the fill page lists each page the agent takes up by its kind and title, its state, its links and the refusals, with the paths for the engineer', async () => {
@@ -561,8 +561,8 @@ describe('the agent stage', () => {
     // The reader's names: the kind's name from the manifest and the page's title.
     expect(units.map((unit) => unit.querySelector('[data-testid=fill-unit-page], [data-testid=fill-unit-name]')!.textContent)).toEqual(['Product Online shop', 'Domain Ordering', 'Domain Payments']);
     // The written page is a link, and so is its journal where the wiki holds one; a page not written yet has neither.
-    expect(units[0]!.querySelector('[data-testid=fill-unit-page]')!.getAttribute('href')).toBe('/k/e/product%3Ashop');
-    expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/k/journal?id=product%3Ashop');
+    expect(units[0]!.querySelector('[data-testid=fill-unit-page]')!.getAttribute('href')).toBe('/e/product%3Ashop');
+    expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/journal?id=product%3Ashop');
     expect(units[1]!.querySelector('[data-testid=fill-unit-journal]')).toBeNull();
     expect(units[2]!.querySelector('[data-testid=fill-unit-refusals]')!.textContent).toBe('Line 12, ungrounded-statement: the sentence has no footnote');
     // The path and the call counts stand under «Details for an engineer».
@@ -591,7 +591,7 @@ describe('the agent stage', () => {
     expect(container.querySelector('[data-testid=writer-message]')!.textContent).toContain('some pages were not written');
     (container.querySelector('[data-testid=writer-retry]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls.at(-1)).toBe('POST /api/k/fill {"agent":"codex"}');
+    expect(calls.at(-1)).toBe('POST /api/fill {"agent":"codex"}');
   });
 });
 
@@ -698,28 +698,28 @@ describe('the product selector', () => {
 
   test('the choices are the home\'s products, each at its own wiki, and the open one is marked', () => {
     expect(productChoices([{ name: 'Shop', folder: 'shop' }, { name: 'Other one', folder: 'other one' }], 'shop')).toEqual([
-      { name: 'Shop', folder: 'shop', href: '/products/shop/k', here: true },
-      { name: 'Other one', folder: 'other one', href: '/products/other%20one/k', here: false },
+      { name: 'Shop', folder: 'shop', href: '/products/shop/', here: true },
+      { name: 'Other one', folder: 'other one', href: '/products/other%20one/', here: false },
     ]);
   });
 });
 
 describe('there is one app', () => {
   const answer = (manifest: 'ok' | 'no-manifest') => async (url: string): Promise<Response> => {
-    if (url.endsWith('/api/k/status')) {
+    if (url.endsWith('/api/status')) {
       return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null }));
     }
-    if (url.endsWith('/api/k/agents')) return new Response(JSON.stringify({ agents: [], chosen: null }));
-    if (url.endsWith('/api/k/products')) return new Response(JSON.stringify({ products: [] }));
+    if (url.endsWith('/api/agents')) return new Response(JSON.stringify({ agents: [], chosen: null }));
+    if (url.endsWith('/api/products')) return new Response(JSON.stringify({ products: [] }));
     return new Response(JSON.stringify({ message: 'not here' }), { status: 404 });
   };
 
-  test('the front door opens the knowledge wiki at /k', async () => {
+  test('the front door opens the knowledge wiki at the root', async () => {
     (globalThis as { fetch?: unknown }).fetch = answer('ok');
     window.history.replaceState({}, '', '/');
     const container = into(createElement(AppRoot));
     await until(() => container.querySelector('[data-testid=knowledge-app]') !== null, 'the knowledge wiki');
-    expect(window.location.pathname).toBe('/k');
+    expect(window.location.pathname).toBe('/');
   });
 
   test('the top bar and the tab bar stand in one sticky block, so only the page below them scrolls', async () => {
@@ -739,7 +739,7 @@ describe('there is one app', () => {
     window.history.replaceState({}, '', '/?documents');
     const container = into(createElement(AppRoot));
     await until(() => container.querySelector('[data-testid=knowledge-app]') !== null, 'the knowledge wiki');
-    expect(window.location.pathname).toBe('/k');
+    expect(window.location.pathname).toBe('/');
   });
 
   test('a product whose manifest has no kinds is still the knowledge wiki, which says what to do', async () => {
@@ -782,9 +782,9 @@ describe('document links', () => {
     expect(relativeDocument({ repo: null, path: 'docs/a.md' }, 'image.png')).toBeNull();
   });
   test('the routes of the documents list and of one document', () => {
-    expect(kRouteOf('/k/docs')).toEqual({ name: 'docs' });
-    expect(kRouteOf('/k/doc', '?repo=training&path=docs%2Fa.md')).toEqual({ name: 'doc', repo: 'training', path: 'docs/a.md' });
-    expect(addressOfDocument('training', 'docs/a.md', 'uc-2')).toBe('/k/doc?repo=training&path=docs%2Fa.md#uc-2');
+    expect(wikiRouteOf('/docs')).toEqual({ name: 'docs' });
+    expect(wikiRouteOf('/doc', '?repo=training&path=docs%2Fa.md')).toEqual({ name: 'doc', repo: 'training', path: 'docs/a.md' });
+    expect(addressOfDocument('training', 'docs/a.md', 'uc-2')).toBe('/doc?repo=training&path=docs%2Fa.md#uc-2');
   });
 });
 
@@ -812,7 +812,7 @@ describe('the sync button', () => {
     button.click();
     await until(() => refreshed === 1, 'the refresh');
     // The press is the refresh the fill menu makes: the same request, the agent saved for the product named.
-    expect(calls.filter((call) => call.startsWith('POST '))).toEqual(['POST /api/k/fill {"agent":null}']);
+    expect(calls.filter((call) => call.startsWith('POST '))).toEqual(['POST /api/fill {"agent":null}']);
     // While it runs the button is spent and says so.
     rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z', commit: 3, commits: 9 } }), () => { refreshed += 1; }));
     await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
@@ -823,8 +823,8 @@ describe('the sync button', () => {
     await until(() => container.querySelector('[data-testid=sync-changed]') !== null, 'the changed pages');
     const links = [...container.querySelectorAll('[data-testid=sync-changed] a')].map((anchor) => [anchor.textContent, anchor.getAttribute('href')]);
     expect(links).toEqual([
-      ['a.ts', appPath(`/k/e/${encodeURIComponent('code.file:src/a.ts')}`)],
-      ['Payment', appPath(`/k/e/${encodeURIComponent('domain:payment')}`)],
+      ['a.ts', appPath(`/e/${encodeURIComponent('code.file:src/a.ts')}`)],
+      ['Payment', appPath(`/e/${encodeURIComponent('domain:payment')}`)],
     ]);
     expect(container.querySelector('[data-testid=sync-count]')!.textContent).toBe('Changed pages: 2');
     // The reader closes it; it stays closed.
@@ -1024,11 +1024,11 @@ describe('a run a person pauses or stops', () => {
     await until(() => container.querySelector('[data-testid=stop-confirm]') !== null, 'the confirmation');
     (container.querySelector('[data-testid=stop-confirm]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['POST /api/k/stop {"confirm":true}']);
+    expect(calls).toEqual(['POST /api/stop {"confirm":true}']);
     // «Продолжить» is the fill's own press, made for the agent this run writes with.
     (container.querySelector('[data-testid=run-resume]') as HTMLButtonElement).click();
     await until(() => refreshed === 2, 'the resume');
-    expect(calls.at(-1)).toBe('POST /api/k/fill {"agent":"claude-code"}');
+    expect(calls.at(-1)).toBe('POST /api/fill {"agent":"claude-code"}');
   });
 
   test('the top bar says the run stands paused, without the dot, and its popover is the same run', async () => {
@@ -1113,7 +1113,7 @@ describe('a kind\'s listing follows its declaration', () => {
 
   test('the operations table is drawn for a kind whose declaration gives it, and the plain table for one that does not', async () => {
     for (const drawn of [true, false]) {
-      (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.startsWith('/api/k/entities')
+      (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.startsWith('/api/entities')
         ? new Response(JSON.stringify({ kind: 'code.operation', total: 1, rows: [{ id: 'code.operation:api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', href: null }], next: null, ...(drawn ? { operations: {} } : {}) }))
         : new Response(JSON.stringify({ renderer: 'mermaid', views: [] })));
       const container = into(createElement(KindLabels.Provider, { value: [summary(drawn ? { listing: 'operations' } : {})] }, createElement(KindPage, { kind: 'code.operation', version: 1 })));

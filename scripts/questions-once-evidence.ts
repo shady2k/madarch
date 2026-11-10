@@ -61,7 +61,7 @@ export function resetMissingTargets(plan: { store: readonly string[]; agentPages
     if (document !== undefined) {
       requireWalk(parsed.kind === 'doc' && parsed.path === document.path && /^[a-f0-9]{64}$/.test(document.sha256), `invalid pre-reset document proof: ${target}`);
       const href = new URL(value.href, 'http://fixture.test');
-      const sourceMatches = href.pathname === '/k/doc' && href.searchParams.get('repo') === document.repo && href.searchParams.get('path') === document.path;
+      const sourceMatches = href.pathname === '/doc' && href.searchParams.get('repo') === document.repo && href.searchParams.get('path') === document.path;
       const entityMatches = typeof value.entity === 'string' && value.entity === `doc:@${document.repo}/${document.path}${parsed.anchor === null ? '' : '#' + parsed.anchor}`;
       requireWalk(sourceMatches || entityMatches, `pre-reset document repository/path does not match: ${target}`);
       if (graphRemoved) return [Object.freeze({ target, key: document.path, documentPath: document.path })];
@@ -151,7 +151,7 @@ export function assertOnceManifest(expected: { readonly head: string; readonly s
 export function expectedEventSource(pageURL: string, url: string, method: string): boolean {
   try {
     const page = new URL(pageURL); const request = new URL(url);
-    const product = /^(\/products\/[^/]+)\/k(?:\/|$)/.exec(page.pathname)?.[1];
+    const product = /^(\/products\/[^/]+)(?:\/|$)/.exec(page.pathname)?.[1];
     return product !== undefined && request.origin === page.origin && request.pathname === `${product}/api/events` && request.search === '' && method === 'GET';
   } catch { return false; }
 }
@@ -407,7 +407,7 @@ export class OnceEvidence {
 
 /** All declared kinds, every pagination batch, then all touched page bodies and question detail routes. No sample. */
 export async function inventory(evidence: OnceEvidence, base: string, language: 'en' | 'ru', stage: string, expectedIds: readonly string[], absence: ResetAbsence = {}): Promise<void> {
-  const status = await evidence.json(`${base}/api/k/status`);
+  const status = await evidence.json(`${base}/api/status`);
   requireWalk(Array.isArray(status.kinds) && new Set(status.kinds.map((kind: any) => kind.kind)).size === status.kinds.length && status.kinds.every((kind: any) => typeof kind.kind === 'string' && Number.isInteger(kind.count) && kind.count >= 0), 'unknown or duplicate status kind schema');
   const inventoryIds = new Set<string>();
   const kinds: unknown[] = [];
@@ -415,7 +415,7 @@ export async function inventory(evidence: OnceEvidence, base: string, language: 
     const seen = new Set<string>(); const cursors = new Set<string>(); let after: string | null = null; let total: number | undefined; let batches = 0;
     do {
       const query = new URLSearchParams({ kind: kind.kind, limit: '37' }); if (after !== null) query.set('after', after);
-      const list = await evidence.json(`${base}/api/k/entities?${query}`); batches += 1;
+      const list = await evidence.json(`${base}/api/entities?${query}`); batches += 1;
       requireWalk(list.kind === kind.kind && Number.isInteger(list.total) && list.total >= 0 && Array.isArray(list.rows), `invalid inventory for ${kind.kind}`);
       requireWalk(total === undefined || total === list.total, `inventory count changed during pagination: ${kind.kind}`); total = list.total;
       requireWalk(list.rows.length <= 37 && (list.next === null || typeof list.next === 'string'), `invalid pagination shape: ${kind.kind}`);
@@ -438,7 +438,7 @@ export async function inventory(evidence: OnceEvidence, base: string, language: 
   requireWalk(JSON.stringify(actual) === JSON.stringify([...expectedIds].sort(compareCodePoint)), `touched inventory mismatch at ${stage}: expected ${JSON.stringify(expectedIds)} actual ${JSON.stringify(actual)}`);
   const pages: unknown[] = [];
   for (const id of actual) {
-    const page = await evidence.json(`${base}/api/k/page?${new URLSearchParams({ id, lang: language, full: '1' })}`);
+    const page = await evidence.json(`${base}/api/page?${new URLSearchParams({ id, lang: language, full: '1' })}`);
     requireWalk(page.id === id && Array.isArray(page.blocks) && Array.isArray(page.findings) && page.resolutions !== null && typeof page.resolutions === 'object', `page body.id/schema is not exact: requested ${id}, got ${JSON.stringify(page)}`);
     pages.push({ id, page });
     assertFindings(page.findings, absence[id]?.findings);
@@ -453,7 +453,7 @@ export async function inventory(evidence: OnceEvidence, base: string, language: 
     }
     if (id.startsWith('question:')) {
       const slug = id.slice('question:'.length);
-      const detail = await evidence.json(`${base}/api/k/question?id=${encodeURIComponent(slug)}`);
+      const detail = await evidence.json(`${base}/api/question?id=${encodeURIComponent(slug)}`);
       requireWalk(detail.id === id && detail.slug === slug && ['open', 'answered', 'closed'].includes(detail.state) && Array.isArray(detail.sides) && detail.resolutions !== null && typeof detail.resolutions === 'object', `question detail schema/id mismatch: ${id}`);
       requireWalk(detail.sides.length > 0 && detail.sides.every((side: any) => Array.isArray(side.grounds) && side.grounds.length > 0 && side.grounds.every((ground: string) => Object.hasOwn(detail.resolutions, ground))), `incomplete question grounds/resolutions ${id}`);
       evidence.observe('question-detail-checked', { stage, id, state: detail.state, grounds: detail.sides, resolutions: detail.resolutions });

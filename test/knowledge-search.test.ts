@@ -45,7 +45,7 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
   server = await startServer({ productFolder: product, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
   // The starter set is seeded by the first answer; the pages then stand in the product's repository.
-  const seeded = await fetch(`${server.url}/api/k/status`);
+  const seeded = await fetch(`${server.url}/api/status`);
   expect(seeded.status).toBe(200);
   writeSamplePages(product);
 }, 180_000);
@@ -57,35 +57,35 @@ afterAll(async () => {
 
 describe('the wiki search', () => {
   test('a page is found by the text of its body, with the words around the match and its address', async () => {
-    const answer = await get('/api/k/search?q=shoppers&lang=en');
+    const answer = await get('/api/search?q=shoppers&lang=en');
     expect(answer.status).toBe(200);
     expect(answer.body.query).toBe('shoppers');
     expect(answer.body.total).toBeGreaterThan(0);
     const group = answer.body.groups.find((entry: { kind: string }) => entry.kind === 'product');
     expect(group).toBeDefined();
     expect(group.total).toBe(1);
-    expect(group.rows[0]).toMatchObject({ id: 'product:shop', kind: 'product', title: 'Online shop', href: expect.stringContaining('/k/e/') });
+    expect(group.rows[0]).toMatchObject({ id: 'product:shop', kind: 'product', title: 'Online shop', href: expect.stringContaining('/e/') });
     expect(group.rows[0].excerpt).toContain('shoppers');
     expect(group.rows[0].excerpt).not.toContain('<!--');
   });
 
   test('a page is found by its title in the wiki\'s language, and the case of the query does not matter', async () => {
-    const answer = await get('/api/k/search?q=Payment&lang=ru');
+    const answer = await get('/api/search?q=Payment&lang=ru');
     expect(answer.status).toBe(200);
     const group = answer.body.groups.find((entry: { kind: string }) => entry.kind === 'domain');
     expect(group?.rows[0]).toMatchObject({ id: 'domain:payment', title: 'Payment' });
-    const upper = await get('/api/k/search?q=SHOPPERS&lang=en');
+    const upper = await get('/api/search?q=SHOPPERS&lang=en');
     expect(upper.body.total).toBeGreaterThan(0);
   });
 
   test('an empty query asks nothing, a word nothing holds finds nothing, and an over-long query is refused in words', async () => {
-    const empty = await get('/api/k/search?q=&lang=en');
+    const empty = await get('/api/search?q=&lang=en');
     expect(empty.status).toBe(200);
     expect(empty.body).toMatchObject({ groups: [], total: 0 });
-    const nothing = await get('/api/k/search?q=zzz-nothing-holds-this&lang=en');
+    const nothing = await get('/api/search?q=zzz-nothing-holds-this&lang=en');
     expect(nothing.status).toBe(200);
     expect(nothing.body).toMatchObject({ groups: [], total: 0 });
-    const long = await get(`/api/k/search?q=${'w'.repeat(201)}&lang=en`);
+    const long = await get(`/api/search?q=${'w'.repeat(201)}&lang=en`);
     expect(long.status).toBe(400);
     expect(long.body.error.field).toBe('q');
     expect(long.body.message).toContain('200');

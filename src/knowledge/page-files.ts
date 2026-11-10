@@ -4,8 +4,8 @@
  * read a second time and no template is rendered here: the blocks the page
  * already holds are written out.
  *
- * The addresses are siblings of the HTML page: `/k/e/<id>.md`, `/k/e/<id>.json`,
- * `/k/kind/<kind>.md`, `/k/kind/<kind>.json`, and the product's `/llms.txt`.
+ * The addresses are siblings of the HTML page: `/e/<id>.md`, `/e/<id>.json`,
+ * `/kind/<kind>.md`, `/kind/<kind>.json`, and the product's `/llms.txt`.
  * A server mounted under a product home passes its prefix, so every address a
  * document holds stays inside that product.
  */
@@ -15,7 +15,7 @@ import { unified } from 'unified';
 import type { Block, CodeLocation, EntityRef, KindSummary, PageModel } from './model.js';
 import { historyFigureText } from './history-figures.js';
 import type { Resolution } from './resolve.js';
-import { entityAddress, kindAddress } from './resolve.js';
+import { entityAddress, kindAddress, KIND_FILE_BASE, PAGE_FILE_BASE } from './addresses.js';
 
 /** The versioned name of the page document. A change of shape is a new name. */
 const PAGE_SCHEMA = 'madarch.page.v1';
@@ -865,11 +865,11 @@ export function llmsText(productName: string, kinds: readonly KindSummary[], lan
     `# ${productName}`,
     `> The product's wiki for agents: every page is served as Markdown and as JSON; every kind's list follows the same addresses.`,
     '## Addresses',
-    `- A page as Markdown: \`${prefix}/k/e/<id>.md\``,
-    `- A page as JSON: \`${prefix}/k/e/<id>.json\``,
-    `- A page as HTML: \`${prefix}/k/e/<id>\``,
-    `- A kind's list as Markdown: \`${prefix}/k/kind/<kind>.md\``,
-    `- A kind's list as JSON: \`${prefix}/k/kind/<kind>.json\``,
+    `- A page as Markdown: \`${prefix}${PAGE_FILE_BASE}<id>.md\``,
+    `- A page as JSON: \`${prefix}${PAGE_FILE_BASE}<id>.json\``,
+    `- A page as HTML: \`${prefix}${PAGE_FILE_BASE}<id>\``,
+    `- A kind's list as Markdown: \`${prefix}${KIND_FILE_BASE}<kind>.md\``,
+    `- A kind's list as JSON: \`${prefix}${KIND_FILE_BASE}<kind>.json\``,
     `- This file: \`${prefix}/llms.txt\``,
     '## Kinds',
   ];
@@ -901,13 +901,13 @@ function suffixOf(rest: string): { format: PageFileFormat; name: string; suffix:
 }
 
 /**
- * The entity a `/k/e/<id>.md` or `/k/e/<id>.json` address names. A suffix is
+ * The entity a `/e/<id>.md` or `/e/<id>.json` address names. A suffix is
  * stripped once, so an id that itself ends in `.md` stays whole. An address
  * with no name and an address with a broken percent escape are told apart:
  * neither is silently read as a different entity.
  */
 export function pageFileAt(pathname: string): PageFileAddress | { message: string } | undefined {
-  const base = '/k/e/';
+  const base = PAGE_FILE_BASE;
   if (!pathname.startsWith(base)) return undefined;
   const rest = pathname.slice(base.length);
   const suffix = suffixOf(rest);
@@ -920,9 +920,9 @@ export function pageFileAt(pathname: string): PageFileAddress | { message: strin
   }
 }
 
-/** The kind a `/k/kind/<kind>.md` or `/k/kind/<kind>.json` address names. */
+/** The kind a `/kind/<kind>.md` or `/kind/<kind>.json` address names. */
 export function kindFileAt(pathname: string): PageFileAddress | { message: string } | undefined {
-  const base = '/k/kind/';
+  const base = KIND_FILE_BASE;
   if (!pathname.startsWith(base)) return undefined;
   const rest = pathname.slice(base.length);
   const suffix = suffixOf(rest);

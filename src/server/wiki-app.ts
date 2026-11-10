@@ -17,6 +17,7 @@
 import type { ProductWiki } from '../product-wiki/pages.js';
 import { readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
+import { isWikiPagePath, KIND_FILE_BASE, PAGE_FILE_BASE, wikiPageAddresses } from '../knowledge/addresses.js';
 import type { Handled, ReplyMaker } from './http.js';
 
 /** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
@@ -246,7 +247,7 @@ function serveAppFiles(_json: ReplyMaker['json'], refused: ReplyMaker['refused']
  * absolute reference in the shell.
  */
 function markdownSiblingOf(pathname: string): string | undefined {
-  if (!pathname.startsWith('/k/e/') && !pathname.startsWith('/k/kind/')) return undefined;
+  if (!pathname.startsWith(PAGE_FILE_BASE) && !pathname.startsWith(KIND_FILE_BASE)) return undefined;
   const last = pathname.slice(pathname.lastIndexOf('/') + 1);
   if (last === '' || last.endsWith('.md') || last.endsWith('.json')) return undefined;
   return `${pathname}.md`;
@@ -261,10 +262,10 @@ function withMarkdownSibling(html: string, pathname: string): string {
   return at < 0 ? `${link}${html}` : `${html.slice(0, at)}${link}${html.slice(at)}`;
 }
 
-/** The address prefixes the app itself answers: the knowledge wiki under `/k`, and the front door. */
-const APP_ROUTE_PREFIXES = ['/k', '/'];
+/** The address prefixes the app itself answers: the knowledge wiki's pages, and the front door. */
+const APP_ROUTE_PREFIXES = wikiPageAddresses();
 
 /** Whether the fallback to index.html may answer this path: only the app's own routes. */
 function isAppRoute(pathname: string): boolean {
-  return pathname === '/' || pathname === '/k' || pathname.startsWith('/k/');
+  return isWikiPagePath(pathname);
 }

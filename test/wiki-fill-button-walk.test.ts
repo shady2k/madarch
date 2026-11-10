@@ -75,7 +75,7 @@ const json = async (path: string): Promise<{ status: number; body: Record<string
 
 test('the button fills the store and the pages read the graph it published', async () => {
   // The press the button makes: the product's own route, no agent, no model.
-  const pressed = await fetch(`${server.url}/products/walk/api/k/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
+  const pressed = await fetch(`${server.url}/products/walk/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }) });
   expect(pressed.status).toBe(202);
   const started = (await pressed.json()) as { fill: { state: string } };
   expect(started.fill.state).toBe('running');
@@ -83,7 +83,7 @@ test('the button fills the store and the pages read the graph it published', asy
   let state = '';
   let filledAt: Record<string, unknown> = {};
   for (let attempt = 0; attempt < 600 && state !== 'done'; attempt++) {
-    const status = await json('/products/walk/api/k/status');
+    const status = await json('/products/walk/api/status');
     expect(status.status).toBe(200);
     filledAt = status.body;
     state = String((filledAt['fill'] as { state?: string } | undefined)?.state ?? '');
@@ -96,13 +96,13 @@ test('the button fills the store and the pages read the graph it published', asy
   // of the agent stage is not what this step's fill writes, and no page is drawn from it here.
   expect(JSON.stringify(filledAt)).toContain('walk-code');
   expect((filledAt['repository'] as Record<string, unknown>)['steps']).toEqual({ 'tree': true, 'history': true });
-  const repository = await json('/products/walk/api/k/repository');
+  const repository = await json('/products/walk/api/repository');
   expect(repository.status).toBe(200);
   expect(JSON.stringify(repository.body)).toContain('walk-code');
-  const root = await json('/products/walk/api/k/folder?path=');
+  const root = await json('/products/walk/api/folder?path=');
   expect(root.status).toBe(200);
   expect(((root.body['folder'] as Record<string, unknown>)['folders'] as string[])).toContain('src');
-  const file = await json('/products/walk/api/k/file?path=src%2Fslice.ts');
+  const file = await json('/products/walk/api/file?path=src%2Fslice.ts');
   expect(file.status).toBe(200);
   const model = file.body['file'] as Record<string, unknown>;
   expect((model['file'] as Record<string, unknown>)['path']).toBe('src/slice.ts');
@@ -114,7 +114,7 @@ test('the server still answers a page after the fill queue has been left alone',
   // A store's pg-boss asks its owner for statements on its own timer: a queue left open when the reader's owner
   // closes is the crash of madarch-8bdc.12. Wait past a supervise pass, then read a page.
   await new Promise((resolve) => setTimeout(resolve, 25_000));
-  const status = await fetch(`${server.url}/products/walk/api/k/status`, { headers: { accept: 'application/json' } });
+  const status = await fetch(`${server.url}/products/walk/api/status`, { headers: { accept: 'application/json' } });
   expect(status.status).toBe(200);
   const body = (await status.json()) as { product?: { name?: string } };
   expect(body.product?.name).toBe('walk');

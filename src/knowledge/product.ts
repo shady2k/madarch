@@ -66,16 +66,10 @@ import { acpGraphJudge } from './graph-verdict-acp-judge.js';
 import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
 import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, graphVerdictsRunnable, runGraphVerdicts, type GraphEvidenceContent, type GraphJudge, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
 
-/** The wiki's address of a document, at a section when one is named: the client opens it as it opens any in-wiki link. */
-const documentAddress = (repo: string | null, path: string, anchor?: string): string => {
-  const query = new URLSearchParams();
-  if (repo !== null) query.set('repo', repo);
-  query.set('path', path);
-  return `/k/doc?${query.toString()}${anchor === undefined || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
-};
 import { archifyFrame, likec4Model } from './view-frames.js';
 import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
+import { documentAddress, entityAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
@@ -2895,11 +2889,11 @@ export class KnowledgeProduct {
       const key = scope.key.startsWith('code.symbol:') ? scope.key : `code.symbol:${scope.key}`;
       const rest = key.slice('code.symbol:'.length);
       const hash = rest.indexOf('#');
-      return { kind: 'symbol', label: hash < 0 ? rest : rest.slice(hash + 1), where: hash < 0 ? null : rest.slice(0, hash), href: `/k/e/${encodeURIComponent(key)}`, path: hash < 0 ? rest : rest.slice(0, hash), words };
+      return { kind: 'symbol', label: hash < 0 ? rest : rest.slice(hash + 1), where: hash < 0 ? null : rest.slice(0, hash), href: entityAddress(key), path: hash < 0 ? rest : rest.slice(0, hash), words };
     }
     const page = scope.key.slice(0, scope.key.indexOf('#'));
     const title = readKnowledgePages(this.options.productFolder).pages.find((candidate) => candidate.id === page)?.title ?? page;
-    return { kind: 'statement', label: title, where: null, href: `/k/e/${encodeURIComponent(page)}`, path: null, words };
+    return { kind: 'statement', label: title, where: null, href: entityAddress(page), path: null, words };
   }
 
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */

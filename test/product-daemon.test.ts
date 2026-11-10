@@ -108,7 +108,7 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   expect(await nameOf()).toBe('Alpha renamed');
   // And a page is still read at every ask through the kept entry: a saved document is served at once.
   writeFileSync(join(home, 'alpha', 'docs', 'vision.md'), '# alpha vision\n\nThe saved body.\n');
-  const page = await fetch(`${server.url}/products/alpha/api/k/document?path=docs/vision.md`);
+  const page = await fetch(`${server.url}/products/alpha/api/document?path=docs/vision.md`);
   expect(page.status).toBe(200);
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
 }, 40_000);
@@ -120,17 +120,17 @@ test('products-home mode lists products and routes each wiki under its folder', 
   server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
   const index = await fetch(server.url, { redirect: 'manual' });
   expect(index.status).toBe(302);
-  const first = await fetch(`${server.url}/products/alpha/api/k/product`);
-  const second = await fetch(`${server.url}/products/beta/api/k/product`);
+  const first = await fetch(`${server.url}/products/alpha/api/product`);
+  const second = await fetch(`${server.url}/products/beta/api/product`);
   expect((await first.json() as { id: string }).id).toBe('alpha-id');
   expect((await second.json() as { id: string }).id).toBe('beta-id');
   const appPage = await fetch(`${server.url}/products/alpha/`);
   expect(await appPage.text()).toContain('/products/alpha/assets/');
-  const nestedPage = await fetch(`${server.url}/products/alpha/k/docs`);
+  const nestedPage = await fetch(`${server.url}/products/alpha/docs`);
   expect(await nestedPage.text()).toContain('/products/alpha/assets/');
   expect((await fetch(`${server.url}/products/alpha/assets/app.js`)).status).toBe(200);
   // The wiki's documents are listed product-relative: the app adds its mount base itself.
-  const documents = await (await fetch(`${server.url}/products/alpha/api/k/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
+  const documents = await (await fetch(`${server.url}/products/alpha/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
   expect(documents.documents).toContainEqual({ repo: null, path: 'docs/vision.md', title: 'alpha vision' });
 });
 
@@ -190,10 +190,10 @@ test('products-home mode serves a product created after the server started', asy
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id');
   server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
-  expect((await fetch(`${server.url}/products/late/api/k/product`)).status).toBe(404);
+  expect((await fetch(`${server.url}/products/late/api/product`)).status).toBe(404);
   await Bun.sleep(10);
   product(home, 'late', 'late-id');
-  const late = await fetch(`${server.url}/products/late/api/k/product`);
+  const late = await fetch(`${server.url}/products/late/api/product`);
   expect((await late.json() as { id: string }).id).toBe('late-id');
   const listed = await fetch(`${server.url}/api/products`);
   expect(JSON.stringify(await listed.json())).toContain('"late"');
@@ -203,7 +203,7 @@ test('single-product foreground mode keeps wiki and API at root paths', async ()
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-root-'));
   const home = join(root, 'products'); mkdirSync(home); product(home, 'alpha', 'alpha-id');
   server = await startServer({ productFolder: join(home, 'alpha'), appFolder: appDist(root), port: 0 });
-  const answer = await fetch(`${server.url}/api/k/product`);
+  const answer = await fetch(`${server.url}/api/product`);
   expect((await answer.json() as { id: string }).id).toBe('alpha-id');
 });
 
@@ -305,7 +305,7 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   const status = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
   expect(status.status).toBe(0);
   expect(status.stdout).toContain(`running: http://127.0.0.1:${state.port}`);
-  const answer = await fetch(`http://127.0.0.1:${state.port}/products/alpha/api/k/product`);
+  const answer = await fetch(`http://127.0.0.1:${state.port}/products/alpha/api/product`);
   expect((await answer.json() as { id: string }).id).toBe('alpha-id');
   expect(stopDaemon({ home })).toBe(0);
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
@@ -361,7 +361,7 @@ test("a start goes on through the read of a child that has not exec'd yet", asyn
   daemonPid = started.pid;
   expect(started.reused).toBeFalse();
   expect(started.port).toBe(allocated);
-  const answer = await fetch(`http://127.0.0.1:${allocated}/products/alpha/api/k/product`);
+  const answer = await fetch(`http://127.0.0.1:${allocated}/products/alpha/api/product`);
   expect((await answer.json() as { id: string }).id).toBe('alpha-id');
   expect(stopDaemon({ home })).toBe(0);
 });

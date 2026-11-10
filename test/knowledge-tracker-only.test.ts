@@ -77,7 +77,7 @@ describe('a product that is only a tracker', () => {
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     let owner: DatabaseOwner | undefined;
     try {
-      const status = await fetch(`${server.url}/products/tracker/api/k/status`, { headers: { accept: 'application/json' } });
+      const status = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
       expect(status.status).toBe(200);
       const body = (await status.json()) as { kinds?: { kind: string; count: number }[]; filled?: boolean };
       expect(body.kinds?.some((kind) => kind.kind === 'idea' && kind.count === 1)).toBe(true);
@@ -102,7 +102,7 @@ describe('a product that is only a tracker', () => {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 
-      const page = await fetch(`${server.url}/products/tracker/api/k/page?id=${encodeURIComponent('idea:one')}&full=1`, { headers: { accept: 'application/json' } });
+      const page = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:one')}&full=1`, { headers: { accept: 'application/json' } });
       expect(page.status).toBe(200);
     } finally {
       await owner?.close();

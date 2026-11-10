@@ -124,7 +124,7 @@ describe('the groups of the manifest', () => {
       ],
       findings: [],
     };
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/k/catalog')
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/catalog')
       ? json(full)
       : new Response('{}', { status: 404 });
     const page = into(createElement(CataloguePage, { version: 0 }));
@@ -153,15 +153,15 @@ describe('the menu', () => {
   test('with no fill the home is the introduction, even when the product files hold a home page', async () => {
     let askedPage = false;
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.includes('/api/k/page')) askedPage = true;
-      if (url.endsWith('/api/k/status')) return json(status({ filled: false, home: 'product:shop', kinds: [kind({ kind: 'product', source: 'markdown', single: true, count: 1 })], groups: nestedGroups.slice(0, 1) }));
-      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
-      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.includes('/api/page')) askedPage = true;
+      if (url.endsWith('/api/status')) return json(status({ filled: false, home: 'product:shop', kinds: [kind({ kind: 'product', source: 'markdown', single: true, count: 1 })], groups: nestedGroups.slice(0, 1) }));
+      if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
       return json({ message: 'not here' }, 404);
     };
-    window.history.replaceState({}, '', '/k');
+    window.history.replaceState({}, '', '/');
     const app = into(createElement(AppRoot));
     await until(() => app.querySelector('[data-testid=home-intro]') !== null, 'the introduction');
     expect(askedPage).toBe(false);
@@ -169,18 +169,18 @@ describe('the menu', () => {
 
   test('the catalogue stands beside Home as a place of the product, «Waiting for you» under it counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/status')) return json(status({
+      if (url.endsWith('/api/status')) return json(status({
         home: 'product:shop', filled: true,
         kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 })], groups: nestedGroups.slice(0, 1),
         loop: { questionsOpen: 2, questionsAnswered: 0, correctionsOpen: 3, tasksOpen: 0, problemsOpen: 3 },
       }));
-      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
-      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
       return json({ message: 'not here' }, 404);
     };
-    window.history.replaceState({}, '', '/k');
+    window.history.replaceState({}, '', '/');
     const app = into(createElement(AppRoot));
     await until(() => app.querySelector('[data-testid=nav-waiting]') !== null, 'the waiting section');
     const home = app.querySelector('[data-testid=nav-home]')!;
@@ -207,18 +207,18 @@ describe('the menu', () => {
 
   test('the group the manifest opens by itself is expanded; a group without the field is closed, whatever its name', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/status')) return json(status({
+      if (url.endsWith('/api/status')) return json(status({
         home: 'product:shop', filled: true,
         kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'code.file', group: 'code', count: 2 })],
         groups: [{ group: 'product', labels: { en: 'Product knowledge', ru: 'Знания о продукте' } }, { group: 'code', labels: { en: 'Code', ru: 'Код' }, open: true }],
       }));
-      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
-      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
-      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
-      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
       return json({ message: 'not here' }, 404);
     };
-    window.history.replaceState({}, '', '/k');
+    window.history.replaceState({}, '', '/');
     const app = into(createElement(AppRoot));
     await until(() => app.querySelector('[data-nav-group=code] [data-testid=nav-group]') !== null, 'the groups');
     const expanded = (group: string): string | null => app.querySelector(`[data-nav-group="${group}"] [data-testid=nav-group]`)!.getAttribute('aria-expanded');
@@ -232,7 +232,7 @@ describe('the glossary table', () => {
   const term = (title: string, over: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
     id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
     repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false,
-    href: `/k/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...over,
+    href: `/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...over,
   });
   const glossary: Glossary = {
     terms: Array.from({ length: 7 }, (_, index) => term(`Term ${index + 1}`, { source: { original: `The source of Term ${index + 1}.`, document: 'docs/glossary.md', line: index * 2 + 1, endLine: index * 2 + 2 } })),

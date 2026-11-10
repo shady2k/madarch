@@ -43,7 +43,7 @@ afterEach(() => {
   window.history.replaceState({}, '', '/');
 });
 
-const entity = (id: string, label: string): EntityRef => ({ id, kind: 'code.symbol', label, href: `/k/e/${encodeURIComponent(id)}` });
+const entity = (id: string, label: string): EntityRef => ({ id, kind: 'code.symbol', label, href: `/e/${encodeURIComponent(id)}` });
 const readers = Array.from({ length: 5 }, (_, index) => entity(`code.symbol:src/a.ts#read${index}`, `read${index}`));
 const writers = [entity('code.symbol:src/a.ts#write', 'write')];
 const values = (_name: string, type: string) => [

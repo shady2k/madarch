@@ -78,9 +78,10 @@ contract's manifest cases and example products (`examples/contract/`).
 fresh from the working tree at every ask (`src/product-wiki/pages.ts`) — every
 Markdown file under `docs/` and `README.md` — shown by madarch's own app
 (`wiki/app/`, React built by Vite) and served by the server's product mode:
-started with a product folder it answers the app's built files, the page
-addresses `/p/<path>` and the wiki's API (`/api/product`, `/api/pages`,
-`/api/page?path=…`).
+started with a product folder it answers the app's built files, the reader's
+pages (`/`, `/e/<id>`, `/kind/<kind>`, `/src`, `/doc?path=…`), the page files
+(`/e/<id>.md`, `/e/<id>.json`) and the wiki's API (`/api/product`,
+`/api/status`, `/api/page?id=…`).
 
 Without an app folder named, the built app of the
 checkout (`wiki/app/dist`) is served; a checkout whose app was never built
@@ -105,7 +106,8 @@ server that started it; on a server several of each can run against one store.
 A product's document reaches its reader without a send or a build: `madarch
 new` or `madarch serve` serves the product of the given or the current folder,
 the server reads the pages from the working tree at every ask, and the app
-shows them at `/p/<path>`; a file saved under `docs/` changes its page within
+shows them at their addresses (`/e/<id>` for a graph page, `/doc?path=…` for a
+document); a file saved under `docs/` changes its page within
 two seconds, the open page refetching when the wiki's revision (a digest of
 the pages' paths and contents) changes.
 

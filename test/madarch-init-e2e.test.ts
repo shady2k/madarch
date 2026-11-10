@@ -108,9 +108,9 @@ describe('madarch init', () => {
   });
 
   test('the wiki it opens is empty, offers the agents and has run none', async () => {
-    const status = await get('api/k/status');
+    const status = await get('api/status');
     expect(status.body).toMatchObject({ manifest: 'ok', filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
-    const agents = await get('api/k/agents');
+    const agents = await get('api/agents');
     // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
     // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
     expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => offer.id)).toEqual(['claude-code', 'codex', 'opencode', 'omp', 'prime-agent']);
@@ -123,18 +123,18 @@ describe('madarch init', () => {
 
 agentDescribe('the one press', () => {
   test('chooses the agent, fills the graph and the agent writes the product page and a page per domain, served with their grounds resolved', async () => {
-    expect((await post('api/k/agent', { agent: 'claude-code', install: false })).status).toBe(200);
-    expect((await post('api/k/fill')).status).toBe(202);
-    let status: any = (await get('api/k/status')).body;
+    expect((await post('api/agent', { agent: 'claude-code', install: false })).status).toBe(200);
+    expect((await post('api/fill')).status).toBe(202);
+    let status: any = (await get('api/status')).body;
     for (let tries = 0; tries < 3600 && !['done', 'failed'].includes(status.writer.state) && status.fill.state !== 'failed'; tries += 1) {
       await new Promise((rest) => setTimeout(rest, 500));
-      status = (await get('api/k/status')).body;
+      status = (await get('api/status')).body;
     }
     expect(status.fill.state, JSON.stringify(status.fill)).toBe('done');
     expect(status.writer, JSON.stringify(status.writer)).toMatchObject({ state: 'done', units: [{ unit: 'product:training-shop', state: 'written' }, { unit: 'domain:ordering', state: 'written' }, { unit: 'domain:payments', state: 'written' }, { unit: 'administrator-guide:main', state: 'written' }, { unit: 'user-guide:main', state: 'written' }] });
     expect(status.home).toBe('product:training-shop');
     for (const id of ['administrator-guide:main', 'user-guide:main']) {
-      const page = await get(`api/k/page?id=${encodeURIComponent(id)}`);
+      const page = await get(`api/page?id=${encodeURIComponent(id)}`);
       expect(page.status).toBe(200);
       const guide = page.body.blocks.find((block: { type: string }) => block.type === 'guide');
       expect(guide).toBeDefined();
@@ -144,7 +144,7 @@ agentDescribe('the one press', () => {
       expect(guide.data.walk.status).toBe('not-walked');
     }
 
-    const pageOf = async (id: string) => (await get(`api/k/page?id=${encodeURIComponent(id)}`));
+    const pageOf = async (id: string) => (await get(`api/page?id=${encodeURIComponent(id)}`));
     const homePage = await pageOf('product:training-shop');
     expect(homePage.status).toBe(200);
     const homeBody = homePage.body.blocks.find((block: { type: string }) => block.type === 'body');
@@ -168,26 +168,26 @@ agentDescribe('the one press', () => {
     expect(readFileSync(join(home, 'training-shop', 'docs', 'domains', 'payments.md'), 'utf8')).toContain('producer: agent');
 
     // The documents are pages of the same wiki: the written pages and the repository's own, and a ground opens the document at its section.
-    const documents = (await get('api/k/documents')).body as { documents: { repo: string | null; path: string }[] };
+    const documents = (await get('api/documents')).body as { documents: { repo: string | null; path: string }[] };
     // The written pages are the pages of their kinds, not documents to list.
     const listed = documents.documents.map((document) => `${document.repo ?? ''}:${document.path}`);
     expect(listed).not.toContain(':docs/product.md');
     expect(listed).toContain('training-shop:docs/requirements.md');
-    const requirements = await get('api/k/document?repo=training-shop&path=docs/requirements.md');
+    const requirements = await get('api/document?repo=training-shop&path=docs/requirements.md');
     expect(requirements.status).toBe(200);
     expect(requirements.body.anchors['uc-2']).toBeGreaterThan(0);
     const ground = (homePage.body.resolutions as Record<string, { state: string; href: string | null }>)['madarch:doc:docs/requirements.md#uc-2'];
     // The section is a use case of the manifest's document kind: its ground opens the entity's page.
     // The page id names the passage's durable identity (the second passage of the document), never the anchor.
-    expect(ground?.href).toBe(`/k/e/${encodeURIComponent('doc:@training-shop/docs/requirements.md#doc-section:2')}`);
+    expect(ground?.href).toBe(`/e/${encodeURIComponent('doc:@training-shop/docs/requirements.md#doc-section:2')}`);
 
     // The same press with the language of the pages changed asks the agent in Russian and writes every page again.
-    const russian = await post('api/k/fill', { agent: 'claude-code', language: 'ru' });
+    const russian = await post('api/fill', { agent: 'claude-code', language: 'ru' });
     expect(russian.status).toBe(202);
-    let after: any = (await get('api/k/status')).body;
+    let after: any = (await get('api/status')).body;
     for (let tries = 0; tries < 1800 && !(after.language === 'ru' && after.fill.state === 'done' && after.writer.state === 'done'); tries += 1) {
       await new Promise((rest) => setTimeout(rest, 500));
-      after = (await get('api/k/status')).body;
+      after = (await get('api/status')).body;
     }
     expect(after.writer, JSON.stringify(after.writer)).toMatchObject({ state: 'done' });
     // Every document entity the units were offered got its statement: the fill's own units are the proof, and an entity
@@ -212,7 +212,7 @@ agentDescribe('the one press', () => {
 
     // The fill worker passes the code repository's documents to the writer too (madarch-m38l.18).
     // No source entity is supplied by the test: the real fill must discover and localize them.
-    const glossary = (await get('api/k/glossary')).body as { terms: { title: string; definition: string; source: { original: string; document: string }; single: boolean }[] };
+    const glossary = (await get('api/glossary')).body as { terms: { title: string; definition: string; source: { original: string; document: string }; single: boolean }[] };
     expect(glossary.terms).toHaveLength(7);
     for (const term of glossary.terms) {
       const statement = LOCALIZED_STATEMENTS[term.title];
@@ -236,7 +236,7 @@ agentDescribe('the one press', () => {
       expect(body.localized.original).toBeTruthy();
       expect(body.localized.sourceDocument).toBe(path);
     }
-    const missing = await get(`api/k/page?id=${encodeURIComponent('domain:missing')}&lang=ru`);
+    const missing = await get(`api/page?id=${encodeURIComponent('domain:missing')}&lang=ru`);
     expect(missing.status).toBe(404);
     expect(missing.body.message).toBe('сущности "domain:missing" нет ни в графе, ни среди Markdown-страниц продукта');
   }, 1_800_000);

@@ -295,7 +295,7 @@ async function createsAndServes(outfile: string, products: string, port: number,
   while (Date.now() < deadline) {
     try {
       // The wiki the binary carries is the knowledge wiki: its status answers for the draft, and the app's entry page loads.
-      const answer = await fetch(`${facts.url}api/k/product`);
+      const answer = await fetch(`${facts.url}api/product`);
       if (answer.ok && (await answer.text()).includes('"id"')) {
         const page = await fetch(facts.url);
         if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
@@ -315,7 +315,7 @@ async function createsAndServes(outfile: string, products: string, port: number,
     } catch { /* the product's API is still coming up */ }
     await new Promise((done) => setTimeout(done, 100));
   }
-  return `the built binary created a draft but no product answered at ${facts.url}api/k/product within 30 s: ${said}${daemonLog(products)}`;
+  return `the built binary created a draft but no product answered at ${facts.url}api/product within 30 s: ${said}${daemonLog(products)}`;
 }
 
 /** One tiny repository filled through the binary server, then its own archify frame and rendered output. */
@@ -333,19 +333,19 @@ async function smokeArchify(facts: NewFacts, products: string, env: NodeJS.Proce
   }
   const manifest = join(facts.folder, 'workspace.yaml');
   writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'example', linked: true }));
-  const start = await fetch(`${facts.url}api/k/fill`, { method: 'POST' });
+  const start = await fetch(`${facts.url}api/fill`, { method: 'POST' });
   if (!start.ok) return `the binary smoke's fill at ${facts.url} failed: ${await start.text()}${daemonLog(products)}`;
   const deadline = Date.now() + 90_000;
   let filled = false;
   while (Date.now() < deadline) {
-    const status = await fetch(`${facts.url}api/k/status`);
+    const status = await fetch(`${facts.url}api/status`);
     const state = (await status.json()) as { fill: { state: string; message?: string } };
     if (state.fill.state === 'failed') return `the binary smoke's fill failed: ${state.fill.message}${daemonLog(products)}`;
     if (state.fill.state === 'done') { filled = true; break; }
     await new Promise((done) => setTimeout(done, 100));
   }
   if (!filled) return `the binary smoke's fill did not end within 90 s${daemonLog(products)}`;
-  const address = `${facts.url}api/k/view-frame?type=c4-container&subject=&renderer=archify&lang=en`;
+  const address = `${facts.url}api/view-frame?type=c4-container&subject=&renderer=archify&lang=en`;
   const response = await fetch(address);
   const html = await response.text();
   if (!response.ok || !html.includes('<svg') || html.includes('data-frame-error')) {

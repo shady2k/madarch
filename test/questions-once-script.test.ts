@@ -49,7 +49,7 @@ describe('questions-once harness rejects incomplete evidence', () => {
 
   test('only pre-resolved repository documents with exact source proof become no-document after graph reset', () => {
     const target = 'madarch:doc:docs/architecture.md#flow';
-    const value = { state: 'ok', target, kind: 'document', href: '/k/doc?repo=training&path=docs%2Farchitecture.md#flow' };
+    const value = { state: 'ok', target, kind: 'document', href: '/doc?repo=training&path=docs%2Farchitecture.md#flow' };
     const proof = { target, repo: 'training', path: 'docs/architecture.md', sha256: 'a'.repeat(64) };
     const allowed = resetMissingTargets(plan, removed, { [target]: value }, [proof]);
     const broken = { state: 'broken', target, why: { code: 'no-document', path: proof.path }, reason: `no document "${proof.path}" in the product repository or its code repositories` };
@@ -60,7 +60,7 @@ describe('questions-once harness rejects incomplete evidence', () => {
     for (const wrong of [{ ...broken, reason: 'another reason' }, { ...broken, why: { code: 'no-document', path: 'docs/other.md' } }, { ...broken, why: { code: 'no-entity', key: proof.path } }]) expect(() => assertResolution(target, wrong, allowed)).toThrow();
     expect(() => assertResolution('madarch:doc:docs/unplanned.md', { ...broken, target: 'madarch:doc:docs/unplanned.md' }, allowed)).toThrow();
     const glossary = 'madarch:doc:docs/glossary.md#term';
-    expect(resetMissingTargets(plan, removed, { [glossary]: { state: 'ok', target: glossary, kind: 'doc.term', href: '/k/e/doc%3A%40training%2Fdocs%2Fglossary.md%23term', entity: 'doc:@training/docs/glossary.md#term' } }, [{ ...proof, target: glossary, path: 'docs/glossary.md' }])).toEqual([{ target: glossary, key: 'docs/glossary.md', documentPath: 'docs/glossary.md' }]);
+    expect(resetMissingTargets(plan, removed, { [glossary]: { state: 'ok', target: glossary, kind: 'doc.term', href: '/e/doc%3A%40training%2Fdocs%2Fglossary.md%23term', entity: 'doc:@training/docs/glossary.md#term' } }, [{ ...proof, target: glossary, path: 'docs/glossary.md' }])).toEqual([{ target: glossary, key: 'docs/glossary.md', documentPath: 'docs/glossary.md' }]);
   });
 
   test('expected missing body findings match exact file, line, message and multiplicity', () => {
@@ -139,9 +139,9 @@ describe('questions-once harness rejects incomplete evidence', () => {
   });
   test('route identity and home readiness cannot be satisfied by the toolbar shell', () => {
     const identity = { rows: [], overviewReady: false, settingsReady: false, entity: 'product:shop', question: 'one', state: 'answered' };
-    const shot: ShotPlan = { key: 'route', language: 'en', stage: 'first-home', route: '/products/shop/k', ready: '[data-testid=entity-page]', theme: 'light', width: 390, entity: 'product:shop' };
+    const shot: ShotPlan = { key: 'route', language: 'en', stage: 'first-home', route: '/products/shop/', ready: '[data-testid=entity-page]', theme: 'light', width: 390, entity: 'product:shop' };
     expect(() => assertRouteIdentity(shot.route, identity, shot, [])).not.toThrow();
-    expect(() => assertRouteIdentity('/products/shop/k/settings', identity, shot, [])).toThrow('browser route');
+    expect(() => assertRouteIdentity('/products/shop/settings', identity, shot, [])).toThrow('browser route');
     expect(() => assertRouteIdentity(shot.route, { ...identity, entity: 'domain:other' }, shot, [])).toThrow('expected entity');
     expect(() => assertRouteIdentity(shot.route, identity, { ...shot, stage: 'empty-home', entity: undefined }, [])).toThrow('overview content');
     expect(() => assertRouteIdentity(shot.route, identity, { ...shot, entity: undefined, question: 'one' }, [{ slug: 'one', state: 'closed' }])).toThrow('detail identity/state');
@@ -160,23 +160,23 @@ describe('questions-once harness rejects incomplete evidence', () => {
     const folder = mkdtempSync(join(tmpdir(), 'questions-harness-finite-'));
     try {
       const handlers = new Map<string, ((value: any) => void)[]>();
-      const page = { on: (event: string, handler: (value: any) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); }, url: () => 'http://example.test/products/shop/k' } as unknown as Page;
+      const page = { on: (event: string, handler: (value: any) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); }, url: () => 'http://example.test/products/shop/' } as unknown as Page;
       const emit = (event: string, value: unknown): void => { for (const handler of handlers.get(event) ?? []) handler(value); };
       const request = (url: string, type = 'fetch') => ({ url: () => url, method: () => 'GET', resourceType: () => type, failure: () => ({ errorText: 'net::ERR_ABORTED' }) });
       const evidence = new OnceEvidence(folder, [], {}); evidence.watch(page);
       const stream = request('http://example.test/products/shop/api/events', 'eventsource'); emit('request', stream);
-      const finite = request('http://example.test/api/k/block?id=product%3Ashop'); emit('request', finite);
+      const finite = request('http://example.test/api/block?id=product%3Ashop'); emit('request', finite);
       await expect(evidence.waitFinite(page, 20)).rejects.toThrow('unfinished finite requests');
       const diagnostic = readdirSync(join(folder, 'observations')).map((file) => readFileSync(join(folder, 'observations', file), 'utf8')).join('\n');
-      expect(diagnostic).toContain('http://example.test/api/k/block?id=product%3Ashop'); expect(diagnostic).toContain('GET'); expect(diagnostic).toContain('fetch');
+      expect(diagnostic).toContain('http://example.test/api/block?id=product%3Ashop'); expect(diagnostic).toContain('GET'); expect(diagnostic).toContain('fetch');
       emit('requestfinished', finite);
-      const late = request('http://example.test/api/k/late', 'other');
+      const late = request('http://example.test/api/late', 'other');
       const started = performance.now();
       const lateStart = setTimeout(() => emit('request', late), 100);
       const lateFinish = setTimeout(() => emit('requestfinished', late), 200);
       try { await evidence.waitFinite(page, 1500); } finally { clearTimeout(lateStart); clearTimeout(lateFinish); }
       expect(performance.now() - started).toBeGreaterThanOrEqual(650);
-      const failed = request('http://example.test/api/k/glossary'); emit('request', failed); emit('requestfailed', failed);
+      const failed = request('http://example.test/api/glossary'); emit('request', failed); emit('requestfailed', failed);
       await evidence.waitFinite(page, 1000); evidence.verifyInputs(); expect(evidence.finish(true)).toBe(false);
       const result = JSON.parse(readFileSync(join(folder, 'result.json'), 'utf8'));
       expect(result.errors.join('\n')).toContain('net::ERR_ABORTED'); expect(result.errors.join('\n')).toContain('glossary');
@@ -185,7 +185,7 @@ describe('questions-once harness rejects incomplete evidence', () => {
 
 
   test('only the exact same-origin product GET feed is exempt, and SSE HTTP errors stay errors', async () => {
-    const base = 'http://example.test/products/shop/k/settings';
+    const base = 'http://example.test/products/shop/settings';
     expect(expectedEventSource(base, 'http://example.test/products/shop/api/events', 'GET')).toBe(true);
     for (const [url, method] of [['http://else.test/products/shop/api/events', 'GET'], ['http://example.test/products/other/api/events', 'GET'], ['http://example.test/products/shop/api/unknown', 'GET'], ['http://example.test/products/shop/api/events?unexpected=1', 'GET'], ['http://example.test/products/shop/api/events', 'POST']]) expect(expectedEventSource(base, url!, method!)).toBe(false);
     const folder = mkdtempSync(join(tmpdir(), 'questions-harness-stream-'));
@@ -210,12 +210,12 @@ describe('questions-once harness rejects incomplete evidence', () => {
     const identity = { head: 'fixture-head', sourceSha256: 'fixture-source-sha256' };
     const plan: ShotPlan[] = [];
     for (const language of ['en', 'ru'] as const) for (let stage = 0; stage < 19; stage++) for (const theme of ['light', 'dark'] as const) for (const width of [1150, 390] as const) {
-      plan.push({ key: `${language}-${stage}-${theme}-${width}`, language, stage: `stage-${stage}`, theme, width, route: '/products/shop/k/settings', ready: '[data-testid=danger-dialog]', entity: 'domain:orders', question: 'retained-answer', dialog: true, removed: 7, retained: 1 });
+      plan.push({ key: `${language}-${stage}-${theme}-${width}`, language, stage: `stage-${stage}`, theme, width, route: '/products/shop/settings', ready: '[data-testid=danger-dialog]', entity: 'domain:orders', question: 'retained-answer', dialog: true, removed: 7, retained: 1 });
     }
     expect(plan).toHaveLength(152);
     const expected = { ...identity, screenshots: plan.map((row) => ({ ...row, whyTouched: 'Reader assertions changed.' })).reverse() };
     expect(() => assertOnceManifest(expected, plan, identity)).not.toThrow();
-    const changes: Partial<ShotPlan>[] = [{ key: 'other' }, { language: 'ru' }, { stage: 'other' }, { theme: 'dark' }, { width: 390 }, { route: '/products/other/k/settings' }, { ready: '[data-testid=other]' }, { entity: 'domain:other' }, { question: 'other-answer' }, { dialog: false }, { removed: 8 }, { retained: 2 }];
+    const changes: Partial<ShotPlan>[] = [{ key: 'other' }, { language: 'ru' }, { stage: 'other' }, { theme: 'dark' }, { width: 390 }, { route: '/products/other/settings' }, { ready: '[data-testid=other]' }, { entity: 'domain:other' }, { question: 'other-answer' }, { dialog: false }, { removed: 8 }, { retained: 2 }];
     for (const change of changes) {
       const screenshots = plan.map((row, index) => index === 0 ? { ...row, ...change } : row);
       expect(() => assertOnceManifest({ ...identity, screenshots }, plan, identity)).toThrow('manifest differs');

@@ -138,15 +138,15 @@ jobs:
           URL=$(tail -n 1 "$TMP/new.txt" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
           PRODUCT=$(tail -n 1 "$TMP/new.txt" | sed -n 's/.*"folder":"\([^"]*\)".*/\1/p')
           test -n "$URL" && test -n "$PRODUCT"
-          for n in $(seq 1 200); do if curl -fsS -L "${URL}api/k/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
-          curl -fsS -L "${URL}api/k/status" | grep -q '"manifest":"ok"'
+          for n in $(seq 1 200); do if curl -fsS -L "${URL}api/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
+          curl -fsS -L "${URL}api/status" | grep -q '"manifest":"ok"'
           curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null
           curl -fsS -L "$URL" | grep -q '<div id="root"'
           madarch stop --home "$HOME/products"
           PORT=$((PORT + 1))
           madarch serve --product "$PRODUCT" --port "$PORT" --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
-          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/k/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
-          curl -fsS "http://127.0.0.1:$PORT/api/k/status" | grep -q '"manifest":"ok"'
+          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
+          curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"manifest":"ok"'
           curl -fsS "http://127.0.0.1:$PORT/" | grep -q '<div id="root"'
           cat "$TMP/serve.txt"
           kill "$PID"; wait "$PID" || true; PID=

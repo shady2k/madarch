@@ -17,7 +17,7 @@ import { useRead } from './live.js';
 import { agentOfferNote } from './writer.js';
 import { PageSkeleton } from './skeleton.js';
 import { useTabTitle } from './tabs.js';
-import { K_HOME } from './routes.js';
+import { WIKI_HOME } from './routes.js';
 import type { AgentChoices, AgentOffer, Choice, GraphVerdictView, ModelRoleId, ProductSettings, WikiStatus } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
@@ -515,7 +515,7 @@ function DangerSection({ settings, refresh }: { settings: ProductSettings; refre
   const [kind, setKind] = useState<Danger | null>(null);
   const noAgent = settings.chosenAgent === null;
   const blocked = settings.busy || settings.dangerError !== undefined;
-  const finish = (leave: boolean): void => { if (leave) navigateTo(appPath(K_HOME)); refresh(); };
+  const finish = (leave: boolean): void => { if (leave) navigateTo(appPath(WIKI_HOME)); refresh(); };
   return (
     <Section id="danger" title={t('settings.danger.title')} intro={t('settings.danger.intro')} danger>
       <div className="grid gap-4">
