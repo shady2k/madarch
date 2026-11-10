@@ -2,7 +2,7 @@ import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillSelectionView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
@@ -162,6 +162,15 @@ export async function saveGraphVerdictBudgets(itemsPerRun: number, modelCallsPer
 }
 
 /** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
+/** The catalogue's fill selection as the store keeps it: the kinds checked, the agent and the cap. */
+export const getFillSelection = (signal?: AbortSignal): Promise<{ selection: FillSelectionView }> => readJson('read the fill selection', API.fillSelection, signal);
+
+/** Writes the selection the catalogue page made; the answer is what the store now holds. */
+export const saveFillSelection = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ selection: FillSelectionView }> => post('save the fill selection', API.fillSelection, selection);
+
+/** Starts the fill the panel asked for: the selected kinds, their dependencies added by the engine, in order. */
+export const fillSelected = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ order: string[] }> => post<{ fill: unknown; selection: FillSelectionView; order: string[] }>('fill the selected entities', API.fillSelected, selection);
+
 export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', API.productSettings, settings);
 
 /** Adds items of the starter set to the product's manifest; answers the files written. */

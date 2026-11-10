@@ -502,7 +502,7 @@ describe('the catalogue', () => {
       : new Response('{}', { status: 404 });
   };
   const kind = (fields: Partial<CatalogKindView> & Pick<CatalogKindView, 'kind'>): CatalogKindView => ({
-    area: 'code', subgroup: '', count: 0, page: false, filled: false, ...fields,
+    area: 'code', subgroup: '', count: 0, page: false, filled: false, state: 'never', estimatedTokens: 0, ...fields,
   });
   const full: CatalogView = {
     product: { name: 'shop', id: 'shop' },

@@ -646,6 +646,19 @@ export async function readUnitGeneration(database: FillStateDatabase, unitId: st
  * this way: admission needs the ones a slot may still take, and the run's own
  * evidence counts the ones runnable, in flight and waiting.
  */
+/**
+ * The state of every unit's newest generation the store holds, by unit id (`madarch-stm0.6`: the catalogue says whether
+ * a kind's turn published). One row per unit id — the generation the fill last wrote — so the answer is the store's
+ * current word on each unit, never a run's own plan.
+ */
+export async function readUnitStates(database: FillStateDatabase): Promise<Map<string, string>> {
+  const at = here();
+  return await run(at, database, 'readUnitStates()', ['fill_unit_generation'], async (executor) => {
+    const rows = await executor.query<{ unit_id: string; state: string }>('SELECT DISTINCT ON (unit_id) unit_id, state FROM fill_unit_generation ORDER BY unit_id, generation DESC');
+    return new Map(rows.rows.map((row) => [row.unit_id, row.state] as const));
+  }, 'snapshot');
+}
+
 export async function readRunUnits(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {

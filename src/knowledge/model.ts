@@ -379,6 +379,25 @@ export interface CatalogKindView {
   producer?: KindProducer;
   /** Whether a stage of the fill produces the kind today: `producer` is not a person and exists. */
   filled: boolean;
+  /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */
+  plugins?: readonly string[];
+  /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
+  dependsOn?: readonly string[];
+  /** How much of the kind stands: filled, partial (a turn of it failed or never finished), or never filled at all. */
+  state: 'filled' | 'partial' | 'never';
+  /**
+   * What a fill of this kind would spend on its agent part, in tokens: an estimate from the entities the graph holds,
+   * zero for a kind its own plugin fills (madarch-stm0.6's panel shows it, and says it is an estimate).
+   */
+  estimatedTokens: number;
+}
+
+/** The catalogue's fill selection as the store keeps it (madarch-stm0.6): what is checked, the agent and the cap. */
+export interface FillSelectionView {
+  readonly selected: readonly string[];
+  readonly agent: string | null;
+  readonly tokenCap: number | null;
+  readonly savedAt: string;
 }
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */

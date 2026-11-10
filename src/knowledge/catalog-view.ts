@@ -9,6 +9,7 @@
  * leaves out stays absent and its finding names the file and line; the app marks the kind untranslated rather than
  * showing an English name to a reader of another language.
  */
+import { byCodePoint } from '../model/order.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
@@ -48,20 +49,49 @@ function producerOf(decl: KindDecl | undefined, entry: CatalogEntry | undefined,
 }
 
 /** Every kind the manifest declares, as the catalogue page lists it, in the manifest's order. */
-export async function catalogKinds(ctx: RenderContext): Promise<CatalogKindView[]> {
+/** About what one entity costs an agent to extract, in tokens: a definition, its evidence and the answer's framing. */
+const TOKENS_PER_AGENT_ENTITY = 220;
+
+/** What one kind's fill stands as (madarch-stm0.6): filled, partial, or never filled. */
+export type KindFillState = 'filled' | 'partial' | 'never';
+
+/**
+ * The fill state of one kind, from the entities the graph holds and the state of the kind's newest turn:
+ * 'never' when nothing of it stands, 'partial' when its last turn did not publish (failed, blocked, cancelled, or not
+ * reached), and 'filled' otherwise. A kind with no turn at all — one the agent fills, or the person writes — is judged
+ * by what the graph holds alone.
+ */
+function stateOf(count: number, turn: string | undefined): KindFillState {
+  if (count === 0) return 'never';
+  return turn === undefined || turn === 'published' || turn === 'superseded' ? 'filled' : 'partial';
+}
+
+/**
+ * Every kind the manifest declares, as the catalogue page lists it, in the manifest's order.
+ */
+export async function catalogKinds(ctx: RenderContext, turns: { readonly stateOf?: (kind: string) => string | undefined } = {}): Promise<CatalogKindView[]> {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
+  const pluginsOf = (decl: KindDecl | undefined): string[] => [...new Set((decl?.fields ?? []).flatMap((field) => (field.binding?.kind === 'plugin' ? [field.binding.plugin] : [])))].sort(byCodePoint);
   const row = (kind: string, area: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
     const producer = producerOf(decl, entry, extractorMark);
+    const plugins = pluginsOf(decl);
+    const count = numbers.count(kind, decl?.source);
+    const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
     return {
       kind, area, subgroup,
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),
       ...(words.descriptions === undefined || Object.keys(words.descriptions).length === 0 ? {} : { descriptions: { ...words.descriptions } }),
-      count: numbers.count(kind, decl?.source),
+      count,
       ...(numbers.statements.has(kind) ? { statements: numbers.statements.get(kind)! } : {}),
       page,
       ...(producer === undefined ? {} : { producer }),
       filled: producer !== undefined && producer !== 'person',
+      ...(plugins.length === 0 ? {} : { plugins }),
+      ...(dependsOn.length === 0 ? {} : { dependsOn }),
+      state: stateOf(count, turns.stateOf?.(kind)),
+      // A kind its own plugin fills needs no model: its answer costs no tokens (0035, items 22 and 23).
+      estimatedTokens: plugins.length > 0 ? 0 : Math.max(count, 1) * TOKENS_PER_AGENT_ENTITY,
     };
   };
   if (catalog === undefined) {

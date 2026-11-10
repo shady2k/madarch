@@ -183,7 +183,18 @@ export type CatalogKindView = {
   page: boolean;
   producer?: KindProducer;
   filled: boolean;
+  /** The plugins the manifest binds this kind's fields to: the fillers that need no model. */
+  plugins?: string[];
+  /** The kinds this one's declaration says must finish first. */
+  dependsOn?: string[];
+  /** How much of the kind stands: filled, partial (a turn failed or did not finish), or never filled. */
+  state: 'filled' | 'partial' | 'never';
+  /** What a fill of this kind would spend on its agent part, in tokens: an estimate. */
+  estimatedTokens: number;
 };
+
+/** The catalogue's fill selection as the store keeps it (madarch-stm0.6). */
+export type FillSelectionView = { selected: string[]; agent: string | null; tokenCap: number | null; savedAt: string };
 
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {
