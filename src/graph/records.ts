@@ -103,6 +103,8 @@ export interface HistoryCommit {
   readonly authorDate: string;
   readonly commitDate: string;
   readonly subject: string;
+  /** Whether this commit stands on the first-parent chain from the filled head: the files/history producer's own fact. */
+  readonly firstParent: boolean;
   readonly touched: readonly {
     readonly path: string;
     readonly change: 'added' | 'modified' | 'deleted' | 'renamed';
@@ -546,7 +548,9 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       if (written) counts = commitNodes.get(commit.hash)!.created ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, updated: counts.updated + 1 };
       const historyEdge = await edgeOf(tx, `${GIT_KINDS.history}`, made.nodeId, node, { producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidence: [{ type: 'file', repository, commit_or_digest: commit.hash }] });
       if (historyEdge.created) counts = { ...counts, inserted: counts.inserted + 1 }; else counts = { ...counts, unchanged: counts.unchanged + 1 };
-      const walkWritten = await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.history}`, historyEdge.id, { values: { walk }, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
+      // The first-parent fact stands beside the walk in the history edge's opinion (madarch-8bdc.2.20): the producer
+      // walked the line once, and no column outside the edge's opinion table holds it.
+      const walkWritten = await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.history}`, historyEdge.id, { values: { walk, first_parent: commit.firstParent }, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
       if (walkWritten) counts = historyEdge.created ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, updated: counts.updated + 1 };
     }
 

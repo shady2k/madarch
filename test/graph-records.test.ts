@@ -368,7 +368,7 @@ describe('a git date of a zero or a negative offset', () => {
       repository: { name: 'z-dates' },
       commits: [{
         hash: 'b'.repeat(40), parents: [], authorName: 'Zero Offset', authorEmail: 'zero@example.invalid',
-        authorDate: '2026-11-07T20:38:26Z', commitDate: '2026-11-07T20:38:26Z', subject: 'a zero offset', touched: [],
+        authorDate: '2026-11-07T20:38:26Z', commitDate: '2026-11-07T20:38:26Z', subject: 'a zero offset', firstParent: true, touched: [],
       }],
       gaps: [],
     };

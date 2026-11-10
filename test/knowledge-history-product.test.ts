@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { GraphEntity, HistoryEvidence } from '../src/knowledge/graph-read.js';
-import { projectHistoryAcross } from '../src/knowledge/history-evidence.js';
+import { projectHistory, projectHistoryAcross } from '../src/knowledge/history-evidence.js';
 import { historyBlock } from '../src/knowledge/history.js';
 import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 
@@ -35,6 +35,26 @@ describe('a product history is budgeted across repositories', () => {
   });
 });
 
+
+describe('the first-parent count is the evidence\'s own fact (madarch-8bdc.2.20)', () => {
+  test('only the commits the graph marks on the first-parent line are counted, never every reachable commit', () => {
+    const commits = [
+      entity('code.commit:a', 'code.commit', { effectiveAt: '2026-01-03T00:00:00Z', onFirstParent: true }),
+      entity('code.commit:b', 'code.commit', { effectiveAt: '2026-01-02T00:00:00Z', onFirstParent: false }),
+      entity('code.commit:c', 'code.commit', { effectiveAt: '2026-01-01T00:00:00Z', onFirstParent: true }),
+    ];
+    const author = entity('code.author:ada', 'code.author');
+    const projected = projectHistory({
+      entities: [...commits, author],
+      edges: commits.map((commit) => ({ from: commit.key, to: author.key, relation: 'code.authored', properties: {} })),
+    }, undefined, 'repositories', 10, (one) => one as never);
+    const summary = projected.sections.find((section) => section.role === 'summary')!;
+    const figures = new Map(summary.rows[0]!.figures.map((figure) => [figure.kind, figure.value]));
+    expect(figures.get('reachable')).toBe('3');
+    expect(figures.get('firstParent')).toBe('2');
+    expect(figures.get('nonMerge')).toBe('3');
+  });
+});
 
 describe('the product page history block keeps its link to the full history', () => {
   test('the rendered block stays within the budget and still names where the rest lives', async () => {

@@ -189,6 +189,11 @@ describe('a merge commit', () => {
     const row = history.commits.find((commit) => commit.hash === merge)!;
     expect(row.parents).toEqual(stated.slice(1));
     expect(row.parents).toHaveLength(2);
+    // The producer flags the first-parent line from the pinned head, git's own walk, not every reachable commit.
+    const reachable = Number(git(folder, 'rev-list', '--count', merge));
+    const firstParent = Number(git(folder, 'rev-list', '--first-parent', '--count', merge));
+    expect(history.commits.filter((commit) => commit.firstParent)).toHaveLength(firstParent);
+    expect(firstParent).toBeLessThan(reachable);
     // Git's own first-parent statement of what the merge touched.
     const status = gitBytes(folder, ['log', '-1', '--first-parent', '--name-status', '--format=', '-z', merge]).toString('latin1').split('\u0000').filter((one) => one !== '' && one !== '\n');
     const statedPaths: string[] = [];

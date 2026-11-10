@@ -545,7 +545,7 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
       at += 2;
     }
   }
-  const commits: HistoryCommit[] = [];
+  const commits: Omit<HistoryCommit, 'firstParent'>[] = [];
   for (const stream of statuses) {
     const touched: Touched[] = [];
     for (let at = 0; at < stream.entries.length; at += 1) {
@@ -579,9 +579,16 @@ export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryP
     }
     commits.push({ ...stream.header, touched });
   }
+  // The first-parent chain from the pinned head, the line git's own `--first-parent` walk follows: the merge's other
+  // parents and everything they brought in are not on it. The page states its count, so the walk is done once here,
+  // at fill time, and stored in the graph (madarch-8bdc.2.20).
+  const byHash = new Map(commits.map((commit) => [commit.hash, commit]));
+  const onFirstParent = new Set<string>();
+  for (let at: string | undefined = pin.commit; at !== undefined && !onFirstParent.has(at); at = byHash.get(at)?.parents[0]) onFirstParent.add(at);
+  const withFirstParent = commits.map((commit) => ({ ...commit, firstParent: onFirstParent.has(commit.hash) }));
   // The stream's own order: the first commit is the tip, so a commit's index is its walk from the
   // tip, which is the order `git log --follow` answers a file's history in.
-  return { repository: { name: pin.repository }, commits, gaps };
+  return { repository: { name: pin.repository }, commits: withFirstParent, gaps };
 }
 
 // ---- the two passes as stages ---------------------------------------------

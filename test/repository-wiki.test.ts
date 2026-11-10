@@ -139,6 +139,16 @@ git(folder,'commit','-qm','the nested file moves');
       expect(repositoryPage.status).toBe(200);
       const facts = blockOf(repositoryPage, 'repository').data as Record<string, unknown>;
       expect(facts['name']).toBe('walk-code');
+      // A linear history: every reachable commit is on the first-parent line from the head.
+      const summaryFigures = (page: { body: Record<string, unknown> }): Map<string, number> => {
+        const history = blockOf(page, 'history');
+        const summary = (history.sections as { role: string; rows: { figures: { kind: string; value: string }[] }[] }[]).find((section) => section.role === 'summary')!;
+        return new Map(summary.rows[0]!.figures.map((figure) => [figure.kind, Number(figure.value)]));
+      };
+      const walkFigures = summaryFigures(repositoryPage);
+      expect(walkFigures.get('reachable')).toBe(2);
+      expect(walkFigures.get('firstParent')).toBe(2);
+      expect(walkFigures.get('merges')).toBe(0);
       const rootModel = blockOf(repositoryPage, 'folder').data as Record<string, unknown>;
       expect((rootModel['folders'] as { path: string }[]).map((folder) => folder.path)).toEqual(['assets', 'src']);
       expect((rootModel['files'] as { path: string }[]).map((file) => file.path)).toEqual(['README.md']);
@@ -172,6 +182,45 @@ git(folder,'commit','-qm','the nested file moves');
         expect(step['peakRssBytes'] as number).toBeGreaterThanOrEqual(step['startRssBytes'] as number);
         expect((step['slowest'] as unknown[]).length).toBeGreaterThan(0);
       }
+    } finally {
+      await server.stop();
+    }
+  }, 300_000);
+
+  test('a merged side branch is not on the first-parent line, and the page counts git\'s own line', async () => {
+    const { repository } = product('branched', (folder) => {
+      writeFileSync(join(folder, 'base.txt'), 'base\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-qm', 'the base');
+      git(folder, 'checkout', '-q', '-b', 'side');
+      writeFileSync(join(folder, 'side.txt'), 'side\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-qm', 'the side branch');
+      git(folder, 'checkout', '-q', 'main');
+      writeFileSync(join(folder, 'main.txt'), 'main\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-qm', 'the main line');
+      git(folder, 'merge', '-q', '--no-ff', 'side', '-m', 'the side branch merges');
+    });
+    const head = git(repository, 'rev-parse', 'HEAD');
+    const reachable = Number(git(repository, 'rev-list', '--count', head));
+    const expected = Number(git(repository, 'rev-list', '--first-parent', '--count', head));
+    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    try {
+      await press(server, 'branched');
+      const repositoryPage = await pageOf(server, 'branched', 'code.repository:branched-code');
+      expect(repositoryPage.status).toBe(200);
+      const history = blockOf(repositoryPage, 'history');
+      const summary = (history.sections as { role: string; rows: { figures: { kind: string; value: string }[] }[] }[]).find((section) => section.role === 'summary')!;
+      const figures = new Map(summary.rows[0]!.figures.map((figure) => [figure.kind, Number(figure.value)]));
+      expect(figures.get('reachable')).toBe(reachable);
+      expect(figures.get('firstParent')).toBe(expected);
+      expect(figures.get('firstParent')).toBeLessThan(figures.get('reachable')!);
+      expect(figures.get('merges')).toBe(1);
+      // The merge's side commit is reachable and is not on the first-parent line.
+      expect(reachable).toBe(4);
+      expect(expected).toBe(3);
+
     } finally {
       await server.stop();
     }

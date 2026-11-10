@@ -10,7 +10,7 @@
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import type { LandmarkPlan } from './history-landmarks.js';
-import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
+import { GIT_KINDS, GIT_TABLES, GIT_WIKI } from '../fill/stages/git-contract.js';
 import { commitWithPaths, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts } from '../graph/index.js';
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
 import { entityAddress } from './addresses.js';
@@ -409,7 +409,6 @@ function entityOf(row: Raw): GraphEntity {
     properties['committedAt'] = gitDateOf(agreedValue(commitOpinions, 'commit_date') as string | null, agreedValue(commitOpinions, 'commit_offset_min') as number | null);
     properties['effectiveAt'] = properties['committedAt'];
     properties['merge'] = Number(row['parent_count'] ?? 0) > 1;
-    properties['onFirstParent'] = true;
     if (row['commit_author_name'] !== null && row['commit_author_name'] !== undefined) properties['author'] = row['commit_author_name'];
     if (row['commit_author_email'] !== null && row['commit_author_email'] !== undefined) properties['authorEmail'] = row['commit_author_email'];
   } else if (graphKind === `${GIT_KINDS.signature}`) {
@@ -1223,12 +1222,14 @@ export class GraphReader {
     authorsTotal: number;
   }> {
     return await this.run(async (tx) => {
-      const summary = await tx.query<{ commits: number; merges: number; authors: number; since: string | null; until: string | null }>(
+      const summary = await tx.query<{ commits: number; first_parent: number; merges: number; authors: number; since: string | null; until: string | null }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
+           SELECT he.to_node AS commit, h.first_parent FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
+           LEFT JOIN LATERAL (SELECT o.first_parent FROM ${GIT_TABLES.history} o WHERE o.edge_id = he.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
            WHERE he.from_node = $1::bigint
          )
          SELECT count(DISTINCT hc.commit)::int AS commits,
+                count(DISTINCT hc.commit) FILTER (WHERE hc.first_parent)::int AS first_parent,
                 count(DISTINCT hc.commit) FILTER (WHERE (
                   SELECT count(*) FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}'
                   WHERE pe.from_node = hc.commit
@@ -1240,7 +1241,7 @@ export class GraphReader {
          FROM hc JOIN ${GIT_TABLES.commit} o ON o.node_id = hc.commit AND o.state = 'open' AND o.context_id = 1`,
         [scope],
       );
-      const row = summary.rows[0] ?? { commits: 0, merges: 0, authors: 0, since: null, until: null };
+      const row = summary.rows[0] ?? { commits: 0, first_parent: 0, merges: 0, authors: 0, since: null, until: null };
       const hotspots = await tx.query<{ node: string; n: number }>(
         `WITH hc AS (
            SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
@@ -1285,7 +1286,7 @@ export class GraphReader {
         .sort((left, right) => right.commits - left.commits || byCodePoint(left.entity.key, right.entity.key))
         .slice(0, limit);
       return {
-        commits: row.commits, firstParent: row.commits, merges: row.merges, nonMerge: row.commits - row.merges,
+        commits: row.commits, firstParent: row.first_parent, merges: row.merges, nonMerge: row.commits - row.merges,
         authors: row.authors, ...(row.since === null ? {} : { since: row.since }), ...(row.until === null ? {} : { until: row.until }),
         hotspots: sort([...merged].map(([node, n]) => ({ node, n })), hotspotEntities), hotspotsTotal: merged.size,
         authorRows: sort(authors.rows, authorEntities), authorsTotal: authors.rows.length,
@@ -1327,6 +1328,16 @@ export class GraphReader {
          ORDER BY rk.name, e.from_node, e.to_node, e.id`,
         [scope],
       );
+      // The first-parent chain is the history edge's own fact (madarch-8bdc.2.20): the projection counts the commits
+      // on it instead of treating every reachable commit as one.
+      const first = await tx.query<{ node: string }>(
+        `SELECT he.to_node::text AS node FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
+         JOIN LATERAL (SELECT o.first_parent FROM ${GIT_TABLES.history} o WHERE o.edge_id = he.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
+         WHERE he.from_node = $1::bigint AND h.first_parent IS TRUE`,
+        [scope],
+      );
+      const chain = new Set(first.rows.map((row) => row.node));
+      for (const entity of entities) if (entity.kind === GIT_WIKI.commit) entity.properties['onFirstParent'] = chain.has(entity.nodeIds[0]!);
       return {
         entities,
         edges: edges.rows.flatMap((row) => {

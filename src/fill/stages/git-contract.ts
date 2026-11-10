@@ -52,7 +52,7 @@ const vertex: readonly VertexContract[] = [
 const edge: readonly EdgeContract[] = [
   { name: 'contains', table: GIT_TABLES.contains, from: ['repository', 'directory'], to: ['directory', 'file', 'gitlink'], repeats: false, fields: [], capability: 'git' },
   { name: 'as-is', table: GIT_TABLES.asIs, from: ['repository'], to: ['commit'], repeats: false, fields: [], capability: 'git' },
-  { name: 'history', table: GIT_TABLES.history, from: ['repository'], to: ['commit'], repeats: false, fields: [integer('walk')], capability: 'git' },
+  { name: 'history', table: GIT_TABLES.history, from: ['repository'], to: ['commit'], repeats: false, fields: [integer('walk'), { name: 'first_parent', type: 'boolean', nullable: true }], capability: 'git' },
   { name: 'parent', table: GIT_TABLES.parent_position, from: ['commit'], to: ['commit'], repeats: false, fields: [integer('position')], capability: 'git' },
   { name: 'touched', table: GIT_TABLES.touched, from: ['commit'], to: ['file'], repeats: false, fields: [text('change'), bigint('added', true), bigint('removed', true)], capability: 'git', checks: [`change IN ('added', 'modified', 'deleted', 'renamed')`] },
   { name: 'authored', table: GIT_TABLES.authored, from: ['signature'], to: ['commit'], repeats: false, fields: [], capability: 'git' },
