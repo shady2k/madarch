@@ -110,6 +110,8 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     expect(listed.terms.find((term) => term.title === 'Fill')?.definition).toBe('the one run that reads a product\'s repositories and writes its graph.\nA second fill finds what the first published and writes only what moved.');
     expect(listed.terms.find((term) => term.title === 'Fill')?.synonyms).toEqual(['body fill']);
     expect(listed.terms.find((term) => term.title === 'Fill')?.code).toEqual(['fillRun']);
+    // The listing's place column states where the definition stands; the term's own place is not said twice there.
+    expect(listed.terms.find((term) => term.title === 'Fill')?.usedIn).toBeNull();
 
     const page = await product.page('doc.term:Fill');
     if (!page.ok) throw new Error(page.message);

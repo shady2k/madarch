@@ -70,7 +70,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { archifyFrame, likec4Model } from './view-frames.js';
 import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
-import { documentAddress, entityAddress, sourceAddress } from './addresses.js';
+import { documentAddress, entityAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
@@ -2617,14 +2617,14 @@ export class KnowledgeProduct {
     const endLine = evidence?.lineEnd ?? line;
     const names = entity.properties['synonyms'];
     const codeNames = entity.properties['code'];
-    const where = path === '' ? null : `[${repository === null || productRepository ? '' : `${repository}/`}${path}:${String(line)}${endLine === line ? '' : `-${String(endLine)}`}](${sourceAddress(productRepository ? null : repository, path, line)})`;
     return {
       id: entity.key,
       title: entity.label,
       definition: typeof entity.properties['definition'] === 'string' ? entity.properties['definition'] : '',
       synonyms: Array.isArray(names) ? names.filter((one): one is string => typeof one === 'string') : [],
       code: Array.isArray(codeNames) ? codeNames.filter((one): one is string => typeof one === 'string') : [],
-      usedIn: where,
+      // The listing's place column already states where the definition stands; the term's own place is not said twice.
+      usedIn: null,
       ambiguous: null,
       repo: productRepository ? null : repository,
       path,

@@ -205,6 +205,40 @@ describe('the menu', () => {
     expect(foot.querySelector('[data-testid=nav-settings]')).not.toBeNull();
   });
 
+  test('a kind whose own page is a listing stands under its manifest group, not in «Waiting for you»', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/status')) return json(status({
+        home: null, filled: false,
+        kinds: [
+          kind({ kind: 'domain', source: 'markdown', group: 'requirements', count: 1 }),
+          kind({ kind: 'doc.term', source: 'document', group: 'requirements', count: 7, nav: 'own-page', listing: 'glossary', labels: { en: { one: 'Term', many: 'Terms' }, ru: { one: 'Термин', many: 'Термины' } } }),
+        ],
+        groups: [{ group: 'requirements', labels: { en: 'Requirements', ru: 'Требования' }, open: true }],
+        loop: { questionsOpen: 2, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: 0 },
+      }));
+      if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    window.history.replaceState({}, '', '/');
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-nav-kind="doc.term"]') !== null, 'the term kind row');
+    const waiting = app.querySelector('[data-testid=nav-waiting]')!;
+    expect(waiting.querySelector('[data-nav-kind="doc.term"]')).toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-tasks]')).not.toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-problems]')).not.toBeNull();
+    const group = app.querySelector('[data-nav-group=requirements]')!;
+    const row = group.querySelector('[data-nav-kind="doc.term"]')!;
+    expect(row.getAttribute('href')).toBe('/glossary');
+    expect(row.textContent).toContain('Terms');
+    expect(row.querySelector('[data-testid=nav-count]')!.textContent).toBe('7');
+    // The engine draws no place of its own for the glossary: no hardcoded row remains.
+    expect(app.querySelector('[data-testid=nav-glossary]')).toBeNull();
+  });
+
   test('the group the manifest opens by itself is expanded; a group without the field is closed, whatever its name', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
       if (url.endsWith('/api/status')) return json(status({
@@ -247,12 +281,48 @@ describe('the glossary table', () => {
     const rows = [...page.querySelectorAll('[data-testid=glossary-term]')];
     expect(rows.length).toBe(7);
     expect(rows.every((row) => row.tagName === 'TR')).toBe(true);
+    // The count stands as a badge on the title; the sentence that repeated it is gone.
+    expect(page.querySelector('[data-testid=glossary-count]')!.textContent).toBe('7');
+    expect(page.textContent).not.toContain('each with the place it is stated');
+    // No term has another name: the names column is not drawn at all, and a row holds its three columns.
+    expect([...page.querySelectorAll('th')].map((head) => head.textContent)).toEqual(['Term', 'Definition', 'Place']);
     const first = rows[0]!;
+    expect(first.querySelectorAll('td').length).toBe(3);
     const source = first.querySelector('details[data-testid=localized-source]') as HTMLDetailsElement;
     expect(source.open).toBe(false);
     expect(source.textContent).toContain('The source of Term 1.');
     expect(source.querySelector('[data-testid=term-ground]')).toBeNull();
     expect(first.querySelectorAll('[data-testid=term-ground]').length).toBe(1);
     expect(first.textContent!.split('docs/glossary.md:3').length - 1).toBe(1);
+    expect(first.textContent).not.toContain('Used in');
+  });
+
+  test('in Russian the title carries the count as a badge and the sentence that repeated it is gone', async () => {
+    await setWikiLanguage('ru');
+    try {
+      (globalThis as { fetch?: unknown }).fetch = async () => json(glossary);
+      const page = into(createElement(GlossaryPage, { version: 4 }));
+      await until(() => page.querySelector('[data-testid=glossary-table]') !== null, 'the Russian glossary');
+      expect(page.querySelector('h1')!.textContent).toBe('Глоссарий');
+      expect(page.querySelector('[data-testid=glossary-count]')!.textContent).toBe('7');
+      expect(page.textContent).not.toContain('у каждого указано');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('a term with another name draws the names column; one with none leaves it out', async () => {
+    const named: Glossary = { ...glossary, terms: [term('Manifest', { synonyms: ['manifest file'], code: ['madarch/kinds.yaml'] }), ...glossary.terms.slice(1)] };
+    (globalThis as { fetch?: unknown }).fetch = async () => json(named);
+    let page = into(createElement(GlossaryPage, { version: 2 }));
+    await until(() => page.querySelector('[data-testid=glossary-table]') !== null, 'the named glossary');
+    expect([...page.querySelectorAll('th')].map((head) => head.textContent)).toEqual(['Term', 'Definition', 'Names', 'Place']);
+    expect(page.querySelector('[data-testid=glossary-term] [data-testid=term-names]')!.textContent).toContain('manifest file');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    (globalThis as { fetch?: unknown }).fetch = async () => json(glossary);
+    page = into(createElement(GlossaryPage, { version: 3 }));
+    await until(() => page.querySelector('[data-testid=glossary-table]') !== null, 'the unnamed glossary');
+    expect([...page.querySelectorAll('th')].map((head) => head.textContent)).not.toContain('Names');
   });
 });
