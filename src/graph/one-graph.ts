@@ -199,11 +199,11 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
       ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')}`),
     ];
     const stamp = sha256Hex(new TextEncoder().encode(parts.join('\n')));
-    const reset = !await graphShapeStands(tx);
-    // A store whose shape and contract stamp stand takes no DDL at all: a page that opens it pays no schema work (the
-    // store's own stamp is what makes a re-open cheap, as `createSchemaOnce` did).
+    // A store whose stamp stands is opened with two statements and no catalog walk: the stamp is read first, and only a
+    // store whose stamp moved is looked at further (the page budget: a page that opens the store pays almost nothing).
     const held = await tx.query<{ stamp: string }>(`SELECT stamp FROM ${META_SCHEMA}.schema_stamp WHERE name = 'one-graph'`);
-    if (!reset && held.rows[0]?.stamp === stamp) return { reset: false };
+    if (held.rows[0]?.stamp === stamp && await graphShapeStands(tx)) return { reset: false };
+    const reset = !await graphShapeStands(tx);
     if (reset) await resetGraph(tx);
     for (const statement of SCHEMA) await tx.query(statement);
 

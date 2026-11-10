@@ -811,8 +811,23 @@ function fileOf(row: Record<string, unknown>): FileRecord {
   };
 }
 
-/** The repository's node id, or a gap when the store holds no such repository. */
+/** One page's repository id: every read of a page's folder and files asks for it, and it is read once. */
+const REPOSITORY_ID_MEMO = new WeakMap<object, Map<string, Promise<string>>>();
+
+/** The repository's node id, or a gap when the store holds no such repository: read once per transaction. */
 async function repositoryIdOf(tx: OuterTransaction, repository: string): Promise<string> {
+  const memo = REPOSITORY_ID_MEMO.get(tx) ?? new Map<string, Promise<string>>();
+  REPOSITORY_ID_MEMO.set(tx, memo);
+  const held = memo.get(repository);
+  if (held !== undefined) return await held;
+  const read = readRepositoryId(tx, repository);
+  memo.set(repository, read);
+  read.catch(() => { if (memo.get(repository) === read) memo.delete(repository); });
+  return await read;
+}
+
+/** The id of one repository, in one statement. */
+async function readRepositoryId(tx: OuterTransaction, repository: string): Promise<string> {
   const found = await tx.query<{ node_id: string }>(
     `SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`,
     [repository],
