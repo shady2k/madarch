@@ -1,17 +1,14 @@
 /**
- * The one graph's mechanism (decision 0034, item 14): `kind`, `node`, `edge`,
- * claims, evidence, contexts and layers, the journal and the coverage gaps.
- * Every kind table is built from the product's manifest and the capability
- * that fills it (`contract.ts`); no name of a product's kind (file, commit,
- * touched …) stands in this module.
+ * The one graph's mechanism (decision 0034, item 14; its amendment of 2026-11-10): `entity`,
+ * `node`, `edge`, contexts and layers, the journal and the coverage gaps. Every entity's table is
+ * built from the product's contract (`contract.ts`) and holds one row per opinion about one
+ * vertex or edge; no name of a product's entity (file, commit, touched …) stands in this module.
  *
  * What the database itself refuses here:
- * - two attributes of one kind on one key: each kind table's natural key is
- *   unique there, made by `contract.ts`;
- * - an edge of one kind between the same ends twice unless the kind says
- *   repeats are allowed and its discriminator tells them apart;
- * - an evidence row that names none or more than one of a vertex, an edge and
- *   a claim.
+ * - two vertices of one entity on one key in one context: `node` is unique by them;
+ * - an edge of one entity between the same ends twice unless the entity says repeats are allowed
+ *   and its discriminator tells them apart;
+ * - an opinion whose state is none of open, confirmed and closed.
  */
 import { createSchemaOnce } from '../adapters/schema-stamp.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
@@ -19,19 +16,24 @@ import { createContractTables, EMPTY_CONTRACT, generatedTableName, type GraphCon
 
 /** The mechanism tables, in code-point order. */
 export const ONE_GRAPH_TABLES = [
-  'claim',
   'context',
   'edge',
-  'evidence',
+  'entity',
   'gap',
-  'kind',
   'layer_entry',
   'node',
   'operation',
 ] as const;
 
 const SCHEMA: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS kind (
+  // A store made before the catalogue was renamed keeps its rows: the table is the same, its name is the owner's word
+  // for it (decision 0034's amendment: «Сущность файл»).
+  `DO $$ BEGIN
+     IF to_regclass(current_schema() || '.kind') IS NOT NULL AND to_regclass(current_schema() || '.entity') IS NULL THEN
+       ALTER TABLE kind RENAME TO entity;
+     END IF;
+   END $$`,
+  `CREATE TABLE IF NOT EXISTS entity (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name text NOT NULL UNIQUE CHECK (name <> ''),
     sort text NOT NULL CHECK (sort IN ('node', 'edge')),
@@ -40,56 +42,6 @@ const SCHEMA: readonly string[] = [
     CHECK (sort = 'edge' OR NOT repeats),
     CHECK (repeats = (discriminator IS NOT NULL))
   )`,
-  `CREATE TABLE IF NOT EXISTS node (
-    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    kind_id bigint NOT NULL REFERENCES kind (id),
-    uid uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE
-  )`,
-  `CREATE TABLE IF NOT EXISTS edge (
-    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    kind_id bigint NOT NULL REFERENCES kind (id),
-    from_node bigint NOT NULL REFERENCES node (id),
-    to_node bigint NOT NULL REFERENCES node (id),
-    discriminator text NOT NULL DEFAULT '',
-    context_id bigint NOT NULL DEFAULT 1,
-    CHECK (from_node <> to_node)
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS edge_once ON edge (kind_id, from_node, to_node, discriminator, context_id)`,
-  `CREATE INDEX IF NOT EXISTS edge_to ON edge (to_node, kind_id)`,
-  `CREATE INDEX IF NOT EXISTS edge_from ON edge (from_node, kind_id)`,
-  // A claim is an attribute a tool may dispute: its value, its producer and version, and its evidence. Every source is kept.
-  `CREATE TABLE IF NOT EXISTS claim (
-    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    node_id bigint NOT NULL REFERENCES node (id),
-    attribute text NOT NULL CHECK (attribute <> ''),
-    value jsonb NOT NULL,
-    producer text NOT NULL CHECK (producer <> ''),
-    producer_version text NOT NULL CHECK (producer_version <> ''),
-    context_id bigint NOT NULL DEFAULT 1,
-    stated_at timestamptz NOT NULL DEFAULT now()
-  )`,
-  `CREATE INDEX IF NOT EXISTS claim_node_attribute ON claim (node_id, attribute, id)`,
-  // Evidence names a vertex, an edge or a claim, exactly one of them (item 7), and records where it was read: the
-  // repository, the commit or content digest, the path (interned, item 13) and the lines (decision 0035, item 7).
-  `CREATE TABLE IF NOT EXISTS evidence (
-    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    node_id bigint REFERENCES node (id),
-    edge_id bigint REFERENCES edge (id),
-    claim_id bigint REFERENCES claim (id),
-    repository text,
-    commit_or_digest text,
-    path_id bigint,
-    line_start integer CHECK (line_start IS NULL OR line_start >= 1),
-    line_end integer CHECK (line_end IS NULL OR line_end >= line_start),
-    producer text NOT NULL CHECK (producer <> ''),
-    CHECK (num_nonnulls(node_id, edge_id, claim_id) = 1),
-    CHECK ((line_start IS NULL) = (line_end IS NULL))
-  )`,
-  // A store made before the repository stood in evidence gains the column; nothing else of the table moves.
-  `ALTER TABLE evidence ADD COLUMN IF NOT EXISTS repository text`,
-  `CREATE INDEX IF NOT EXISTS evidence_node ON evidence (node_id)`,
-  `CREATE INDEX IF NOT EXISTS evidence_edge ON evidence (edge_id)`,
-  `CREATE INDEX IF NOT EXISTS evidence_claim ON evidence (claim_id)`,
   // A context is a layer over its parent; the default branch's graph stands whole in the base context (item 8).
   `CREATE TABLE IF NOT EXISTS context (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -99,6 +51,48 @@ const SCHEMA: readonly string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS context_base ON context (ref) WHERE parent IS NULL`,
   `CREATE UNIQUE INDEX IF NOT EXISTS context_child ON context (parent, ref) WHERE parent IS NOT NULL`,
+  // A vertex is identity and key: the key belongs to the vertex, never to an opinion, and it is the same on every
+  // machine because a producer names the entity by those values (decision 0034, item 2; A2 of the amendment).
+  `CREATE TABLE IF NOT EXISTS node (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    entity_id bigint NOT NULL REFERENCES entity (id),
+    uid uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    key jsonb NOT NULL DEFAULT '{}'::jsonb,
+    context_id bigint NOT NULL DEFAULT 1 REFERENCES context (id),
+    removed boolean NOT NULL DEFAULT false
+  )`,
+  `DO $$ BEGIN
+     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'node' AND column_name = 'kind_id') THEN
+       ALTER TABLE node RENAME COLUMN kind_id TO entity_id;
+     END IF;
+   END $$`,
+  `ALTER TABLE node ADD COLUMN IF NOT EXISTS key jsonb NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE node ADD COLUMN IF NOT EXISTS context_id bigint NOT NULL DEFAULT 1 REFERENCES context (id)`,
+  `ALTER TABLE node ADD COLUMN IF NOT EXISTS removed boolean NOT NULL DEFAULT false`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS node_key_context ON node (entity_id, key, context_id)`,
+  `CREATE INDEX IF NOT EXISTS node_entity ON node (entity_id, id)`,
+  `CREATE TABLE IF NOT EXISTS edge (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    entity_id bigint NOT NULL REFERENCES entity (id),
+    from_node bigint NOT NULL REFERENCES node (id),
+    to_node bigint NOT NULL REFERENCES node (id),
+    discriminator text NOT NULL DEFAULT '',
+    context_id bigint NOT NULL DEFAULT 1,
+    CHECK (from_node <> to_node)
+  )`,
+  `DO $$ BEGIN
+     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'edge' AND column_name = 'kind_id') THEN
+       ALTER TABLE edge RENAME COLUMN kind_id TO entity_id;
+     END IF;
+   END $$`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS edge_once ON edge (entity_id, from_node, to_node, discriminator, context_id)`,
+  `CREATE INDEX IF NOT EXISTS edge_to ON edge (to_node, entity_id)`,
+  `CREATE INDEX IF NOT EXISTS edge_from ON edge (from_node, entity_id)`,
+  // The opinions of every vertex and edge stand in the tables the contract makes (`contract.ts`); the two tables that
+  // held them one row per value are gone (A3 of the amendment), and a store made before this change lets them go: a
+  // fill writes every opinion again from the producers that stated it.
+  `DROP TABLE IF EXISTS evidence`,
+  `DROP TABLE IF EXISTS claim`,
   `CREATE TABLE IF NOT EXISTS layer_entry (
     context_id bigint NOT NULL REFERENCES context (id),
     slot text NOT NULL CHECK (slot <> ''),
@@ -128,14 +122,14 @@ const SCHEMA: readonly string[] = [
 ];
 
 /**
- * Creates the mechanism and, when a contract is given, the tables its kinds declare. A second call changes
+ * Creates the mechanism and, when a contract is given, the tables its entities declare. A second call changes
  * nothing; a changed contract adds columns and keys, or refuses a change that would drop rows.
  */
 export async function createOneGraphSchema(owner: DatabaseOwner, contract: GraphContract = EMPTY_CONTRACT): Promise<void> {
   await createSchemaOnce(owner, {
     name: 'one-graph',
     tables: ONE_GRAPH_TABLES,
-    parts: [...SCHEMA, ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')}`), ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''}`), ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')}`)],
+    parts: [...SCHEMA, ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')} ${kind.key.join(',')}`), ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''}`), ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')}`)],
     create: async (tx) => {
       for (const statement of SCHEMA) await tx.query(statement);
       // The base context is the default branch's whole graph; a branch and a worktree are later layers (item 8).

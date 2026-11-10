@@ -245,9 +245,9 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs')).toBe('');
     // The parent of a file is its folder, never the repository.
     const parents = await owner.transaction('snapshot', async (tx) => await tx.query(
-      `SELECT p.text AS child, coalesce(pp.text, '') AS parent FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = 'contains'
-       JOIN ${GIT_TABLES.file} f ON f.node_id = e.to_node JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> f.repository_node
-       LEFT JOIN ${GIT_TABLES.directory} d ON d.node_id = pn.id LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = d.path_id`,
+      `SELECT (fn.key->>'path') AS child, coalesce(pn.key->>'path', '') AS parent FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = 'contains'
+       JOIN node fn ON fn.id = e.to_node JOIN entity fe ON fe.id = fn.entity_id AND fe.name = 'file'
+       LEFT JOIN node pn ON pn.id = e.from_node`,
     ));
     for (const row of parents.rows as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';

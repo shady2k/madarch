@@ -18,27 +18,26 @@ export interface GraphFileRow {
 
 /**
  * Every file vertex of the graph, in code point order of its repository and path: a file that is in a repository's
- * current tree (its `contains` edge stands) and not tombstoned. A product that declares no code kind holds no file
+ * current tree (its `contains` edge stands) and not removed. A product that declares no code kind holds no file
  * table, and the answer is empty — never an error.
  */
 export async function graphFiles(owner: DatabaseOwner, contract: GraphContract): Promise<GraphFileRow[]> {
   if (!contract.vertex.some((kind) => kind.name === GIT_KINDS.file)) return [];
   return await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ repository: string; path: string }>(
-      `SELECT r.name AS repository, p.text AS path
-       FROM ${GIT_TABLES.file} f
-       JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-       JOIN ${GIT_TABLES.path} p ON p.id = f.path_id
-       JOIN edge e ON e.to_node = f.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = $1)
-       WHERE NOT f.tombstone
-       ORDER BY r.name, p.text`,
-      [GIT_KINDS.contains],
+      `SELECT (f.key->'repository'->'key'->>'name') AS repository, (f.key->>'path') AS path
+       FROM node f
+       JOIN entity fe ON fe.id = f.entity_id AND fe.name = $1
+       JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = $2)
+       WHERE NOT f.removed
+       ORDER BY repository, path`,
+      [GIT_KINDS.file, GIT_KINDS.contains],
     );
     return found.rows.map((row) => ({ repository: row.repository, path: row.path }));
   });
 }
 
-/** One entity a producer holds: its natural key values, and the file its newest claim was read in. */
+/** One entity a producer holds: its natural key values, and the file its open opinion was read in. */
 export interface ProducerEntity {
   readonly key: Readonly<Record<string, string>>;
   readonly path: string | null;
@@ -51,11 +50,11 @@ export interface ProducerEntity {
 export async function fileContent(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
   return await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ content: string | null }>(
-      `SELECT b.content FROM ${GIT_TABLES.file} f
-       JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-       JOIN ${GIT_TABLES.path} p ON p.id = f.path_id
-       LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
-       WHERE r.name = $1 AND p.text = $2 AND NOT f.tombstone
+      `SELECT b.content FROM node f
+       JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}'
+       LEFT JOIN LATERAL (SELECT o."blob_id" FROM ${GIT_TABLES.file} o WHERE o."node_id" = f.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-tree' ORDER BY o."id" DESC LIMIT 1) g ON true
+       LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
+       WHERE (f.key->'repository'->'key'->>'name') = $1 AND (f.key->>'path') = $2 AND NOT f.removed
        LIMIT 1`,
       [repository, path],
     );
@@ -71,25 +70,24 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
   const vertex: VertexContract | undefined = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) return [];
   const table = generatedTableName(kind, 'vertex');
-  const pathTable = contract.dictionary.some((one) => one.name === 'path') ? generatedTableName('path', 'dictionary') : undefined;
-  const keyColumns = vertex.key.map((column) => `t."${column}" AS "${column}"`).join(', ');
   return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<Record<string, unknown>>(
-      `SELECT ${keyColumns}, min(${pathTable === undefined ? 'NULL::text' : 'p.text'}) AS path
-       FROM claim c
-       JOIN kind k ON k.id = (SELECT id FROM kind WHERE name = $1)
-       JOIN node n ON n.id = c.node_id AND n.kind_id = k.id
-       JOIN ${table} t ON t.node_id = n.id
-       LEFT JOIN evidence e ON e.claim_id = c.id AND e.producer = c.producer
-       ${pathTable === undefined ? '' : `LEFT JOIN ${pathTable} p ON p.id = e.path_id`}
-       WHERE c.producer = $2
-       GROUP BY ${vertex.key.map((column) => `t."${column}"`).join(', ')}
-       ORDER BY ${vertex.key.map((column) => `t."${column}"`).join(', ')}`,
-      [kind, producer],
+    const found = await tx.query<{ key: Record<string, unknown>; evidence: readonly Record<string, unknown>[] }>(
+      `SELECT n.key AS key, o.evidence FROM ${table} o
+       JOIN node n ON n.id = o.node_id
+       WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = $1 AND NOT n.removed`,
+      [producer],
     );
-    return found.rows.map((row) => ({
-      key: Object.fromEntries(vertex.key.map((column) => [column, String(row[column] ?? '')])),
-      path: typeof row['path'] === 'string' ? row['path'] : null,
+    const rows = found.rows.map((row) => ({
+      key: Object.fromEntries(vertex.key.map((column) => [column, String(row.key[column] ?? '')])),
+      path: row.evidence.map((one) => one['path']).find((one): one is string => typeof one === 'string') ?? null,
     }));
+    // One vertex one opinion: a producer may hold the same key once, so a repeated key stands once.
+    const seen = new Set<string>();
+    return rows.filter((row) => {
+      const rendered = JSON.stringify(Object.keys(row.key).sort().map((field) => [field, row.key[field]]));
+      if (seen.has(rendered)) return false;
+      seen.add(rendered);
+      return true;
+    }).sort((left, right) => (JSON.stringify(left.key) < JSON.stringify(right.key) ? -1 : 1));
   });
 }

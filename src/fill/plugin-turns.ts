@@ -175,11 +175,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     try {
       const outcome = await session.runUnit({ unitId: id, kind: unit.kind.name, key: { pattern: unit.pattern }, inputs: { pattern: unit.pattern } });
       if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
-      const where = draftEvidence(outcome.result.vertices.flatMap((vertex) => vertex.claims ?? [])[0]?.evidence);
       const answered = new Set<string>();
       for (const vertex of outcome.result.vertices) {
         if (vertex.kind !== unit.kind.name) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}`);
         answered.add(canonicalKey(vertex.key));
+        // Each opinion stands on the evidence of its own entity's claims, never on another entity's.
+        const where = draftEvidence(vertex.claims?.[0]?.evidence);
         draft.write({ kind: 'vertex', evidence: unit.kind.name, value: {
           kind: vertex.kind,
           key: vertex.key,

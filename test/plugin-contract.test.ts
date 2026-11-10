@@ -55,13 +55,15 @@ const MANIFEST = [
 ].join('\n');
 
 describe('a kind\'s table comes from the manifest', () => {
-  test('the key and the authoritative fields are columns; a claimed field and the agent\'s own are not', () => {
+  test('every field the manifest binds is a column of the opinion table, and the key is the vertex\'s alone', () => {
     const folder = product(MANIFEST, CONTRACT);
     const read = parseKinds(MANIFEST, 'madarch/kinds.yaml', folder);
     expect(read.findings).toEqual([]);
     const contract = manifestContractOf(read);
     expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term']);
-    expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'rank', 'strict']);
+    // A3 of the 2026-11-10 amendment: no field is authoritative, so every bound field — a claimed one and the agent's
+    // own included — is a column of the kind's opinion table; the key is the vertex's, never a column.
+    expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
     expect(contract.vertex[0]?.key).toEqual(['name']);
     expect(contract.vertex[0]?.capability).toBe('g');
     // The path dictionary stands with the kind, for the evidence paths a producer names.
@@ -72,8 +74,8 @@ describe('a kind\'s table comes from the manifest', () => {
     const folder = product(MANIFEST, CONTRACT);
     const read = parseKinds(MANIFEST, 'madarch/kinds.yaml', folder);
     const reads = declaredKindReads(read);
-    expect(reads.get('doc.term')?.columns).toEqual(['name', 'rank', 'strict']);
-    expect(reads.get('doc.term')?.types).toMatchObject({ name: 'text', rank: 'integer', strict: 'text' });
+    expect(reads.get('doc.term')?.columns).toEqual(['definition', 'rank', 'note', 'strict']);
+    expect(reads.get('doc.term')?.types).toMatchObject({ definition: 'text', rank: 'integer', note: 'text', strict: 'text' });
     expect(reads.get('doc.term')?.key).toEqual(['name']);
   });
 

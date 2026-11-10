@@ -1,52 +1,53 @@
 /**
- * The repository records (madarch-8bdc.2.11, decision 0034): the graph the fill's
- * two passes write, in the one schema of `one-graph.ts`.
+ * The repository records (madarch-8bdc.2.11, decision 0034 and its amendment of 2026-11-10): the
+ * graph the fill's two passes write, in the one schema of `one-graph.ts`.
  *
- * **Identity only.** A vertex is a row of `node` with its kind; a kind's own
- * columns stand in a table keyed by `node_id`, and the natural key of the kind is
- * unique there: a repository's name, a directory's or a file's repository and
- * path, a commit's hash, a signature's name and email.
+ * **Identity only in `node`, and the key on the vertex.** A vertex is a row of `node` with its
+ * entity and its key; a file's key is its repository and its path, a commit's its hash. The key
+ * fields are named here exactly as the contract declares them, and they are no columns of the
+ * entity's table.
  *
- * **A relation stands once, as an `edge` row.** `contains`, `as-is`, `history`,
- * `parent`, `touched`, `authored` and `renamed-from` are edges; an edge kind's
- * own attributes stand in its table keyed by `edge_id` (`touched`, `history`,
- * `parent_position`). Belonging to a repository is an edge only.
+ * **Every value is an opinion.** The table of a kind holds one row per opinion (A3): the tree pass
+ * and the history pass each state theirs, the language dataset states its own, and every opinion
+ * carries the producer and its version, the evidence it was read at and the language of a text
+ * value. A rerun of the same reading writes nothing; a changed value closes the producer's open
+ * opinion and opens a new one.
  *
- * **A claim carries its source.** A file's language is a claim whose producer is
- * the language dataset; an ambiguous answer is the claim's candidates, never the
- * word `ambiguous` as a value. Every claim is kept, and a reader shows the newest.
+ * **A relation stands once, as an `edge` row.** `contains`, `as-is`, `history`, `parent`,
+ * `touched`, `authored` and `renamed-from` are edges; an edge kind's own values stand in its
+ * opinion table keyed by `edge_id` (`touched`, `history`, `parent_position`).
  *
- * **A deleted path keeps its vertex and its history.** A tree publication
- * reconciles the `contains` edges of the current tree: a path that left the tree
- * loses that edge and nothing else; its `touched` and `renamed-from` edges stand.
+ * **A deleted path keeps its vertex and its history.** A tree publication reconciles the
+ * `contains` edges of the current tree: a path that left the tree loses that edge and nothing else;
+ * its `touched` and `renamed-from` edges stand.
  *
- * **Change detection.** A publication compares what the store holds with what the
- * pass read, by key and by blob, writes only what differs, in bounded batches,
- * interns every dictionary value, and reads a page with keyset pagination.
+ * **Change detection.** A publication compares what the store holds with what the pass read, by key
+ * and by blob, writes only what differs, in bounded batches, interns every dictionary value, and
+ * reads a page with keyset pagination.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
 import { raise } from '../model/raise.js';
 import { createOneGraphSchema } from './one-graph.js';
-import { keyUid } from './uid.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { GraphContract } from './contract.js';
+import { ensureVertex, publishEdgeOpinion, publishOpinion } from './write.js';
 
-
-/** The uid of a path-keyed entity: its repository's uid and the path's text, never local node ids. */
-async function pathKeyUid(tx: OuterTransaction, kind: string, repositoryNode: string, pathId: string): Promise<string> {
-  const found = await tx.query<{ uid: string; text: string }>(
-    `SELECT n.uid::text AS uid, p.text FROM node n JOIN ${GIT_TABLES.path} p ON p.id = $2::bigint WHERE n.id = $1::bigint`,
-    [repositoryNode, pathId],
-  );
-  const row = found.rows[0];
-  if (row === undefined) raise(`the repository node ${repositoryNode} and path ${pathId} do not name a key`);
-  return keyUid(kind, [row.uid, row.text]);
-}
-
-/** The language dataset's version, the producer of every language claim (package.json pins it). */
+/** The producers of this store's opinions, and the version each states with them. */
+const TREE_PRODUCER = 'git-tree';
+const HISTORY_PRODUCER = 'git-history';
+const LINGUIST_PRODUCER = 'linguist';
+const TREE_VERSION = '1';
+const HISTORY_VERSION = '1';
 const LINGUIST_VERSION = '9.5.0';
+
+/** The key of a referenced entity, as the writer canonically states it: the kind and that entity's key values. */
+const KEY_REF = (alias: string, field: string, inner: string): string => `(${alias}.key->'${field}'->'key'->>'${inner}')`;
+
+/** A file's, folder's or gitlink's repository key, and the path key beside it. */
+const REPOSITORY_OF = (alias: string): string => KEY_REF(alias, 'repository', 'name');
+const PATH_OF = (alias: string): string => `(${alias}.key->>'path')`;
 
 /** Creates the one graph's tables and the kinds the fill writes; a second call changes nothing. */
 export async function createRecordSchema(owner: DatabaseOwner, contract: GraphContract = GIT_CONTRACT): Promise<void> {
@@ -55,7 +56,7 @@ export async function createRecordSchema(owner: DatabaseOwner, contract: GraphCo
 
 // ---- what one pass read ----------------------------------------------------
 
-/** One file of a tree, as the tree pass read it: everything a row holds. */
+/** One file of a tree, as the tree pass read it: everything an opinion holds. */
 export interface TreeFile {
   readonly path: string;
   readonly mode: '100644' | '100755' | '120000';
@@ -66,7 +67,7 @@ export interface TreeFile {
   readonly lines: number | null;
   /** A text file's bytes as text, stored once per blob; null for a binary blob, whose bytes are kept nowhere. */
   readonly content: string | null;
-  /** The dataset's language, or `ambiguous` with its candidates: the claim stores the candidates, never the word. */
+  /** The dataset's language, or `ambiguous` with its candidates: the opinion stores the candidates, never the word. */
   readonly language: string;
   readonly candidates: readonly string[];
 }
@@ -139,9 +140,9 @@ async function write<T>(owner: DatabaseOwner, work: (tx: OuterTransaction) => Pr
   return await owner.transaction('write', work);
 }
 
-/** The id of every kind this module reads, by name. */
-async function kindIds(tx: OuterTransaction): Promise<Map<string, string>> {
-  const found = await tx.query<{ id: string; name: string }>('SELECT id::text AS id, name FROM kind');
+/** The id of every entity this module reads, by name. */
+async function entityIds(tx: OuterTransaction): Promise<Map<string, string>> {
+  const found = await tx.query<{ id: string; name: string }>('SELECT id::text AS id, name FROM entity');
   return new Map(found.rows.map((row) => [row.name, row.id]));
 }
 
@@ -178,7 +179,7 @@ function folderOfPath(path: string): string {
   return at < 0 ? '' : path.slice(0, at);
 }
 
-/** One file as a reader sees it: the facts the tree pass wrote. */
+/** One file as a reader sees it: the values the tree pass and the dataset stated. */
 export interface FileRecord {
   readonly path: string;
   readonly mode: string | null;
@@ -186,7 +187,7 @@ export interface FileRecord {
   readonly bytes: number | null;
   readonly form: 'text' | 'binary' | null;
   readonly lines: number | null;
-  /** The accepted language, or null when the claims name candidates and no one language. */
+  /** The accepted language, or null when the opinions name candidates and no one language. */
   readonly language: string | null;
   readonly candidates: readonly string[];
 }
@@ -200,7 +201,7 @@ export interface CommitRecord {
   readonly authorDate: string;
   /** The offset `authorDate` stands at, in minutes east of UTC: the same number `authorDate` carries. */
   readonly authorOffsetMin: number;
-  /** The committer's clock with its offset, as `git log %cI` writes it. */
+  /** The committer's clock with its offset, as `git log %aI` writes it. */
   readonly commitDate: string;
   /** The offset `commitDate` stands at, in minutes east of UTC: the same number `commitDate` carries. */
   readonly commitOffsetMin: number;
@@ -223,17 +224,8 @@ function gitDateOf(localClock: string, offsetMin: number): string {
 /** One path the walk has not read: the store says so rather than answering nothing. */
 export class RecordGap extends Error {}
 
-// ---- the dictionaries ------------------------------------------------------
 
-/** The ids of the paths this publish names, inserting the ones the dictionary does not hold. */
-async function pathIds(tx: OuterTransaction, paths: readonly string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(paths)];
-  for (let at = 0; at < unique.length; at += BATCH) {
-    await tx.query(`INSERT INTO ${GIT_TABLES.path} (text) SELECT value FROM jsonb_array_elements_text($1::jsonb) ON CONFLICT (text) DO NOTHING`, [JSON.stringify(unique.slice(at, at + BATCH))]);
-  }
-  const found = await tx.query<{ id: string; text: string }>(`SELECT id::text AS id, text FROM ${GIT_TABLES.path} WHERE text IN (SELECT value FROM jsonb_array_elements_text($1::jsonb))`, [JSON.stringify(unique)]);
-  return new Map(found.rows.map((row) => [row.text, row.id]));
-}
+// ---- the dictionaries ------------------------------------------------------
 
 /** The ids of every blob the tree names, inserted or corrected in two statements. */
 async function blobIdsOf(tx: OuterTransaction, files: readonly TreeFile[]): Promise<Map<string, string>> {
@@ -258,88 +250,75 @@ async function blobIdsOf(tx: OuterTransaction, files: readonly TreeFile[]): Prom
   return new Map(found.rows.map((row) => [row.hash, row.id]));
 }
 
-// ---- the repository, its commit and its base context -----------------------
+// ---- the repository, its commit and the reference a file's key carries -----
 
-/** One repository's node id, made where the store holds none: its name is its natural key. */
-async function repositoryNodeOf(tx: OuterTransaction, kinds: Map<string, string>, repository: { readonly name: string; readonly url?: string; readonly defaultBranch?: string }): Promise<{ node: string; counts: RecordCounts }> {
-  const found = await tx.query<{ node_id: string; url: string; default_branch: string | null }>(`SELECT node_id::text AS node_id, url, default_branch FROM ${GIT_TABLES.repository} WHERE name = $1`, [repository.name]);
-  const row = found.rows[0];
-  if (row === undefined) {
-    const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.repository}`)!, keyUid(GIT_KINDS.repository, [repository.name])]);
-    const node = made.rows[0]!.id;
-    await tx.query(`INSERT INTO ${GIT_TABLES.repository} (node_id, name, url, default_branch) VALUES ($1::bigint, $2, $3, $4)`, [node, repository.name, repository.url ?? '', repository.defaultBranch ?? null]);
-    return { node, counts: { inserted: 2, updated: 0, deleted: 0, unchanged: 0 } };
+/** The key a file, folder or gitlink names its repository by: the repository's own key, its name. */
+function repositoryRef(name: string): { kind: string; key: { name: string } } {
+  return { kind: GIT_KINDS.repository, key: { name } };
+}
+
+/** One repository's node, made where the store holds none: its name is its key, its address an opinion. */
+async function repositoryNodeOf(tx: OuterTransaction, repository: { readonly name: string; readonly url?: string; readonly defaultBranch?: string }): Promise<{ node: string; counts: RecordCounts }> {
+  const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.repository, key: { name: repository.name } });
+  let counts: RecordCounts = { inserted: made.created ? 1 : 0, updated: 0, deleted: 0, unchanged: made.created ? 0 : 1 };
+  if (repository.url !== undefined) {
+    const written = await publishOpinion(tx, GIT_CONTRACT, {
+      kind: GIT_KINDS.repository, nodeId: made.nodeId, producer: TREE_PRODUCER, producerVersion: TREE_VERSION,
+      attributes: { url: repository.url, default_branch: repository.defaultBranch ?? null },
+    });
+    counts = written ? { ...counts, inserted: counts.inserted + (made.created ? 1 : 0), updated: counts.updated + (made.created ? 0 : 1) } : counts;
   }
-  const url = repository.url ?? row.url;
-  const defaultBranch = repository.defaultBranch ?? row.default_branch;
-  if (url !== row.url || defaultBranch !== row.default_branch) {
-    await tx.query(`UPDATE ${GIT_TABLES.repository} SET url = $2, default_branch = $3 WHERE node_id = $1::bigint`, [row.node_id, url, defaultBranch]);
-    return { node: row.node_id, counts: { inserted: 0, updated: 1, deleted: 0, unchanged: 0 } };
+  return { node: made.nodeId, counts };
+}
+
+/**
+ * One commit's node under a hash, made where the store holds none: a commit's hash is its key. The tree pass states what
+ * git tells it at the commit — its object format — and the history pass states the rest of the commit's opinion.
+ */
+async function commitNodeOf(tx: OuterTransaction, hash: string, producer: 'tree' | 'none'): Promise<{ node: string; created: boolean; counts: RecordCounts }> {
+  const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.commit, key: { hash } });
+  let counts: RecordCounts = { inserted: made.created ? 1 : 0, updated: 0, deleted: 0, unchanged: made.created ? 0 : 1 };
+  if (made.created && producer === 'tree') {
+    await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.commit, nodeId: made.nodeId, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, attributes: { algorithm: hashAlgorithmOf(hash) }, evidenceRows: [{ commit_or_digest: hash }] });
+    counts = { ...counts, inserted: counts.inserted + 1 };
   }
-  return { node: row.node_id, counts: { inserted: 0, updated: 0, deleted: 0, unchanged: 1 } };
+  return { node: made.nodeId, created: made.created, counts };
 }
 
-/** One commit's node under a hash, made where the store holds none: a commit's hash is its natural key. */
-async function commitNodeOf(tx: OuterTransaction, kinds: Map<string, string>, hash: string): Promise<{ node: string; created: boolean; counts: RecordCounts }> {
-  const found = await tx.query<{ node_id: string }>(`SELECT node_id::text AS node_id FROM ${GIT_TABLES.commit} WHERE hash = $1`, [hash]);
-  if (found.rows[0] !== undefined) return { node: found.rows[0].node_id, created: false, counts: { inserted: 0, updated: 0, deleted: 0, unchanged: 1 } };
-  const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.commit}`)!, keyUid(GIT_KINDS.commit, [hash])]);
-  const node = made.rows[0]!.id;
-  await tx.query(`INSERT INTO ${GIT_TABLES.commit} (node_id, hash, algorithm) VALUES ($1::bigint, $2, $3)`, [node, hash, hashAlgorithmOf(hash)]);
-  return { node, created: true, counts: { inserted: 2, updated: 0, deleted: 0, unchanged: 0 } };
+/** One file's node under its repository and path; a file keeps its vertex when it leaves the tree. */
+async function fileNodeOf(tx: OuterTransaction, repository: string, path: string): Promise<{ node: string; created: boolean }> {
+  const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: repositoryRef(repository), path } });
+  return { node: made.nodeId, created: made.created };
 }
 
-/** One file's node under its repository and path, made where the store holds none: a file keeps its vertex when it leaves the tree. */
-async function fileNodeOf(tx: OuterTransaction, kinds: Map<string, string>, repositoryNode: string, pathId: string): Promise<{ node: string; created: boolean }> {
-  const found = await tx.query<{ node_id: string }>(`SELECT node_id::text AS node_id FROM ${GIT_TABLES.file} WHERE repository_node = $1::bigint AND path_id = $2::bigint`, [repositoryNode, pathId]);
-  if (found.rows[0] !== undefined) return { node: found.rows[0].node_id, created: false };
-  const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.file}`)!, await pathKeyUid(tx, GIT_KINDS.file, repositoryNode, pathId)]);
-  const node = made.rows[0]!.id;
-  await tx.query(`INSERT INTO ${GIT_TABLES.file} (node_id, repository_node, path_id) VALUES ($1::bigint, $2::bigint, $3::bigint)`, [node, repositoryNode, pathId]);
-  return { node, created: true };
-}
-
-/** One signature's node under its name and email, made where the store holds none. */
-async function signatureNodeOf(tx: OuterTransaction, kinds: Map<string, string>, name: string, email: string): Promise<{ node: string; created: boolean }> {
-  const found = await tx.query<{ node_id: string }>(`SELECT node_id::text AS node_id FROM ${GIT_TABLES.signature} WHERE name = $1 AND email = $2`, [name, email]);
-  if (found.rows[0] !== undefined) return { node: found.rows[0].node_id, created: false };
-  const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.signature}`)!, keyUid(GIT_KINDS.signature, [name, email])]);
-  const node = made.rows[0]!.id;
-  await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, name, email) VALUES ($1::bigint, $2, $3)`, [node, name, email]);
-  return { node, created: true };
+/** One signature's node under its name and email, made where the store holds none, with an opinion that it stands. */
+async function signatureNodeOf(tx: OuterTransaction, name: string, email: string): Promise<{ node: string; created: boolean }> {
+  const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.signature, key: { name, email } });
+  if (made.created) await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.signature, nodeId: made.nodeId, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
+  return { node: made.nodeId, created: made.created };
 }
 
 /** One edge of the named kind between two nodes, made where it does not stand; `discriminator` tells a repeated kind's edges apart. */
-async function edgeOf(tx: OuterTransaction, kinds: Map<string, string>, kind: string, from: string, to: string, discriminator = ''): Promise<{ id: string; created: boolean }> {
-  const found = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge WHERE kind_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = $4', [kinds.get(kind)!, from, to, discriminator]);
+async function edgeOf(tx: OuterTransaction, entities: Map<string, string>, kind: string, from: string, to: string, discriminator = ''): Promise<{ id: string; created: boolean }> {
+  const entityId = entities.get(kind);
+  if (entityId === undefined) raise(`the edge kind ${JSON.stringify(kind)} stands nowhere in the store's catalogue (src/graph/records.ts)`);
+  const found = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge WHERE entity_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = $4', [entityId, from, to, discriminator]);
   if (found.rows[0] !== undefined) return { id: found.rows[0].id, created: false };
-  const made = await tx.query<{ id: string }>('INSERT INTO edge (kind_id, from_node, to_node, discriminator) VALUES ($1::bigint, $2::bigint, $3::bigint, $4) RETURNING id::text AS id', [kinds.get(kind)!, from, to, discriminator]);
+  const made = await tx.query<{ id: string }>('INSERT INTO edge (entity_id, from_node, to_node, discriminator) VALUES ($1::bigint, $2::bigint, $3::bigint, $4) RETURNING id::text AS id', [entityId, from, to, discriminator]);
   return { id: made.rows[0]!.id, created: true };
 }
 
-/** One evidence row for a vertex's plain columns, written once per commit that stated them. */
-async function evidenceOfNode(tx: OuterTransaction, node: string, commit: string, pathId: string | null, producer: string): Promise<void> {
-  await tx.query('INSERT INTO evidence (node_id, commit_or_digest, path_id, producer) VALUES ($1::bigint, $2, $3::bigint, $4)', [node, commit, pathId, producer]);
+/** The language opinions one file's reading states: the one language, or the candidates with no language picked. */
+function languageOfFile(file: { readonly language: string; readonly candidates: readonly string[] }): { language: string | null; candidates: readonly string[] } {
+  const candidates = file.language === 'ambiguous' || file.candidates.length > 1 ? [...file.candidates] : [file.language];
+  return { language: file.language === 'ambiguous' ? null : file.language, candidates };
 }
 
-/** The value one language claim holds: the one language, or the candidates of an ambiguous answer, never the word. */
-function languageValueOf(file: { readonly language: string; readonly candidates: readonly string[] }): Record<string, unknown> {
-  return file.language === 'ambiguous' || file.candidates.length > 1 ? { candidates: [...file.candidates] } : { language: file.language, candidates: [file.language] };
-}
-
-
-
-/** Whether two JSON values say the same thing, in the order their keys were written: a claim's own value, compared. */
-function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-/** The language one claim's value names, or null with its candidates when it names no one language. */
-function languageOfClaim(value: Record<string, unknown> | undefined): { language: string | null; candidates: readonly string[] } {
-  if (value === undefined) return { language: null, candidates: [] };
-  const language = value['language'];
-  const candidates = Array.isArray(value['candidates']) ? value['candidates'].filter((one): one is string => typeof one === 'string') : [];
-  return typeof language === 'string' ? { language, candidates: candidates.length === 0 ? [language] : candidates } : { language: null, candidates };
+/** The language one file's opinion names, or null with its candidates when it names no one language. */
+function languageOfOpinion(languages: unknown, lang: unknown): { language: string | null; candidates: readonly string[] } {
+  const candidates = Array.isArray(languages) ? languages.filter((one): one is string => typeof one === 'string') : [];
+  const language = typeof lang === 'string' ? lang : null;
+  return { language, candidates: candidates.length === 0 ? (language === null ? [] : [language]) : candidates };
 }
 
 // ---- the tree pass ---------------------------------------------------------
@@ -349,14 +328,15 @@ interface HeldFile {
   readonly nodeId: string;
   readonly mode: string | null;
   readonly blob: string | null;
-  readonly language: Record<string, unknown> | undefined;
-  readonly producer: string | undefined;
-  readonly producerVersion: string | undefined;
+  readonly languages: unknown;
+  readonly lang: unknown;
 }
 
-/** Whether a held file row already says what the pass read. */
+/** Whether a held file already says what the pass read, in both producers' opinions. */
 function sameFile(held: HeldFile, file: TreeFile): boolean {
-  return held.mode === file.mode && held.blob === file.blob && sameJson(held.language, languageValueOf(file));
+  const read = languageOfFile(file);
+  const heldLanguage = languageOfOpinion(held.languages, held.lang);
+  return held.mode === file.mode && held.blob === file.blob && heldLanguage.language === read.language && JSON.stringify(heldLanguage.candidates) === JSON.stringify(read.candidates);
 }
 
 /**
@@ -364,24 +344,26 @@ function sameFile(held: HeldFile, file: TreeFile): boolean {
  * `contains` relation of the current tree and the `as-is` relation to the commit.
  * Rows are compared by key and by blob and only what differs is written; a path
  * the tree no longer holds loses its `contains` edge and keeps its vertex, its
- * row and its history.
+ * opinions and its history.
  */
 export async function publishTree(owner: DatabaseOwner, input: TreePublish): Promise<RecordCounts> {
   const scope = input.scope;
   /** Whether one repository path stands inside the publication's scope: the whole tree when it names none. */
   const within = (path: string): boolean => scope === undefined || scope.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
+  const repository = input.repository.name;
+  const evidenceOf = (path: string): Record<string, unknown> => ({ repository, commit_or_digest: input.commit, path });
   return await write(owner, async (tx) => {
-    const kinds = await kindIds(tx);
-    const repository = await repositoryNodeOf(tx, kinds, input.repository);
-    let counts: RecordCounts = repository.counts;
-    const commit = await commitNodeOf(tx, kinds, input.commit);
+    const entities = await entityIds(tx);
+    const heldRepository = await repositoryNodeOf(tx, input.repository);
+    let counts: RecordCounts = heldRepository.counts;
+    const commit = await commitNodeOf(tx, input.commit, 'tree');
     counts = sum(counts, commit.counts);
     // The commit the tree stands at: one `as-is` edge per repository, and the one it held goes.
-    const asIs = await edgeOf(tx, kinds, `${GIT_KINDS.asIs}`, repository.node, commit.node);
-    if (asIs.created) counts = { ...counts, inserted: counts.inserted + 1 }; else counts = { ...counts, unchanged: counts.unchanged + 1 };
+    const asIs = await edgeOf(tx, entities, `${GIT_KINDS.asIs}`, heldRepository.node, commit.node);
+    counts = asIs.created ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, unchanged: counts.unchanged + 1 };
     const moved = await tx.query(
-      `DELETE FROM edge e USING kind k WHERE e.kind_id = k.id AND k.name = '${GIT_KINDS.asIs}' AND e.from_node = $1::bigint AND e.to_node <> $2::bigint RETURNING e.id`,
-      [repository.node, commit.node],
+      `DELETE FROM edge e USING entity en WHERE e.entity_id = en.id AND en.name = '${GIT_KINDS.asIs}' AND e.from_node = $1::bigint AND e.to_node <> $2::bigint RETURNING e.id`,
+      [heldRepository.node, commit.node],
     );
     counts = { ...counts, deleted: counts.deleted + moved.rows.length };
 
@@ -390,99 +372,74 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     for (const path of [...files.map((file) => file.path), ...input.gitlinks.map((link) => link.path)]) {
       for (let folder = folderOfPath(path); folder !== ''; folder = folderOfPath(folder)) folders.add(folder);
     }
-    const paths = await pathIds(tx, [...files.map((file) => file.path), ...input.gitlinks.map((link) => link.path), ...folders]);
-    for (const file of files) if (!paths.has(file.path)) raise(`the path ${JSON.stringify(file.path)} was not given an id by the dictionary`);
 
-    // What the store holds of this repository's files: its row, and the newest language claim.
+    // What the store holds of this repository's files: their node, the tree's opinion and the dataset's.
     const held = new Map<string, HeldFile>();
-    const found = await tx.query<{ path: string; node_id: string; mode: string | null; hash: string | null; language: Record<string, unknown> | null; producer: string | null; producer_version: string | null }>(
-      `SELECT p.text AS path, f.node_id::text AS node_id, f.mode, b.hash,
-              (SELECT c.value FROM claim c WHERE c.node_id = f.node_id AND c.attribute = 'language' ORDER BY c.id DESC LIMIT 1) AS language,
-              (SELECT c.producer FROM claim c WHERE c.node_id = f.node_id AND c.attribute = 'language' ORDER BY c.id DESC LIMIT 1) AS producer,
-              (SELECT c.producer_version FROM claim c WHERE c.node_id = f.node_id AND c.attribute = 'language' ORDER BY c.id DESC LIMIT 1) AS producer_version
-       FROM ${GIT_TABLES.file} f JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
-       WHERE f.repository_node = $1::bigint`,
-      [repository.node],
+    const found = await tx.query<{ path: string; node_id: string; mode: string | null; hash: string | null; languages: unknown; lang: string | null }>(
+      `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id, g.mode, b.hash, l.languages, l.lang
+       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
+       LEFT JOIN LATERAL (SELECT o."mode", o."blob_id" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${TREE_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) g ON true
+       LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
+       LEFT JOIN LATERAL (SELECT o."languages", o."lang" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${LINGUIST_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) l ON true
+       WHERE ${REPOSITORY_OF('n')} = $1 AND NOT n.removed`,
+      [repository],
     );
-    for (const row of found.rows) held.set(row.path, { nodeId: row.node_id, mode: row.mode, blob: row.hash, language: row.language ?? undefined, producer: row.producer ?? undefined, producerVersion: row.producer_version ?? undefined });
+    for (const row of found.rows) held.set(row.path, { nodeId: row.node_id, mode: row.mode, blob: row.hash, languages: row.languages, lang: row.lang });
 
     const toWrite = files.filter((file) => { const known = held.get(file.path); return known === undefined || !sameFile(known, file); });
     counts = { ...counts, unchanged: counts.unchanged + (files.length - toWrite.length) };
     const blobIds = toWrite.length === 0 ? new Map<string, string>() : await blobIdsOf(tx, toWrite);
-    const created = toWrite.filter((file) => held.get(file.path) === undefined);
-    const movedBlob = toWrite.filter((file) => held.get(file.path) !== undefined);
     const fileNodes = new Map<string, string>();
     for (const [path, known] of held) if (files.some((file) => file.path === path)) fileNodes.set(path, known.nodeId);
 
-    // A new file gets its vertex and its row; a file whose blob moved gets its row updated.
-    for (const file of created) {
-      const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.file}`)!, await pathKeyUid(tx, GIT_KINDS.file, repository.node, paths.get(file.path)!)]);
-      const node = made.rows[0]!.id;
-      fileNodes.set(file.path, node);
-      await tx.query(`INSERT INTO ${GIT_TABLES.file} (node_id, repository_node, path_id, mode, blob_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)`, [node, repository.node, paths.get(file.path)!, file.mode, blobIds.get(file.blob)!]);
-    }
-    counts = { ...counts, inserted: counts.inserted + created.length * 2 };
-    for (const file of movedBlob) {
-      const known = held.get(file.path)!;
-      await tx.query(`UPDATE ${GIT_TABLES.file} SET path_id = $2::bigint, mode = $3, blob_id = $4::bigint WHERE node_id = $1::bigint`, [known.nodeId, paths.get(file.path)!, file.mode, blobIds.get(file.blob)!]);
-      fileNodes.set(file.path, known.nodeId);
-      counts = { ...counts, updated: counts.updated + 1 };
-    }
-
-    // The language claim: a new claim where the newest one says something else, and every source kept.
+    // A new file gets its vertex; a file whose blob moved keeps the one it had. Each producer states its opinion.
     for (const file of toWrite) {
-      const node = fileNodes.get(file.path)!;
       const known = held.get(file.path);
-      const value = languageValueOf(file);
-      if (known !== undefined && sameJson(known.language, value)) continue;
-      const made = await tx.query<{ id: string }>(
-        `INSERT INTO claim (node_id, attribute, value, producer, producer_version) VALUES ($1::bigint, 'language', $2::jsonb, 'linguist', $3) RETURNING id::text AS id`,
-        [node, JSON.stringify(value), LINGUIST_VERSION],
-      );
-      await tx.query('INSERT INTO evidence (claim_id, commit_or_digest, path_id, producer) VALUES ($1::bigint, $2, $3::bigint, $4)', [made.rows[0]!.id, input.commit, paths.get(file.path)!, 'linguist']);
-      counts = { ...counts, inserted: counts.inserted + 2 };
+      const node = known?.nodeId ?? (await fileNodeOf(tx, repository, file.path)).node;
+      fileNodes.set(file.path, node);
+      if (known === undefined) counts = { ...counts, inserted: counts.inserted + 1 };
+      const evidence = evidenceOf(file.path);
+      const treeWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, attributes: { mode: file.mode, blob_id: blobIds.get(file.blob) ?? null }, evidenceRows: [evidence] });
+      const read = languageOfFile(file);
+      const languageWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: LINGUIST_PRODUCER, producerVersion: LINGUIST_VERSION, attributes: { languages: [...read.candidates] }, lang: read.language, evidenceRows: [evidence] });
+      counts = { ...counts, inserted: counts.inserted + (known === undefined ? (treeWritten ? 1 : 0) + (languageWritten ? 1 : 0) : 0), updated: counts.updated + (known === undefined ? 0 : (treeWritten ? 1 : 0) + (languageWritten ? 1 : 0)) };
     }
-
-    // The plain columns git states: one evidence row per file the tree stated at this commit.
-    for (const file of toWrite) await evidenceOfNode(tx, fileNodes.get(file.path)!, input.commit, paths.get(file.path)!, 'git');
 
     // The gitlinks: a submodule is a vertex of its own, with its repository and the commit the tree holds.
-    const heldLinks = new Map((await tx.query<{ path: string; node_id: string; other_repository: string; commit_hash: string }>(
-      `SELECT p.text AS path, g.node_id::text AS node_id, g.other_repository, g.commit_hash FROM ${GIT_TABLES.gitlink} g JOIN ${GIT_TABLES.path} p ON p.id = g.path_id WHERE g.repository_node = $1::bigint`,
-      [repository.node],
+    const heldLinks = new Map((await tx.query<{ path: string; node_id: string; other_repository: string | null; commit_hash: string | null }>(
+      `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id, o."other_repository", o."commit_hash"
+       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.gitlink}'
+       LEFT JOIN LATERAL (SELECT g."other_repository", g."commit_hash" FROM ${GIT_TABLES.gitlink} g WHERE g."node_id" = n.id AND g."state" = 'open' AND split_part(g."said_by", '@', 1) = '${TREE_PRODUCER}' ORDER BY g."id" DESC LIMIT 1) o ON true
+       WHERE ${REPOSITORY_OF('n')} = $1 AND NOT n.removed`,
+      [repository],
     )).rows.map((row) => [row.path, row]));
     const linkNodes = new Map<string, string>();
     for (const link of input.gitlinks) {
       const known = heldLinks.get(link.path);
       if (known === undefined) {
-        const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.gitlink}`)!, await pathKeyUid(tx, GIT_KINDS.gitlink, repository.node, paths.get(link.path)!)]);
-        const node = made.rows[0]!.id;
-        await tx.query(`INSERT INTO ${GIT_TABLES.gitlink} (node_id, repository_node, path_id, other_repository, commit_hash) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5)`, [node, repository.node, paths.get(link.path)!, link.otherRepository, link.commit]);
-        linkNodes.set(link.path, node);
+        const made = await fileLinkNodeOf(tx, repository, link.path);
+        linkNodes.set(link.path, made);
+        await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.gitlink, nodeId: made, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, attributes: { other_repository: link.otherRepository, commit_hash: link.commit }, evidenceRows: [evidenceOf(link.path)] });
         counts = { ...counts, inserted: counts.inserted + 2 };
-      } else if (known.other_repository !== link.otherRepository || known.commit_hash !== link.commit) {
-        await tx.query(`UPDATE ${GIT_TABLES.gitlink} SET other_repository = $2, commit_hash = $3 WHERE node_id = $1::bigint`, [known.node_id, link.otherRepository, link.commit]);
-        linkNodes.set(link.path, known.node_id);
-        counts = { ...counts, updated: counts.updated + 1 };
       } else {
         linkNodes.set(link.path, known.node_id);
-        counts = { ...counts, unchanged: counts.unchanged + 1 };
+        const written = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.gitlink, nodeId: known.node_id, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, attributes: { other_repository: link.otherRepository, commit_hash: link.commit }, evidenceRows: [evidenceOf(link.path)] });
+        counts = written ? { ...counts, updated: counts.updated + 1 } : { ...counts, unchanged: counts.unchanged + 1 };
       }
     }
 
-    // The folders: one vertex per folder of the current tree, and its own row.
+    // The folders: one vertex per folder of the current tree, and the tree's opinion that it stands.
     const heldFolders = new Map((await tx.query<{ path: string; node_id: string }>(
-      `SELECT p.text AS path, d.node_id::text AS node_id FROM ${GIT_TABLES.directory} d JOIN ${GIT_TABLES.path} p ON p.id = d.path_id WHERE d.repository_node = $1::bigint`,
-      [repository.node],
+      `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}' WHERE ${REPOSITORY_OF('n')} = $1 AND NOT n.removed`,
+      [repository],
     )).rows.map((row) => [row.path, row.node_id]));
     const folderNodes = new Map<string, string>();
     const missing = [...folders].sort().filter((folder) => !heldFolders.has(folder));
     for (const [folder, node] of heldFolders) if (folders.has(folder)) folderNodes.set(folder, node);
     for (const folder of missing) {
-      const made = await tx.query<{ id: string }>('INSERT INTO node (kind_id, uid) VALUES ($1::bigint, $2::uuid) RETURNING id::text AS id', [kinds.get(`${GIT_KINDS.directory}`)!, await pathKeyUid(tx, GIT_KINDS.directory, repository.node, paths.get(folder)!)]);
-      const node = made.rows[0]!.id;
-      await tx.query(`INSERT INTO ${GIT_TABLES.directory} (node_id, repository_node, path_id) VALUES ($1::bigint, $2::bigint, $3::bigint)`, [node, repository.node, paths.get(folder)!]);
-      folderNodes.set(folder, node);
+      const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.directory, key: { repository: repositoryRef(repository), path: folder } });
+      folderNodes.set(folder, made.nodeId);
+      await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.directory, nodeId: made.nodeId, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, evidenceRows: [evidenceOf(folder)] });
       counts = { ...counts, inserted: counts.inserted + 2 };
     }
     counts = { ...counts, unchanged: counts.unchanged + (folders.size - missing.length) };
@@ -491,15 +448,15 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     // loses its edge and nothing else; a folder that lost its last file keeps its vertex and loses its edge too.
     const desired = new Map<string, { parent: string; child: string; path: string }>();
     const addDesired = (parent: string, child: string, path: string): void => { desired.set(`${parent}\u0000${child}`, { parent, child, path }); };
-    for (const [folder, node] of folderNodes) addDesired(folderNodes.get(folderOfPath(folder)) ?? repository.node, node, folder);
-    for (const [path, node] of fileNodes) addDesired(folderNodes.get(folderOfPath(path)) ?? repository.node, node, path);
-    for (const [path, node] of linkNodes) addDesired(folderNodes.get(folderOfPath(path)) ?? repository.node, node, path);
+    for (const [folder, node] of folderNodes) addDesired(folderNodes.get(folderOfPath(folder)) ?? heldRepository.node, node, folder);
+    for (const [path, node] of fileNodes) addDesired(folderNodes.get(folderOfPath(path)) ?? heldRepository.node, node, path);
+    for (const [path, node] of linkNodes) addDesired(folderNodes.get(folderOfPath(path)) ?? heldRepository.node, node, path);
     const heldContains = new Map((await tx.query<{ id: string; from_node: string; to_node: string; path: string }>(
-      `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, p.text AS path
-       FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.contains}'
-       JOIN ${GIT_TABLES.path} p ON p.id = coalesce((SELECT path_id FROM ${GIT_TABLES.file} WHERE node_id = e.to_node), (SELECT path_id FROM ${GIT_TABLES.directory} WHERE node_id = e.to_node), (SELECT path_id FROM ${GIT_TABLES.gitlink} WHERE node_id = e.to_node))
-       WHERE e.to_node IN (SELECT node_id FROM ${GIT_TABLES.file} WHERE repository_node = $1::bigint UNION SELECT node_id FROM ${GIT_TABLES.directory} WHERE repository_node = $1::bigint UNION SELECT node_id FROM ${GIT_TABLES.gitlink} WHERE repository_node = $1::bigint)`,
-      [repository.node],
+      `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, ${PATH_OF('cn')} AS path
+       FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${GIT_KINDS.contains}'
+       JOIN node cn ON cn.id = e.to_node
+       WHERE ${REPOSITORY_OF('cn')} = $1`,
+      [repository],
     )).rows.map((row) => [`${row.from_node}\u0000${row.to_node}`, row]));
     for (const [key, row] of heldContains) {
       if (desired.has(key) || !within(row.path)) continue;
@@ -508,15 +465,21 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     }
     for (const [key, want] of desired) {
       if (heldContains.has(key) || !within(want.path)) continue;
-      await tx.query('INSERT INTO edge (kind_id, from_node, to_node) VALUES ($1::bigint, $2::bigint, $3::bigint)', [kinds.get(`${GIT_KINDS.contains}`)!, want.parent, want.child]);
+      await tx.query('INSERT INTO edge (entity_id, from_node, to_node) VALUES ($1::bigint, $2::bigint, $3::bigint)', [entities.get(`${GIT_KINDS.contains}`)!, want.parent, want.child]);
       counts = { ...counts, inserted: counts.inserted + 1 };
     }
     counts = { ...counts, unchanged: counts.unchanged + [...desired.keys()].filter((key) => heldContains.has(key)).length };
 
     // The tree pass retracts only the gaps it wrote: a tree published after a history keeps the history's rows.
-    counts = sum(counts, await publishGaps(tx, repository.node, input.gaps, 'tree'));
+    counts = sum(counts, await publishGaps(tx, heldRepository.node, input.gaps, 'tree'));
     return counts;
   });
+}
+
+/** One gitlink's node under its repository and path, made where the store holds none. */
+async function fileLinkNodeOf(tx: OuterTransaction, repository: string, path: string): Promise<string> {
+  const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.gitlink, key: { repository: repositoryRef(repository), path } });
+  return made.nodeId;
 }
 
 /** The pass that read a gap: a gap is replaced by the pass that wrote it, and by no other. */
@@ -546,27 +509,25 @@ async function publishGaps(tx: OuterTransaction, repositoryNode: string, gaps: r
   return { inserted, updated: 0, deleted, unchanged };
 }
 
+/** The distinct commits of one walk's touched rows, as the id array a standing-edges read takes. */
+function walkCommitsBefore(rows: readonly { readonly commit: string }[]): string {
+  return `{${[...new Set(rows.map((row) => row.commit))].join(',')}}`;
+}
+
 // ---- the history pass ------------------------------------------------------
 
 /**
- * Publishes one repository's history: every commit as a vertex with its parents,
- * its signature, its two dates and its subject, the repository's `history` edge to
- * it with its walk, every path it touched as a `touched` edge, and every rename as
- * a `renamed-from` edge from the new file to the old one. A path a commit touched
- * has its file vertex even when the tree no longer holds it: a deleted path keeps
- * its history.
+ * Publishes one repository's history: every commit as a vertex with the opinion git states of it — its parents, its
+ * signature, its two dates and its subject — the repository's `history` edge to it with its walk, every path it touched
+ * as a `touched` edge, and every rename as a `renamed-from` edge from the new file to the old one. A path a commit
+ * touched has its file vertex even when the tree no longer holds it: a deleted path keeps its history.
  */
 export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish): Promise<RecordCounts> {
+  const repository = input.repository.name;
   return await write(owner, async (tx) => {
-    const kinds = await kindIds(tx);
-    const repository = await repositoryNodeOf(tx, kinds, { name: input.repository.name });
-    let counts: RecordCounts = repository.counts;
-
-    // Every path the whole walk names gets its id once: one dictionary statement, not one per commit.
-    const paths = await pathIds(tx, [
-      ...input.commits.flatMap((commit) => commit.touched.map((entry) => entry.path)),
-      ...input.commits.flatMap((commit) => commit.touched.flatMap((entry) => (entry.previousPath === undefined ? [] : [entry.previousPath]))),
-    ]);
+    const entities = await entityIds(tx);
+    const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.repository, key: { name: repository } });
+    let counts: RecordCounts = { inserted: made.created ? 1 : 0, updated: 0, deleted: 0, unchanged: made.created ? 0 : 1 };
 
     // Every commit vertex the walk names — a commit of the walk or a parent of one — exists before a row points at it.
     const commitNodes = new Map<string, { node: string; created: boolean }>();
@@ -576,9 +537,9 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       for (const parent of commit.parents) needed.add(parent);
     }
     for (const hash of [...needed].sort()) {
-      const made = await commitNodeOf(tx, kinds, hash);
-      commitNodes.set(hash, { node: made.node, created: made.created });
-      counts = sum(counts, made.counts);
+      const commit = await commitNodeOf(tx, hash, 'none');
+      commitNodes.set(hash, { node: commit.node, created: commit.created });
+      counts = sum(counts, commit.counts);
     }
 
     const signatureNodes = new Map<string, { node: string; created: boolean }>();
@@ -586,79 +547,47 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       const key = `${name}\u0000${email}`;
       const held = signatureNodes.get(key);
       if (held !== undefined) return held.node;
-      const made = await signatureNodeOf(tx, kinds, name, email);
-      signatureNodes.set(key, { node: made.node, created: made.created });
-      if (made.created) counts = { ...counts, inserted: counts.inserted + 2 };
-      return made.node;
+      const one = await signatureNodeOf(tx, name, email);
+      signatureNodes.set(key, { node: one.node, created: one.created });
+      if (one.created) counts = { ...counts, inserted: counts.inserted + 2 };
+      return one.node;
     };
 
-    // The commit's own row, its repository `history` edge and its position in the walk.
+    // The commit's own opinion, its repository `history` edge and its position in the walk.
     for (const [walk, commit] of input.commits.entries()) {
       const node = commitNodes.get(commit.hash)!.node;
       const [authorDate, authorOffset] = instantOf(commit.authorDate, 'authorDate', commit.hash);
       const [commitDate, commitOffset] = instantOf(commit.commitDate, 'commitDate', commit.hash);
-      const held = await tx.query<{ subject: string | null; author_date: string | null; commit_date: string | null }>(
-        `SELECT subject, to_char(author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_date,
-                to_char(commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_date
-         FROM ${GIT_TABLES.commit} WHERE node_id = $1::bigint`, [node],
-      );
-      const row = held.rows[0];
-      if (row === undefined) raise(`the commit ${commit.hash} has no row after its vertex was made (src/graph/records.ts)`);
-      const authorClock = authorDate.endsWith('Z') ? authorDate.slice(0, -1) : authorDate;
-      const commitClock = commitDate.endsWith('Z') ? commitDate.slice(0, -1) : commitDate;
-      if (row.subject !== commit.subject || row.author_date !== authorClock || row.commit_date !== commitClock) {
-        await tx.query(
-          `UPDATE ${GIT_TABLES.commit} SET subject = $2, author_date = $3::timestamptz, author_offset_min = $4::int, commit_date = $5::timestamptz, commit_offset_min = $6::int WHERE node_id = $1::bigint`,
-          [node, commit.subject, authorDate, authorOffset, commitDate, commitOffset],
-        );
-        counts = { ...counts, updated: counts.updated + 1 };
-      } else {
-        counts = { ...counts, unchanged: counts.unchanged + 1 };
-      }
-      const historyEdge = await edgeOf(tx, kinds, `${GIT_KINDS.history}`, repository.node, node);
+      const written = await publishOpinion(tx, GIT_CONTRACT, {
+        kind: GIT_KINDS.commit, nodeId: node, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION,
+        attributes: { algorithm: hashAlgorithmOf(commit.hash), subject: commit.subject, author_date: authorDate, author_offset_min: authorOffset, commit_date: commitDate, commit_offset_min: commitOffset },
+        evidenceRows: [{ repository, commit_or_digest: commit.hash }],
+      });
+      if (written) counts = commitNodes.get(commit.hash)!.created ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, updated: counts.updated + 1 };
+      const historyEdge = await edgeOf(tx, entities, `${GIT_KINDS.history}`, made.nodeId, node);
       if (historyEdge.created) counts = { ...counts, inserted: counts.inserted + 1 }; else counts = { ...counts, unchanged: counts.unchanged + 1 };
-      const walkHeld = await tx.query<{ walk: number }>(`SELECT walk FROM ${GIT_TABLES.history} WHERE edge_id = $1::bigint`, [historyEdge.id]);
-      if (walkHeld.rows[0] === undefined) {
-        await tx.query(`INSERT INTO ${GIT_TABLES.history} (edge_id, walk) VALUES ($1::bigint, $2::int)`, [historyEdge.id, walk]);
-        counts = { ...counts, inserted: counts.inserted + 1 };
-      } else if (Number(walkHeld.rows[0].walk) !== walk) {
-        await tx.query(`UPDATE ${GIT_TABLES.history} SET walk = $2::int WHERE edge_id = $1::bigint`, [historyEdge.id, walk]);
-        counts = { ...counts, updated: counts.updated + 1 };
-      }
-      // The commit's plain columns git states: one evidence row, written once.
-      const stated = await tx.query('SELECT 1 FROM evidence WHERE node_id = $1::bigint AND commit_or_digest = $2 AND producer = $3 LIMIT 1', [node, commit.hash, 'git']);
-      if (stated.rows[0] === undefined) { await evidenceOfNode(tx, node, commit.hash, null, 'git'); counts = { ...counts, inserted: counts.inserted + 1 }; }
+      const walkWritten = await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.history}`, historyEdge.id, { values: new Map<string, unknown>([['walk', walk]]), producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
+      if (walkWritten) counts = historyEdge.created ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, updated: counts.updated + 1 };
     }
 
-    // The parents: one edge commit -> parent, its position in `parent_position`; the ones a rewritten commit no longer has go.
+    // The parents: one edge commit -> parent, its position in the opinion table; the ones a rewritten commit no longer has go.
     for (const commit of input.commits) {
       const node = commitNodes.get(commit.hash)!.node;
       const desired = new Map(commit.parents.map((hash, position) => [commitNodes.get(hash)!.node, position]));
-      const held = await tx.query<{ id: string; to_node: string; position: number | null }>(
-        `SELECT e.id::text AS id, e.to_node::text AS to_node, pp.position FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
-         LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id WHERE e.from_node = $1::bigint`, [node],
+      const held = await tx.query<{ id: string; to_node: string }>(
+        `SELECT e.id::text AS id, e.to_node::text AS to_node FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${GIT_KINDS.parent}' WHERE e.from_node = $1::bigint`, [node],
       );
       for (const row of held.rows) {
         if (desired.has(row.to_node)) continue;
         await tx.query('DELETE FROM edge WHERE id = $1::bigint', [row.id]);
         counts = { ...counts, deleted: counts.deleted + 1 };
       }
-      const standing = new Map(held.rows.map((row) => [row.to_node, row]));
       for (const [parent, position] of desired) {
-        const row = standing.get(parent);
-        if (row === undefined) {
-          const made = await edgeOf(tx, kinds, `${GIT_KINDS.parent}`, node, parent);
-          await tx.query(`INSERT INTO ${GIT_TABLES.parent_position} (edge_id, position) VALUES ($1::bigint, $2::int)`, [made.id, position]);
-          counts = { ...counts, inserted: counts.inserted + 2 };
-        } else if (row.position === null) {
-          await tx.query(`INSERT INTO ${GIT_TABLES.parent_position} (edge_id, position) VALUES ($1::bigint, $2::int)`, [row.id, position]);
-          counts = { ...counts, inserted: counts.inserted + 1 };
-        } else if (Number(row.position) !== position) {
-          await tx.query(`UPDATE ${GIT_TABLES.parent_position} SET position = $2::int WHERE edge_id = $1::bigint`, [row.id, position]);
-          counts = { ...counts, updated: counts.updated + 1 };
-        } else {
-          counts = { ...counts, unchanged: counts.unchanged + 1 };
-        }
+        const edge = await edgeOf(tx, entities, `${GIT_KINDS.parent}`, node, parent);
+        const positionWritten = await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.parent}`, edge.id, { values: new Map<string, unknown>([['position', position]]), producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
+        if (edge.created) counts = { ...counts, inserted: counts.inserted + 1 + (positionWritten ? 1 : 0) };
+        else if (positionWritten) counts = { ...counts, updated: counts.updated + 1 };
+        else counts = { ...counts, unchanged: counts.unchanged + 1 };
       }
     }
 
@@ -667,7 +596,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       const node = commitNodes.get(commit.hash)!.node;
       const signature = await signatureOf(commit.authorName, commit.authorEmail);
       const held = await tx.query<{ id: string; from_node: string }>(
-        `SELECT e.id::text AS id, e.from_node::text AS from_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.to_node = $1::bigint`, [node],
+        `SELECT e.id::text AS id, e.from_node::text AS from_node FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${GIT_KINDS.authored}' WHERE e.to_node = $1::bigint`, [node],
       );
       for (const row of held.rows) {
         if (row.from_node === signature) continue;
@@ -675,62 +604,73 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
         counts = { ...counts, deleted: counts.deleted + 1 };
       }
       if (!held.rows.some((row) => row.from_node === signature)) {
-        await edgeOf(tx, kinds, `${GIT_KINDS.authored}`, signature, node);
+        await edgeOf(tx, entities, `${GIT_KINDS.authored}`, signature, node);
         counts = { ...counts, inserted: counts.inserted + 1 };
       } else {
         counts = { ...counts, unchanged: counts.unchanged + 1 };
       }
     }
 
-    // Every path the walk touched has its file vertex, even when the current tree no longer holds it.
+    // Every path the walk touched has its file vertex, even when the current tree no longer holds it. The oldest commit
+    // that names it is the one the vertex's existence rests on.
     const fileNodes = new Map<string, string>();
-    const allPaths = [...new Set(input.commits.flatMap((commit) => commit.touched.flatMap((entry) => [entry.path, ...(entry.previousPath === undefined ? [] : [entry.previousPath])])))].sort();
+    const firstSeen = new Map<string, string>();
+    for (const commit of [...input.commits].reverse()) {
+      for (const entry of commit.touched) {
+        if (!firstSeen.has(entry.path)) firstSeen.set(entry.path, commit.hash);
+        if (entry.previousPath !== undefined && !firstSeen.has(entry.previousPath)) firstSeen.set(entry.previousPath, commit.hash);
+      }
+    }
+    const allPaths = [...firstSeen.keys()].sort();
     for (const path of allPaths) {
-      const pathId = paths.get(path);
-      if (pathId === undefined) raise(`the path ${JSON.stringify(path)} was not given an id by the dictionary`);
-      const made = await fileNodeOf(tx, kinds, repository.node, pathId);
-      fileNodes.set(path, made.node);
-      if (made.created) counts = { ...counts, inserted: counts.inserted + 2 };
+      const one = await fileNodeOf(tx, repository, path);
+      fileNodes.set(path, one.node);
+      if (one.created) {
+        await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: one.node, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidenceRows: [{ repository, commit_or_digest: firstSeen.get(path) ?? '', path }] });
+        counts = { ...counts, inserted: counts.inserted + 2 };
+      }
     }
 
-    // The touched edges: commit -> file, its attribute row, and the `renamed-from` edge a rename states.
-    const touchedKind = kinds.get(`${GIT_KINDS.touched}`)!;
+    // The touched edges: commit -> file, its opinion, and the `renamed-from` edge a rename states.
+    const touchedEntity = entities.get(`${GIT_KINDS.touched}`)!;
     const desiredTouched = new Set<string>();
     const desiredRenamed = new Set<string>();
-    const touchedRows: { commit: string; hash: string; file: string; path: string; change: string; added: string | null; removed: string | null; previous: string | null; previousPath: string | null }[] = [];
+    const touchedRows: { commit: string; hash: string; file: string; path: string; change: string; added: number | null; removed: number | null; previous: string | null; previousPath: string | null }[] = [];
     for (const commit of input.commits) {
       const node = commitNodes.get(commit.hash)!.node;
       for (const entry of commit.touched) {
         const file = fileNodes.get(entry.path)!;
         desiredTouched.add(`${node}\u0000${file}`);
-        touchedRows.push({ commit: node, hash: commit.hash, file, path: entry.path, change: entry.change, added: entry.added === null ? null : String(entry.added), removed: entry.removed === null ? null : String(entry.removed), previous: entry.previousPath === undefined ? null : fileNodes.get(entry.previousPath)!, previousPath: entry.previousPath ?? null });
+        touchedRows.push({ commit: node, hash: commit.hash, file, path: entry.path, change: entry.change, added: entry.added, removed: entry.removed, previous: entry.previousPath === undefined ? null : fileNodes.get(entry.previousPath)!, previousPath: entry.previousPath ?? null });
         if (entry.previousPath !== undefined) desiredRenamed.add(`${file}\u0000${fileNodes.get(entry.previousPath)!}\u0000${commit.hash}`);
       }
     }
+    const standingTouched = new Set((await tx.query<{ from_node: string; to_node: string }>(
+      `SELECT e.from_node::text AS from_node, e.to_node::text AS to_node FROM edge e WHERE e.entity_id = $1::bigint AND e.from_node = ANY($2::bigint[])`,
+      [touchedEntity, walkCommitsBefore(touchedRows)],
+    )).rows.map((row) => `${row.from_node}\u0000${row.to_node}`));
     await inBatches(touchedRows, async (chunk) => {
       await tx.query(
-        'INSERT INTO edge (kind_id, from_node, to_node) SELECT $1::bigint, t.commit, t.file FROM unnest($2::bigint[], $3::bigint[]) AS t(commit, file) ON CONFLICT DO NOTHING',
-        [touchedKind, sqlIds(chunk.map((row) => row.commit)), sqlIds(chunk.map((row) => row.file))],
+        'INSERT INTO edge (entity_id, from_node, to_node) SELECT $1::bigint, t.commit, t.file FROM unnest($2::bigint[], $3::bigint[]) AS t(commit, file) ON CONFLICT DO NOTHING',
+        [touchedEntity, sqlIds(chunk.map((row) => row.commit)), sqlIds(chunk.map((row) => row.file))],
       );
     });
     for (const row of touchedRows) {
-      const edge = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge WHERE kind_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = \'\'', [touchedKind, row.commit, row.file]);
+      const edge = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge WHERE entity_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = \'\'', [touchedEntity, row.commit, row.file]);
       const edgeId = edge.rows[0]!.id;
-      const held = await tx.query<{ change: string; added: string | null; removed: string | null }>(`SELECT change, added::text AS added, removed::text AS removed FROM ${GIT_TABLES.touched} WHERE edge_id = $1::bigint`, [edgeId]);
-      const was = held.rows[0];
-      if (was === undefined) {
-        await tx.query(`INSERT INTO ${GIT_TABLES.touched} (edge_id, change, added, removed) VALUES ($1::bigint, $2, $3::bigint, $4::bigint)`, [edgeId, row.change, row.added, row.removed]);
-        counts = { ...counts, inserted: counts.inserted + 1 };
-      } else if (was.change !== row.change || was.added !== row.added || was.removed !== row.removed) {
-        await tx.query(`UPDATE ${GIT_TABLES.touched} SET change = $2, added = $3::bigint, removed = $4::bigint WHERE edge_id = $1::bigint`, [edgeId, row.change, row.added, row.removed]);
-        counts = { ...counts, updated: counts.updated + 1 };
-      } else {
-        counts = { ...counts, unchanged: counts.unchanged + 1 };
-      }
+      const written = await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.touched}`, edgeId, {
+        values: new Map<string, unknown>([['change', row.change], ['added', row.added], ['removed', row.removed]]),
+        evidence: [{ repository, commit_or_digest: row.hash, path: row.path }],
+        producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION,
+      });
+      const stood = standingTouched.has(`${row.commit}\u0000${row.file}`);
+      if (!stood) counts = { ...counts, inserted: counts.inserted + 1 + (written ? 1 : 0) };
+      else if (written) counts = { ...counts, updated: counts.updated + 1 };
+      else counts = { ...counts, unchanged: counts.unchanged + 1 };
       if (row.previous !== null) {
-        const rename = await edgeOf(tx, kinds, `${GIT_KINDS.renamedFrom}`, row.file, row.previous, row.hash);
+        const rename = await edgeOf(tx, entities, `${GIT_KINDS.renamedFrom}`, row.file, row.previous, row.hash);
         if (rename.created) {
-          await tx.query('INSERT INTO evidence (edge_id, commit_or_digest, path_id, producer) VALUES ($1::bigint, $2, $3::bigint, $4)', [rename.id, row.path, paths.get(row.previousPath!)!, 'git']);
+          await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.renamedFrom}`, rename.id, { values: new Map<string, unknown>(), evidence: [{ repository, commit_or_digest: row.hash, path: row.previousPath ?? '' }], producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
           counts = { ...counts, inserted: counts.inserted + 2 };
         }
       }
@@ -738,17 +678,17 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     // A touched row the walk no longer states goes, and so does its rename; a commit that fell out of the walk keeps its vertex.
     const walkCommits = sqlIds(input.commits.map((commit) => commitNodes.get(commit.hash)!.node));
     const staleTouched = await tx.query<{ id: string; from_node: string; to_node: string }>(
-      `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+      `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${GIT_KINDS.touched}'
        WHERE e.from_node = ANY($1::bigint[])`, [walkCommits],
     );
     for (const row of staleTouched.rows) if (!desiredTouched.has(`${row.from_node}\u0000${row.to_node}`)) { await tx.query('DELETE FROM edge WHERE id = $1::bigint', [row.id]); counts = { ...counts, deleted: counts.deleted + 1 }; }
     const staleRenamed = await tx.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-      `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.renamedFrom}'
+      `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${GIT_KINDS.renamedFrom}'
        WHERE e.discriminator = ANY($1::text[])`, [sqlText(input.commits.map((commit) => commit.hash))],
     );
     for (const row of staleRenamed.rows) if (!desiredRenamed.has(`${row.from_node}\u0000${row.to_node}\u0000${row.discriminator}`)) { await tx.query('DELETE FROM edge WHERE id = $1::bigint', [row.id]); counts = { ...counts, deleted: counts.deleted + 1 }; }
 
-    counts = sum(counts, await publishGaps(tx, repository.node, input.gaps, `${GIT_KINDS.history}`));
+    counts = sum(counts, await publishGaps(tx, made.nodeId, input.gaps, `${GIT_KINDS.history}`));
     return counts;
   });
 }
@@ -770,17 +710,27 @@ export function instantOf(text: string, field: string, hash: string): [string, n
 
 // ---- what a reader asks ----------------------------------------------------
 
-/** The file columns a page reads, with the newest language claim beside them. */
-const FILE_SELECT = `SELECT p.text AS path, f.mode, b.hash AS blob, b.bytes::text AS bytes, b.form, b.lines::text AS lines,
-  (SELECT c.value FROM claim c WHERE c.node_id = f.node_id AND c.attribute = 'language' ORDER BY c.id DESC LIMIT 1) AS language
-  FROM ${GIT_TABLES.file} f JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id`;
+/** The tree's open opinion of one file, under an alias: its mode and the blob it stands on. */
+const FILE_OPINION = (alias: string): string => `LEFT JOIN LATERAL (SELECT o."mode", o."blob_id" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${TREE_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
+/** The language dataset's open opinion of one file, under an alias. */
+const LANGUAGE_OPINION = (alias: string): string => `LEFT JOIN LATERAL (SELECT o."languages", o."lang" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${LINGUIST_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
+/** The history's open opinion of one commit, under an alias: its subject, its two dates and their offsets. */
+const COMMIT_OPINION = (alias: string, node: string): string => `LEFT JOIN LATERAL (SELECT o."subject", o."author_date", o."author_offset_min", o."commit_date", o."commit_offset_min" FROM ${GIT_TABLES.commit} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${HISTORY_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
+/** The tree's open opinion of one repository, under an alias: its address and default branch. */
+const REPOSITORY_OPINION = (alias: string, node: string): string => `LEFT JOIN LATERAL (SELECT o."url", o."default_branch" FROM ${GIT_TABLES.repository} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${TREE_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
+
+/** The file columns a page reads: the tree's opinion and the language dataset's beside it. */
+const FILE_SELECT = `SELECT ${PATH_OF('n')} AS path, g.mode, b.hash AS blob, b.bytes::text AS bytes, b.form, b.lines::text AS lines, l.languages, l.lang
+  FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
+  ${FILE_OPINION('g')}
+  LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
+  ${LANGUAGE_OPINION('l')}`;
 
 /** Whether a file stands in its repository's current tree: the `contains` edge is what places it there. */
-const IN_TREE = `EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.contains}' WHERE e.to_node = f.node_id)`;
+const IN_TREE = `EXISTS (SELECT 1 FROM edge e JOIN entity en2 ON en2.id = e.entity_id AND en2.name = '${GIT_KINDS.contains}' WHERE e.to_node = n.id)`;
 
 function fileOf(row: Record<string, unknown>): FileRecord {
-  const claim = (row['language'] ?? undefined) as Record<string, unknown> | undefined;
-  const language = languageOfClaim(claim);
+  const language = languageOfOpinion(row['languages'], row['lang']);
   return {
     path: String(row['path']),
     mode: row['mode'] === null || row['mode'] === undefined ? null : String(row['mode']),
@@ -795,7 +745,10 @@ function fileOf(row: Record<string, unknown>): FileRecord {
 
 /** The repository's node id, or a gap when the store holds no such repository. */
 async function repositoryIdOf(tx: OuterTransaction, repository: string): Promise<string> {
-  const found = await tx.query<{ node_id: string }>(`SELECT node_id::text AS node_id FROM ${GIT_TABLES.repository} WHERE name = $1`, [repository]);
+  const found = await tx.query<{ node_id: string }>(
+    `SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key->>'name' = $1 AND NOT n.removed`,
+    [repository],
+  );
   const row = found.rows[0];
   if (row === undefined) throw new RecordGap(`the store holds no repository ${JSON.stringify(repository)}: the fill of this step has not run for it (src/graph/records.ts)`);
   return row.node_id;
@@ -812,12 +765,12 @@ export async function listFiles(owner: DatabaseOwner, input: { readonly reposito
     'records.language': input.language ?? '',
     'records.limit': input.limit,
   }, async () => await owner.transaction('snapshot', async (tx) => {
-    const repositoryId = await repositoryIdOf(tx, input.repository);
+    await repositoryIdOf(tx, input.repository);
     const found = await tx.query(
-      `${FILE_SELECT} WHERE f.repository_node = $1::bigint AND ${IN_TREE} AND ($2::text IS NULL OR left(p.text, length($2::text)) = $2::text)
-         AND ($3::text IS NULL OR (SELECT c.value->>'language' FROM claim c WHERE c.node_id = f.node_id AND c.attribute = 'language' ORDER BY c.id DESC LIMIT 1) = $3)
-         AND ($4::text IS NULL OR p.text > $4) ORDER BY p.text LIMIT $5::bigint`,
-      [repositoryId, input.prefix ?? null, input.language ?? null, input.after ?? null, String(input.limit + 1)],
+      `${FILE_SELECT} WHERE ${REPOSITORY_OF('n')} = $1 AND ${IN_TREE} AND ($2::text IS NULL OR left(${PATH_OF('n')}, length($2::text)) = $2::text)
+         AND ($3::text IS NULL OR l.lang = $3)
+         AND ($4::text IS NULL OR ${PATH_OF('n')} > $4) ORDER BY ${PATH_OF('n')} LIMIT $5::bigint`,
+      [input.repository, input.prefix ?? null, input.language ?? null, input.after ?? null, String(input.limit + 1)],
     );
     const rows = found.rows.map(fileOf);
     const more = rows.length > input.limit;
@@ -837,11 +790,11 @@ export async function listDocuments(owner: DatabaseOwner, input: { readonly repo
     'records.limit': input.limit,
   }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query(
-      `${FILE_SELECT} JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-       WHERE r.name = $1 AND ${IN_TREE}
-         AND left(p.text, 1) <> '.' AND position('/.' in p.text) = 0
-         AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS suffix WHERE right(lower(p.text), length(suffix)) = suffix)
-         AND ($3::text IS NULL OR p.text > $3) ORDER BY p.text LIMIT $4::bigint`,
+      `${FILE_SELECT}
+       WHERE ${REPOSITORY_OF('n')} = $1 AND ${IN_TREE}
+         AND left(${PATH_OF('n')}, 1) <> '.' AND position('/.' in ${PATH_OF('n')}) = 0
+         AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS suffix WHERE right(lower(${PATH_OF('n')}), length(suffix)) = suffix)
+         AND ($3::text IS NULL OR ${PATH_OF('n')} > $3) ORDER BY ${PATH_OF('n')} LIMIT $4::bigint`,
       [input.repository, [...input.suffixes], input.after ?? null, String(input.limit + 1)],
     );
     const rows = found.rows.map(fileOf);
@@ -874,10 +827,17 @@ export interface FileHistoryRow extends TouchedRecord {
 
 /** The SQL that reaches a file and every path it was renamed from, through `renamed-from` edges (new file to old). */
 const RENAME_CHAIN = `WITH RECURSIVE chain(file_node) AS (
-    SELECT f.node_id FROM ${GIT_TABLES.file} f WHERE f.repository_node = $1::bigint AND f.path_id = (SELECT id FROM ${GIT_TABLES.path} WHERE text = $2)
+    SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
+    WHERE (n.key->'repository'->'key'->>'name') = (SELECT rn.key->>'name' FROM node rn WHERE rn.id = $1::bigint) AND ${PATH_OF('n')} = $2
     UNION
-    SELECT e.to_node FROM chain c JOIN edge e ON e.from_node = c.file_node JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.renamedFrom}'
+    SELECT e.to_node FROM chain c JOIN edge e ON e.from_node = c.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.renamedFrom}'
   )`;
+
+/** The history's opinion of one touched edge, under an alias: what the commit did to the path. */
+const TOUCHED_OPINION = (alias: string, edge: string): string => `JOIN LATERAL (SELECT o."change", o."added", o."removed" FROM ${GIT_TABLES.touched} o WHERE o."edge_id" = ${edge}.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${HISTORY_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
+
+/** The history's opinion of one `history` edge, under an alias: the commit's walk. */
+const WALK_OPINION = (alias: string, edge: string): string => `JOIN LATERAL (SELECT o."walk" FROM ${GIT_TABLES.history} o WHERE o."edge_id" = ${edge}.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${HISTORY_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
 
 /**
  * A page of a file's history, newest first. `next` names the exact row the page
@@ -889,19 +849,20 @@ export async function fileHistory(owner: DatabaseOwner, input: { readonly reposi
     const repositoryId = await repositoryIdOf(tx, input.repository);
     const found = await tx.query(
       `${RENAME_CHAIN}
-       SELECT ct.hash AS commit, t.change, t.added::text AS added, t.removed::text AS removed, pp.text AS previous,
-              to_char(ct.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS date, ct.commit_offset_min AS offset_min, ct.subject, h.walk
-       FROM chain ch JOIN edge e ON e.to_node = ch.file_node JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.touched}'
-       JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id JOIN ${GIT_TABLES.commit} ct ON ct.node_id = e.from_node
-       JOIN edge he ON he.from_node = $1::bigint AND he.to_node = e.from_node JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}' JOIN ${GIT_TABLES.history} h ON h.edge_id = he.id
-       LEFT JOIN edge r ON r.from_node = ch.file_node AND r.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = ct.hash
-       LEFT JOIN ${GIT_TABLES.file} pf ON pf.node_id = r.to_node LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = pf.path_id
-       WHERE ($3::int IS NULL OR h.walk > $3::int OR (h.walk = $3::int AND ct.hash > $4))
-       ORDER BY h.walk ASC, ct.hash ASC LIMIT $5::bigint`,
+       SELECT (ct.key->>'hash') AS commit, t.change, t.added::text AS added, t.removed::text AS removed, ${PATH_OF('pn')} AS previous,
+              to_char(ci.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS date, ci.commit_offset_min AS offset_min, coalesce(ci.subject, '') AS subject, h.walk
+       FROM chain ch JOIN edge e ON e.to_node = ch.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.touched}'
+       ${TOUCHED_OPINION('t', 'e')} JOIN node ct ON ct.id = e.from_node
+       JOIN edge he ON he.from_node = $1::bigint AND he.to_node = e.from_node AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') ${WALK_OPINION('h', 'he')}
+       ${COMMIT_OPINION('ci', 'ct')}
+       LEFT JOIN edge r ON r.from_node = ch.file_node AND r.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = (ct.key->>'hash')
+       LEFT JOIN node pn ON pn.id = r.to_node
+       WHERE ($3::int IS NULL OR h.walk > $3::int OR (h.walk = $3::int AND (ct.key->>'hash') > $4))
+       ORDER BY h.walk ASC, (ct.key->>'hash') ASC LIMIT $5::bigint`,
       [repositoryId, input.path, input.after?.walk ?? null, input.after?.commit ?? '', String(input.limit + 1)],
     );
     const rows = found.rows.map((row) => ({
-      commit: String(row[`${GIT_KINDS.commit}`]), change: String(row['change']) as TouchedRecord['change'],
+      commit: String(row['commit']), change: String(row['change']) as TouchedRecord['change'],
       added: row['added'] === null ? null : Number(row['added']), removed: row['removed'] === null ? null : Number(row['removed']),
       previousPath: row['previous'] === null || row['previous'] === undefined ? null : String(row['previous']),
       date: gitDateOf(String(row['date']), Number(row['offset_min'])), offsetMin: Number(row['offset_min']), subject: String(row['subject']),
@@ -921,12 +882,12 @@ export async function commitWithPaths(owner: DatabaseOwner, repository: string, 
   if (commit === null) return null;
   const touched = await withSpan('records.commitPaths', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ path: string; change: string; added: string | null; removed: string | null; previous: string | null }>(
-      `SELECT p.text AS path, t.change, t.added::text AS added, t.removed::text AS removed, pp.text AS previous
-       FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}' JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
-       JOIN ${GIT_TABLES.commit} ct ON ct.node_id = e.from_node JOIN ${GIT_TABLES.file} f ON f.node_id = e.to_node JOIN ${GIT_TABLES.path} p ON p.id = f.path_id
-       LEFT JOIN edge r ON r.from_node = e.to_node AND r.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = ct.hash
-       LEFT JOIN ${GIT_TABLES.file} pf ON pf.node_id = r.to_node LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = pf.path_id
-       WHERE ct.hash = $1 ORDER BY p.text`,
+      `SELECT ${PATH_OF('fn')} AS path, t.change, t.added::text AS added, t.removed::text AS removed, ${PATH_OF('pn')} AS previous
+       FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}' ${TOUCHED_OPINION('t', 'e')}
+       JOIN node ct ON ct.id = e.from_node JOIN node fn ON fn.id = e.to_node
+       LEFT JOIN edge r ON r.from_node = e.to_node AND r.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = (ct.key->>'hash')
+       LEFT JOIN node pn ON pn.id = r.to_node
+       WHERE (ct.key->>'hash') = $1 ORDER BY ${PATH_OF('fn')}`,
       [hash],
     );
     return found.rows.map((row) => ({
@@ -942,11 +903,11 @@ export async function commitWithPaths(owner: DatabaseOwner, repository: string, 
 export async function folderFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly folder: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
   return await withSpan('records.folderFiles', { 'records.folder': input.folder, 'records.limit': input.limit }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, input.repository);
-    const parent = input.folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT d.node_id::text AS node_id FROM ${GIT_TABLES.directory} d JOIN ${GIT_TABLES.path} p ON p.id = d.path_id WHERE d.repository_node = $1::bigint AND p.text = $2`, [repositoryId, input.folder])).rows[0]?.node_id;
+    const parent = input.folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}' WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = $2 AND NOT n.removed`, [input.repository, input.folder])).rows[0]?.node_id;
     if (parent === undefined) return { rows: [], next: null };
     const found = await tx.query(
-      `${FILE_SELECT} JOIN edge e ON e.to_node = f.node_id JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.contains}'
-       WHERE e.from_node = $1::bigint AND ($2::text IS NULL OR p.text > $2) ORDER BY p.text LIMIT $3::bigint`,
+      `${FILE_SELECT} JOIN edge e ON e.to_node = n.id JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}'
+       WHERE e.from_node = $1::bigint AND ($2::text IS NULL OR ${PATH_OF('n')} > $2) ORDER BY ${PATH_OF('n')} LIMIT $3::bigint`,
       [parent, input.after ?? null, String(input.limit + 1)],
     );
     const rows = found.rows.map(fileOf);
@@ -960,11 +921,11 @@ export async function folderFiles(owner: DatabaseOwner, input: { readonly reposi
 export async function folderChildrenOf(owner: DatabaseOwner, repository: string, folder: string): Promise<readonly string[]> {
   return await withSpan('records.folderChildren', { 'records.folder': folder }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
-    const parent = folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT d.node_id::text AS node_id FROM ${GIT_TABLES.directory} d JOIN ${GIT_TABLES.path} p ON p.id = d.path_id WHERE d.repository_node = $1::bigint AND p.text = $2`, [repositoryId, folder])).rows[0]?.node_id;
+    const parent = folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}' WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = $2 AND NOT n.removed`, [repository, folder])).rows[0]?.node_id;
     if (parent === undefined) return [];
     const found = await tx.query<{ path: string }>(
-      `SELECT p.text AS path FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.contains}' JOIN ${GIT_TABLES.directory} d ON d.node_id = e.to_node JOIN ${GIT_TABLES.path} p ON p.id = d.path_id
-       WHERE e.from_node = $1::bigint ORDER BY p.text`, [parent],
+      `SELECT ${PATH_OF('dn')} AS path FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' JOIN node dn ON dn.id = e.to_node AND EXISTS (SELECT 1 FROM entity en WHERE en.id = dn.entity_id AND en.name = '${GIT_KINDS.directory}')
+       WHERE e.from_node = $1::bigint ORDER BY ${PATH_OF('dn')}`, [parent],
     );
     return found.rows.map((row) => row.path);
   }));
@@ -983,18 +944,19 @@ export interface FileDate {
 export async function fileFacts(owner: DatabaseOwner, repository: string, path: string): Promise<(FileRecord & { readonly created: FileDate | null; readonly modified: FileDate | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
   return await withSpan('records.fileFacts', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
-    const found = await tx.query(`${FILE_SELECT} WHERE f.repository_node = $1::bigint AND p.text = $2`, [repositoryId, path]);
+    const found = await tx.query(`${FILE_SELECT} WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = $2`, [repository, path]);
     const row = found.rows[0];
     if (row === undefined) return null;
     const history = await tx.query<{ commit: string; date: string; offset_min: number; name: string; walk: number }>(
       `${RENAME_CHAIN}
-       SELECT ct.hash AS commit, to_char(ct.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS date, ct.commit_offset_min AS offset_min,
-              coalesce(s.name, '') AS name, h.walk
-       FROM chain ch JOIN edge e ON e.to_node = ch.file_node JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.touched}'
-       JOIN ${GIT_TABLES.commit} ct ON ct.node_id = e.from_node
-       JOIN edge he ON he.from_node = $1::bigint AND he.to_node = e.from_node JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}' JOIN ${GIT_TABLES.history} h ON h.edge_id = he.id
-       LEFT JOIN edge a ON a.to_node = e.from_node AND a.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}') LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = a.from_node
-       WHERE $2 = $2 ORDER BY h.walk ASC, ct.hash ASC`,
+       SELECT (ct.key->>'hash') AS commit, to_char(ci.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS date, ci.commit_offset_min AS offset_min,
+              coalesce(sn.key->>'name', '') AS name, h.walk
+       FROM chain ch JOIN edge e ON e.to_node = ch.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.touched}'
+       ${TOUCHED_OPINION('t', 'e')} JOIN node ct ON ct.id = e.from_node
+       JOIN edge he ON he.from_node = $1::bigint AND he.to_node = e.from_node AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') ${WALK_OPINION('h', 'he')}
+       ${COMMIT_OPINION('ci', 'ct')}
+       LEFT JOIN edge a ON a.to_node = e.from_node AND a.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}') LEFT JOIN node sn ON sn.id = a.from_node
+       WHERE $2 = $2 ORDER BY h.walk ASC, (ct.key->>'hash') ASC`,
       [repositoryId, path],
     );
     const commits = history.rows;
@@ -1018,10 +980,10 @@ export async function fileContents(owner: DatabaseOwner, repository: string, pat
   if (paths.length === 0) return answer;
   return await withSpan('records.fileContents', { 'records.repository': repository, 'records.paths': paths.length }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ path: string; content: string | null }>(
-      `SELECT p.text AS path, b.content FROM ${GIT_TABLES.file} f
-       JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-       JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
-       WHERE r.name = $1 AND p.text = ANY($2::text[]) AND ${IN_TREE}`,
+      `SELECT ${PATH_OF('n')} AS path, b.content FROM node n
+       JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}' ${FILE_OPINION('g')}
+       LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
+       WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = ANY($2::text[]) AND ${IN_TREE}`,
       [repository, [...paths]],
     );
     for (const row of found.rows) answer.set(row.path, row.content);
@@ -1033,10 +995,10 @@ export async function fileContents(owner: DatabaseOwner, repository: string, pat
 export async function fileContent(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
   return await withSpan('records.fileContent', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ content: string | null }>(
-      `SELECT b.content FROM ${GIT_TABLES.file} f
-       JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-       JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
-       WHERE r.name = $1 AND p.text = $2 AND ${IN_TREE} LIMIT 1`,
+      `SELECT b.content FROM node n
+       JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}' ${FILE_OPINION('g')}
+       LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
+       WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = $2 AND ${IN_TREE} LIMIT 1`,
       [repository, path],
     );
     return found.rows[0]?.content ?? null;
@@ -1057,21 +1019,23 @@ export async function fileTextAt(owner: DatabaseOwner, repository: string, path:
   return await withSpan('records.fileTextAt', { 'records.path': path, 'records.commit': commit }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ content: string | null; form: string | null; walk: number | null; as_is: string | null; touched_after: boolean }>(
       `WITH target AS (
-         SELECT f.node_id AS file_node, f.repository_node, b.content, b.form
-         FROM ${GIT_TABLES.file} f JOIN ${GIT_TABLES.repository} r ON r.node_id = f.repository_node
-         JOIN ${GIT_TABLES.path} p ON p.id = f.path_id LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
-         WHERE r.name = $1 AND p.text = $2 AND ${IN_TREE}
+         SELECT n.id AS file_node, n.entity_id, b.content, b.form
+         FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}' ${FILE_OPINION('g')}
+         LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
+         WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = $2 AND ${IN_TREE}
+       ), repository_node AS (
+         SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key->>'name' = $1
        ), walked AS (
-         SELECT h.walk FROM ${GIT_TABLES.history} h JOIN edge he ON he.id = h.edge_id JOIN ${GIT_TABLES.commit} c ON c.node_id = he.to_node
-         WHERE he.from_node = (SELECT repository_node FROM target) AND c.hash = $3
+         SELECT h.walk FROM ${GIT_TABLES.history} h JOIN edge he ON he.id = h.edge_id JOIN node cn ON cn.id = he.to_node
+         WHERE he.from_node = (SELECT id FROM repository_node) AND h.state = 'open' AND (cn.key->>'hash') = $3
        ), stood AS (
-         SELECT c.hash FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.asIs}'
-         JOIN ${GIT_TABLES.commit} c ON c.node_id = ae.to_node WHERE ae.from_node = (SELECT repository_node FROM target)
+         SELECT (cn.key->>'hash') AS hash FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.asIs}'
+         JOIN node cn ON cn.id = ae.to_node WHERE ae.from_node = (SELECT id FROM repository_node) AND NOT cn.removed
        )
        SELECT t.content, t.form, w.walk, (SELECT hash FROM stood) AS as_is,
-         EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
-                 JOIN edge he ON he.to_node = e.from_node AND he.from_node = t.repository_node AND he.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.history}')
-                 JOIN ${GIT_TABLES.history} h ON h.edge_id = he.id
+         EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
+                 JOIN edge he ON he.to_node = e.from_node AND he.from_node = (SELECT id FROM repository_node) AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}')
+                 JOIN ${GIT_TABLES.history} h ON h.edge_id = he.id AND h.state = 'open'
                  WHERE e.to_node = t.file_node AND h.walk < w.walk) AS touched_after
        FROM target t LEFT JOIN walked w ON TRUE`,
       [repository, path, commit],
@@ -1089,9 +1053,12 @@ export async function fileTextAt(owner: DatabaseOwner, repository: string, path:
 export async function listRepositories(owner: DatabaseOwner): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {
   return await withSpan('records.listRepositories', {}, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ name: string; url: string; default_branch: string | null; as_is: string | null }>(
-      `SELECT r.name, r.url, r.default_branch, c.hash AS as_is
-       FROM ${GIT_TABLES.repository} r LEFT JOIN edge e ON e.from_node = r.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.asIs}')
-       LEFT JOIN ${GIT_TABLES.commit} c ON c.node_id = e.to_node ORDER BY r.name`,
+      `SELECT (n.key->>'name') AS name, coalesce(o.url, '') AS url, o.default_branch, (c.key->>'hash') AS as_is
+       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}'
+       ${REPOSITORY_OPINION('o', 'n')}
+       LEFT JOIN edge e ON e.from_node = n.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.asIs}')
+       LEFT JOIN node c ON c.id = e.to_node
+       WHERE NOT n.removed ORDER BY (n.key->>'name')`,
     );
     return found.rows.map((row) => ({ name: row.name, url: row.url, defaultBranch: row.default_branch, asIsCommit: row.as_is }));
   }));
@@ -1102,12 +1069,12 @@ export async function listDirectories(owner: DatabaseOwner, repository: string):
   return await withSpan('records.listDirectories', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<{ path: string; parent: string }>(
-      `SELECT p.text AS path, coalesce(pp.text, '') AS parent
-       FROM ${GIT_TABLES.directory} d JOIN ${GIT_TABLES.path} p ON p.id = d.path_id
-       JOIN edge e ON e.to_node = d.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')
-       LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> $1::bigint LEFT JOIN ${GIT_TABLES.directory} pd ON pd.node_id = pn.id LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = pd.path_id
-       WHERE d.repository_node = $1::bigint ORDER BY p.text`,
-      [repositoryId],
+      `SELECT ${PATH_OF('n')} AS path, coalesce(${PATH_OF('pn')}, '') AS parent
+       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}'
+       JOIN edge e ON e.to_node = n.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
+       LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> $1::bigint
+       WHERE ${REPOSITORY_OF('n')} = $2 AND NOT n.removed ORDER BY ${PATH_OF('n')}`,
+      [repositoryId, repository],
     );
     return found.rows;
   }));
@@ -1117,18 +1084,22 @@ export async function listDirectories(owner: DatabaseOwner, repository: string):
 export async function commitFacts(owner: DatabaseOwner, _repository: string, hash: string): Promise<CommitRecord | null> {
   return await withSpan('records.commitFacts', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<Record<string, unknown>>(
-      `SELECT c.hash, to_char(c.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_date, c.author_offset_min,
-              to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_date, c.commit_offset_min, c.subject,
-              coalesce(s.name, '') AS author_name, coalesce(s.email, '') AS author_email
-       FROM ${GIT_TABLES.commit} c LEFT JOIN edge e ON e.to_node = c.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
-       LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = e.from_node WHERE c.hash = $1`,
+      `SELECT (c.key->>'hash') AS hash, to_char(o.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_date, o.author_offset_min,
+              to_char(o.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_date, o.commit_offset_min, coalesce(o.subject, '') AS subject,
+              coalesce(sn.key->>'name', '') AS author_name, coalesce(sn.key->>'email', '') AS author_email
+       FROM node c JOIN entity en ON en.id = c.entity_id AND en.name = '${GIT_KINDS.commit}'
+       ${COMMIT_OPINION('o', 'c')}
+       LEFT JOIN edge e ON e.to_node = c.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
+       LEFT JOIN node sn ON sn.id = e.from_node
+       WHERE (c.key->>'hash') = $1`,
       [hash],
     );
     const row = found.rows[0];
     if (row === undefined) return null;
     const parents = await tx.query<{ hash: string }>(
-      `SELECT pc.hash FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}' JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
-       JOIN ${GIT_TABLES.commit} pc ON pc.node_id = e.to_node WHERE e.from_node = (SELECT node_id FROM ${GIT_TABLES.commit} WHERE hash = $1) ORDER BY pp.position`,
+      `SELECT (pn.key->>'hash') AS hash FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
+       JOIN LATERAL (SELECT o."position" FROM ${GIT_TABLES.parent_position} o WHERE o."edge_id" = e.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${HISTORY_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) pp ON true
+       JOIN node pn ON pn.id = e.to_node WHERE e.from_node = (SELECT id FROM node WHERE key->>'hash' = $1 AND entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.commit}')) ORDER BY pp.position`,
       [hash],
     );
     const authorDate = row['author_date'] === null || row['author_date'] === undefined ? '' : String(row['author_date']);
@@ -1146,24 +1117,25 @@ export async function commitFacts(owner: DatabaseOwner, _repository: string, has
 /** One repository as a reader sees it: its name, its url, the commit it is as-is at, its counts and its gaps. */
 export async function repositoryFacts(owner: DatabaseOwner, repository: string): Promise<{ readonly nodeId: string; readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null; readonly fileCount: number; readonly commitCount: number; readonly directoryCount: number; readonly gaps: readonly { what: string; reason: string }[] } | null> {
   return await withSpan('records.repositoryFacts', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ node_id: string; name: string; url: string; default_branch: string | null }>(
-      `SELECT node_id::text AS node_id, name, url, default_branch FROM ${GIT_TABLES.repository} WHERE name = $1`, [repository],
+    const found = await tx.query<{ node_id: string; url: string | null; default_branch: string | null }>(
+      `SELECT n.id::text AS node_id, o.url, o.default_branch FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}'
+       ${REPOSITORY_OPINION('o', 'n')} WHERE n.key->>'name' = $1 AND NOT n.removed`, [repository],
     );
     const row = found.rows[0];
     if (row === undefined) return null;
     const asIs = await tx.query<{ hash: string }>(
-      `SELECT c.hash FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.asIs}' JOIN ${GIT_TABLES.commit} c ON c.node_id = e.to_node WHERE e.from_node = $1::bigint LIMIT 1`,
+      `SELECT (c.key->>'hash') AS hash FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = $1::bigint LIMIT 1`,
       [row.node_id],
     );
     const counts = await tx.query<{ files: string; commits: string; directories: string }>(
-      `SELECT (SELECT count(*)::text FROM ${GIT_TABLES.file} f JOIN edge e ON e.to_node = f.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}') WHERE f.repository_node = $1::bigint) AS files,
-              (SELECT count(*)::text FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint) AS commits,
-              (SELECT count(*)::text FROM ${GIT_TABLES.directory} d JOIN edge e ON e.to_node = d.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}') WHERE d.repository_node = $1::bigint) AS directories`,
-      [row.node_id],
+      `SELECT (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') WHERE ${REPOSITORY_OF('f')} = $2) AS files,
+              (SELECT count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint) AS commits,
+              (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') WHERE ${REPOSITORY_OF('d')} = $2) AS directories`,
+      [row.node_id, repository],
     );
     const gaps = await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_node = $1::bigint ORDER BY what', [row.node_id]);
     return {
-      nodeId: row.node_id, name: row.name, url: row.url, defaultBranch: row.default_branch,
+      nodeId: row.node_id, name: repository, url: row.url ?? '', defaultBranch: row.default_branch,
       asIsCommit: asIs.rows[0]?.hash ?? null,
       fileCount: Number(counts.rows[0]?.files ?? '0'),
       commitCount: Number(counts.rows[0]?.commits ?? '0'),
@@ -1177,12 +1149,12 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string):
 export async function graphKindCounts(owner: DatabaseOwner): Promise<readonly { readonly kind: string; readonly count: number }[]> {
   return await withSpan('records.graphKindCounts', {}, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ kind: string; n: string }>(
-      `SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM ${GIT_TABLES.repository}
-       UNION ALL SELECT '${GIT_KINDS.directory}', count(*)::text FROM ${GIT_TABLES.directory} d JOIN edge e ON e.to_node = d.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')
-       UNION ALL SELECT '${GIT_KINDS.file}', count(*)::text FROM ${GIT_TABLES.file} f JOIN edge e ON e.to_node = f.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')
-       UNION ALL SELECT '${GIT_KINDS.gitlink}', count(*)::text FROM ${GIT_TABLES.gitlink} g JOIN edge e ON e.to_node = g.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')
-       UNION ALL SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.history}'
-       UNION ALL SELECT '${GIT_KINDS.signature}', count(*)::text FROM ${GIT_TABLES.signature} s WHERE EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.node_id)`,
+      `SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE NOT n.removed
+       UNION ALL SELECT '${GIT_KINDS.directory}', count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
+       UNION ALL SELECT '${GIT_KINDS.file}', count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
+       UNION ALL SELECT '${GIT_KINDS.gitlink}', count(*)::text FROM node g JOIN entity ge ON ge.id = g.entity_id AND ge.name = '${GIT_KINDS.gitlink}' JOIN edge e ON e.to_node = g.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
+       UNION ALL SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}'
+       UNION ALL SELECT '${GIT_KINDS.signature}', count(*)::text FROM node s JOIN entity se ON se.id = s.entity_id AND se.name = '${GIT_KINDS.signature}' WHERE EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id)`,
     );
     return found.rows.map((row) => ({ kind: row.kind, count: Number(row.n) })).sort((left, right) => (left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0));
   }));

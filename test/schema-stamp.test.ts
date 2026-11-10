@@ -20,9 +20,9 @@ describe('a schema made at once from several connections', () => {
       const stamps = await owner.run(async (tx) => await tx.query<{ name: string; stamp: string }>('SELECT name, stamp FROM madarch_meta.schema_stamp ORDER BY name'));
       expect(stamps.rows.map((row) => row.name)).toEqual(['one-graph']);
       const tables = await owner.run(async (tx) => await tx.query<{ table_name: string }>(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('node', 'edge', 'kind') ORDER BY table_name",
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('node', 'edge', 'entity') ORDER BY table_name",
       ));
-      expect(tables.rows.map((row) => row.table_name)).toEqual(['edge', 'kind', 'node']);
+      expect(tables.rows.map((row) => row.table_name)).toEqual(['edge', 'entity', 'node']);
     } finally {
       await owner.close();
     }

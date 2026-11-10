@@ -26,8 +26,8 @@ beforeAll(async () => {
   owner = await createTestDatabaseOwner({});
   await createRecordSchema(owner);
   await owner.transaction('write', async (tx) => {
-    const node = await tx.query<{ id: string }>('INSERT INTO node (kind_id) SELECT id FROM kind WHERE name = $1 RETURNING id::text AS id', ['signature']);
-    await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, name, email) VALUES ($1::bigint, $2, $3)`, [node.rows[0]!.id, 'Walk', 'walk@example.test']);
+    const node = await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id`, ['signature', JSON.stringify({ name: 'Walk', email: 'walk@example.test' })]);
+    await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, said_by) VALUES ($1::bigint, 'git-history@1')`, [node.rows[0]!.id]);
   });
 });
 

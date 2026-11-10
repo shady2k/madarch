@@ -1,7 +1,8 @@
 /**
- * The wiki's reads of the one graph (decision 0034): a vertex is identity only,
- * a kind's attributes stand in its own table, and an edge is never a vertex. The
- * reader presents the graph's code kinds as the wiki's `code.*` kinds —
+ * The wiki's reads of the one graph (decision 0034 and its amendment of 2026-11-10): a vertex is its identity and its
+ * key, every value stands in its entity's table as an opinion, and an edge is never a vertex. A field one open opinion
+ * states is that value; a field several do is every value with its source, never one picked silently. The reader
+ * presents the graph's code kinds as the wiki's `code.*` kinds —
  * `code.repository`, `code.directory`, `code.file`, `code.commit`, `code.author`
  * (a git signature, not a person) — and answers nothing for a kind the one graph
  * does not hold yet: an empty result is the truth, never an error.
@@ -32,6 +33,8 @@ export interface GraphEvidence {
   lineStart: number | null;
   lineEnd: number | null;
   commit: string | null;
+  /** The opinion that stated the value: the producer and its version, the agent, or a person's node. */
+  saidBy?: string;
 }
 
 export interface GraphEntity {
@@ -165,32 +168,69 @@ function gitDateOf(localClock: string | null, offsetMin: number | null): string 
   return `${localClock}${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/** The repository a file, folder or gitlink names in its key, and the node it is. */
+const REPOSITORY_KEY = (alias: string): string => `(${alias}.key->'repository'->'key'->>'name')`;
+/** The path a file, folder or gitlink names in its key. */
+const PATH_KEY = (alias: string): string => `(${alias}.key->>'path')`;
+
+/** The tree's open opinion of one file, folder or gitlink node, under an alias. */
+const TREE_OPINION = (alias: string, table: string, node: string, columns: readonly string[]): string =>
+  `LEFT JOIN LATERAL (SELECT ${columns.map((one) => `o."${one}"`).join(', ')} FROM ${table} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-tree' ORDER BY o."id" DESC LIMIT 1) ${alias} ON true`;
+const LINGUIST_OPINION = `LEFT JOIN LATERAL (SELECT o."lang", o."languages" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'linguist' ORDER BY o."id" DESC LIMIT 1) l ON true`;
+const COMMIT_OPINION = `LEFT JOIN LATERAL (SELECT o."subject", o."author_date", o."author_offset_min", o."commit_date", o."commit_offset_min" FROM ${GIT_TABLES.commit} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' ORDER BY o."id" DESC LIMIT 1) c ON true`;
+const REPOSITORY_OPINION = `LEFT JOIN LATERAL (SELECT o."url", o."default_branch" FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-tree' ORDER BY o."id" DESC LIMIT 1) r ON true`;
+
 const ENTITY_SELECT = `SELECT n.id::text AS node_id, k.name AS kind,
-  r.name AS repository_name, r.url AS repository_url, r.default_branch, rr.name AS scope_repository_name,
-  p.text AS path, f.mode, b.hash AS blob, b.bytes::text AS bytes, b.form, b.lines::text AS lines,
-  c.hash AS commit_hash, c.subject,
+  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN (n.key->>'name') ELSE ${REPOSITORY_KEY('n')} END AS repository_name,
+  r.url AS repository_url, r.default_branch, ${REPOSITORY_KEY('n')} AS scope_repository_name,
+  ${PATH_KEY('n')} AS path, fg.mode, b.hash AS blob, b.bytes::text AS bytes, b.form, b.lines::text AS lines,
+  (n.key->>'hash') AS commit_hash, c.subject,
   to_char(c.author_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS author_clock, c.author_offset_min,
   to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS commit_clock, c.commit_offset_min,
-  (SELECT count(*)::int FROM edge pe JOIN kind pk ON pk.id = pe.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id) AS parent_count,
-  s.name AS signature_name, s.email,
-  (SELECT sa.name FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}' JOIN ${GIT_TABLES.signature} sa ON sa.node_id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_name,
-  (SELECT sa.email FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}' JOIN ${GIT_TABLES.signature} sa ON sa.node_id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_email,
-  (SELECT c2.value FROM claim c2 WHERE c2.node_id = n.id AND c2.attribute = 'language' ORDER BY c2.id DESC LIMIT 1) AS language,
-  (CASE WHEN k.name = '${GIT_KINDS.repository}' THEN n.id ELSE coalesce(f.repository_node, d.repository_node, g.repository_node,
-    (SELECT min(he.from_node) FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}' WHERE he.to_node = n.id),
-    (SELECT min(h2.from_node) FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
-       JOIN edge h2 ON h2.to_node = ae.to_node AND h2.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.history}') WHERE ae.from_node = n.id)
-  ) END)::text AS scope
- FROM node n JOIN kind k ON k.id = n.kind_id
- LEFT JOIN ${GIT_TABLES.repository} r ON r.node_id = n.id
- LEFT JOIN ${GIT_TABLES.directory} d ON d.node_id = n.id
- LEFT JOIN ${GIT_TABLES.file} f ON f.node_id = n.id
- LEFT JOIN ${GIT_TABLES.gitlink} g ON g.node_id = n.id
- LEFT JOIN ${GIT_TABLES.repository} rr ON rr.node_id = coalesce(d.repository_node, f.repository_node, g.repository_node)
- LEFT JOIN ${GIT_TABLES.path} p ON p.id = coalesce(d.path_id, f.path_id, g.path_id)
- LEFT JOIN ${GIT_TABLES.blob} b ON b.id = f.blob_id
- LEFT JOIN ${GIT_TABLES.commit} c ON c.node_id = n.id
- LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = n.id`;
+  (SELECT count(*)::int FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id) AS parent_count,
+  (n.key->>'name') AS signature_name, (n.key->>'email') AS email,
+  (SELECT sa.key->>'name' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_name,
+  (SELECT sa.key->>'email' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id LIMIT 1) AS commit_author_email,
+  l.lang AS language, l.languages,
+  (CASE WHEN k.name = '${GIT_KINDS.repository}' THEN n.id
+    WHEN k.name IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}', '${GIT_KINDS.gitlink}') THEN (SELECT rn.id FROM node rn JOIN entity re ON re.id = rn.entity_id AND re.name = '${GIT_KINDS.repository}' WHERE rn.key->>'name' = ${REPOSITORY_KEY('n')} LIMIT 1)
+    ELSE coalesce(
+      (SELECT min(he.from_node) FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}' WHERE he.to_node = n.id),
+      (SELECT min(h2.from_node) FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
+         JOIN edge h2 ON h2.to_node = ae.to_node AND h2.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') WHERE ae.from_node = n.id)
+    ) END)::text AS scope
+ FROM node n JOIN entity k ON k.id = n.entity_id
+ ${REPOSITORY_OPINION}
+ ${TREE_OPINION('fg', GIT_TABLES.file, 'n', ['mode', 'blob_id'])}
+ LEFT JOIN ${GIT_TABLES.blob} b ON b.id = fg."blob_id"
+ ${COMMIT_OPINION}
+ ${LINGUIST_OPINION}`;
+
+/** A value with the keys of every object in code point order, so two equal values render equal. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object') {
+    const held = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(held).sort().map((key) => [key, canonical(held[key])]));
+  }
+  return value;
+}
+
+/** The places one opinion's evidence list names, as a reader holds them. */
+function evidencePlaces(value: unknown): readonly { repository: string | null; path: string | null; lineStart: number | null; lineEnd: number | null; commit: string | null }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object') return [];
+    const held = entry as Record<string, unknown>;
+    return [{
+      repository: typeof held['repository'] === 'string' ? held['repository'] : null,
+      path: typeof held['path'] === 'string' ? held['path'] : null,
+      lineStart: typeof held['line_start'] === 'number' ? held['line_start'] : null,
+      lineEnd: typeof held['line_end'] === 'number' ? held['line_end'] : null,
+      commit: typeof held['commit_or_digest'] === 'string' ? held['commit_or_digest'] : null,
+    }];
+  });
+}
 
 /** A text as a SQL literal: a kind's name stands in the counts that name it. */
 function quoteLiteral(text: string): string {
@@ -203,10 +243,9 @@ function quoteColumn(name: string): string {
   return `"${name}"`;
 }
 
-/** The select over one manifest-declared kind's table: its node, its columns, its live rows. */
+/** The select over one manifest-declared kind's table: the vertices an opinion stands for, with their keys. */
 function generatedSelect(decl: GeneratedKindRead): string {
-  const columns = decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`).join(', ');
-  return `SELECT t.node_id::text AS node_id${columns === '' ? '' : `, ${columns}`} FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.tombstone = false`;
+  return `SELECT DISTINCT n.id::text AS node_id, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed`;
 }
 
 /** One column's value as a reader holds it: a count as a number, a flag as a boolean, everything else as it stands. */
@@ -254,11 +293,11 @@ function entityOf(row: Raw): GraphEntity {
       properties['bytes'] = row['bytes'] === null || row['bytes'] === undefined ? undefined : Number(row['bytes']);
       properties['form'] = row['form'];
       properties['lines'] = row['lines'] === null || row['lines'] === undefined ? undefined : Number(row['lines']);
-      const claim = (row['language'] ?? undefined) as Record<string, unknown> | undefined;
-      const language = typeof claim?.['language'] === 'string' ? claim['language'] : undefined;
-      const candidates = Array.isArray(claim?.['candidates']) ? claim['candidates'].filter((one): one is string => typeof one === 'string') : [];
+      // The language dataset's opinion: the one language when it names one, and every candidate it weighed.
+      const language = typeof row['language'] === 'string' ? row['language'] : undefined;
+      const candidates = Array.isArray(row['languages']) ? row['languages'].filter((one): one is string => typeof one === 'string') : [];
       properties['language'] = language;
-      properties['candidates'] = language === undefined ? candidates : candidates.length === 0 ? [language] : candidates;
+      properties['candidates'] = candidates.length === 0 && language !== undefined ? [language] : candidates;
     }
   } else if (graphKind === `${GIT_KINDS.commit}`) {
     properties['hash'] = row['commit_hash'];
@@ -282,19 +321,23 @@ function entityOf(row: Raw): GraphEntity {
   };
 }
 
+/** The history's open opinion of one edge's own values: the attributes a reader shows beside the relation. */
 async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: string): Promise<Record<string, unknown>> {
+  const opinion = async (table: string, columns: string): Promise<Record<string, unknown> | undefined> => {
+    const found = await tx.query<Record<string, unknown>>(`SELECT ${columns} FROM ${table} WHERE edge_id = $1::bigint AND state = 'open' ORDER BY id DESC LIMIT 1`, [edgeId]);
+    return found.rows[0];
+  };
   if (graphKind === `${GIT_KINDS.touched}`) {
-    const found = await tx.query<{ change: string; added: string | null; removed: string | null }>(`SELECT change, added::text AS added, removed::text AS removed FROM ${GIT_TABLES.touched} WHERE edge_id = $1::bigint`, [edgeId]);
-    const row = found.rows[0];
-    return row === undefined ? {} : { change: row.change, added: row.added === null ? null : Number(row.added), removed: row.removed === null ? null : Number(row.removed) };
+    const row = await opinion(GIT_TABLES.touched, 'change, added::text AS added, removed::text AS removed');
+    return row === undefined ? {} : { change: row['change'], added: row['added'] === null ? null : Number(row['added']), removed: row['removed'] === null ? null : Number(row['removed']) };
   }
   if (graphKind === `${GIT_KINDS.parent}`) {
-    const found = await tx.query<{ position: number }>(`SELECT position FROM ${GIT_TABLES.parent_position} WHERE edge_id = $1::bigint`, [edgeId]);
-    return found.rows[0] === undefined ? {} : { position: found.rows[0].position };
+    const row = await opinion(GIT_TABLES.parent_position, 'position');
+    return row === undefined ? {} : { position: row['position'] };
   }
   if (graphKind === `${GIT_KINDS.history}`) {
-    const found = await tx.query<{ walk: number }>(`SELECT walk FROM ${GIT_TABLES.history} WHERE edge_id = $1::bigint`, [edgeId]);
-    return found.rows[0] === undefined ? {} : { walk: found.rows[0].walk };
+    const row = await opinion(GIT_TABLES.history, 'walk');
+    return row === undefined ? {} : { walk: row['walk'] };
   }
   return {};
 }
@@ -427,10 +470,10 @@ export class GraphReader {
       const slash = referenceKind ? tail.indexOf('/') : -1;
       const repository = slash < 0 ? '' : tail.slice(0, slash);
       const path = slash < 0 ? tail : tail.slice(slash + 1);
-      const condition = graphKind === `${GIT_KINDS.repository}` ? 'r.name = $2'
-        : graphKind === `${GIT_KINDS.commit}` ? 'c.hash = $2'
-          : graphKind === `${GIT_KINDS.signature}` ? 's.email = $2'
-            : referenceKind && repository !== '' ? 'rr.name = $2 AND p.text = $3' : 'p.text = $2';
+      const condition = graphKind === `${GIT_KINDS.repository}` ? `(k.name = '${GIT_KINDS.repository}' AND n.key->>'name' = $2)`
+        : graphKind === `${GIT_KINDS.commit}` ? "(n.key->>'hash') = $2"
+          : graphKind === `${GIT_KINDS.signature}` ? "(n.key->>'email') = $2"
+            : referenceKind && repository !== '' ? `(${REPOSITORY_KEY('n')} = $2 AND ${PATH_KEY('n')} = $3)` : `${PATH_KEY('n')} = $2`;
       const params = referenceKind && repository !== '' ? [graphKind, repository, path] : [graphKind, referenceKind ? path : tail];
       const found = await tx.query<Raw>(`${ENTITY_SELECT} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
       return this.scoped(found.rows.map(entityOf));
@@ -591,63 +634,66 @@ export class GraphReader {
       rest = rest.slice(cut + 1);
     }
     values.push(rest);
-    const where = decl.key.map((column, at) => `t.${quoteColumn(column)} = $${String(at + 1)}`).join(' AND ');
-    const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${where} ORDER BY n.id`, values);
+    const where = decl.key.map((column, at) => `n.key->>'${column.replaceAll("'", "''")}' = $${String(at + 1)}`).join(' AND ');
+    const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${where} ORDER BY node_id`, values);
     return await this.generatedEntities(tx, decl, found.rows);
   }
 
   /**
-   * The rows of one manifest-declared kind as the wiki's entities: the table's columns, the newest claim of every
-   * claimed field, and the evidence each claim stands on. The entity's key is its kind and its key values.
+   * The rows of one manifest-declared kind as the wiki's entities: the vertex's key, and every open opinion of the
+   * kind's fields. A field one value stands for is that value; a field several open opinions disagree on is every value
+   * with the opinion that stated it, never one picked silently (A4 of the amendment: nothing wins by rule).
    */
   private async generatedEntities(tx: OuterTransaction, decl: GeneratedKindRead, rows: readonly Raw[]): Promise<GraphEntity[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => String(row['node_id']));
-    const claims = await tx.query<{ node: string; attribute: string; value: unknown }>(
-      `SELECT node_id::text AS node, attribute, value FROM claim WHERE node_id = ANY($1::bigint[]) ORDER BY id`,
+    const opinionColumns = ['t.node_id::text AS node', 't.said_by', 't.said_at', 't.evidence', 't.lang', ...decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`)];
+    const opinions = await tx.query<Raw>(
+      `SELECT ${opinionColumns.join(', ')} FROM ${decl.table} t WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' ORDER BY t.id`,
       [`{${ids.join(',')}}`],
     );
-    const newest = new Map<string, Map<string, unknown>>();
-    for (const claim of claims.rows) {
-      const held = newest.get(claim.node) ?? new Map<string, unknown>();
-      held.set(claim.attribute, claim.value);
-      newest.set(claim.node, held);
-    }
-    const evidence = await tx.query<{ node: string; attribute: string; repository: string | null; path: string | null; line_start: number | null; line_end: number | null; commit_or_digest: string | null }>(
-      `SELECT c.node_id::text AS node, c.attribute, e.repository, p.text AS path, e.line_start, e.line_end, e.commit_or_digest
-       FROM claim c JOIN evidence e ON e.claim_id = c.id LEFT JOIN ${GIT_TABLES.path} p ON p.id = e.path_id
-       WHERE c.node_id = ANY($1::bigint[]) ORDER BY c.id DESC, e.id`,
-      [`{${ids.join(',')}}`],
-    );
-    const evidenceOf = new Map<string, GraphEvidence[]>();
-    for (const row of evidence.rows) {
-      const held = evidenceOf.get(row.node) ?? [];
-      held.push({ field: row.attribute, repository: row.repository, path: row.path, lineStart: row.line_start, lineEnd: row.line_end, commit: row.commit_or_digest });
-      evidenceOf.set(row.node, held);
+    const held = new Map<string, Raw[]>();
+    for (const opinion of opinions.rows) {
+      const list = held.get(String(opinion['node'])) ?? [];
+      list.push(opinion);
+      held.set(String(opinion['node']), list);
     }
     return rows.map((row) => {
       const node = String(row['node_id']);
-      const properties: Record<string, unknown> = {};
-      for (const column of decl.columns) properties[column] = valueOfColumn(row[column], decl.types[column] ?? 'text');
-      for (const [field, value] of newest.get(node) ?? []) properties[field] = value;
-      const keyValues = decl.key.map((column) => String(properties[column] ?? ''));
+      const keyObject = (row['key'] ?? {}) as Record<string, unknown>;
+      const keyValues = decl.key.map((column) => String(keyObject[column] ?? ''));
       const key = `${decl.kind}:${keyValues.join('/')}`;
+      const properties: Record<string, unknown> = {};
+      for (const column of decl.key) properties[column] = valueOfColumn(keyObject[column], decl.types[column] ?? 'text');
+      const evidence: GraphEvidence[] = [];
+      const stated = held.get(node) ?? [];
+      for (const column of decl.columns) {
+        const values: unknown[] = [];
+        for (const opinion of stated) {
+          const value = valueOfColumn(opinion[column], decl.types[column] ?? 'text');
+          if (value === null || value === undefined) continue;
+          const rendered = JSON.stringify(canonical(value));
+          if (!values.some((one) => JSON.stringify(canonical(one)) === rendered)) values.push(value);
+          for (const place of evidencePlaces(opinion['evidence'])) evidence.push({ field: column, saidBy: String(opinion['said_by']), ...place });
+        }
+        if (values.length === 1) properties[column] = values[0];
+        else if (values.length > 1) properties[column] = values;
+      }
       properties['recordKey'] = key;
       const label = keyValues[0] ?? key;
-      const evidenceRows = evidenceOf.get(node);
-      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope: '', ...(evidenceRows === undefined ? {} : { evidence: evidenceRows }) };
+      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope: '', ...(evidence.length === 0 ? {} : { evidence }) };
     });
-
   }
 
   async kindCounts(): Promise<{ kind: string; count: number }[]> {
     const parts: string[] = [];
-    if (this.holds(`${GIT_KINDS.repository}`)) parts.push(`SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM ${GIT_TABLES.repository}`);
-    if (this.holds(`${GIT_KINDS.directory}`)) parts.push(`SELECT '${GIT_KINDS.directory}', count(*)::text FROM ${GIT_TABLES.directory} d JOIN edge e ON e.to_node = d.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')`);
-    if (this.holds(`${GIT_KINDS.file}`)) parts.push(`SELECT '${GIT_KINDS.file}', count(*)::text FROM ${GIT_TABLES.file} f JOIN edge e ON e.to_node = f.node_id AND e.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.contains}')`);
-    if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.history}'`);
-    if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}', count(*)::text FROM ${GIT_TABLES.signature} s WHERE EXISTS (SELECT 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.node_id)`);
-    for (const decl of this.generated?.values() ?? []) parts.push(`SELECT ${quoteLiteral(decl.kind)} AS kind, count(*)::text AS n FROM ${decl.table} t WHERE t.tombstone = false`);
+    const ofKind = (name: string, alias: string): string => `node ${alias} JOIN entity e_${alias} ON e_${alias}.id = ${alias}.entity_id AND e_${alias}.name = '${name}'`;
+    if (this.holds(`${GIT_KINDS.repository}`)) parts.push(`SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM ${ofKind(GIT_KINDS.repository, 'r')} WHERE NOT r.removed`);
+    if (this.holds(`${GIT_KINDS.directory}`)) parts.push(`SELECT '${GIT_KINDS.directory}', count(*)::text FROM ${ofKind(GIT_KINDS.directory, 'd')} JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')`);
+    if (this.holds(`${GIT_KINDS.file}`)) parts.push(`SELECT '${GIT_KINDS.file}', count(*)::text FROM ${ofKind(GIT_KINDS.file, 'f')} JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')`);
+    if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}'`);
+    if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}', count(*)::text FROM ${ofKind(GIT_KINDS.signature, 's')} WHERE EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id)`);
+    for (const decl of this.generated?.values() ?? []) parts.push(`SELECT ${quoteLiteral(decl.kind)} AS kind, count(DISTINCT n.id)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed`);
     if (parts.length === 0) return [];
     return await this.run(async (tx) => {
       const found = await tx.query<{ kind: string; n: string }>(parts.join(' UNION ALL '));
@@ -698,11 +744,13 @@ export class GraphReader {
   }
 
   private async entitiesOfKinds(tx: OuterTransaction, graphKinds: readonly string[]): Promise<GraphEntity[]> {
+    // A read of no code kind asks the store nothing: a product that declares only its own kinds holds no code table.
+    if (graphKinds.length === 0) return [];
     const found = await tx.query<Raw>(
       `${ENTITY_SELECT} WHERE k.name = ANY($1::text[])
-       AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR EXISTS (SELECT 1 FROM edge e JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.to_node = n.id))
-       AND (k.name <> '${GIT_KINDS.commit}' OR EXISTS (SELECT 1 FROM edge e JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.history}' WHERE e.to_node = n.id))
-       AND (k.name <> '${GIT_KINDS.signature}' OR EXISTS (SELECT 1 FROM edge e JOIN kind ek ON ek.id = e.kind_id AND ek.name = '${GIT_KINDS.authored}' WHERE e.from_node = n.id))
+       AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.to_node = n.id))
+       AND (k.name <> '${GIT_KINDS.commit}' OR EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.history}' WHERE e.to_node = n.id))
+       AND (k.name <> '${GIT_KINDS.signature}' OR EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.authored}' WHERE e.from_node = n.id))
        ORDER BY n.id`,
       [`{${graphKinds.join(',')}}`],
     );
@@ -713,7 +761,7 @@ export class GraphReader {
   private async generatedOfKinds(tx: OuterTransaction, kinds: readonly GeneratedKindRead[]): Promise<GraphEntity[]> {
     const entities: GraphEntity[] = [];
     for (const decl of kinds) {
-      const found = await tx.query<Raw>(`${generatedSelect(decl)} ORDER BY n.id`);
+      const found = await tx.query<Raw>(`${generatedSelect(decl)} ORDER BY node_id`);
       entities.push(...await this.generatedEntities(tx, decl, found.rows));
     }
     return entities;
@@ -727,7 +775,7 @@ export class GraphReader {
     const missing = ids.filter((id) => !held.has(id));
     if (missing.length === 0) return held;
     for (const decl of this.generated?.values() ?? []) {
-      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${missing.join(',')}}`]);
+      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY node_id`, [`{${missing.join(',')}}`]);
       for (const entity of await this.generatedEntities(tx, decl, rows.rows)) held.set(entity.nodeIds[0]!, entity);
     }
     return held;
@@ -743,7 +791,7 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<Record<string, string>>(
         `SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node
-         FROM edge e JOIN kind rk ON rk.id = e.kind_id
+         FROM edge e JOIN entity rk ON rk.id = e.entity_id
          WHERE rk.name = ANY($1::text[]) AND (e.from_node = ANY($2::bigint[]) OR e.to_node = ANY($2::bigint[]))`,
         [`{${[...new Set(wanted.map((one) => one.graph.kind))].join(',')}}`, `{${entity.nodeIds.join(',')}}`],
       );
@@ -779,7 +827,7 @@ export class GraphReader {
     const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
     return await this.run(async (tx) => {
       const found = await tx.query<{ id: string; other: string; discriminator: string }>(
-        `SELECT e.id::text AS id, e.${far}::text AS other, e.discriminator FROM edge e JOIN kind k ON k.id = e.kind_id
+        `SELECT e.id::text AS id, e.${far}::text AS other, e.discriminator FROM edge e JOIN entity k ON k.id = e.entity_id
          WHERE k.name = $1 AND e.${self} = ANY($2::bigint[]) ORDER BY e.${far}, e.id`,
         [graph.kind, `{${entity.nodeIds.join(',')}}`],
       );
@@ -808,7 +856,7 @@ export class GraphReader {
       const seen = new Set<string>([entity.key]);
       for (let step = 0; step < limit; step += 1) {
         const parent = await tx.query<{ node: string }>(
-          `SELECT e.from_node::text AS node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = $1 WHERE e.to_node = ANY($2::bigint[]) LIMIT 1`,
+          `SELECT e.from_node::text AS node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1 WHERE e.to_node = ANY($2::bigint[]) LIMIT 1`,
           [graph.kind, `{${current.nodeIds.join(',')}}`],
         );
         const id = parent.rows[0]?.node;
@@ -830,9 +878,9 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; hops: number }>(
         `WITH RECURSIVE reach(node_id, hops) AS (
-           SELECT e.to_node, 1 FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = $2 WHERE e.from_node = ANY($1::bigint[])
+           SELECT e.to_node, 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $2 WHERE e.from_node = ANY($1::bigint[])
            UNION
-           SELECT e.to_node, p.hops + 1 FROM reach p JOIN edge e ON e.from_node = p.node_id JOIN kind k ON k.id = e.kind_id AND k.name = $2 WHERE p.hops < $3::int
+           SELECT e.to_node, p.hops + 1 FROM reach p JOIN edge e ON e.from_node = p.node_id JOIN entity k ON k.id = e.entity_id AND k.name = $2 WHERE p.hops < $3::int
          )
          SELECT node_id::text AS node, min(hops)::int AS hops FROM reach GROUP BY node_id ORDER BY hops, node_id`,
         [`{${entity.nodeIds.join(',')}}`, graph.kind, depth],
@@ -869,7 +917,7 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
         `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator
-         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = $1 ORDER BY e.from_node, e.to_node, e.discriminator, e.id`,
+         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1 ORDER BY e.from_node, e.to_node, e.discriminator, e.id`,
         [graph.kind],
       );
       const entities = await this.entitiesOfIds(tx, [...new Set(found.rows.flatMap((row) => [row.from_node, row.to_node]))]);
@@ -893,7 +941,7 @@ export class GraphReader {
     const ids = entities.flatMap((entity) => entity.nodeIds);
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; n: string }>(
-        `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = $1
+        `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
          WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
         [graph.kind, `{${ids.join(',')}}`],
       );
@@ -918,7 +966,7 @@ export class GraphReader {
     if (ids.length === 0) return counts;
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; n: string }>(
-        `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = $1
+        `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
          WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
         [graph.kind, `{${ids.join(',')}}`],
       );
@@ -933,19 +981,20 @@ export class GraphReader {
       const found = await tx.query<{ node: string; date: string | null; who: string | null; files: number; added: number; removed: number }>(
         `SELECT e.to_node::text AS node,
                 to_char(pc.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
-                s.name AS who,
+                (sn.key->>'name') AS who,
                 count(te.id)::int AS files,
                 coalesce(sum(t.added), 0)::int AS added,
                 coalesce(sum(t.removed), 0)::int AS removed
-         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
-         JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
-         JOIN ${GIT_TABLES.commit} pc ON pc.node_id = e.to_node
-         LEFT JOIN edge ae ON ae.to_node = pc.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
-         LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = ae.from_node
-         LEFT JOIN edge te ON te.from_node = pc.node_id AND te.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.touched}')
-         LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = te.id
+         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
+         JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true
+         JOIN node cn ON cn.id = e.to_node
+         LEFT JOIN LATERAL (SELECT o.commit_date FROM ${GIT_TABLES.commit} o WHERE o.node_id = cn.id AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git-history' ORDER BY o.id DESC LIMIT 1) pc ON true
+         LEFT JOIN edge ae ON ae.to_node = cn.id AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
+         LEFT JOIN node sn ON sn.id = ae.from_node
+         LEFT JOIN edge te ON te.from_node = cn.id AND te.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.touched}')
+         LEFT JOIN LATERAL (SELECT o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = te.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON true
          WHERE e.from_node = $1::bigint
-         GROUP BY e.to_node, pc.commit_date, s.name, pp.position
+         GROUP BY e.to_node, pc.commit_date, (sn.key->>'name'), pp.position
          ORDER BY pp.position`,
         [commit.nodeIds[0] ?? '0'],
       );
@@ -965,21 +1014,22 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; date: string | null; who: string | null }>(
         `WITH RECURSIVE first(commit) AS (
-           SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
-             JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id WHERE e.from_node = $1::bigint AND pp.position = 0
-           UNION SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+           SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
+             JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true WHERE e.from_node = $1::bigint AND pp.position = 0
+           UNION SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
              JOIN first f ON e.from_node = f.commit
          ), branch(commit) AS (
-           SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
-             JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id WHERE e.from_node = $1::bigint AND pp.position > 0
-           UNION SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+           SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
+             JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true WHERE e.from_node = $1::bigint AND pp.position > 0
+           UNION SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
              JOIN branch b ON e.from_node = b.commit WHERE e.to_node NOT IN (SELECT commit FROM first)
          )
-         SELECT c.node_id::text AS node, to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date, s.name AS who
-         FROM branch b JOIN ${GIT_TABLES.commit} c ON c.node_id = b.commit
-         LEFT JOIN edge ae ON ae.to_node = c.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
-         LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = ae.from_node
-         ORDER BY c.commit_date DESC, c.hash LIMIT $2::int`,
+         SELECT c.id::text AS node, to_char(co.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date, (sn.key->>'name') AS who
+         FROM branch b JOIN node c ON c.id = b.commit
+         LEFT JOIN LATERAL (SELECT o.commit_date, o.subject FROM ${GIT_TABLES.commit} o WHERE o.node_id = c.id AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git-history' ORDER BY o.id DESC LIMIT 1) co ON true
+         LEFT JOIN edge ae ON ae.to_node = c.id AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
+         LEFT JOIN node sn ON sn.id = ae.from_node
+         ORDER BY co.commit_date DESC, (c.key->>'hash') LIMIT $2::int`,
         [commit.nodeIds[0] ?? '0', limit],
       );
       const entities = await this.entitiesOfIds(tx, found.rows.map((row) => row.node));
@@ -995,14 +1045,14 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; change: string; added: string | null; removed: string | null; previous: string | null; symbols: number; total: number }>(
         `SELECT e.to_node::text AS node, t.change, t.added::text AS added, t.removed::text AS removed,
-                pp.text AS previous,
-                (SELECT count(*)::int FROM edge se JOIN kind sk ON sk.id = se.kind_id AND sk.name = '${GIT_KINDS.contains}' WHERE se.from_node = e.to_node) AS symbols,
+                (pn.key->>'path') AS previous,
+                (SELECT count(*)::int FROM edge se JOIN entity sk ON sk.id = se.entity_id AND sk.name = '${GIT_KINDS.contains}' WHERE se.from_node = e.to_node) AS symbols,
                 count(*) OVER ()::int AS total
-         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
-         JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
-         JOIN ${GIT_TABLES.commit} ct ON ct.node_id = e.from_node
-         LEFT JOIN edge r ON r.from_node = e.to_node AND r.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = ct.hash
-         LEFT JOIN ${GIT_TABLES.file} pf ON pf.node_id = r.to_node LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = pf.path_id
+         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
+         JOIN LATERAL (SELECT o.change, o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON true
+         JOIN node ct ON ct.id = e.from_node
+         LEFT JOIN edge r ON r.from_node = e.to_node AND r.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = (ct.key->>'hash')
+         LEFT JOIN node pn ON pn.id = r.to_node
          WHERE e.from_node = $1::bigint
          ORDER BY e.to_node LIMIT $2::int`,
         [commit.nodeIds[0] ?? '0', limit],
@@ -1033,38 +1083,39 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const summary = await tx.query<{ commits: number; merges: number; authors: number; since: string | null; until: string | null }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}'
+           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
            WHERE he.from_node = $1::bigint
          )
          SELECT count(*)::int AS commits,
                 count(*) FILTER (WHERE (
-                  SELECT count(*) FROM edge pe JOIN kind pk ON pk.id = pe.kind_id AND pk.name = '${GIT_KINDS.parent}'
+                  SELECT count(*) FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}'
                   WHERE pe.from_node = hc.commit
                 ) > 1)::int AS merges,
-                (SELECT count(DISTINCT ae.from_node)::int FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
+                (SELECT count(DISTINCT ae.from_node)::int FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
                   JOIN hc h2 ON h2.commit = ae.to_node) AS authors,
-                to_char(min(c.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS since,
-                to_char(max(c.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS until
-         FROM hc JOIN ${GIT_TABLES.commit} c ON c.node_id = hc.commit`,
+                to_char(min(co.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS since,
+                to_char(max(co.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS until
+         FROM hc JOIN node c ON c.id = hc.commit
+         LEFT JOIN LATERAL (SELECT o.commit_date FROM ${GIT_TABLES.commit} o WHERE o.node_id = c.id AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git-history' ORDER BY o.id DESC LIMIT 1) co ON true`,
         [scope],
       );
       const row = summary.rows[0] ?? { commits: 0, merges: 0, authors: 0, since: null, until: null };
       const hotspots = await tx.query<{ node: string; n: number }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}'
+           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
            WHERE he.from_node = $1::bigint
          )
          SELECT e.to_node::text AS node, count(*)::int AS n
-         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
          JOIN hc ON hc.commit = e.from_node
-         WHERE (SELECT count(*) FROM edge pe JOIN kind pk ON pk.id = pe.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = e.from_node) <= 1
+         WHERE (SELECT count(*) FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = e.from_node) <= 1
          GROUP BY 1`,
         [scope],
       );
       // A rename joins two paths into one identity: the hotspots are the identity's, as the history projection reads them.
       const renamed = await tx.query<{ from: string; to: string }>(
         `SELECT e.from_node::text AS "from", e.to_node::text AS "to" FROM edge e
-         JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.renamedFrom}'
+         JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.renamedFrom}'
          WHERE e.from_node = ANY($1::bigint[])`,
         [`{${hotspots.rows.map((one) => one.node).join(',') || '0'}}`],
       );
@@ -1079,11 +1130,11 @@ export class GraphReader {
       const hotspotEntities = await this.entitiesOfIds(tx, [...merged.keys()]);
       const authors = await tx.query<{ node: string; n: number }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}'
+           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
            WHERE he.from_node = $1::bigint
          )
          SELECT ae.from_node::text AS node, count(*)::int AS n
-         FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
+         FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
          JOIN hc ON hc.commit = ae.to_node GROUP BY 1`,
         [scope],
       );
@@ -1107,10 +1158,10 @@ export class GraphReader {
       const found = await tx.query<Raw>(
         `${ENTITY_SELECT} WHERE
            n.id = $1::bigint
-           OR f.repository_node = $1::bigint OR d.repository_node = $1::bigint
-           OR n.id IN (SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint)
-           OR n.id IN (SELECT ae.from_node FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
-                        JOIN edge h ON h.to_node = ae.to_node AND h.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.history}') WHERE h.from_node = $1::bigint)
+           OR (n.key->'repository'->'key'->>'name') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
+           OR n.id IN (SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint)
+           OR n.id IN (SELECT ae.from_node FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
+                        JOIN edge h ON h.to_node = ae.to_node AND h.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') WHERE h.from_node = $1::bigint)
          ORDER BY n.id`,
         [scope],
       );
@@ -1118,18 +1169,18 @@ export class GraphReader {
       const byId = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
       const edges = await tx.query<{ id: string; relation: string; from_node: string; to_node: string; discriminator: string; change: string | null; added: string | null; removed: string | null; position: number | null; walk: number | null }>(
         `WITH evidence_nodes AS (
-           SELECT n.id FROM node n LEFT JOIN ${GIT_TABLES.file} f ON f.node_id = n.id LEFT JOIN ${GIT_TABLES.directory} d ON d.node_id = n.id
-           WHERE n.id = $1::bigint OR f.repository_node = $1::bigint OR d.repository_node = $1::bigint
-             OR n.id IN (SELECT he.to_node FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}' WHERE he.from_node = $1::bigint)
-             OR n.id IN (SELECT ae.from_node FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
-                          JOIN edge he ON he.to_node = ae.to_node AND he.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.history}') WHERE he.from_node = $1::bigint)
+           SELECT n.id FROM node n
+           WHERE n.id = $1::bigint OR (n.key->'repository'->'key'->>'name') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
+             OR n.id IN (SELECT he.to_node FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}' WHERE he.from_node = $1::bigint)
+             OR n.id IN (SELECT ae.from_node FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
+                          JOIN edge he ON he.to_node = ae.to_node AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') WHERE he.from_node = $1::bigint)
          )
          SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
                 e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk
-         FROM edge e JOIN kind rk ON rk.id = e.kind_id
-         LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
-         LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
-         LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+         FROM edge e JOIN entity rk ON rk.id = e.entity_id
+         LEFT JOIN LATERAL (SELECT o.change, o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON true
+         LEFT JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true
+         LEFT JOIN LATERAL (SELECT o.walk FROM ${GIT_TABLES.history} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
          WHERE rk.name IN ('${GIT_KINDS.contains}', '${GIT_KINDS.touched}', '${GIT_KINDS.authored}', '${GIT_KINDS.parent}', '${GIT_KINDS.renamedFrom}')
            AND e.from_node IN (SELECT id FROM evidence_nodes) AND e.to_node IN (SELECT id FROM evidence_nodes)
          ORDER BY rk.name, e.from_node, e.to_node, e.id`,
@@ -1166,18 +1217,18 @@ export class GraphReader {
       const edgeRows = shape === 'author'
         ? await tx.query<Raw>(
           `WITH authored AS (
-             SELECT e.to_node AS id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = ANY($1::bigint[])
+             SELECT e.to_node AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = ANY($1::bigint[])
            ), touched AS (
-             SELECT e.id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             SELECT e.id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
              WHERE e.from_node IN (SELECT id FROM authored)
-               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+               AND (SELECT count(*) FROM edge p JOIN entity pk ON pk.id = p.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
            )
            SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
                   e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk
-           FROM edge e JOIN kind rk ON rk.id = e.kind_id
-           LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
-           LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
-           LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+           FROM edge e JOIN entity rk ON rk.id = e.entity_id
+           LEFT JOIN LATERAL (SELECT o.change, o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON true
+           LEFT JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true
+           LEFT JOIN LATERAL (SELECT o.walk FROM ${GIT_TABLES.history} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
            WHERE (rk.name = '${GIT_KINDS.authored}' AND e.from_node = ANY($1::bigint[]))
               OR (rk.name = '${GIT_KINDS.touched}' AND e.id IN (SELECT id FROM touched))`,
           [ids],
@@ -1188,15 +1239,15 @@ export class GraphReader {
              UNION
              SELECT CASE WHEN e.from_node = f.id THEN e.to_node ELSE e.from_node END
              FROM focus f JOIN edge e ON e.from_node = f.id OR e.to_node = f.id
-             JOIN kind rk ON rk.id = e.kind_id AND rk.name = '${GIT_KINDS.renamedFrom}'
+             JOIN entity rk ON rk.id = e.entity_id AND rk.name = '${GIT_KINDS.renamedFrom}'
            ), focus_commits AS (
-             SELECT DISTINCT e.from_node AS id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             SELECT DISTINCT e.from_node AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
              WHERE e.to_node IN (SELECT id FROM focus)
-               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+               AND (SELECT count(*) FROM edge p JOIN entity pk ON pk.id = p.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
            ), coupled_all AS (
-             SELECT e.to_node AS id, count(DISTINCT e.from_node) AS n FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             SELECT e.to_node AS id, count(DISTINCT e.from_node) AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
              WHERE e.from_node IN (SELECT id FROM focus_commits) AND e.to_node NOT IN (SELECT id FROM focus)
-               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+               AND (SELECT count(*) FROM edge p JOIN entity pk ON pk.id = p.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
              GROUP BY 1 HAVING count(DISTINCT e.from_node) >= 2
            ), coupled AS (
              SELECT id, n FROM coupled_all ORDER BY n DESC, id LIMIT $2
@@ -1206,10 +1257,10 @@ export class GraphReader {
            SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
                   e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk,
                   (SELECT count(*)::text FROM coupled_all) AS coupling_total
-           FROM edge e JOIN kind rk ON rk.id = e.kind_id
-           LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
-           LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
-           LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+           FROM edge e JOIN entity rk ON rk.id = e.entity_id
+           LEFT JOIN LATERAL (SELECT o.change, o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON true
+           LEFT JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true
+           LEFT JOIN LATERAL (SELECT o.walk FROM ${GIT_TABLES.history} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
            WHERE (rk.name = '${GIT_KINDS.touched}' AND e.to_node IN (SELECT id FROM included) AND e.from_node IN (SELECT id FROM focus_commits))
               OR (rk.name = '${GIT_KINDS.authored}' AND e.to_node IN (SELECT id FROM focus_commits))
               OR rk.name IN ('${GIT_KINDS.renamedFrom}', '${GIT_KINDS.contains}', 'imports')`,
@@ -1244,7 +1295,7 @@ export class GraphReader {
   async repositories(): Promise<{ nodeId: string; path: string }[]> {
     if (this.declared !== undefined && this.declared.size === 0) return [];
     return await this.run(async (tx) => {
-      const found = await tx.query<{ node_id: string; name: string }>(`SELECT node_id::text AS node_id, name FROM ${GIT_TABLES.repository} ORDER BY name`);
+      const found = await tx.query<{ node_id: string; name: string }>(`SELECT n.id::text AS node_id, (n.key->>'name') AS name FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE NOT n.removed ORDER BY name`);
       return found.rows.map((row) => ({ nodeId: row.node_id, path: row.name }));
     });
   }
