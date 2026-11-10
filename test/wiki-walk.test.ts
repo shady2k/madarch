@@ -80,7 +80,7 @@ function cleanBlocks(language: string): Block[] {
       data: {
         repository: 'orders', folder: '', graphTotal: 1, windows: { d30: '2026-10-11T00:00:00Z', d90: '2026-08-12T00:00:00Z', d365: '2025-11-10T00:00:00Z' },
         totals: { files: 1, lines: 40, bytes: 400, withoutLines: 0, other: 0, languages: [{ name: 'Go', files: 1, lines: 40, bytes: 400 }] },
-        files: [{ id: 'code.file:services/orders/main.go', path: 'services/orders/main.go', href: null, lines: 40, bytes: 400, language: 'Go', heat: [0, 1, 1, 1], last: '2026-10-01T00:00:00Z', authors: ['Ada'] }],
+        files: [{ id: 'code.file:services/orders/main.go', path: 'services/orders/main.go', href: null, lines: 40, bytes: 400, language: 'Go', languages: [{ language: 'Go', saidBy: 'linguist@9.5.0' }], heat: [0, 1, 1, 1], last: '2026-10-01T00:00:00Z', authors: ['Ada'] }],
       },
     },
     {

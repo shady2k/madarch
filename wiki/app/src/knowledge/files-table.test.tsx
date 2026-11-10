@@ -50,7 +50,7 @@ function pick(select: HTMLSelectElement, value: string): void {
 
 const file = (path: string, lines: number, heat: [number, number, number, number], language: string | null, authors: string[], last: string | null): FilesMapFile => ({
   id: `code.file:shop/${path}`, path, href: `/e/${encodeURIComponent(`code.file:shop/${path}`)}`,
-  lines, bytes: lines * 10, language, heat, last, authors,
+  lines, bytes: lines * 10, language, languages: language === null ? [] : [{ language, saidBy: 'linguist@9.5.0' }], heat, last, authors,
 });
 
 const DATA: FilesMap = {
@@ -91,6 +91,23 @@ describe('the file table', () => {
     expect(container.querySelector<HTMLButtonElement>('[data-testid=files-next]')!.disabled).toBe(true);
     container.querySelector<HTMLButtonElement>('[data-testid=files-prev]')!.click();
     await until(() => rows(container).join(',') === 'docs/readme.md,src/checkout.ts', 'the first page again');
+  });
+
+  test("a file's open language opinions all stand, with their sources; no producer is picked", async () => {
+    const disagreed = { ...file('src/order.go', 400, [1, 4, 7, 9], null, ['Ada'], '2026-11-01T10:00:00Z'), languages: [{ language: 'TypeScript', saidBy: 'linguist@9.5.0' }, { language: 'XML', saidBy: 'agent' }] };
+    const unknown = { ...file('src/pricing.go', 100, [0, 1, 2, 2], null, ['Ada'], '2026-10-20T10:00:00Z'), languages: [{ language: 'unknown', saidBy: 'linguist@9.5.0' }] };
+    const data = { ...DATA, files: [disagreed, unknown] };
+    const container = into(createElement(BlockView, { block: block({ data, pageSize: 10 }), resolutions: {} }));
+    await until(() => container.querySelectorAll('[data-testid=files-row]').length === 2, 'both rows');
+    const cells = [...container.querySelectorAll('[data-testid=files-row] td:nth-child(2)')];
+    // Two opinions that disagree name both languages; the dataset's `unknown` reads as the reader's word for other.
+    expect(cells.map((cell) => cell.textContent)).toEqual(['TypeScript · XML', 'Other']);
+    expect(cells[0]!.getAttribute('title')).toBe('TypeScript — linguist@9.5.0\nXML — agent');
+    expect(cells[1]!.getAttribute('title')).toBe('Other — linguist@9.5.0');
+    // The colour and the filter see no one language for either file: Other.
+    const filter = container.querySelector<HTMLSelectElement>('[data-testid=files-filter-language]')!;
+    expect([...filter.options].some((option) => option.value === 'TypeScript')).toBe(false);
+    expect([...filter.options].some((option) => option.value === '__other')).toBe(true);
   });
 
   test('a text, a language and a range of the measure each narrow the rows', () => {

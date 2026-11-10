@@ -11,6 +11,7 @@ import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 import { filesBlock, treemapBlock } from '../src/knowledge/diagrams.js';
 import { readFilesMap } from '../src/knowledge/files-map.js';
 import { GraphReader, type FileRhythm, type GraphEntity } from '../src/knowledge/graph-read.js';
+import type { HeldOpinion } from '../src/graph/records.js';
 import type { Block } from '../src/knowledge/model.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { byCodePoint } from '../src/model/order.js';
@@ -42,7 +43,8 @@ class FixtureReader extends GraphReader {
         path: String(entity.properties['path']), mode: null, blob: null, form: 'text' as const,
         bytes: entity.properties['bytes'] as number, lines: entity.properties['lines'] as number,
         language: (entity.properties['language'] as string | undefined) ?? null,
-        candidates: entity.properties['candidates'] as readonly string[],
+        candidates: [],
+        opinions: opinionsOfFile.get(entity) ?? [],
       }));
     const shown = rows.slice(0, options.limit);
     return { rows: shown, next: rows.length > options.limit ? shown[shown.length - 1]!.path : null };
@@ -57,23 +59,35 @@ class FixtureReader extends GraphReader {
   }
 }
 
-type FileFacts = { lines?: number | null; bytes?: number | null; language?: string | null; candidates?: string[] };
+type FileFacts = { lines?: number | null; bytes?: number | null; language?: string | null; opinions?: { language: string; saidBy: string }[] };
 
-const fileRow = (path: string, facts: FileFacts = {}): GraphEntity => ({
-  key: `code.file:${REPO}/${path}`,
-  kind: 'code.file',
-  label: path,
-  properties: {
-    repository: REPO, path,
-    ...(facts.lines === undefined ? {} : { lines: facts.lines }),
-    ...(facts.bytes === undefined ? { bytes: 100 } : { bytes: facts.bytes }),
-    ...(facts.language === undefined ? {} : { language: facts.language }),
-    candidates: facts.candidates ?? (typeof facts.language === 'string' ? [facts.language] : []),
-  },
-  nodeIds: [],
-  scope: SCOPE,
-  span: { path, lineStart: 1, lineEnd: 2, byteStart: 0, byteEnd: 10 },
-});
+/** The language opinions of each fixture row: the file read answers them beside the row's agreed values. */
+const opinionsOfFile = new WeakMap<GraphEntity, HeldOpinion[]>();
+
+const fileRow = (path: string, facts: FileFacts = {}): GraphEntity => {
+  const entity: GraphEntity = {
+    key: `code.file:${REPO}/${path}`,
+    kind: 'code.file',
+    label: path,
+    properties: {
+      repository: REPO, path,
+      ...(facts.lines === undefined ? {} : { lines: facts.lines }),
+      ...(facts.bytes === undefined ? { bytes: 100 } : { bytes: facts.bytes }),
+      ...(facts.language === undefined ? {} : { language: facts.language }),
+    },
+    nodeIds: [],
+    scope: SCOPE,
+    span: { path, lineStart: 1, lineEnd: 2, byteStart: 0, byteEnd: 10 },
+  };
+  // The language opinions the file's open opinions state, as the file read answers them: every value with its source.
+  if (facts.opinions !== undefined || facts.language !== undefined) {
+    opinionsOfFile.set(entity, (facts.opinions ?? [{ language: facts.language as string, saidBy: 'linguist@9.5.0' }]).map((one, index) => ({
+      id: `opinion-${String(index)}`, saidBy: one.saidBy, producer: one.saidBy.split('@')[0]!, lang: one.language,
+      evidence: [], values: { lang: one.language },
+    })));
+  }
+  return entity;
+};
 
 const DAY = 86_400_000;
 const NOW = new Date('2026-11-10T00:00:00Z');
@@ -115,8 +129,8 @@ test('the totals count what the graph holds: files, lines, bytes and the languag
     fileRow('src/a.ts', { lines: 100, bytes: 900, language: 'TypeScript' }),
     fileRow('src/b.ts', { lines: 50, bytes: 400, language: 'TypeScript' }),
     fileRow('README.md', { lines: 20, bytes: 200, language: 'Markdown' }),
-    fileRow('package.json', { lines: 30, bytes: 300, language: null, candidates: ['JSON', 'OASv3-json'] }),
-    fileRow('logo.png', { lines: null, bytes: 5000, language: null, candidates: [] }),
+    fileRow('package.json', { lines: 30, bytes: 300, opinions: [{ language: 'JSON', saidBy: 'linguist@9.5.0' }, { language: 'OASv3-json', saidBy: 'agent' }] }),
+    fileRow('logo.png', { lines: null, bytes: 5000 }),
   ]);
   const block = await treemapOf(ctx);
   expect(block.data.totals.files).toBe(5);
@@ -150,13 +164,20 @@ test('a file the dataset calls unknown is Other, the same word as a file whose c
   const ctx = fixture([
     fileRow('src/a.ts', { lines: 10, language: 'TypeScript' }),
     fileRow('bun.lock', { lines: 5, language: 'unknown' }),
-    fileRow('docs/a.md', { lines: 5, language: null, candidates: ['GCC Machine Description', 'Markdown'] }),
+    fileRow('docs/a.md', { lines: 5, opinions: [{ language: 'GCC Machine Description', saidBy: 'linguist@9.5.0' }, { language: 'Markdown', saidBy: 'agent' }] }),
   ]);
   const block = await treemapOf(ctx);
   // One thing for a reader: no single language yet. It is counted once and is no language of the sentence.
   expect(block.data.totals.other).toBe(2);
   expect(block.data.totals.languages.map((entry) => entry.name)).toEqual(['TypeScript']);
   expect(block.data.files.find((file) => file.path === 'bun.lock')!.language).toBeNull();
+  // Every open value stands with its source, and the file's five values are never narrowed to one.
+  const disagreed = block.data.files.find((file) => file.path === 'docs/a.md')!;
+  expect(disagreed.language).toBeNull();
+  expect(disagreed.languages).toEqual([
+    { language: 'GCC Machine Description', saidBy: 'linguist@9.5.0' },
+    { language: 'Markdown', saidBy: 'agent' },
+  ]);
   expect(block.notes.some((note) => note.includes('no single language yet'))).toBe(true);
   expect(block.notes.join(' ')).not.toContain('unknown');
   expect(block.notes.join(' ')).not.toContain('candidates');
@@ -166,7 +187,7 @@ test('the note about files without one language is written for a reader, in the 
   const ctx = fixture([
     fileRow('src/a.ts', { lines: 10, language: 'TypeScript' }),
     fileRow('bun.lock', { lines: 5, language: 'unknown' }),
-    fileRow('docs/a.md', { lines: 5, language: null, candidates: ['Markdown'] }),
+    fileRow('docs/a.md', { lines: 5, opinions: [{ language: 'Markdown', saidBy: 'linguist@9.5.0' }, { language: 'GCC Machine Description', saidBy: 'agent' }] }),
   ]);
   const english = await treemapBlock(ctx, subject, {}, 'templates/repository.liquid', 4, 'en');
   if (english.type !== 'treemap') throw new Error(`the map came back as ${english.type}`);

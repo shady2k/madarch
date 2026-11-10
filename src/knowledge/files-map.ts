@@ -31,6 +31,12 @@ export const FILES_MAP_COLOURS: readonly FilesMapColour[] = ['language', 'heat',
 export const FILES_MAP_WINDOWS: readonly FilesMapWindow[] = ['30d', '90d', '1y', 'all'];
 export const FILES_MAP_ENGINES: readonly FilesMapEngine[] = ['echarts', 'mermaid'];
 
+/** One open opinion's language and its source: a value is never shown without the opinion that stated it. */
+export interface FilesMapLanguageOpinion {
+  readonly language: string;
+  readonly saidBy: string;
+}
+
 /** One file of the map: the facts both the picture and the table show. */
 export interface FilesMapFile {
   /** The graph entity's key (`code.file:<repository>/<path>`), which orders the table and its cursors. */
@@ -40,8 +46,10 @@ export interface FilesMapFile {
   href: string | null;
   lines: number | null;
   bytes: number | null;
-  /** The accepted language, or null when the claims name candidates and no one language. */
+  /** The one language every open opinion names, or null when they name several or none (one is never picked). */
   language: string | null;
+  /** Every open opinion's language and the producer that stated it, in code-point order of value then source. */
+  languages: readonly FilesMapLanguageOpinion[];
   /** Commits that touched the file: the last 30 days, 90 days, a year, the whole history. */
   heat: readonly [number, number, number, number];
   /** The last change, as the graph states it (ISO 8601 with its offset), or null when no commit touched the file. */
@@ -156,7 +164,7 @@ async function readFilesMapUncached(
   // One repository's files, read by its own pages: a page of the map may not walk every file of every repository the
   // product holds. The read stops at the block's limit, and the map says what it left out (its page knows the
   // repository's count; a folder's count is known only when its last page was read).
-  const inside: { path: string; lines: number | null; bytes: number | null; language: string | null }[] = [];
+  const inside: { path: string; lines: number | null; bytes: number | null; languages: FilesMapLanguageOpinion[] }[] = [];
   let after: string | undefined;
   let exhausted = false;
   for (;;) {
@@ -167,7 +175,10 @@ async function readFilesMapUncached(
     });
     for (const row of page.rows) {
       if (inside.length >= options.limit) break;
-      inside.push({ path: row.path, lines: row.lines, bytes: row.bytes, language: row.language });
+      // Every open opinion's language is a value with its source (decision 0034 item 7; A4): no producer is filtered
+      // out and no opinion is preferred over another.
+      const opinions = (row.opinions ?? []).flatMap((opinion) => (opinion.lang === null ? [] : [{ language: opinion.lang, saidBy: opinion.saidBy }]));
+      inside.push({ path: row.path, lines: row.lines, bytes: row.bytes, languages: opinions });
     }
     if (page.next === null) { exhausted = true; break; }
     if (inside.length >= options.limit) break;
@@ -192,16 +203,17 @@ async function readFilesMapUncached(
   let bytes = 0;
   const files: FilesMapFile[] = inside.map((file) => {
     const path = file.path;
-    const language = file.language;
+    const languageOpinions = [...file.languages].sort((left, right) => byCodePoint(left.language, right.language) || byCodePoint(left.saidBy, right.saidBy));
+    // A file's language is what its open opinions state. Where they name one language it is that language; where they
+    // name several the file has several values and the page never picks one (it draws the file as Other and lists every
+    // value with its source); the dataset's `unknown` names no language and reads as Other with the rest.
+    const distinct = [...new Set(languageOpinions.map((one) => (one.language === UNKNOWN_LANGUAGE ? null : one.language)))];
+    const drawn = distinct.length === 1 ? distinct[0] ?? null : null;
     const fileLines = file.lines;
     const fileBytes = file.bytes;
     if (fileLines === null) withoutLines += 1;
     else lines += fileLines;
     if (fileBytes !== null) bytes += fileBytes;
-    // The language a file is drawn by is the one its claims accept. A file whose claims name several candidates has no
-    // accepted one (decision 0034 item 7: a claimed field's accepted value is computed, never picked by a reader), and
-    // the dataset's `unknown` names no language either: both are one thing to a reader — Other — and are counted once.
-    const drawn = language === UNKNOWN_LANGUAGE ? null : language;
     if (drawn === null) other += 1;
     else {
       const held = languages.get(drawn) ?? { name: drawn, files: 0, lines: 0, bytes: 0 };
@@ -221,6 +233,7 @@ async function readFilesMapUncached(
       lines: fileLines,
       bytes: fileBytes,
       language: drawn,
+      languages: languageOpinions,
       heat,
       last: last === null ? null : new Date(last).toISOString(),
       authors: [...authors].sort(byCodePoint),

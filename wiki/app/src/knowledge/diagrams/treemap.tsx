@@ -17,7 +17,7 @@ import { folderLevel, mermaidTreemap } from '../../../../../src/knowledge/files-
 import { MermaidDiagram } from '../../diagram.js';
 import { DiagramOpenContext } from './open.js';
 import { Fullscreenable, fullscreenHeight, useFullscreen } from './fullscreen.js';
-import { countText, drawnLanguage, heatOf, LANGUAGE_COLOURS, linesText, maxMeasure, measureOf, RAMPS, WINDOWS, type Ramp } from '../files-measure.js';
+import { countText, drawnLanguage, heatOf, LANGUAGE_COLOURS, languageSources, linesText, maxMeasure, measureOf, RAMPS, WINDOWS, type Ramp } from '../files-measure.js';
 import type { MapCell } from './files-echart.js';
 
 const EChartsTreemap = lazy(() => import('./files-echart.js').then((module) => ({ default: module.EChartsTreemap })));
@@ -167,7 +167,7 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
     return [
       file.path,
       `${t('knowledge.files.colLines')}: ${file.lines === null ? '—' : countText(file.lines)} · ${t('knowledge.files.colBytes')}: ${file.bytes === null ? '—' : countText(file.bytes)}`,
-      `${t('knowledge.files.colLanguage')}: ${drawnLanguage(file) ?? t('knowledge.files.other')}`,
+      `${t('knowledge.files.colLanguage')}: ${languageSources(file, t('knowledge.files.other')).join(' · ') || t('knowledge.files.other')}`,
       `${t('knowledge.files.colHeat')} (${t(`knowledge.files.window.${window}`)}): ${String(heatOf(file, window))}`,
       `${t('knowledge.files.colLast')}: ${dateText(file.last, language)}`,
       `${t('knowledge.files.colAuthors')}: ${file.authors.length === 0 ? '—' : file.authors.join(', ')}`,
