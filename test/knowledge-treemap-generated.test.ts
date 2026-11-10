@@ -39,6 +39,10 @@ class FixtureReader extends GraphReader {
     this.relations.push(relation);
     return new Map<string, number>(keys.map((key): [string, number] => [key, this.touched.get(key) ?? 0]));
   }
+  override async inDegreesOf(relation: string, entities: readonly GraphEntity[]): Promise<Map<string, number>> {
+    this.relations.push(relation);
+    return new Map<string, number>(entities.map((entity): [string, number] => [entity.key, this.touched.get(entity.key) ?? 0]));
+  }
 }
 
 const SCOPE = 'repo';

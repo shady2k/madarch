@@ -960,7 +960,9 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   // declares it generated or vendored). No file name is special here, so the picture and the note name none.
   const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
   const lockPaths = new Set(locks.rows.map((lock) => lockPathOf(lock.key)));
-  const churn = await ctx.graph.inDegreesOf('code.touched', found.rows);
+  const churn = typeof ctx.graph.inDegreesOf === 'function'
+    ? await ctx.graph.inDegreesOf('code.touched', found.rows)
+    : await ctx.graph.inDegrees('code.touched', found.rows.map((file) => file.key));
   let lockfiles = 0;
   let declared = 0;
   const files: TreemapFile[] = [];
