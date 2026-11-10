@@ -119,13 +119,13 @@ describe('the two passes over one fixture', () => {
   test('every opinion event of the tree and the history pass names its vertex by uid and its own producer', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { opinions: { node?: string; said_by: string; state: string; values?: Record<string, unknown>; evidence?: unknown[]; context?: number; said_at?: string }[] } }>(
-      `SELECT change FROM operation WHERE author IN ('git-tree@1', 'git-history@1') ORDER BY at`,
+      `SELECT change FROM operation WHERE author IN ('git-tree@1', 'git-history@1') ORDER BY seq`,
     ));
     const opinions = entries.rows.flatMap((row) => row.change.opinions);
     expect(opinions.length).toBeGreaterThan(10);
     // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
     // a replay names no local id of this store.
-    expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof one.edge === 'string')).toBe(true);
+    expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
     // The tree entry's author is the tree, and the event of the language dataset says its own producer.
     expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toContain('linguist');
     // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.

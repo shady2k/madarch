@@ -199,8 +199,8 @@ export async function writeJournal(executor: SqlExecutor, journal: Journal): Pro
     'journal.bytes': Buffer.byteLength(text, 'utf8'),
     'journal.encode_ms': Math.round(encoded * 10) / 10,
   }, async () => await executor.query(
-    // `at` is when the row was written, not when its transaction opened: the rows of one publication are written in
-    // order inside one transaction, and a replay plays them in that order.
+    // The row's number is the journal's order (`seq`, assigned by the table when the row is inserted); `at` states when
+    // the row was written and orders nothing (codex, stage 2 review, P2).
     `INSERT INTO operation (author, machine, session, words, change, at) VALUES ($1, $2, $3, $4, $5::jsonb, clock_timestamp())`,
     [journal.author, journal.machine, journal.session, journal.words, text],
   ));
@@ -432,7 +432,7 @@ function paramOf(value: unknown): unknown {
  * digest, its context and the moment it was said), a re-evidenced one the grounds that replaced its own, and a closed
  * one its id — the row it names is the state, and replay drops it from there.
  */
-async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string): Promise<boolean> {
+async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string, translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string }): Promise<boolean> {
   const columns = fields;
   const producer = saidBy.slice(0, saidBy.lastIndexOf('@') < 0 ? saidBy.length : saidBy.lastIndexOf('@'));
   const stated = [...values.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field);
@@ -463,8 +463,10 @@ async function stateOpinion(executor: SqlExecutor, entity: string, table: string
     await executor.query(`UPDATE ${table} SET "state" = 'closed' WHERE "id" = $1::bigint`, [String(open['id'])]);
     journal?.opinion({ id: String(open['id']), ...placeOf(open['owner_uid']), state: 'closed', fields: stated, lang, said_by: String(open['said_by'] ?? saidBy) });
   }
-  const insertColumns = [...columns, 'said_by', 'lang', 'evidence', 'context_id', owner];
-  const params: unknown[] = [...columns.map((column) => paramOf(values.get(column))), saidBy, lang, canonicalJson(evidence), String(contextId), ownerId];
+  // A translation states the opinion it was translated from and the digest of its source beside its language
+  // (madarch-stm0.5); an opinion that is no translation states neither.
+  const insertColumns = [...columns, 'said_by', 'lang', 'evidence', 'translated_from', 'source_digest', 'context_id', owner];
+  const params: unknown[] = [...columns.map((column) => paramOf(values.get(column))), saidBy, lang, canonicalJson(evidence), translation?.translatedFrom ?? null, translation?.sourceDigest ?? null, String(contextId), ownerId];
   const made = await executor.query<{ id: string; said_at: string; translated_from: string | null; source_digest: string | null; owner_uid?: string }>(
     `INSERT INTO ${table} (${insertColumns.map((column) => quote(column, 'column')).join(', ')}) VALUES (${insertColumns.map((_, at) => `$${String(at + 1)}`).join(', ')})
      RETURNING "id"::text AS id, to_char("said_at" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, "translated_from"::text AS translated_from, "source_digest"${ownerUid(insertColumns.length)}`,
@@ -484,11 +486,11 @@ async function stateOpinion(executor: SqlExecutor, entity: string, table: string
  * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
  * wrote, so a rerun of the same answer writes nothing.
  */
-export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
+export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
   const vertex = vertexOf(contract, draft.kind);
   const values = valuesOf(vertex, draft);
   const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
-  return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid);
+  return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) });
 }
 
 /**

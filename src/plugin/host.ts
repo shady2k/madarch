@@ -120,15 +120,17 @@ export interface RecordedRequest {
   readonly cause?: string;
 }
 
-/** How many requests one unit's debug journal keeps, and how many answer bytes it names before it stops. */
+/** How many requests one unit's debug journal keeps, and how many serialized bytes its records may take. */
 export const REQUEST_LOG_REQUESTS = 256;
 export const REQUEST_LOG_BYTES = 4 * 1024 * 1024;
 
 /**
  * The requests one unit made, kept in the host's dispatcher (codex, stage 2 review, items 5 and 6): a request is
- * recorded when it is received, so a refused, a failed and an abandoned one stand beside an answered one, and the
- * record holds a method, a size and a class — never an argument or a text. A bound states how much one unit may make
- * the journal hold: past it nothing more is kept, and the entry ends with one `truncated` record naming how many were.
+ * recorded when it is received — before the protocol and the dispatcher hold it to anything — so a malformed, a
+ * refused, a failed and an abandoned one stand beside an answered one, and the record holds a method, a size and a
+ * class, never an argument or a text. The bound is on the records themselves: how many one unit may make the entry
+ * hold, and how many bytes their serialization takes; past it nothing more is kept, and the entry ends with one
+ * `truncated` record naming how many were.
  */
 export class RequestLog {
   private readonly kept: { method: string; state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string }[] = [];
@@ -150,12 +152,14 @@ export class RequestLog {
   }
 
   /** States what came of one kept request; a slot settled after the log was emitted changes nothing. */
-  settle(slot: { state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string } | undefined, outcome: 'answered' | 'refused' | 'failed', size: number, cause?: string): void {
+  settle(slot: { method: string; state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string } | undefined, outcome: 'answered' | 'refused' | 'failed', size: number, cause?: string): void {
     if (slot === undefined || this.emitted !== undefined) return;
     slot.state = outcome;
     slot.size = size;
-    this.bytes += size;
     if (cause !== undefined) slot.cause = cause;
+    // What the bound counts is the entry these records make: their serialized bytes, never an answer's size (codex,
+    // stage 2 review, item 6).
+    this.bytes += Buffer.byteLength(JSON.stringify({ method: slot.method, size, outcome, ...(cause === undefined ? {} : { cause }) }), 'utf8');
   }
 
   /** The records an entry carries: a request still waiting is abandoned, and a bound hit leaves one marker. */
@@ -380,6 +384,13 @@ export class PluginHost {
     }
     const first = [...Value.Errors(PluginProtocolMessage, value)][0];
     if (first !== undefined) {
+      // A message the protocol does not hold is recorded before it is refused, under the method it named: a malformed
+      // graph request stands in the journal with its class, not only a well-formed refusal (codex, stage 2 review, 5).
+      const named = typeof value === 'object' && value !== null && typeof (value as { method?: unknown }).method === 'string' ? (value as { method: string }).method : '';
+      if (named !== '') {
+        const slot = this.options.requests?.begin(named);
+        this.options.requests?.settle(slot, 'refused', 0, 'malformed-message');
+      }
       this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a message the protocol does not hold: ${first.instancePath === '' ? 'the message' : first.instancePath.slice(1)} ${first.message}` });
       return;
     }
