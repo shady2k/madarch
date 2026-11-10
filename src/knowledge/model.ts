@@ -385,11 +385,28 @@ export interface CatalogKindView {
   dependsOn?: readonly string[];
   /** How much of the kind stands: filled, partial (a turn of it failed or never finished), or never filled at all. */
   state: 'filled' | 'partial' | 'never';
-  /**
-   * What a fill of this kind would spend on its agent part, in tokens: an estimate from the entities the graph holds,
-   * zero for a kind its own plugin fills (madarch-stm0.6's panel shows it, and says it is an estimate).
-   */
-  estimatedTokens: number;
+  /** What one fill of this kind would cost, as the producer declares it and the graph measures it (madarch-stm0.6). */
+  estimate: KindEstimate;
+}
+
+/**
+ * One kind's cost estimate (madarch-stm0.6): the volume the graph measures for the kind, and the per-unit figure its
+ * producer declares. A figure no producer declares is `null`, and so is the cost: the catalogue says "unknown" rather
+ * than a guess. Nothing here is a fact of the graph; it is what the panel shows before a press.
+ */
+export interface KindEstimate {
+  /** The volume the graph measures: the vertices the kind holds. `null` when no table of the kind stands yet. */
+  readonly volume: number | null;
+  /** What the volume counts: the vertices of the kind. */
+  readonly unit: 'vertices';
+  /** The tokens one unit costs, as the producer declares it; `null` when no producer declares one. */
+  readonly tokensPerUnit: number | null;
+  /** The seconds one unit takes, as the producer declares it; `null` when no producer declares one. */
+  readonly secondsPerUnit: number | null;
+  /** The cost of the kind's volume, or `null` when the figure or the volume is unknown. */
+  readonly tokens: number | null;
+  /** The time of the kind's volume, or `null` when the figure or the volume is unknown. */
+  readonly seconds: number | null;
 }
 
 /** The catalogue's fill selection as the store keeps it (madarch-stm0.6): what is checked, the agent and the cap. */

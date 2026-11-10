@@ -151,11 +151,17 @@ describe.skipIf(sandboxProblem !== undefined)('the catalogue selection and its p
     }
     // The catalogue says what stands: the term kind is filled, and the state comes from the graph and the turn.
     const catalogue = await call('/api/catalog');
-    const term = (catalogue.body.kinds as { kind: string; state: string; plugins?: string[]; dependsOn?: string[]; estimatedTokens: number }[]).find((kind) => kind.kind === 'doc.term');
+    const term = (catalogue.body.kinds as { kind: string; state: string; plugins?: string[]; dependsOn?: string[]; estimate: { volume: number | null; tokensPerUnit: number | null; tokens: number | null } }[]).find((kind) => kind.kind === 'doc.term');
     expect(term?.state).toBe('filled');
     expect(term?.plugins).toEqual(['glossary']);
     expect(term?.dependsOn).toEqual(['code.file']);
-    expect(term?.estimatedTokens).toBe(0);
+    // The volume is what the graph measures; no producer declares a per-unit figure, so the cost is unknown and no guess.
+    expect(term?.estimate.volume).toBe(1);
+    expect(term?.estimate.tokensPerUnit).toBeNull();
+    expect(term?.estimate.tokens).toBeNull();
+    // A kind with no table of its own has no measured volume either.
+    const useCase = (catalogue.body.kinds as { kind: string; estimate: { volume: number | null } }[]).find((kind) => kind.kind === 'doc.use-case');
+    expect(useCase?.estimate.volume).toBeNull();
   }, 600_000);
 
   /** The product's id, as the store's product key: the manifest's own. */

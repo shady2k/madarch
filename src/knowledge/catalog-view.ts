@@ -49,9 +49,6 @@ function producerOf(decl: KindDecl | undefined, entry: CatalogEntry | undefined,
 }
 
 /** Every kind the manifest declares, as the catalogue page lists it, in the manifest's order. */
-/** About what one entity costs an agent to extract, in tokens: a definition, its evidence and the answer's framing. */
-const TOKENS_PER_AGENT_ENTITY = 220;
-
 /** What one kind's fill stands as (madarch-stm0.6): filled, partial, or never filled. */
 export type KindFillState = 'filled' | 'partial' | 'never';
 
@@ -67,9 +64,31 @@ function stateOf(count: number, turn: string | undefined): KindFillState {
 }
 
 /**
+ * One kind's estimate (madarch-stm0.6): the volume the graph measures times the per-unit figure its producer declares.
+ * The volume is the count of the kind's vertices when the kind has a table — a kind with none has no measured volume,
+ * which is `null` and not zero. No producer declares a per-unit figure today: a plugin's introduction will carry one
+ * (its own tokens and time per unit, the plugin protocol's next version), and the agent plugin will carry the agent's;
+ * until one does, both figures are `null` and the cost is unknown, which the panel says instead of guessing.
+ */
+function estimateOf(count: number, generated: boolean | undefined, measured: number | undefined): CatalogKindView['estimate'] {
+  const volume = generated === true ? (measured ?? count) : null;
+  const tokensPerUnit: number | null = null;
+  const secondsPerUnit: number | null = null;
+  return {
+    volume, unit: 'vertices', tokensPerUnit, secondsPerUnit,
+    tokens: volume === null || tokensPerUnit === null ? null : volume * tokensPerUnit,
+    seconds: volume === null || secondsPerUnit === null ? null : volume * secondsPerUnit,
+  };
+}
+
+/**
  * Every kind the manifest declares, as the catalogue page lists it, in the manifest's order.
  */
-export async function catalogKinds(ctx: RenderContext, turns: { readonly stateOf?: (kind: string) => string | undefined } = {}): Promise<CatalogKindView[]> {
+export async function catalogKinds(ctx: RenderContext, turns: {
+  readonly stateOf?: (kind: string) => string | undefined;
+  /** Whether the store holds a table of the kind, so its volume is measured rather than unknown. */
+  readonly generatedOf?: (kind: string) => boolean;
+} = {}): Promise<CatalogKindView[]> {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
   const pluginsOf = (decl: KindDecl | undefined): string[] => [...new Set((decl?.fields ?? []).flatMap((field) => (field.binding?.kind === 'plugin' ? [field.binding.plugin] : [])))].sort(byCodePoint);
@@ -90,8 +109,7 @@ export async function catalogKinds(ctx: RenderContext, turns: { readonly stateOf
       ...(plugins.length === 0 ? {} : { plugins }),
       ...(dependsOn.length === 0 ? {} : { dependsOn }),
       state: stateOf(count, turns.stateOf?.(kind)),
-      // A kind its own plugin fills needs no model: its answer costs no tokens (0035, items 22 and 23).
-      estimatedTokens: plugins.length > 0 ? 0 : Math.max(count, 1) * TOKENS_PER_AGENT_ENTITY,
+      estimate: estimateOf(count, turns.generatedOf?.(kind), count),
     };
   };
   if (catalog === undefined) {

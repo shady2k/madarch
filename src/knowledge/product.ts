@@ -1912,9 +1912,11 @@ export class KnowledgeProduct {
     const context = await this.context();
     if ('absent' in context) return { ...common, language: 'en', groups: [], kinds: [], findings: [] };
     let ctx = context.ctx;
+    let generated: ReadonlyMap<string, unknown> | undefined;
     try {
       const owner = await this.open();
       const kinds = graphKindsOf(context.manifest);
+      generated = kinds.generated;
       ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
@@ -1925,7 +1927,11 @@ export class KnowledgeProduct {
       ...common,
       language: context.manifest.language ?? 'en',
       groups: groupViews(context.manifest),
-      kinds: await catalogKinds(ctx, { stateOf: (kind) => turns.get(kind) }),
+      kinds: await catalogKinds(ctx, {
+        stateOf: (kind) => turns.get(kind),
+        // A kind whose table stands is measured by the graph; one with no table has no measured volume (madarch-stm0.6).
+        generatedOf: (kind) => generated !== undefined && generated.has(kind),
+      }),
       findings: context.manifest.catalog === undefined ? [] : [...context.manifest.catalog.findings],
     };
   }

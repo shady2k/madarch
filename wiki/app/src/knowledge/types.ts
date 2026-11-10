@@ -189,9 +189,12 @@ export type CatalogKindView = {
   dependsOn?: string[];
   /** How much of the kind stands: filled, partial (a turn failed or did not finish), or never filled. */
   state: 'filled' | 'partial' | 'never';
-  /** What a fill of this kind would spend on its agent part, in tokens: an estimate. */
-  estimatedTokens: number;
+  /** What one fill of this kind would cost, as the graph measures it and its producer declares it. */
+  estimate: KindEstimate;
 };
+
+/** One kind's estimate (madarch-stm0.6): a measured volume times a per-unit figure, or unknown. */
+export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
 
 /** The catalogue's fill selection as the store keeps it (madarch-stm0.6). */
 export type FillSelectionView = { selected: string[]; agent: string | null; tokenCap: number | null; savedAt: string };

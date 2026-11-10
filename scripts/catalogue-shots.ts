@@ -17,10 +17,78 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import puppeteer from 'puppeteer';
+import { inflateSync } from 'node:zlib';
 import { resolveBrowserExecutable } from './chromium.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { startServer } from '../src/server/http.js';
+
+
+/**
+ * What a shot holds, as numbers rather than a picture: the distinct colours and the share of pixels that are not the
+ * page's own background. A blank page or one covered by a card reads differently from the catalogue, and the report can
+ * say which of the two a shot is without somebody opening it. A PNG is read here: its IDAT stream is inflated and its
+ * scanlines are unfiltered — no image library is added for one measurement.
+ */
+function inkOf(png: Uint8Array): { distinct: number; inkFraction: number; width: number; height: number } {
+  const read = (at: number, length: number): number => { let value = 0; for (let index = 0; index < length; index += 1) value = (value << 8) | png[at + index]!; return value >>> 0; };
+  let at = 8;
+  let width = 0;
+  let height = 0;
+  let colourType = 0;
+  const idat: Uint8Array[] = [];
+  while (at + 8 <= png.length) {
+    const length = read(at, 4);
+    const type = String.fromCharCode(...png.slice(at + 4, at + 8));
+    const body = png.slice(at + 8, at + 8 + length);
+    if (type === 'IHDR') { width = read(at + 8, 4); height = read(at + 12, 4); colourType = body[9]!; }
+    if (type === 'IDAT') idat.push(body);
+    at += 12 + length;
+    if (type === 'IEND') break;
+  }
+  const joined = new Uint8Array(idat.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of idat) { joined.set(part, offset); offset += part.length; }
+  const raw = inflateSync(joined);
+  const channels = colourType === 6 ? 4 : colourType === 2 ? 3 : 1;
+  const stride = width * channels;
+  const pixels = new Uint8Array(width * height * channels);
+  let previous = new Uint8Array(stride);
+  for (let row = 0; row < height; row += 1) {
+    const filter = raw[row * (stride + 1)]!;
+    const line = raw.slice(row * (stride + 1) + 1, row * (stride + 1) + 1 + stride);
+    const made = new Uint8Array(stride);
+    for (let index = 0; index < stride; index += 1) {
+      const left = index >= channels ? made[index - channels]! : 0;
+      const up = previous[index]!;
+      const upLeft = index >= channels ? previous[index - channels]! : 0;
+      const value = line[index]!;
+      made[index] = filter === 0 ? value : filter === 1 ? (value + left) & 0xff : filter === 2 ? (value + up) & 0xff : filter === 3 ? (value + ((left + up) >> 1)) & 0xff : filter === 4 ? (value + paeth(left, up, upLeft)) & 0xff : value;
+    }
+    pixels.set(made, row * stride);
+    previous = made;
+  }
+  const colours = new Set<number>();
+  let ink = 0;
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const base = pixel * channels;
+    const r = pixels[base]!;
+    const g = channels === 1 ? r : pixels[base + 1]!;
+    const b = channels === 1 ? r : pixels[base + 2]!;
+    colours.add((r << 16) | (g << 8) | b);
+    if (r + g + b < 720) ink += 1;
+  }
+  return { distinct: colours.size, inkFraction: Math.round((ink / (width * height)) * 1000) / 1000, width, height };
+}
+
+/** The PNG's Paeth predictor, as the specification states it. */
+function paeth(left: number, up: number, upLeft: number): number {
+  const guess = left + up - upLeft;
+  const toLeft = Math.abs(guess - left);
+  const toUp = Math.abs(guess - up);
+  const toUpLeft = Math.abs(guess - upLeft);
+  return toLeft <= toUp && toLeft <= toUpLeft ? left : toUp <= toUpLeft ? up : upLeft;
+}
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Shot Fixture', GIT_AUTHOR_EMAIL: 'shot@example.test', GIT_COMMITTER_NAME: 'Shot Fixture', GIT_COMMITTER_EMAIL: 'shot@example.test' };
 
@@ -70,6 +138,13 @@ try {
   }
   const storeRoot = join(home, '.madarch', 'knowledge');
   server = await startServer({ productHome: home, appFolder, port: 0, knowledgeRoot: storeRoot, log: () => undefined, errorLog: (line: string) => console.error(line) });
+  // A returning reader's settings: the role is chosen ("everything") and the reader is not asked again, so the first-open
+  // card does not cover the page the shot is of. This is the same request the app's own card makes.
+  const settings = await fetch(`${server.url}/products/${draft.name}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'everything' }) });
+  if (!settings.ok) {
+    console.error(`the reader's role could not be set before the shot: ${String(settings.status)} ${await settings.text()}`);
+    process.exit(1);
+  }
   const browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   try {
     for (const width of WIDTHS) {
@@ -79,6 +154,29 @@ try {
       await page.waitForSelector('[data-testid="catalogue-panel"]', { timeout: 120_000 });
       await page.waitForSelector('[data-testid="catalogue-check-section-requirements"]', { timeout: 120_000 });
       await new Promise((rest) => setTimeout(rest, 400));
+      // Nothing covers the page: the first-open card is gone, and what stands at the top of the viewport and at its bottom
+      // is the catalogue itself and its panel.
+      const covered = await page.evaluate(() => {
+        const card = document.querySelector('[data-testid="role-card"]');
+        const top = document.elementFromPoint(window.innerWidth / 2, 80);
+        const bottom = document.elementFromPoint(window.innerWidth / 2, window.innerHeight - 20);
+        const inside = (node: Element | null, testId: string): boolean => node?.closest(`[data-testid="${testId}"]`) !== null;
+        const heading = document.querySelector('[data-testid="catalogue-page"] h1')?.getBoundingClientRect();
+        const visibleRows = [...document.querySelectorAll('[data-testid="catalogue-page"] [data-kind]')].filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > 0 && rect.top < window.innerHeight && rect.height > 0;
+        }).length;
+        return {
+          roleCard: card !== null,
+          top: top === null ? 'none' : (top.closest('[data-testid]')?.getAttribute('data-testid') ?? top.tagName),
+          bottom: bottom === null ? 'none' : (bottom.closest('[data-testid]')?.getAttribute('data-testid') ?? bottom.tagName),
+          heading: heading === undefined || heading === null ? null : { top: Math.round(heading.top), height: Math.round(heading.height) },
+          headingVisible: heading !== undefined && heading !== null && heading.top >= 0 && heading.bottom <= window.innerHeight && heading.height > 0,
+          visibleRows,
+          bottomIsPanel: inside(bottom, 'catalogue-panel'),
+          text: (document.body.innerText ?? '').length,
+        };
+      });
       const sizes = await page.evaluate(() => {
         const panel = document.querySelector('[data-testid="catalogue-panel"]')?.getBoundingClientRect();
         const fill = document.querySelector('[data-testid="catalogue-fill"]') as HTMLElement | null;
@@ -87,14 +185,20 @@ try {
           viewport: window.innerWidth,
           document: document.documentElement.scrollWidth,
           body: document.body.scrollWidth,
-          panel: panel === undefined || panel === null ? null : { left: Math.round(panel.left), right: Math.round(panel.right), width: Math.round(panel.width), bottom: Math.round(panel.bottom) },
+          panel: panel === undefined || panel === null ? null : { left: Math.round(panel.left), right: Math.round(panel.right), width: Math.round(panel.width), top: Math.round(panel.top), bottom: Math.round(panel.bottom), height: Math.round(panel.height) },
           fill: fill?.textContent ?? null,
           rows,
         };
       });
       const file = join(out, `catalogue-${String(width)}.png`);
-      await page.screenshot({ path: file as `${string}.png`, fullPage: false });
-      console.log(`catalogue at ${String(width)} px: ${JSON.stringify(sizes)} → ${file}`);
+      const shot = await page.screenshot({ fullPage: false });
+      writeFileSync(file, shot);
+      const ink = inkOf(shot);
+      console.log(`catalogue at ${String(width)} px: ${JSON.stringify({ ...sizes, ...covered, pixels: ink })} → ${file}`);
+      if (covered.roleCard || !covered.headingVisible || covered.visibleRows < 1 || !covered.bottomIsPanel || ink.distinct < 20 || ink.inkFraction < 0.01) {
+        console.error(`the shot at ${String(width)} px is not the catalogue page it should be: ${JSON.stringify(covered)} ${JSON.stringify(ink)}`);
+        process.exitCode = 1;
+      }
       if (sizes.document > sizes.viewport) console.log(`horizontal scroll at ${String(width)} px: document ${String(sizes.document)} > viewport ${String(sizes.viewport)}`);
       await page.close();
     }

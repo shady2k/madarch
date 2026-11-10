@@ -52,9 +52,9 @@ const CATALOG: CatalogView = {
   product: { name: 'shop', id: 'p1' }, language: 'en',
   groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }, { group: 'requirements', labels: { en: 'Requirements', ru: 'Требования' } }],
   kinds: [
-    { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], state: 'filled', estimatedTokens: 0, labels: { en: { one: 'File', many: 'Files' } } },
-    { kind: 'doc.term', area: 'requirements', subgroup: '', count: 3, page: true, filled: true, plugins: ['glossary'], dependsOn: ['code.file'], state: 'partial', estimatedTokens: 0, labels: { en: { one: 'Term', many: 'Terms' } } },
-    { kind: 'doc.use-case', area: 'requirements', subgroup: '', count: 0, page: true, filled: false, state: 'never', estimatedTokens: 660, labels: { en: { one: 'Use case', many: 'Use cases' } } },
+    { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], state: 'filled', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'File', many: 'Files' } } },
+    { kind: 'doc.term', area: 'requirements', subgroup: '', count: 3, page: true, filled: true, plugins: ['glossary'], dependsOn: ['code.file'], state: 'partial', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Term', many: 'Terms' } } },
+    { kind: 'doc.use-case', area: 'requirements', subgroup: '', count: 0, page: true, filled: false, state: 'never', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Use case', many: 'Use cases' } } },
   ],
   findings: [],
 };
@@ -81,12 +81,17 @@ describe('the catalogue page\'s selective fill', () => {
     stub(calls);
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue');
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '3 selected', 'every entity checked by default');
     // Each row says how much of it stands.
     expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('partial');
     expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.textContent).toBe('Partial');
     expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.textContent).toBe('Never filled');
-    // Nothing is checked by the store's selection, so the panel says zero; checking the term kind checks its file kind.
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('0 selected');
+    // A product whose selection was never written starts with every entity checked (the owner, 2026-11-10).
+    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('3 selected');
+    expect(page.querySelector('[data-testid="catalogue-added-count"]')).toBeNull();
+    // Nothing checked is the person's first thought; then checking the term kind checks its file kind too.
+    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
     (page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).click();
     await until(() => (page.querySelector('[data-testid="catalogue-check-code.file"]') as HTMLInputElement).checked, 'the dependency checked');
     const fileBox = page.querySelector('[data-testid="catalogue-check-code.file"]') as HTMLInputElement;
@@ -95,9 +100,12 @@ describe('the catalogue page\'s selective fill', () => {
     expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-needed-by"]')!.textContent).toBe('needed by Terms');
     expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('1 selected');
     expect(page.querySelector('[data-testid="catalogue-added-count"]')!.textContent).toContain('1 added');
-    // The panel's estimate covers the selected kinds' agent parts: the term kind's own plugin needs no tokens.
-    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.textContent).toBe('About 0 tokens for the agent\'s part');
-    // The page writes the selection as it is made.
+    // No producer declares a per-unit figure, so the cost is said to be unknown rather than guessed.
+    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.getAttribute('data-known')).toBe('false');
+    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.textContent).toContain('Cost unknown');
+    // A check is a thought, not a decision: nothing is written until Save (or the press).
+    expect(calls.filter((call) => call.url.includes('/api/fill-selection'))).toEqual([]);
+    (page.querySelector('[data-testid="catalogue-save"]') as HTMLButtonElement).click();
     await until(() => calls.some((call) => call.url.includes('/api/fill-selection')), 'the selection saved');
     expect(calls.find((call) => call.url.includes('/api/fill-selection'))!.body).toEqual({ selected: ['doc.term'], agent: null, tokenCap: null });
   });
@@ -107,6 +115,10 @@ describe('the catalogue page\'s selective fill', () => {
     stub(calls);
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-testid="catalogue-check-section-requirements"]') !== null, 'the sections');
+    // Start from nothing, so the section's own press is what checks its entities.
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '3 selected', 'every entity checked by default');
+    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
     (page.querySelector('[data-testid="catalogue-check-section-requirements"]') as HTMLInputElement).click();
     await until(() => (page.querySelector('[data-testid="catalogue-check-doc.use-case"]') as HTMLInputElement).checked, 'the section checked');
     expect((page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).checked).toBe(true);
@@ -127,6 +139,9 @@ describe('the catalogue page\'s selective fill', () => {
     stub(calls);
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue');
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '3 selected', 'every entity checked by default');
+    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
     (page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).click();
     await until(() => (page.querySelector('[data-testid="catalogue-fill"]') as HTMLButtonElement).disabled === false, 'the fill button');
     (page.querySelector('[data-testid="catalogue-fill"]') as HTMLButtonElement).click();
@@ -145,13 +160,27 @@ describe('the catalogue page\'s selective fill', () => {
     expect((page.querySelector('[data-testid="catalogue-agent"]') as HTMLSelectElement).value).toBe('claude-code');
     expect((page.querySelector('[data-testid="catalogue-token-cap"]') as HTMLInputElement).value).toBe('5000');
     expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('1 selected');
-    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.textContent).toContain('660');
+    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.textContent).toContain('Cost unknown');
     await setWikiLanguage('ru');
     const russian = into(createElement(CataloguePage, { version: 0 }));
     await until(() => russian.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue in Russian');
     expect(russian.querySelector('[data-testid="catalogue-check-all"]')!.textContent).toBe('Отметить все');
     expect(russian.querySelector('[data-testid="catalogue-fill"]')!.textContent).toBe('Заполнить выбранное');
-    expect(russian.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('Отмечено: 0');
+    await until(() => russian.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === 'Отмечено: 1', 'the stored selection in Russian');
+    // The column says who fills each kind: its plugin, or the agent (the owner, 2026-11-10).
+    expect(russian.querySelector('[data-kind="doc.term"] [data-testid="catalogue-stage"]')!.textContent).toContain('Свой плагин: glossary');
+    expect(russian.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-stage"]')!.textContent).toContain('агент');
+  });
+
+  test('a selection the person saved as empty stays empty: the default checks every entity only before the first write', async () => {
+    await setWikiLanguage('en');
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    stub(calls, { selected: [], agent: null, tokenCap: null, savedAt: '2026-11-10 20:00:00+00' });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue');
+    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]') !== null, 'the panel');
+    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('0 selected');
+    expect((page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).checked).toBe(false);
   });
 
   test('the dependency closure and the estimate are a function of the kinds alone', () => {
@@ -159,6 +188,7 @@ describe('the catalogue page\'s selective fill', () => {
     const checked = new Set(['doc.term', 'doc.use-case']);
     const added = addedByDependency(kinds, checked);
     expect([...added.entries()]).toEqual([['code.file', 'doc.term']]);
-    expect(estimateOf(kinds, checked, added)).toBe(660);
+    // No producer declares a per-unit figure, so the cost is unknown and the volume is what the graph measures.
+    expect(estimateOf(kinds, checked, added)).toEqual({ tokens: null, seconds: null, volume: 24, unknown: 3 });
   });
 });

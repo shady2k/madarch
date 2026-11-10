@@ -118,9 +118,9 @@ describe('the groups of the manifest', () => {
       language: 'en',
       groups: nestedGroups,
       kinds: [
-        { kind: 'code.file', area: 'code', subgroup: 'code.structure', count: 4, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.' }, state: 'filled', estimatedTokens: 0 },
-        { kind: 'code.cycle', area: 'code', subgroup: 'code.analysis', count: 1, page: true, producer: 'extract', filled: true, descriptions: { en: 'A ring of imports.' }, state: 'filled', estimatedTokens: 0 },
-        { kind: 'code.env-var', area: 'operations', subgroup: 'operations.configuration', count: 3, page: true, producer: 'extract', filled: true, descriptions: { en: 'A setting read from the environment.' }, state: 'filled', estimatedTokens: 0 },
+        { kind: 'code.file', area: 'code', subgroup: 'code.structure', count: 4, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.' }, state: 'filled', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+        { kind: 'code.cycle', area: 'code', subgroup: 'code.analysis', count: 1, page: true, producer: 'extract', filled: true, descriptions: { en: 'A ring of imports.' }, state: 'filled', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+        { kind: 'code.env-var', area: 'operations', subgroup: 'operations.configuration', count: 3, page: true, producer: 'extract', filled: true, descriptions: { en: 'A setting read from the environment.' }, state: 'filled', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
       ],
       findings: [],
     };
