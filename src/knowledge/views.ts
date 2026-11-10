@@ -231,6 +231,7 @@ const WORDS = {
     caller: 'Caller', foreignKey: 'foreign key', routesTo: 'routes to', builds: 'builds', dependsOn: 'depends on', builtBy: 'built by', replicas: (n: number) => `${n} replica${n === 1 ? '' : 's'}`,
     folded: (n: number, g: string) => `${n} in ${g}`, truncated: (shown: number, total: number) => `Showing ${shown} of ${total}.`, erIncoming: 'Incoming foreign keys', erOutgoing: 'Outgoing foreign keys',
     columnsTruncated: (list: string) => `Some columns are not drawn: ${list}.`,
+    selfReference: (n: number) => `${n === 1 ? 'One relation starts and ends at the same element' : `${n} relations start and end at the same element`}; LikeC4 and archify draw arrows only between different elements, so Mermaid is where ${n === 1 ? 'it is' : 'they are'} drawn.`,
     files: (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`, cycle: 'cycle',
     noServices: 'The graph holds no service yet.', noModules: (root: string) => `The graph holds no module under ${root}.`, noTables: 'The graph holds no table here.',
     noMachines: 'No transition table was found in the code of this page.', noDeploy: 'The graph holds no compose service, Kubernetes deployment or Dockerfile.',
@@ -253,6 +254,7 @@ const WORDS = {
     caller: 'Вызывающий', foreignKey: 'внешний ключ', routesTo: 'направляет на', builds: 'собирает', dependsOn: 'зависит от', builtBy: 'собран из', replicas: (n: number) => `реплик: ${n}`,
     folded: (n: number, g: string) => `${n} в ${g}`, truncated: (shown: number, total: number) => `Показано ${shown} из ${total}.`, erIncoming: 'Входящие внешние ключи', erOutgoing: 'Исходящие внешние ключи',
     columnsTruncated: (list: string) => `Часть столбцов не нарисована: ${list}.`,
+    selfReference: (n: number) => `${n === 1 ? 'Одна связь начинается и кончается на одном элементе' : `${n} связей начинаются и кончаются на одном элементе`}; LikeC4 и archify рисуют стрелки только между разными элементами, поэтому ${n === 1 ? 'она нарисована' : 'они нарисованы'} только в Mermaid.`,
     files: (n: number) => `${n} ${russianPlural(n, 'файл', 'файла', 'файлов')}`, cycle: 'цикл',
     noServices: 'В графе пока нет ни одного сервиса.', noModules: (root: string) => `В графе нет модулей в ${root}.`, noTables: 'В графе здесь нет таблиц.',
     noMachines: 'В коде этой страницы не найдено таблицы переходов.', noDeploy: 'В графе нет ни сервисов compose, ни развёртываний Kubernetes, ни Dockerfile.',
@@ -1070,8 +1072,23 @@ export interface ViewContext {
 }
 
 /** The view a specification asks for, checked against the graph; a refusal names what is wrong. */
+/**
+ * A relation whose two ends are one element (a table's reference to itself, a state that loops back) is a fact every
+ * engine should draw, but LikeC4 refuses an arrow an element draws to itself, and archify draws the same layout. The
+ * arrow is therefore left out of their workspaces (`workspaceOf`), and the view says so in words rather than in silence.
+ */
+function withSelfReferenceNote(view: GraphView, w: Words): GraphView {
+  const loops = view.edges.filter((edge) => edge.from === edge.to).length;
+  if (loops === 0) return view;
+  return { ...view, notes: [...view.notes, w.selfReference(loops)] };
+}
+
 export async function buildViews(view: ViewContext, spec: ViewSpec, subject?: Subject): Promise<GraphView[]> {
   const w = wordsOf(view.lang);
+  return (await buildViewsOfType(view, spec, subject, w)).map((one) => withSelfReferenceNote(one, w));
+}
+
+async function buildViewsOfType(view: ViewContext, spec: ViewSpec, subject: Subject | undefined, w: Words): Promise<GraphView[]> {
   switch (spec.type) {
     case 'c4-context': return [await contextView(view.ctx, spec, w, view.productTitle)];
     case 'c4-container': return [await containerView(view.ctx, spec, w)];

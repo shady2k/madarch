@@ -64,12 +64,44 @@ test('an ER view draws in all three engines, and a sequence still says archify c
   expect(frame.html).toContain('orders');
   expect(frame.html).toContain('user_id');
   expect(frame.html).toContain('users');
+  // A table that references itself: LikeC4 refuses an arrow an element draws to itself ("Invalid parent-child
+  // relationship"), and archify draws that same layout, so the arrow is left out of their picture and Mermaid draws it.
+  const selfEdge: GraphView = { ...er, edges: [{ from: 'code.table:shop/orders', to: 'code.table:shop/orders', label: 'parent_id', dashed: false }] };
+  expect(workspaceOf(selfEdge).workspace).not.toContain('-> n0');
+  const selfModel = await likec4Model(selfEdge);
+  if (!selfModel.ok) throw new Error(`LikeC4 did not lay out the ER view with a self reference: ${selfModel.message}`);
+  expect((await archifyFrame(selfEdge, {})).ok).toBe(true);
+  // A table with many columns: archify refuses a sublabel its component cannot hold even at its 6 px floor, so an ER
+  // layout is written as large as the longest column line needs, and the reader scrolls the page.
+  const wide: GraphView = {
+    ...er,
+    elements: er.elements.map((element) => (element.id === 'code.table:shop/orders' ? { ...element, columns: Array.from({ length: 9 }, (_, at) => ({ name: `very_long_column_name_${at + 1}`, type: 'timestamp_with_time_zone', key: at === 0 })) } : element)),
+  };
+  const wideFrame = await archifyFrame(wide, {});
+  if (!wideFrame.ok) throw new Error(`archify did not draw a wide ER table: ${wideFrame.message}`);
+  expect(wideFrame.html).toContain('very_long_column_name_9');
   // A type an engine cannot draw says so, naming the engine and the type.
   const sequence: GraphView = { ...domainMap, spec: { type: 'sequence', subject: 'orders' } };
   const refused = await archifyFrame(sequence, {});
   expect(refused.ok).toBe(false);
   if (refused.ok) throw new Error('archify must not draw a sequence');
   expect(refused.message).toContain('a sequence is drawn only by Mermaid');
+});
+
+test('a relation whose ends are one element is drawn by Mermaid, and the view says so', async () => {
+  const subject: GraphEntity = { key: 'code.table:shop/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
+  const table = (name: string): GraphEntity => ({ key: `code.table:shop/public.${name}`, kind: 'code.table', label: name, properties: {}, nodeIds: [], scope: 'repo' });
+  const graph = {
+    find: async (key: string) => (key === subject.key ? [subject] : []),
+    byPrefix: async () => ({ rows: [], total: 0 }),
+    relationEdges: async () => ({ rows: [{ from: subject, to: subject, properties: { column: 'parent_id' } }], total: 1 }),
+    neighbors: async () => [{ relation: 'code.foreign-key', direction: 'out', total: 1, edges: 1, rows: [{ entity: table('orders'), edges: 1 }] }],
+  } as unknown as GraphReader;
+  const ctx = { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext;
+  const [view] = await buildViews({ ctx, lang: 'en', productTitle: 'Shop' }, { type: 'er', subject: subject.key });
+  expect(view!.notes).toContain('One relation starts and ends at the same element; LikeC4 and archify draw arrows only between different elements, so Mermaid is where it is drawn.');
+  // The picture's model leaves the arrow out; the engine that refuses it is not handed it.
+  expect(workspaceOf(view!).workspace).not.toContain('-> n0');
 });
 
 test('renderer HTTP failure stays 500 and includes escaped actionable diagnostics',async()=>{

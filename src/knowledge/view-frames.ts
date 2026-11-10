@@ -48,7 +48,11 @@ export function workspaceOf(view: GraphView) {
   // Other view types can draw explicit holder-to-child arrows, which LikeC4 refuses for nested elements.
 
   const shape = shapeOf(view);
-  const drawable = (view.spec.type === 'domain-map' || view.spec.type === 'deployment') ? shape : { ...shape, elements: shape.elements.map((element) => ({ ...element, parent: undefined })) };
+  const flat = (view.spec.type === 'domain-map' || view.spec.type === 'deployment') ? shape : { ...shape, elements: shape.elements.map((element) => ({ ...element, parent: undefined })) };
+  // LikeC4 refuses an arrow an element draws to itself ("Invalid parent-child relationship"), and archify draws the same
+  // layout: a self reference is left out, and the view's own note names the engine that draws it (views.ts, the note of a
+  // relation whose ends are one element).
+  const drawable = { ...flat, edges: flat.edges.filter((edge) => edge.from !== edge.to) };
   return diagramWorkspace(drawable, { pageAddress: (id) => view.elements.find((element) => element.id === id)?.href ?? '' });
 }
 
@@ -161,6 +165,24 @@ async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; 
   }
 }
 
+/**
+ * The scale an ER layout is written to archify at: wide enough that every table's column line stays legible at archify's
+ * 6 px floor, and never below the half its other diagrams use. Archify refuses a page whose sublabel cannot fit its
+ * component even at that floor (vendor/archify/renderers/shared/text-fit.mjs: the text is its characters × 6 px × 0.6,
+ * the component its width less 8 px), and an ER table's line is much longer than an architecture component's; an ER
+ * view therefore lays its tables out as large as their columns need and the reader scrolls or zooms the page.
+ */
+function erScaleOf(nodes: ArchifyLayoutedView['nodes'], details: ReadonlyMap<string, string>): number {
+  let scale = 0.5;
+  for (const node of nodes) {
+    const line = details.get(node.id);
+    if (line === undefined || node.width <= 0) continue;
+    const needed = Array.from(line).length * 3.96 + 24;
+    scale = Math.max(scale, needed / node.width);
+  }
+  return scale;
+}
+
 /** The archify page of a view: the vendored renderer's page over the layout LikeC4 computes, with the click bridge. */
 export async function archifyFrame(view: GraphView, _env: Readonly<Record<string, string | undefined>>): Promise<Frame> {
   // A type archify cannot draw says so by name: the vendored renderer draws components and connections, and a sequence
@@ -188,10 +210,16 @@ export async function archifyFrame(view: GraphView, _env: Readonly<Record<string
   }
   let document: ArchifyDocument;
   try {
-    const details = new Map(view.elements.filter((element) => element.columns !== undefined).map((element) => [held.elementIds.get(element.id), element.columns!.map((column) => `${column.name} ${column.type ?? 'text'}${column.key ? ' PK' : ''}${column.fk ? ' FK' : ''}`).join(', ')]));
+    const details = new Map<string, string>();
+    for (const element of view.elements) {
+      if (element.columns === undefined) continue;
+      const id = held.elementIds.get(element.id);
+      if (id === undefined) continue;
+      details.set(id, element.columns.map((column) => `${column.name} ${column.type ?? 'text'}${column.key ? ' PK' : ''}${column.fk ? ' FK' : ''}`).join(', '));
+    }
     // Archify's fixed 30px boundary padding cannot be halved with LikeC4 geometry: a grouped child at x=40
     // would move to x=20 and put its boundary outside the canvas. Keep grouped views at their native scale.
-    const layoutScale = view.spec.type === 'domain-map' || view.spec.type === 'deployment' ? 1 : 0.5;
+    const layoutScale = view.spec.type === 'domain-map' || view.spec.type === 'deployment' ? 1 : view.spec.type === 'er' ? erScaleOf(layout.view.nodes, details) : 0.5;
     const compact = { ...layout.view, nodes: layout.view.nodes.map((node) => ({ ...node, ...(details.has(node.id) ? { technology: details.get(node.id)! } : {}), x: node.x * layoutScale, y: node.y * layoutScale, width: node.width * layoutScale, height: node.height * layoutScale })), edges: layout.view.edges.map((edge) => ({ ...edge, ...(edge.labelAt ? { labelAt: [edge.labelAt[0] * layoutScale, edge.labelAt[1] * layoutScale] as const } : {}) })) };
     document = archifyDocument(compact, { output: 'view.html', dashed });
   } catch (error) {
