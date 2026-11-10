@@ -226,6 +226,10 @@ describe('the products-home server with madarch\'s own wiki', () => {
     const page = await get(busy, `/products/madarch-wiki/e/${encodeURIComponent(id)}.json`);
     expect(page.status).toBe(200);
     expect(page.body).toMatchObject({ schema: 'madarch.page.v1', id });
+    const formerHome = await get(busy, '/products/madarch-wiki/k');
+    expect(formerHome.status).toBe(404);
+    const formerEntity = await get(busy, `/products/madarch-wiki/k/e/${encodeURIComponent(id)}`);
+    expect(formerEntity.status).toBe(404);
     const formerPage = await get(busy, `/products/madarch-wiki/k/e/${encodeURIComponent(id)}.json`);
     expect(formerPage.status).toBe(404);
     expect(formerPage.body.message).toContain('no such path');
