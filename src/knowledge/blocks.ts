@@ -14,7 +14,7 @@
 import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
-import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
+import type { GraphEntity, GraphReader, HistoryEvidence, SourceSpan } from './graph-read.js';
 import type { KindsManifest, MemberDecl, PropertyDecl } from './kinds.js';
 import type { MarkdownEntity } from './markdown.js';
 import { readBody } from './markdown.js';
@@ -27,6 +27,8 @@ export interface RenderContext {
   productFolder: string;
   manifest: KindsManifest;
   graph: GraphReader;
+  /** The repository's history evidence, cached for the product's snapshot; the history block asks this, never the graph twice. */
+  historyEvidence?: (scope: string) => Promise<HistoryEvidence>;
   markdown: ReadonlyMap<string, MarkdownEntity>;
   /** The current product wiki language. */
   language: string;

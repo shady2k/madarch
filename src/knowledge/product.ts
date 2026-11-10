@@ -480,6 +480,19 @@ export class KnowledgeProduct {
     return read.present ? [...read.manifest.roles.keys()] : [];
   }
 
+  /** Opens the reader and waits for it: a server starts its products before the first request. */
+  async warmNow(): Promise<void> {
+    try {
+      if (this.closed || process.env['MADARCH_SKIP_WARM'] === '1') return;
+      // A product with no store yet is not warmed: opening it would create the store at server start.
+      if (!existsSync(storeDatabasePath(this.storeFolder()))) return;
+      await this.open().catch(() => undefined);
+      await this.context().catch(() => undefined);
+    } catch {
+      // A product with no store yet has no context to warm; the first page opens it.
+    }
+  }
+
   /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
   warm(): void {
     if (this.closed || this.opening !== undefined) return;
@@ -1749,7 +1762,7 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(records === undefined ? {} : { records }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
     };

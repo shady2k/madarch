@@ -190,6 +190,10 @@ class FakeReader {
     return counts;
   }
 
+  async historyEvidenceFor(entity: GraphEntity, _shape: 'path' | 'author', _limit: number): Promise<HistoryEvidence> {
+    return await this.historyEvidence(entity.scope);
+  }
+
   async historyEvidence(scope: string): Promise<HistoryEvidence> {
     const entities = this.graph.allNodes().filter((node) => node.scope === scope || node.key === scope).map((node) => this.entity(node));
     const keys = new Set(entities.map((entity) => entity.key));

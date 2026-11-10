@@ -56,6 +56,8 @@ export interface RelationEdge {
 export interface HistoryEvidence {
   entities: GraphEntity[];
   edges: { from: string; to: string; relation: string; properties: Record<string, unknown> }[];
+  /** The coupled files a path page found, including those its bounded rows leave out. */
+  couplingTotal?: number;
 }
 
 type Raw = Record<string, unknown>;
@@ -510,6 +512,28 @@ export class GraphReader {
     });
   }
 
+  /** The in-degrees of entities the caller already read: one query for every entity, never one lookup per key. */
+  async inDegreesOf(relation: string, entities: readonly GraphEntity[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>(entities.map((entity) => [entity.key, 0]));
+    if (entities.length === 0) return counts;
+    const graph = graphRelationOf(relation);
+    if (graph === undefined) return counts;
+    const ids = entities.flatMap((entity) => entity.nodeIds);
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ node: string; n: string }>(
+        `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = $1
+         WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
+        [graph.kind, `{${ids.join(',')}}`],
+      );
+      const byNode = new Map(entities.flatMap((entity) => entity.nodeIds.map((id) => [id, entity.key] as const)));
+      for (const row of found.rows) {
+        const key = byNode.get(row.node);
+        if (key !== undefined) counts.set(key, Number(row.n));
+      }
+      return counts;
+    });
+  }
+
   async inDegrees(relation: string, keys: readonly string[]): Promise<Map<string, number>> {
     if (this.declared !== undefined && this.declared.size === 0) return new Map(keys.map((key) => [key, 0]));
     const counts = new Map<string, number>(keys.map((key) => [key, 0]));
@@ -528,6 +552,180 @@ export class GraphReader {
       );
       for (const row of found.rows) for (const [key, entity] of entities) if (entity.nodeIds.includes(row.node)) counts.set(key, Number(row.n));
       return counts;
+    });
+  }
+
+  /** A commit's parents with their churn and author, in parent order. */
+  async commitParents(commit: GraphEntity): Promise<{ entity: GraphEntity; when: string; who?: string; files: number; added: number; removed: number }[]> {
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ node: string; date: string | null; who: string | null; files: number; added: number; removed: number }>(
+        `SELECT e.to_node::text AS node,
+                to_char(pc.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+                s.name AS who,
+                count(te.id)::int AS files,
+                coalesce(sum(t.added), 0)::int AS added,
+                coalesce(sum(t.removed), 0)::int AS removed
+         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+         JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
+         JOIN ${GIT_TABLES.commit} pc ON pc.node_id = e.to_node
+         LEFT JOIN edge ae ON ae.to_node = pc.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
+         LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = ae.from_node
+         LEFT JOIN edge te ON te.from_node = pc.node_id AND te.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.touched}')
+         LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = te.id
+         WHERE e.from_node = $1::bigint
+         GROUP BY e.to_node, pc.commit_date, s.name, pp.position
+         ORDER BY pp.position`,
+        [commit.nodeIds[0] ?? '0'],
+      );
+      const entities = await this.entitiesOfIds(tx, found.rows.map((row) => row.node));
+      return found.rows.flatMap((row) => {
+        const entity = entities.get(row.node);
+        return entity === undefined ? [] : [{
+          entity, when: row.date ?? '', ...(row.who === null ? {} : { who: row.who }),
+          files: row.files, added: row.added, removed: row.removed,
+        }];
+      });
+    });
+  }
+
+  /** The commits on a merge's other parents that its first parent does not reach. */
+  async commitBranches(commit: GraphEntity, limit: number): Promise<{ entity: GraphEntity; when: string; who?: string }[]> {
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ node: string; date: string | null; who: string | null }>(
+        `WITH RECURSIVE first(commit) AS (
+           SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+             JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id WHERE e.from_node = $1::bigint AND pp.position = 0
+           UNION SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+             JOIN first f ON e.from_node = f.commit
+         ), branch(commit) AS (
+           SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+             JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id WHERE e.from_node = $1::bigint AND pp.position > 0
+           UNION SELECT e.to_node FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.parent}'
+             JOIN branch b ON e.from_node = b.commit WHERE e.to_node NOT IN (SELECT commit FROM first)
+         )
+         SELECT c.node_id::text AS node, to_char(c.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date, s.name AS who
+         FROM branch b JOIN ${GIT_TABLES.commit} c ON c.node_id = b.commit
+         LEFT JOIN edge ae ON ae.to_node = c.node_id AND ae.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.authored}')
+         LEFT JOIN ${GIT_TABLES.signature} s ON s.node_id = ae.from_node
+         ORDER BY c.commit_date DESC, c.hash LIMIT $2::int`,
+        [commit.nodeIds[0] ?? '0', limit],
+      );
+      const entities = await this.entitiesOfIds(tx, found.rows.map((row) => row.node));
+      return found.rows.flatMap((row) => {
+        const entity = entities.get(row.node);
+        return entity === undefined ? [] : [{ entity, when: row.date ?? '', ...(row.who === null ? {} : { who: row.who }) }];
+      });
+    });
+  }
+
+  /** One commit's changed files in one read: churn, old path and symbol count, with the total, never one query per file. */
+  async commitChanged(commit: GraphEntity, limit: number): Promise<{ rows: { entity: GraphEntity; change: string; added: number | null; removed: number | null; previousPath: string | null; symbols: number }[]; total: number }> {
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ node: string; change: string; added: string | null; removed: string | null; previous: string | null; symbols: number; total: number }>(
+        `SELECT e.to_node::text AS node, t.change, t.added::text AS added, t.removed::text AS removed,
+                pp.text AS previous,
+                (SELECT count(*)::int FROM edge se JOIN kind sk ON sk.id = se.kind_id AND sk.name = '${GIT_KINDS.contains}' WHERE se.from_node = e.to_node) AS symbols,
+                count(*) OVER ()::int AS total
+         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+         JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
+         JOIN ${GIT_TABLES.commit} ct ON ct.node_id = e.from_node
+         LEFT JOIN edge r ON r.from_node = e.to_node AND r.kind_id = (SELECT id FROM kind WHERE name = '${GIT_KINDS.renamedFrom}') AND r.discriminator = ct.hash
+         LEFT JOIN ${GIT_TABLES.file} pf ON pf.node_id = r.to_node LEFT JOIN ${GIT_TABLES.path} pp ON pp.id = pf.path_id
+         WHERE e.from_node = $1::bigint
+         ORDER BY e.to_node LIMIT $2::int`,
+        [commit.nodeIds[0] ?? '0', limit],
+      );
+      const entities = await this.entitiesOfIds(tx, found.rows.map((row) => row.node));
+      return {
+        total: found.rows[0]?.total ?? 0,
+        rows: found.rows.flatMap((row) => {
+          const entity = entities.get(row.node);
+          return entity === undefined ? [] : [{
+            entity, change: row.change, added: row.added === null ? null : Number(row.added),
+            removed: row.removed === null ? null : Number(row.removed), previousPath: row.previous, symbols: row.symbols,
+          }];
+        }),
+      };
+    });
+  }
+
+  /** The bounded repository history the repository page's history block shows: aggregates and top rows, not every edge. */
+  async repositoryHistory(scope: string, limit: number): Promise<{
+    commits: number; firstParent: number; merges: number; nonMerge: number; authors: number;
+    since?: string; until?: string;
+    hotspots: { entity: GraphEntity; commits: number }[];
+    hotspotsTotal: number;
+    authorRows: { entity: GraphEntity; commits: number }[];
+    authorsTotal: number;
+  }> {
+    return await this.run(async (tx) => {
+      const summary = await tx.query<{ commits: number; merges: number; authors: number; since: string | null; until: string | null }>(
+        `WITH hc AS (
+           SELECT he.to_node AS commit FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}'
+           WHERE he.from_node = $1::bigint
+         )
+         SELECT count(*)::int AS commits,
+                count(*) FILTER (WHERE (
+                  SELECT count(*) FROM edge pe JOIN kind pk ON pk.id = pe.kind_id AND pk.name = '${GIT_KINDS.parent}'
+                  WHERE pe.from_node = hc.commit
+                ) > 1)::int AS merges,
+                (SELECT count(DISTINCT ae.from_node)::int FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
+                  JOIN hc h2 ON h2.commit = ae.to_node) AS authors,
+                to_char(min(c.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS since,
+                to_char(max(c.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS until
+         FROM hc JOIN ${GIT_TABLES.commit} c ON c.node_id = hc.commit`,
+        [scope],
+      );
+      const row = summary.rows[0] ?? { commits: 0, merges: 0, authors: 0, since: null, until: null };
+      const hotspots = await tx.query<{ node: string; n: number }>(
+        `WITH hc AS (
+           SELECT he.to_node AS commit FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}'
+           WHERE he.from_node = $1::bigint
+         )
+         SELECT e.to_node::text AS node, count(*)::int AS n
+         FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+         JOIN hc ON hc.commit = e.from_node
+         WHERE (SELECT count(*) FROM edge pe JOIN kind pk ON pk.id = pe.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = e.from_node) <= 1
+         GROUP BY 1`,
+        [scope],
+      );
+      // A rename joins two paths into one identity: the hotspots are the identity's, as the history projection reads them.
+      const renamed = await tx.query<{ from: string; to: string }>(
+        `SELECT e.from_node::text AS "from", e.to_node::text AS "to" FROM edge e
+         JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.renamedFrom}'
+         WHERE e.from_node = ANY($1::bigint[])`,
+        [`{${hotspots.rows.map((one) => one.node).join(',') || '0'}}`],
+      );
+      const parentOf = new Map(renamed.rows.map((row) => [row.from, row.to]));
+      const rootOf = (node: string): string => {
+        let at = node; const seen = new Set<string>();
+        while (parentOf.has(at) && !seen.has(at)) { seen.add(at); at = parentOf.get(at)!; }
+        return at;
+      };
+      const merged = new Map<string, number>();
+      for (const one of hotspots.rows) { const root = rootOf(one.node); merged.set(root, (merged.get(root) ?? 0) + one.n); }
+      const hotspotEntities = await this.entitiesOfIds(tx, [...merged.keys()]);
+      const authors = await tx.query<{ node: string; n: number }>(
+        `WITH hc AS (
+           SELECT he.to_node AS commit FROM edge he JOIN kind hk ON hk.id = he.kind_id AND hk.name = '${GIT_KINDS.history}'
+           WHERE he.from_node = $1::bigint
+         )
+         SELECT ae.from_node::text AS node, count(*)::int AS n
+         FROM edge ae JOIN kind ak ON ak.id = ae.kind_id AND ak.name = '${GIT_KINDS.authored}'
+         JOIN hc ON hc.commit = ae.to_node GROUP BY 1`,
+        [scope],
+      );
+      const authorEntities = await this.entitiesOfIds(tx, authors.rows.map((one) => one.node));
+      const sort = (rows: { node: string; n: number }[], entities: Map<string, GraphEntity>) => rows
+        .flatMap((one) => { const entity = entities.get(one.node); return entity === undefined ? [] : [{ entity, commits: one.n }]; })
+        .sort((left, right) => right.commits - left.commits || byCodePoint(left.entity.key, right.entity.key))
+        .slice(0, limit);
+      return {
+        commits: row.commits, firstParent: row.commits, merges: row.merges, nonMerge: row.commits - row.merges,
+        authors: row.authors, ...(row.since === null ? {} : { since: row.since }), ...(row.until === null ? {} : { until: row.until }),
+        hotspots: sort([...merged].map(([node, n]) => ({ node, n })), hotspotEntities), hotspotsTotal: merged.size,
+        authorRows: sort(authors.rows, authorEntities), authorsTotal: authors.rows.length,
+      };
     });
   }
 
@@ -578,6 +776,93 @@ export class GraphReader {
             ...(row.position === null ? {} : { position: Number(row.position) }),
             ...(row.walk === null ? {} : { walk: Number(row.walk) }),
             ...(row.discriminator === '' ? {} : { discriminator: row.discriminator }),
+          } }];
+        }),
+      };
+    });
+  }
+
+  /**
+   * The evidence a file's or an author's history page needs, bounded to that page: the file's own commits and the
+   * files it changed with, or the author's commits and the files they touched. The whole repository's evidence is
+   * never read for these two shapes.
+   */
+  async historyEvidenceFor(subject: GraphEntity, shape: 'path' | 'author', limit: number): Promise<HistoryEvidence> {
+    if (this.declared !== undefined && this.declared.size === 0) return { entities: [], edges: [] };
+    return await this.run(async (tx) => {
+      const ids = `{${subject.nodeIds.join(',')}}`;
+      const edgeRows = shape === 'author'
+        ? await tx.query<Raw>(
+          `WITH authored AS (
+             SELECT e.to_node AS id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = ANY($1::bigint[])
+           ), touched AS (
+             SELECT e.id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             WHERE e.from_node IN (SELECT id FROM authored)
+               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+           )
+           SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
+                  e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk
+           FROM edge e JOIN kind rk ON rk.id = e.kind_id
+           LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+           WHERE (rk.name = '${GIT_KINDS.authored}' AND e.from_node = ANY($1::bigint[]))
+              OR (rk.name = '${GIT_KINDS.touched}' AND e.id IN (SELECT id FROM touched))`,
+          [ids],
+        )
+        : await tx.query<Raw>(
+          `WITH RECURSIVE focus AS (
+             SELECT unnest($1::bigint[]) AS id
+             UNION
+             SELECT CASE WHEN e.from_node = f.id THEN e.to_node ELSE e.from_node END
+             FROM focus f JOIN edge e ON e.from_node = f.id OR e.to_node = f.id
+             JOIN kind rk ON rk.id = e.kind_id AND rk.name = '${GIT_KINDS.renamedFrom}'
+           ), focus_commits AS (
+             SELECT DISTINCT e.from_node AS id FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             WHERE e.to_node IN (SELECT id FROM focus)
+               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+           ), coupled_all AS (
+             SELECT e.to_node AS id, count(DISTINCT e.from_node) AS n FROM edge e JOIN kind k ON k.id = e.kind_id AND k.name = '${GIT_KINDS.touched}'
+             WHERE e.from_node IN (SELECT id FROM focus_commits) AND e.to_node NOT IN (SELECT id FROM focus)
+               AND (SELECT count(*) FROM edge p JOIN kind pk ON pk.id = p.kind_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+             GROUP BY 1 HAVING count(DISTINCT e.from_node) >= 2
+           ), coupled AS (
+             SELECT id, n FROM coupled_all ORDER BY n DESC, id LIMIT $2
+           ), included AS (
+             SELECT id FROM focus UNION SELECT id FROM coupled
+           )
+           SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
+                  e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk,
+                  (SELECT count(*)::text FROM coupled_all) AS coupling_total
+           FROM edge e JOIN kind rk ON rk.id = e.kind_id
+           LEFT JOIN ${GIT_TABLES.touched} t ON t.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.parent_position} pp ON pp.edge_id = e.id
+           LEFT JOIN ${GIT_TABLES.history} h ON h.edge_id = e.id
+           WHERE (rk.name = '${GIT_KINDS.touched}' AND e.to_node IN (SELECT id FROM included) AND e.from_node IN (SELECT id FROM focus_commits))
+              OR (rk.name = '${GIT_KINDS.authored}' AND e.to_node IN (SELECT id FROM focus_commits))
+              OR rk.name IN ('${GIT_KINDS.renamedFrom}', '${GIT_KINDS.contains}', 'imports')`,
+          [ids, limit],
+        );
+      const nodeIds = new Set<string>(subject.nodeIds);
+      for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
+      const entityRows = await tx.query<Raw>(`${ENTITY_SELECT} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
+      const entities = entityRows.rows.map(entityOf);
+      const byId = new Map(entityRows.rows.map((row) => [String(row['node_id']), entityOf(row)]));
+      const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];
+      return {
+        entities,
+        ...(typeof couplingTotal === 'string' ? { couplingTotal: Number(couplingTotal) } : {}),
+        edges: edgeRows.rows.flatMap((row) => {
+          const from = byId.get(String(row['from_node']));
+          const to = byId.get(String(row['to_node']));
+          if (from === undefined || to === undefined) return [];
+          return [{ from: from.key, to: to.key, relation: WIKI_RELATION[String(row['relation'])] ?? `code.${String(row['relation'])}`, properties: {
+            ...(row['change'] === null ? {} : { change: row['change'] }),
+            ...(row['added'] === null ? {} : { added: Number(row['added']) }),
+            ...(row['removed'] === null ? {} : { removed: Number(row['removed']) }),
+            ...(row['position'] === null ? {} : { position: Number(row['position']) }),
+            ...(row['walk'] === null ? {} : { walk: Number(row['walk']) }),
+            ...(row['discriminator'] === '' ? {} : { discriminator: row['discriminator'] }),
           } }];
         }),
       };

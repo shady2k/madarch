@@ -129,6 +129,9 @@ class FixtureReader extends GraphReader {
     for (const edge of this.facts.filter((one) => one.relation === relation)) if (keys.includes(edge.to.key)) counts.set(edge.to.key, (counts.get(edge.to.key) ?? 0) + 1);
     return counts;
   }
+  override async inDegreesOf(relation: string, entities: readonly GraphEntity[]) {
+    return await this.inDegrees(relation, entities.map((entity) => entity.key));
+  }
   override async edgesOf(entity: GraphEntity, relation: string, direction: 'out' | 'in', limit: number) {
     const rows = this.facts.filter((edge) => edge.relation === relation && (direction === 'out' ? edge.from.key : edge.to.key) === entity.key)
       .map((edge) => ({ relation, direction, other: direction === 'out' ? edge.to : edge.from, properties: edge.properties, position: null }));

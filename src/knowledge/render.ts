@@ -21,6 +21,7 @@ import { graphBlock, treemapBlock } from './diagrams.js';
 import { diagramsBlock } from './views.js';
 import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
+import { withSpan } from '../obs/trace.js';
 import type { GraphEntity } from './graph-read.js';
 import { linkedFromBlock } from './linked-from.js';
 import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
@@ -255,6 +256,10 @@ function legacyParams(
 }
 
 async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined, details: readonly string[] | undefined): Promise<Block> {
+  return await withSpan(`wiki.block.${name}`, { 'wiki.block': name }, async () => await renderBlockOf(ctx, subject, name, params, file, line, lang, details));
+}
+
+async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined, details: readonly string[] | undefined): Promise<Block> {
   switch (name) {
     case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
