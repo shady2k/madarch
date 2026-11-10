@@ -12,10 +12,10 @@
  * document kind whose entities only the agent writes — is no part of this
  * contract, and no table stands for it.
  */
-import { generatedTableName, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
-import type { GeneratedKindRead } from '../../knowledge/graph-read.js';
+import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
+import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindDecl, KindsManifest } from '../../knowledge/kinds.js';
-import { gitContractOf } from './git-contract.js';
+import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
@@ -54,7 +54,37 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
   // The path index evidence names is mechanism state (`src/graph/one-graph.ts`), not a kind the manifest declares.
-  return { vertex, edge: [], dictionary: [] };
+  return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
+}
+
+/**
+ * The edge tables a manifest's own edge declarations and their plugin's contract make (decision 0035, items 7 and 18):
+ * an edge whose capability names a plugin that declares that edge kind takes the plugin's fields as its columns, and the
+ * manifest states its ends, whether it repeats and what tells its repeats apart. An edge a capability fills in the
+ * engine's own contract (git's) is no part of this one.
+ */
+function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
+  const edges: EdgeContract[] = [];
+  for (const edge of [...(manifest.edges?.values() ?? [])].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
+    if (edge.capability === undefined) continue;
+    const plugin = manifest.plugins?.get(edge.capability);
+    const declared = plugin?.contract?.edges.find((one) => one.kind === edge.name);
+    if (declared === undefined) continue;
+    const fields: FieldContract[] = declared.fields?.map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) })) ?? [];
+    // The manifest names a kind the wiki shows (`code.file`); the graph's kind of a git kind is its name without the prefix.
+    const graphKinds = (names: readonly string[]): string[] => names.map((name) => GIT_MANIFEST_KINDS[name] ?? name);
+    edges.push({
+      name: edge.name,
+      ...(fields.length === 0 ? {} : { table: generatedTableName(edge.name, 'edge') }),
+      from: graphKinds(edge.from),
+      to: graphKinds(edge.to),
+      repeats: edge.repeats,
+      ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
+      fields,
+      capability: edge.capability,
+    });
+  }
+  return edges;
 }
 
 /**
@@ -81,6 +111,25 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
     // A kind no declaration fills, or whose key no producer names, has no table a reader can answer from.
     if (bound.size === 0 || !keyFields.every((field) => bound.has(field))) continue;
     reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields });
+  }
+  return reads;
+}
+
+/**
+ * The edge kinds a reader reads, with the table each declaration made: the columns, their types and the ends the
+ * manifest states. A kind with no fields has no table of its own and answers from the `edge` row alone.
+ */
+export function declaredEdgeReads(manifest: KindsManifest): Map<string, GeneratedEdgeRead> {
+  const reads = new Map<string, GeneratedEdgeRead>();
+  for (const edge of edgeContractsOf(manifest)) {
+    reads.set(edge.name, {
+      kind: edge.name,
+      ...(edge.table === undefined ? {} : { table: edge.table }),
+      columns: edge.fields.map((field) => field.name),
+      types: Object.fromEntries(edge.fields.map((field) => [field.name, field.type])) as GeneratedEdgeRead['types'],
+      from: edge.from,
+      to: edge.to,
+    });
   }
   return reads;
 }

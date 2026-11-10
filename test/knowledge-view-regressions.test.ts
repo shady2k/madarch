@@ -137,11 +137,11 @@ test('forty-two deployment elements fold into their twenty-one real files and dr
 
 test('ER retains all 64 columns including combined PK/FK and parallel column labels', async () => {
   const table: GraphEntity = { key: 'code.table:shop/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
-  const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `${table.key}/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { type: 'uuid', primaryKey: index === 0 } }));
+  const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `code.column:shop/public.orders/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { table: 'shop/public.orders', name: `column_${index}`, type: 'uuid', primary_key: index === 0 } }));
   const graph = {
     find: async () => [table],
     // A table holds no tables under its key: the columns are what the graph holds there (the data model extractor's facts).
-    byPrefix: async (kind: string, prefix: string, limit: number) => (kind === 'code.column' && prefix.startsWith(`${table.key}/`)
+    byPrefix: async (kind: string, prefix: string, limit: number) => (kind === 'code.column' && prefix.startsWith('code.column:shop/public.orders/')
       ? { rows: columns.slice(0, limit), total: columns.length }
       : { rows: [], total: 0 }),
     neighbors: async () => [{ relation: 'code.foreign-key', direction: 'out', total: 1, edges: 2, rows: [{ entity: table, edges: 2 }] }],

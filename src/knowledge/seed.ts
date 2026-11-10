@@ -18,7 +18,10 @@ import type { RuleSpec } from '../problems/types.js';
 /** A starter file: its path in the product repository and its text. */
 export interface StarterFile {
   path: string;
+  /** The file's text; a file that is not text answers an empty text and its `bytes`. */
   content: string;
+  /** The bytes of a file the product copies as it is (a plugin's WebAssembly module). */
+  bytes?: Uint8Array;
 }
 
 /**
@@ -241,7 +244,7 @@ them, as label.
 {% children title="Tables" title-ru="Таблицы" kind="code.table" prefix=tables_prefix relation="code.contains" %}
 {% assign migrations_prefix = "code.migration:" | append: page.label | append: "/" %}
 {% children title="Migrations" title-ru="Миграции" kind="code.migration" prefix=migrations_prefix relation="code.contains" %}
-{% er title="Tables and their links" title-ru="Таблицы и связи между ними" limit=12 %}{% endblock %}
+{% er title="Tables and their links" title-ru="Таблицы и связи между ними" limit=60 %}{% endblock %}
 {% block relations %}{% render "./partials/relations.liquid", title="Relations", title_ru="Связи" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this database", title_ru="Страницы об этой базе данных" %}{% endblock %}
 `,
@@ -249,10 +252,10 @@ them, as label.
 {% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this", title_ru="Вокруг этого" %}{% endblock %}
 {% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
-{% block parts %}{% assign columns_prefix = page.key | append: "/" %}
-{% children title="Columns" title-ru="Столбцы" kind="code.column" prefix=columns_prefix relation="code.contains" limit=200 %}
+{% block parts %}{% assign columns_prefix = "code.column:" | append: page.keyrest | append: "/" %}
+{% children title="Columns" title-ru="Столбцы" kind="code.column" prefix=columns_prefix relation="code.has-column" limit=200 %}
 {% assign indexes_prefix = "code.index:" | append: page.keyrest | append: "/" %}
-{% children title="Indexes" title-ru="Индексы" kind="code.index" prefix=indexes_prefix relation="code.contains" %}
+{% children title="Indexes" title-ru="Индексы" kind="code.index" prefix=indexes_prefix relation="code.has-index" %}
 {% er title="The table and its links" title-ru="Таблица и её связи" %}{% endblock %}
 {% block relations %}{% render "./partials/relations.liquid", title="Relations", title_ru="Связи" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this table", title_ru="Страницы об этой таблице" %}{% endblock %}
@@ -394,7 +397,7 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   type: { en: "Type", ru: "Тип", format: "text" },
   nullable: { en: "Nullable", ru: "Допускает NULL", format: "boolean" },
   default: { en: "Default", ru: "Значение по умолчанию", format: "code" },
-  primaryKey: { en: "Primary key", ru: "Первичный ключ", format: "boolean" },
+  primary_key: { en: "Primary key", ru: "Первичный ключ", format: "boolean" },
   unique: { en: "Unique", ru: "Уникальный", format: "boolean" },
   check: { en: "Check", ru: "Проверка", format: "code" },
   columns: { en: "Columns", ru: "Столбцы", format: "list" },
@@ -516,7 +519,7 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.message": ["channel", "eventTypes", "path"],
   "code.database": ["service", "path", "evidenceKind"],
   "code.table": ["database", "schema"],
-  "code.column": ["type", "nullable", "default", "primaryKey", "unique", "check"],
+  "code.column": ["type", "nullable", "default", "primary_key", "unique", "check"],
   "code.index": ["columns", "unique", "where"],
   "code.migration": ["ordinal", "path"],
   "code.env-var": ["required", "default"],
@@ -743,6 +746,12 @@ function kindsManifest(): string {
     "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }",
     "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }",
     "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }",
+    // The data entities the db-schema plugin fills: a table holds its columns and its indexes, a column references a
+    // column, and a table is declared in the file that holds its SQL (task madarch-47vw.3).
+    "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }",
+    "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }",
+    "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }",
+    "  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }",
     "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
     "# files of its closure. madarch's own git reader is the first; it runs in process until the plugin host lands.",
     "plugins:",
@@ -836,7 +845,9 @@ function pluginLockText(): string {
 
 /** The output kinds a bundled plugin's own contract declares. */
 function pluginOutputsOf(plugin: BundledPlugin): string[] {
-  const contract = JSON.parse(plugin.files.find((file) => file.path === 'contract.json')!.content) as { outputs: { vertices: { kind: string }[] } };
+  const held = plugin.files.find((file) => file.path === 'contract.json')?.content;
+  if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no contract.json text to name its output kinds from`);
+  const contract = JSON.parse(held) as { outputs: { vertices: { kind: string }[] } };
   return contract.outputs.vertices.map((vertex) => vertex.kind);
 }
 
@@ -845,7 +856,7 @@ export const STARTER_FILES: readonly StarterFile[] = [
   { path: 'madarch/plugins.lock', content: pluginLockText() },
   { path: WORKFLOWS_FILE, content: WORKFLOWS },
   // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3).
-  ...bundledPluginFiles().map((file) => ({ path: file.path, content: file.content })),
+  ...bundledPluginFiles().map((file) => ({ path: file.path, content: file.content, ...(file.bytes === undefined ? {} : { bytes: file.bytes }) })),
   ...Object.entries(TEMPLATES).map(([name, content]) => ({ path: `templates/${name}`, content })),
 ];
 
@@ -868,7 +879,7 @@ export function seedStarterSet(productFolder: string): string[] {
     }
     try {
       mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, starter.content, { flag: 'wx' });
+      writeFileSync(target, starter.bytes ?? starter.content, { flag: 'wx' });
     } catch (error) {
       throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
     }

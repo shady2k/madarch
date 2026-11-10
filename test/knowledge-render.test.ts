@@ -73,9 +73,9 @@ beforeAll(async () => {
   add(DATABASE, 'code.database', 'billing', { service: 'billing' });
   add(INVOICES, 'code.table', 'invoices', { schema: 'public', database: 'billing' });
   add(CUSTOMERS, 'code.table', 'customers', { schema: 'public', database: 'billing' });
-  add(`${INVOICES}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
-  add(`${INVOICES}/customer_id`, 'code.column', 'customer_id', { type: 'uuid', nullable: false });
-  add(`${CUSTOMERS}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
+  add('code.column:billing/public.invoices/id', 'code.column', 'id', { table: 'billing/public.invoices', name: 'id', type: 'uuid', nullable: false, primary_key: true });
+  add('code.column:billing/public.invoices/customer_id', 'code.column', 'customer_id', { table: 'billing/public.invoices', name: 'customer_id', type: 'uuid', nullable: false });
+  add('code.column:billing/public.customers/id', 'code.column', 'id', { table: 'billing/public.customers', name: 'id', type: 'uuid', nullable: false, primary_key: true });
   link('code.foreign-key', INVOICES, CUSTOMERS, { column: 'customer_id' }, 'customer_id');
 
   const write = (path: string, text: string): void => {

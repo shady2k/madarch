@@ -20,7 +20,7 @@
  */
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
-import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
+import type { EdgeDraft, EdgeRemovalDraft, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
 
 /** How much of the product one capability or fact kind is about. */
 type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -179,7 +179,11 @@ export type StageDraftWrite =
   | { kind: 'edge'; evidence: string; value: import('../graph/write.js').EdgeDraft }
   | { kind: 'journal'; evidence: string; value: { readonly author: string; readonly reads?: readonly { readonly method: string; readonly size: number }[] } }
   /** One entity the producer no longer holds: its claims are withdrawn and it leaves the reads. */
-  | { kind: 'vertex-removal'; evidence: string; value: VertexRemovalDraft };
+  | { kind: 'vertex-removal'; evidence: string; value: VertexRemovalDraft }
+  /** One edge a plugin's answer states (decision 0035, item 7): its ends by kind and key, resolved by the writer. */
+  | { kind: 'plugin-edge'; evidence: string; value: EdgeDraft }
+  /** One edge the producer no longer holds: its ends by kind and key, and its discriminator. */
+  | { kind: 'plugin-edge-removal'; evidence: string; value: EdgeRemovalDraft };
 
 /** The draft set a unit's writes collect into while it runs. */
 export interface StageDraftSet {

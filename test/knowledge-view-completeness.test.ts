@@ -65,7 +65,10 @@ const id = (index: number): string => String(index).padStart(2, '0');
 test('database thirteen retains every table, column and native relationship outside its twelve-table overview', async () => {
   const database = entity('code.database', 'fixture');
   const tables = Array.from({ length: 13 }, (_, index) => entity('code.table', `fixture/public.table_${id(index)}`));
-  const columns = tables.map(table => ({ ...entity('code.column', ''), key: `${table.key}/target_id`, label: 'target_id', properties: { type: 'uuid', primaryKey: true } }));
+  const columns = tables.map(table => {
+    const keyrest = table.key.slice(table.key.indexOf(':') + 1);
+    return { ...entity('code.column', ''), key: `code.column:${keyrest}/target_id`, label: 'target_id', properties: { table: keyrest, name: 'target_id', type: 'uuid', primary_key: true } };
+  });
   const facts = tables.slice(1).map(from => ({ relation: 'code.foreign-key', from, to: tables[0]!, discriminator: from.key, properties: { column: 'target_id' } }));
   const [view] = await buildViews({ ctx: context(new FixtureReader([database, ...tables, ...columns], facts)), lang: 'en', productTitle: 'Fixture' }, { type: 'er', subject: database.key });
   expect(view!.elements).toHaveLength(12);

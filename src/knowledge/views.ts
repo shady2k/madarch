@@ -560,26 +560,50 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   let tables: GraphEntity[];
   let total: number;
   if (form === 'tables') {
-    // The tables the entity holds: the data model extractor files a table under the database whose key it opens
-    // (`code.table:<database>/<table>`, the facts this view reads, decision 0033 item 7). The graph holds none: the view
-    // says so, as it always has.
-    let found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
-    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, found.total);
+    // The tables the entity holds: the manifest's declarations file a table under its database in the table's own key
+    // (`code.table:<database>/<table>`), and the reader answers the graph's rows (decision 0034, item 14).
+    const prefix = `code.table:${keyTail(subject.key)}/`;
+    let found = await ctx.graph.byPrefix('code.table', prefix, limit);
+    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', prefix, found.total);
     if (found.total !== found.rows.length) throw new ViewRefusal(400, `ER database "${subject.key}": expected ${found.total} tables, read ${found.rows.length}`);
     tables = found.rows;
     total = found.total;
   } else {
-    // A table is drawn with the tables it points to by foreign key and the tables that point to it.
-    tables = [subject];
+    // A table is drawn with the tables its columns reference and the tables whose columns reference it. A foreign key is
+    // an edge between columns (decision 0035, item 7), so each end's table is the column's own `table` value.
+    // The relation may be stated between the tables themselves (the catalogue's older shape of it) and between their
+    // columns (decision 0035, item 7): the view follows either, and the tables it reaches are its elements.
+    const held = new Map<string, GraphEntity>([[subject.key, subject]]);
     for (const direction of ['out', 'in'] as const) {
-      let groups = await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: Math.max(20, limit) });
-      const total = Math.max(0, ...groups.map(group => group.total));
-      if (groups.some(group => group.total > group.rows.length)) groups = await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: total });
+      const read = async (count: number) => await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: count });
+      let groups = await read(Math.max(20, limit));
+      const total = Math.max(0, ...groups.map((group) => group.total));
+      if (groups.some((group) => group.total > group.rows.length)) groups = await read(total);
       for (const group of groups) {
         if (group.total !== group.rows.length) throw new ViewRefusal(400, `ER table "${subject.key}" ${direction}: expected ${group.total} foreign-key neighbours, read ${group.rows.length}`);
-        for (const row of group.rows) if (!tables.some((table) => table.key === row.entity.key)) tables.push(row.entity);
+        for (const row of group.rows) if (row.entity.kind === 'code.table') held.set(row.entity.key, row.entity);
       }
     }
+    let own = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(subject.key)}/`, 400);
+    if (own.total > own.rows.length) own = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(subject.key)}/`, own.total);
+    for (const column of own.rows) {
+      const read = async (count: number) => await ctx.graph.neighbors(column, { relations: ['code.foreign-key'], direction: 'both', limit: count });
+      let groups = await read(Math.max(20, limit));
+      const total = Math.max(0, ...groups.map((group) => group.total));
+      if (groups.some((group) => group.total > group.rows.length)) groups = await read(total);
+      for (const group of groups) {
+        if (group.total !== group.rows.length) throw new ViewRefusal(400, `ER column "${column.key}": expected ${group.total} foreign-key neighbours, read ${group.rows.length}`);
+        for (const row of group.rows) {
+          if (row.entity.kind === 'code.table') { held.set(row.entity.key, row.entity); continue; }
+          const table = row.entity.properties['table'];
+          const key = typeof table === 'string' && table !== '' ? `code.table:${table}` : undefined;
+          if (key === undefined || held.has(key)) continue;
+          const [one] = await ctx.graph.find(key);
+          if (one !== undefined) held.set(key, one);
+        }
+      }
+    }
+    tables = [...held.values()].filter((one) => one.key === subject.key || one.kind === 'code.table');
     total = tables.length;
   }
   const title = `${w.er}: ${subject.label}`;
@@ -590,17 +614,24 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   let foreignKeys = await ctx.graph.relationEdges('code.foreign-key', 2000);
   if (foreignKeys.total > foreignKeys.rows.length) foreignKeys = await ctx.graph.relationEdges('code.foreign-key', foreignKeys.total);
   if (foreignKeys.total !== foreignKeys.rows.length) throw new ViewRefusal(400, `ER foreign keys: expected ${foreignKeys.total} relationships, read ${foreignKeys.rows.length}`);
+  /** The table one end of a foreign key stands for: the column's `table` value, or the table the end itself is. */
+  const tableKeyOfEnd = (end: { key: string; kind: string; properties?: Record<string, unknown> }): string | undefined => {
+    if (end.kind === 'code.table') return end.key;
+    const table = (end.properties ?? {})['table'];
+    return typeof table === 'string' && table !== '' ? `code.table:${table}` : undefined;
+  };
   const columnsOf = new Map<string, Set<string>>();
   for (const edge of foreignKeys.rows) {
-    const column = edge.properties['column'];
-    if (typeof column !== 'string' || column === '') continue;
-    const columns = columnsOf.get(edge.from.key) ?? new Set<string>();
-    columns.add(column);
-    columnsOf.set(edge.from.key, columns);
+    const table = tableKeyOfEnd(edge.from);
+    const name = (edge.from.properties ?? {})['name'] ?? edge.properties['column'];
+    if (table === undefined || typeof name !== 'string' || name === '') continue;
+    const columns = columnsOf.get(table) ?? new Set<string>();
+    columns.add(name);
+    columnsOf.set(table, columns);
   }
   for (const table of tables) {
-    let columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
-    if (columns.total > columns.rows.length) columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, columns.total);
+    let columns = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(table.key)}/`, 40);
+    if (columns.total > columns.rows.length) columns = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(table.key)}/`, columns.total);
     if (columns.total !== columns.rows.length) throw new ViewRefusal(400, `ER table "${table.key}": expected ${columns.total} columns, read ${columns.rows.length}`);
     const ownColumns = columnsOf.get(table.key) ?? new Set<string>();
     elements.push({
@@ -610,23 +641,24 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
       href: hrefOf(ctx, table),
       ...(table.span === undefined ? {} : { location: locationOf(ctx, table.scope, table.span) }),
       dashed: false,
-      columns: columns.rows.map((column) => ({ name: column.label, type: erType(column.properties['type']), key: column.properties['primaryKey'] === true, fk: ownColumns.has(column.label) })),
+      columns: columns.rows.map((column) => ({ name: column.label, type: erType(column.properties['type']), key: column.properties['primary_key'] === true, fk: ownColumns.has(column.label) })),
     });
   }
   const edges: ViewEdge[] = [];
   const seen = new Set<string>();
-  for (const table of tables) {
-    for (const edge of foreignKeys.rows) {
-      if (edge.from.key !== table.key || !inView.has(edge.to.key)) continue;
-      const column = edge.properties['column'];
-      const label = typeof column === 'string' && column !== '' ? column : w.foreignKey;
-      const key = JSON.stringify([edge.from.key, edge.to.key, edge.discriminator ?? edge.properties['constraint'] ?? label]);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      edges.push({ from: table.key, to: edge.to.key, label, dashed: false, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }) });
-    }
+  for (const edge of foreignKeys.rows) {
+    const from = tableKeyOfEnd(edge.from);
+    const to = tableKeyOfEnd(edge.to);
+    if (from === undefined || to === undefined || !inView.has(from) || !inView.has(to)) continue;
+    const column = edge.properties['column'] ?? (edge.from.properties ?? {})['name'];
+    const label = typeof column === 'string' && column !== '' ? column : w.foreignKey;
+    const key = JSON.stringify([from, to, edge.discriminator ?? edge.properties['constraint'] ?? label]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ from, to, label, dashed: false, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }) });
   }
   edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}|${a.label}`, `${b.from}|${b.to}|${b.label}`));
+
   const notes = [
     ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
     ...(foreignKeys.total > foreignKeys.rows.length ? [w.truncated(foreignKeys.rows.length, foreignKeys.total)] : []),

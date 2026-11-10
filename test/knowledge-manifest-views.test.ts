@@ -58,17 +58,19 @@ const MODULE = entity('code.module', 'services/payments', { files: 2 });
 const DATABASE = entity('code.database', 'shop');
 const ORDERS = entity('code.table', 'shop/orders', { path: 'db/schema.sql' }, 'db/schema.sql');
 const USERS = entity('code.table', 'shop/users');
-const COLUMN: GraphEntity = { ...entity('code.column', 'user_id', { type: 'uuid', primaryKey: true }), key: 'code.table:shop/orders/user_id' };
+const COLUMN: GraphEntity = { ...entity('code.column', 'user_id', { table: 'shop/orders', name: 'user_id', type: 'uuid', primary_key: true }), key: 'code.column:shop/orders/user_id', label: 'user_id' };
+const USERS_ID: GraphEntity = { ...entity('code.column', 'id', { table: 'shop/users', name: 'id', type: 'uuid', primary_key: true }), key: 'code.column:shop/users/id', label: 'id' };
 const ROUTE = entity('code.route', 'api.ts#GET:/items', { method: 'GET', path: '/items', middleware: [] }, 'api.ts');
 const CONTRACT = entity('code.contract', 'contracts/api.yaml', { path: 'contracts/api.yaml', format: 'openapi' }, 'contracts/api.yaml');
 const OPERATION = entity('code.operation', 'contracts/api.yaml#GET:/items', { method: 'GET', path: '/items' }, 'contracts/api.yaml');
-const ENTITIES = [SERVICE, FILE, MODULE, DATABASE, ORDERS, USERS, COLUMN, ROUTE, CONTRACT, OPERATION];
+const ENTITIES = [SERVICE, FILE, MODULE, DATABASE, ORDERS, USERS, COLUMN, USERS_ID, ROUTE, CONTRACT, OPERATION];
 
 /** A fact of the fixture graph: an edge between two of its entities, of the relation the extractors file it under. */
 interface FixtureEdge { relation: string; from: GraphEntity; to: GraphEntity; discriminator?: string; properties: Record<string, unknown> }
 
 const FACTS: FixtureEdge[] = [
-  { relation: 'code.foreign-key', from: ORDERS, to: USERS, discriminator: 'orders.user_id', properties: { column: 'user_id' } },
+  // A foreign key is an edge between columns (decision 0035, item 7): the table of each end is the column's `table` value.
+  { relation: 'code.foreign-key', from: COLUMN, to: USERS_ID, discriminator: 'user_id', properties: { column: 'user_id', target_column: 'id' } },
   { relation: 'code.declares', from: CONTRACT, to: OPERATION, discriminator: '', properties: {} },
   { relation: 'code.reads-table', from: FILE, to: ORDERS, discriminator: '', properties: {} },
 ];
@@ -133,7 +135,8 @@ class FixtureReader extends GraphReader {
     };
   }
   override async relationEdges(relation: string, limit = 2000) {
-    const rows = this.facts.filter((edge) => edge.relation === relation);
+    const rows = this.facts.filter((edge) => edge.relation === relation)
+      .map((edge) => ({ ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }), from: { key: edge.from.key, kind: edge.from.kind, label: edge.from.label, properties: edge.from.properties }, to: { key: edge.to.key, kind: edge.to.kind, label: edge.to.label, properties: edge.to.properties }, properties: edge.properties }));
     return { rows: rows.slice(0, limit), total: rows.length };
   }
   override async neighbors(entity: GraphEntity, options: { relations?: readonly string[]; direction?: 'out' | 'in' | 'both'; limit: number }) {

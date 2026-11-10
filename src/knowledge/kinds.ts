@@ -142,6 +142,14 @@ export interface PluginOutputKind {
   readonly fields: readonly PluginFieldDecl[];
 }
 
+/** One edge kind a plugin's own contract declares, with the kinds of its ends and its fields. */
+export interface PluginOutputEdge {
+  readonly kind: string;
+  readonly from: string;
+  readonly to: string;
+  readonly fields: readonly PluginFieldDecl[];
+}
+
 /** What a plugin's own contract holds: the outputs its introduction sends and the fields they declare. */
 export interface PluginContract {
   readonly id: string;
@@ -149,6 +157,8 @@ export interface PluginContract {
   /** What the plugin reads: one unit at a time, or the whole graph once after every other plugin turn. */
   readonly reads: 'unit' | 'whole-graph';
   readonly vertices: readonly PluginOutputKind[];
+  /** The edge kinds it produces, with their fields: the ones whose capability it fills at a manifest declaration's ends. */
+  readonly edges: readonly PluginOutputEdge[];
   readonly file: string;
 }
 
@@ -898,7 +908,8 @@ function readPluginContract(files: ProductFileRead, id: string, path: string, ma
     }
     vertices.push({ kind: vertex.kind, key: vertex.key ?? [], fields });
   }
-  return { id, version: contract.version, reads: contract.reads ?? 'unit', vertices, file };
+  const edges: PluginOutputEdge[] = (contract.outputs.edges ?? []).map((edge) => ({ kind: edge.kind, from: edge.from, to: edge.to, fields: edge.fields ?? [] }));
+  return { id, version: contract.version, reads: contract.reads ?? 'unit', vertices, edges, file };
 }
 
 /** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */
@@ -1758,6 +1769,15 @@ export function matchesAny(patterns: readonly string[], path: string): boolean {
   return patterns.some((pattern) => globToRegExp(pattern).test(path));
 }
 
+
+/**
+ * The kinds in the order their declared dependencies give (decision 0035, item 11): a kind after the kinds it depends on.
+ * The manifest's check refuses a cycle before a fill starts, so the order stands whenever a fill reads it.
+ */
+export function kindsInDependencyOrder(manifest: KindsManifest): string[] {
+  const dependencies = new Map<string, readonly string[]>([...manifest.kinds].map(([name, kind]) => [name, kind.dependsOn ?? []]));
+  return dependencyOrder(dependencies);
+}
 
 /** The first dependency cycle among the kinds, as the names in its order, or undefined when the graph is acyclic. */
 function findDependencyCycle(dependencies: ReadonlyMap<string, readonly string[]>): string[] | undefined {

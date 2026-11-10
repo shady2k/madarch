@@ -15,7 +15,7 @@ import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs
 import { createRecordSchema } from '../graph/index.js';
 import { hasGeneratedTable } from '../graph/tables.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
-import { declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
+import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -36,7 +36,7 @@ import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
 import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
-import { GraphReader, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
+import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { readMarkdownEntitiesFrom, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillSelectionView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
@@ -97,10 +97,10 @@ import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
  * bindings build. No kind's name stands here: the manifest is the product's data and the reader reads it.
  */
-function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>; generated: ReadonlyMap<string, GeneratedKindRead> } {
+function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>; generated: ReadonlyMap<string, GeneratedKindRead>; edges: ReadonlyMap<string, GeneratedEdgeRead> } {
   const contract = graphContractOf(manifest);
   // Vertices and edges both: a read asks whether the product declares an edge kind too (history, touched).
-  return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest) };
+  return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest), edges: declaredEdgeReads(manifest) };
 }
 
 /** The most terms one listing of a glossary kind reads; a larger glossary is cut rather than read whole. */
@@ -1702,7 +1702,7 @@ export class KnowledgeProduct {
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
     const kinds = graphKindsOf(read.manifest);
-    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, kinds.declared, kinds.generated);
+    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, kinds.declared, kinds.generated, kinds.edges);
     const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope ?? undefined;
     const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
     const pins = snapshot?.pins ?? this.pins;
@@ -1904,7 +1904,7 @@ export class KnowledgeProduct {
       const owner = await this.open();
       const kinds = graphKindsOf(context.manifest);
       generated = kinds.generated;
-      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
+      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
     }
@@ -2100,7 +2100,7 @@ export class KnowledgeProduct {
     try {
       const owner = await this.open();
       const kinds = graphKindsOf(ctx.manifest);
-      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
+      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
 
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
@@ -3224,7 +3224,7 @@ export class KnowledgeProduct {
     const listing = await collectProblems({
       productFolder: this.options.productFolder, owner, files, manifest: context.manifest,
       // The Problems page reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
-      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, graphKindsOf(context.manifest).declared, graphKindsOf(context.manifest).generated),
+      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, graphKindsOf(context.manifest).declared, graphKindsOf(context.manifest).generated, graphKindsOf(context.manifest).edges),
       findingKinds: [...context.manifest.kinds.values()].filter((kind) => kind.findings === true).map((kind) => kind.name).sort(),
       settings: context.manifest.problems ?? defaultSettings(),
       ...(repository === undefined ? {} : { repository }),
