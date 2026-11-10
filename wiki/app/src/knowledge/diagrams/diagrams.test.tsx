@@ -18,7 +18,7 @@ import type { Block, DiagramView, FilesMap, Neighborhood } from '../types.js';
 import { bindMermaid, mermaidPicture } from './views.js';
 import { viewFrameAddress } from '../api.js';
 import { folderLevel } from '../../../../../src/knowledge/files-treemap.js';
-import { mapOption } from './files-echart.js';
+import { contrastOf, fillOf, inkFor, labelFits, mapOption, rampColourAt } from './files-echart.js';
 import { crumbSegments } from './treemap.js';
 import { RAMPS } from '../files-measure.js';
 
@@ -379,7 +379,7 @@ const treemapData = (over: Partial<FilesMap> = {}): FilesMap => ({
     { id: 'code.file:shop/src/pricing.go', path: 'src/pricing.go', href: '/e/f2', lines: 100, bytes: 3000, language: 'Go', heat: [0, 1, 2, 2] as [number, number, number, number], last: '2026-10-20T10:00:00Z', authors: ['Ada'] },
     { id: 'code.file:shop/src/README.md', path: 'src/README.md', href: '/e/f3', lines: 40, bytes: 800, language: null, heat: [0, 0, 0, 0] as [number, number, number, number], last: null, authors: [] },
   ],
-  totals: { files: 3, lines: 540, bytes: 12800, withoutLines: 0, ambiguous: 1, languages: [{ name: 'Go', files: 2, lines: 500, bytes: 12000 }] },
+  totals: { files: 3, lines: 540, bytes: 12800, withoutLines: 0, other: 1, languages: [{ name: 'Go', files: 2, lines: 500, bytes: 12000 }] },
   windows: { d30: '2026-10-01T00:00:00Z', d90: '2026-08-01T00:00:00Z', d365: '2025-11-01T00:00:00Z' },
   graphTotal: 3,
   ...over,
@@ -418,18 +418,43 @@ describe('the repository map', () => {
     }
   });
 
+  test('each group of controls is a segmented choice with its own label', async () => {
+    const container = into(createElement(BlockView, { block: treemap({ colour: 'heat' }), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=files-area]') !== null, 'the controls');
+    const groups = [...container.querySelectorAll('.dg-seg')].map((group) => ({
+      label: group.querySelector('.dg-seg-label')?.textContent,
+      role: group.querySelector('[role=radiogroup]')?.getAttribute('aria-label'),
+      options: [...group.querySelectorAll('[role=radio]')].map((option) => option.textContent),
+      checked: [...group.querySelectorAll('[role=radio]')].filter((option) => option.getAttribute('aria-checked') === 'true').map((option) => option.textContent),
+    }));
+    expect(groups).toEqual([
+      { label: 'Area', role: 'Area', options: ['Lines', 'Bytes'], checked: ['Lines'] },
+      { label: 'Colour', role: 'Colour', options: ['Language', 'Heat', 'Age', 'Authors'], checked: ['Heat'] },
+      { label: 'Window', role: 'Window', options: ['30 days', '90 days', 'A year', 'All time'], checked: ['90 days'] },
+      { label: 'Engine', role: 'Engine', options: ['ECharts', 'Mermaid'], checked: ['Mermaid'] },
+    ]);
+  });
+
   test('the heat colour offers its window and draws the ramp its range stands for', async () => {
     const container = into(createElement(BlockView, { block: treemap({ colour: 'heat', window: '90d' }), resolutions: {} }));
     await until(() => container.querySelector('[data-testid=files-window]') !== null, 'the window switch');
     const legend = container.querySelector('[data-testid=files-legend]')!;
     expect(legend.getAttribute('data-measure')).toBe('heat');
-    expect(container.querySelector('[data-testid=files-window-1y]')!.getAttribute('aria-pressed')).toBe('false');
+    // The legend is the chosen measure's own: what the colour counts, the window, and the ramp's two ends.
+    expect(legend.textContent).toContain('Heat: commits, 90 days');
+    expect(legend.textContent).toContain('0 commits');
+    expect(legend.textContent).toContain('4 commits');
+    expect(container.querySelector('[data-testid=files-window-1y]')!.getAttribute('aria-checked')).toBe('false');
     container.querySelector<HTMLButtonElement>('[data-testid=files-window-1y]')!.click();
-    await until(() => container.querySelector('[data-testid=files-window-1y]')!.getAttribute('aria-pressed') === 'true', 'the year window');
+    await until(() => container.querySelector('[data-testid=files-window-1y]')!.getAttribute('aria-checked') === 'true', 'the year window');
     // The colour measure the reader leaves is not a window's: the window switch is only heat's.
     container.querySelector<HTMLButtonElement>('[data-testid=files-colour-authors]')!.click();
     await until(() => container.querySelector('[data-testid=files-window]') === null, 'the window switch to go');
-    expect(container.querySelector('[data-testid=files-legend]')!.getAttribute('data-measure')).toBe('authors');
+    const authors = container.querySelector('[data-testid=files-legend]')!;
+    expect(authors.getAttribute('data-measure')).toBe('authors');
+    expect(authors.textContent).toContain('Authors: distinct writers');
+    expect(authors.textContent).toContain('1 author');
+    expect(authors.textContent).toContain('2 authors');
   });
 
   test('a folder page breadcrumbs from its own root, and the segments name what is below it', async () => {
@@ -449,8 +474,39 @@ describe('the repository map', () => {
   test('the static picture is Mermaid by default and the reader may switch to the drawn map', async () => {
     const container = into(createElement(BlockView, { block: treemap(), resolutions: {} }));
     await until(() => container.querySelector('[data-testid=mermaid-diagram]') !== null, 'the Mermaid picture');
-    expect(container.querySelector('[data-testid=files-engine-mermaid]')!.getAttribute('aria-pressed')).toBe('true');
-    expect(container.querySelector('[data-testid=files-engine-echarts]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(container.querySelector('[data-testid=files-engine-mermaid]')!.getAttribute('aria-checked')).toBe('true');
+    expect(container.querySelector('[data-testid=files-engine-echarts]')!.getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+describe('the map cells and their labels', () => {
+  test('the ink is the one that reads on the tile: white on a dark fill, near-black on a light one, at 4.5 : 1 or better', () => {
+    for (const fill of ['#8c5a14', '#1c1c1c', '#4f7f79', '#f3efe6', '#ffffff', '#eeeeee']) {
+      const ink = inkFor(fill);
+      // The ink is the better of the two on that fill, and it clears WCAG's 4.5 : 1 for body text.
+      expect(contrastOf(fill, ink)).toBeGreaterThanOrEqual(contrastOf(fill, ink === '#ffffff' ? '#1c1c1c' : '#ffffff'));
+      expect(contrastOf(fill, ink)).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(inkFor('#1c1c1c')).toBe('#ffffff');
+    expect(inkFor('#ffffff')).toBe('#1c1c1c');
+  });
+
+  test('a cell too small for its words draws none, and a cell with room draws them', () => {
+    // A folder wants two lines and an icon; a file one line. The estimate is the cell's share of the frame.
+    expect(labelFits(1000, 1000, 792 * 520, true)).toBe(true);
+    expect(labelFits(1, 1000, 792 * 520, true)).toBe(false);
+    expect(labelFits(1000, 1000, 792 * 520, false)).toBe(true);
+    expect(labelFits(2, 1000, 792 * 520, false)).toBe(false);
+  });
+
+  test('the fill the label ink is chosen against is the fill the visual map paints', () => {
+    const colouring = { colour: 'heat' as const, ramp: RAMPS.heat.light, max: 10, languageColours: [] };
+    expect(fillOf(-1, colouring)).toBe(RAMPS.heat.light.none);
+    expect(fillOf(0, colouring)).toBe(rampColourAt(RAMPS.heat.light.colors, 0));
+    expect(fillOf(10, colouring)).toBe(rampColourAt(RAMPS.heat.light.colors, 1));
+    const languages = { colour: 'language' as const, ramp: RAMPS.heat.light, max: 3, languageColours: ['#7a9e7e', '#b08a5a', '#7f8fb3'] };
+    expect(fillOf(1, languages)).toBe('#b08a5a');
+    expect(fillOf(9, languages)).toBe(RAMPS.heat.light.none);
   });
 });
 
@@ -477,5 +533,14 @@ describe('the map option an engine draws from', () => {
     expect(option.series[0]!.visualDimension).toBe(1);
     // The folder is one cell, the sum of its files; each file keeps its own area and its measure.
     expect(option.series[0]!.data.map((cell) => [cell.name, cell.value])).toEqual([['README.md', [40, 0]], ['order.go', [400, 4]], ['pricing.go', [100, 1]]]);
+    // Every cell names itself in a label of at least 12 px, in ink chosen against its own fill.
+    const rich = (option.series[0] as unknown as { label: { rich: Record<string, { fontSize?: number; color?: string }> } }).label.rich;
+    for (const name of ['nameLight', 'nameDark', 'folderLight', 'folderDark', 'countLight', 'countDark']) {
+      expect(rich[name]!.fontSize).toBeGreaterThanOrEqual(12);
+      expect(rich[name]!.color === '#ffffff' || rich[name]!.color === '#1c1c1c').toBe(true);
+    }
+    const order = (option.series[0] as unknown as { data: { name: string; label: { show: boolean; formatter: string } }[] }).data.find((cell) => cell.name === 'order.go')!;
+    expect(order.label.show).toBe(true);
+    expect(order.label.formatter).toContain('order.go');
   });
 });

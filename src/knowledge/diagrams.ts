@@ -103,9 +103,13 @@ function diagramWords(lang: string | undefined) {
     filesWithoutLines: (n: number) => ru
       ? `У ${n} ${plural(n, 'файла', 'файлов', 'файлов')} нет числа строк (двоичный файл): они учтены в итогах и нарисованы без площади.`
       : `${n} file${n === 1 ? '' : 's'} hold${n === 1 ? 's' : ''} no line count (a binary file): ${n === 1 ? 'it is' : 'they are'} counted in the totals and drawn with no area.`,
-    filesAmbiguous: (n: number) => ru
-      ? `У ${n} ${plural(n, 'файла', 'файлов', 'файлов')} нет принятого языка: источники называют несколько или ни одного, и файлы нарисованы как прочие.`
-      : `${n} file${n === 1 ? '' : 's'} hold${n === 1 ? 's' : ''} no accepted language: the claims name several candidates or none, so ${n === 1 ? 'it is' : 'they are'} drawn as other.`,
+    // The reader's words: a file the graph cannot name one language for is Other, not a claim or a candidate.
+    filesOther: (n: number) => {
+      const count = new Intl.NumberFormat(ru ? 'ru' : 'en').format(n);
+      return ru
+        ? `${count} ${plural(n, 'файл', 'файла', 'файлов')} пока без единого языка — они показаны как «Прочие».`
+        : `${count} file${n === 1 ? '' : 's'} have no single language yet — they show as Other.`;
+    },
     filesMapEmpty: (folder: string) => ru
       ? `В графе нет файлов в папке ${folder === '' ? 'репозитория' : folder}.`
       : `The graph holds no files in ${folder === '' ? 'the repository' : folder}.`,
@@ -1011,7 +1015,7 @@ async function filesMapOf(ctx: RenderContext, subject: Subject, limit: number, f
   if (data.graphTotal === null) notes.push(w.filesMapMore(limit));
   else if (data.graphTotal > data.files.length) notes.push(w.filesMapCut(data.files.length, data.graphTotal));
   if (data.totals.withoutLines > 0) notes.push(w.filesWithoutLines(data.totals.withoutLines));
-  if (data.totals.ambiguous > 0) notes.push(w.filesAmbiguous(data.totals.ambiguous));
+  if (data.totals.other > 0) notes.push(w.filesOther(data.totals.other));
   if (data.files.length === 0) notes.push(w.filesMapEmpty(data.folder));
   return { data, notes };
 }

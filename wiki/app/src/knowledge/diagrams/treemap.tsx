@@ -72,12 +72,34 @@ function dateText(value: string | null, language: string): string {
   return new Date(at).toLocaleDateString(language, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-/** A button that chooses one value of a switch. */
-function Choice({ on, label, title, onClick, testId }: { on: boolean; label: string; title?: string; onClick: () => void; testId: string }): ReactElement {
+/** One group of the map's controls: its label and a segmented choice, never breaking inside the group. */
+function Segmented({ label, testId, value, options, onChange }: {
+  label: string;
+  testId: string;
+  value: string;
+  options: readonly { value: string; label: string; testId: string }[];
+  onChange: (value: string) => void;
+}): ReactElement {
   return (
-    <button type="button" className="dg-chip" data-state={on ? 'on' : 'off'} aria-pressed={on} title={title ?? label} onClick={onClick} data-testid={testId}>
-      {label}
-    </button>
+    <div className="dg-seg" data-testid={testId}>
+      <span className="dg-seg-label">{label}</span>
+      <div className="dg-seg-options" role="radiogroup" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={value === option.value}
+            className="dg-seg-option"
+            data-state={value === option.value ? 'on' : 'off'}
+            onClick={() => onChange(option.value)}
+            data-testid={option.testId}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -121,7 +143,9 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
   const ramp = (colour === 'language' ? RAMPS.heat : RAMPS[colour])[dark ? 'dark' : 'light'];
   // Heat is read on a square-root scale: most files are changed once or twice and a linear ramp would paint them all
   // the same cold colour, while one file changed a hundred times took the whole ramp (measured on madarch's own map).
-  const max = useMemo(() => (colour === 'language' ? Math.max(1, colours.length - 1) : Math.max(1, colour === 'heat' ? Math.sqrt(maxMeasure(files, colour, window, now)) : maxMeasure(files, colour, window, now))), [colour, colours.length, files, window, now]);
+  const rawMax = useMemo(() => (colour === 'language' ? 0 : maxMeasure(files, colour, window, now)), [colour, files, window, now]);
+  const max = useMemo(() => (colour === 'language' ? Math.max(1, colours.length - 1) : Math.max(1, colour === 'heat' ? Math.sqrt(rawMax) : rawMax)), [colour, colours.length, rawMax]);
+  const maxAuthors = useMemo(() => files.reduce((most, file) => Math.max(most, file.authors.length), 0), [files]);
   const ageOf = (file: (typeof files)[number]): number => {
     const days = measureOf(file, 'age', window, now);
     return days === null ? 0 : days;
@@ -187,6 +211,7 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
         file: false,
         href: null,
         files: group.files.length,
+        count: t('knowledge.files.filesN', { count: group.files.length }),
         tip: [
           `${group.path}/`,
           `${t('knowledge.files.filesN', { count: group.files.length })}`,
@@ -234,10 +259,16 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
         </ul>
       );
     }
-    const from = colour === 'heat' ? t('knowledge.files.fewer') : colour === 'age' ? t('knowledge.files.recent') : t('knowledge.files.authorsFew');
-    const to = colour === 'heat' ? t('knowledge.files.more') : colour === 'age' ? t('knowledge.files.older') : t('knowledge.files.authorsMany', { count: max });
+    // The legend follows the measure the reader chose: the ends of the ramp are that measure's own numbers, and the
+    // sentence says what the colour counts.
+    const caption = colour === 'heat'
+      ? t('knowledge.files.legendHeatCaption', { window: t(`knowledge.files.window.${window}`) })
+      : colour === 'age' ? t('knowledge.files.legendAgeCaption') : t('knowledge.files.legendAuthorsCaption');
+    const from = colour === 'heat' ? t('knowledge.files.commitsN', { count: 0 }) : colour === 'age' ? t('knowledge.files.today') : t('knowledge.files.authorsN', { count: 1 });
+    const to = colour === 'heat' ? t('knowledge.files.commitsN', { count: rawMax }) : colour === 'age' ? t('knowledge.files.daysN', { count: rawMax }) : t('knowledge.files.authorsN', { count: Math.max(1, maxAuthors) });
     return (
       <div className="dg-legend-ramp" data-testid="files-legend" data-measure={colour}>
+        <span className="dg-legend-caption">{caption}</span>
         <span>{from}</span>
         <span className="dg-ramp-wide" style={{ background: rampStyle(ramp) }} aria-hidden="true" />
         <span>{to}</span>
@@ -258,29 +289,43 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
       <p className="dg-totals" data-testid="files-totals">
         {t('knowledge.files.totals', { count: block.data.totals.languages.length, files: countText(block.data.totals.files), lines: linesText(block.data.totals.lines) })}
       </p>
-      <div className="dg-toolbar" data-testid="files-switches">
-        <span className="dg-caption">{t('knowledge.files.area')}</span>
-        <div className="dg-group" role="group" aria-label={t('knowledge.files.area')}>
-          <Choice on={area === 'lines'} label={t('knowledge.files.lines')} onClick={() => setArea('lines')} testId="files-area-lines" />
-          <Choice on={area === 'bytes'} label={t('knowledge.files.bytes')} onClick={() => setArea('bytes')} testId="files-area-bytes" />
-        </div>
-        <span className="dg-caption">{t('knowledge.files.colour')}</span>
-        <div className="dg-group" role="group" aria-label={t('knowledge.files.colour')}>
-          {COLOURS.map((one) => <Choice key={one} on={colour === one} label={t(`knowledge.files.colour_${one}`)} onClick={() => setColour(one)} testId={`files-colour-${one}`} />)}
-        </div>
+      <div className="dg-files-controls" data-testid="files-switches">
+        <Segmented
+          label={t('knowledge.files.area')}
+          testId="files-area"
+          value={area}
+          onChange={(next) => setArea(next as typeof area)}
+          options={[
+            { value: 'lines', label: t('knowledge.files.lines'), testId: 'files-area-lines' },
+            { value: 'bytes', label: t('knowledge.files.bytes'), testId: 'files-area-bytes' },
+          ]}
+        />
+        <Segmented
+          label={t('knowledge.files.colour')}
+          testId="files-colour"
+          value={colour}
+          onChange={(next) => setColour(next as FilesMapColour)}
+          options={COLOURS.map((one) => ({ value: one, label: t(`knowledge.files.colour_${one}`), testId: `files-colour-${one}` }))}
+        />
         {colour === 'heat' && (
-          <>
-            <span className="dg-caption">{t('knowledge.files.windowLabel')}</span>
-            <div className="dg-group" role="group" aria-label={t('knowledge.files.windowLabel')} data-testid="files-window">
-              {WINDOWS.map((one) => <Choice key={one} on={window === one} label={t(`knowledge.files.window.${one}`)} onClick={() => setWindow(one)} testId={`files-window-${one}`} />)}
-            </div>
-          </>
+          <Segmented
+            label={t('knowledge.files.windowLabel')}
+            testId="files-window"
+            value={window}
+            onChange={(next) => setWindow(next as FilesMapWindow)}
+            options={WINDOWS.map((one) => ({ value: one, label: t(`knowledge.files.window.${one}`), testId: `files-window-${one}` }))}
+          />
         )}
-        <span className="dg-spacer" />
-        <div className="dg-group" role="group" aria-label={t('knowledge.files.engine')} data-testid="files-engine">
-          <Choice on={engine === 'echarts'} label="ECharts" onClick={() => setEngine('echarts')} testId="files-engine-echarts" />
-          <Choice on={engine === 'mermaid'} label="Mermaid" onClick={() => setEngine('mermaid')} testId="files-engine-mermaid" />
-        </div>
+        <Segmented
+          label={t('knowledge.files.engine')}
+          testId="files-engine"
+          value={engine}
+          onChange={(next) => setEngine(next as FilesMapEngine)}
+          options={[
+            { value: 'echarts', label: 'ECharts', testId: 'files-engine-echarts' },
+            { value: 'mermaid', label: 'Mermaid', testId: 'files-engine-mermaid' },
+          ]}
+        />
       </div>
       {breadcrumb()}
       <figure className="m-0">
