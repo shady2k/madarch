@@ -112,7 +112,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     expect(block.definition).toContain('the one run that reads');
     // The page links to the lines the definition stands on: the file, and the first line of the item.
     expect(block.usedIn).toContain('docs/glossary.md:3');
-    expect(block.usedIn).toContain('/k/src?path=docs%2Fglossary.md&line=3');
+    expect(block.usedIn).toContain('/src?path=docs%2Fglossary.md&line=3');
     expect(page.page.findings).toEqual([]);
   }, 300_000);
 
