@@ -41,6 +41,9 @@ import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.j
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
 import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../problems/types.js';
+import { Value } from 'typebox/value';
+import { PluginContractFile, type PluginContractDeclaration } from '../plugin/protocol.js';
+import { majorOf, PLUGINS_LOCK_FILE, readPluginLock } from '../plugin/lock.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -90,6 +93,16 @@ interface DeclaredRelation {
 export type Origin = 'agent' | 'person' | 'code' | 'history';
 const ORIGINS: readonly Origin[] = ['agent', 'person', 'code', 'history'];
 
+/**
+ * How one field of a manifest kind is filled (decision 0035, item 17): by a
+ * field a plugin declares (`glossary@1.definition`: the plugin, the major
+ * version the manifest binds, and the field's name in the plugin's contract),
+ * or by the agent from a description of what the field is and how to extract it.
+ */
+export type FieldBinding =
+  | { readonly kind: 'plugin'; readonly plugin: string; readonly major: string; readonly field: string }
+  | { readonly kind: 'agent'; readonly description: string };
+
 /** One typed field a kind's contract declares. */
 export interface FieldDecl {
   readonly name: string;
@@ -101,17 +114,54 @@ export interface FieldDecl {
   readonly producers?: readonly string[];
   /** The kind a reference field names; a reference field may stand in the natural key. */
   readonly reference?: string;
+  /**
+   * The producer the manifest binds the field to (decision 0035, item 17). A
+   * field with a binding takes its type and its role from the plugin's own
+   * declaration when it names one, so the manifest and the plugin cannot
+   * disagree without the check saying so.
+   */
+  readonly binding?: FieldBinding;
   /** The line the field stands at, for a finding the whole contract's check makes. */
   readonly line?: number;
+}
+
+/** One field a plugin declares for one of its output kinds (decision 0035, item 18). */
+export interface PluginFieldDecl {
+  readonly name: string;
+  readonly claim: 'authoritative' | 'claimed';
+  readonly type: FieldDecl['type'];
+  readonly meaning: string;
+  readonly example: unknown;
+  readonly required: boolean;
+}
+
+/** One output kind a plugin's own contract declares, with its key and fields. */
+export interface PluginOutputKind {
+  readonly kind: string;
+  readonly key: readonly string[];
+  readonly fields: readonly PluginFieldDecl[];
+}
+
+/** What a plugin's own contract holds: the outputs its introduction sends and the fields they declare. */
+export interface PluginContract {
+  readonly id: string;
+  readonly version: string;
+  readonly vertices: readonly PluginOutputKind[];
+  readonly file: string;
 }
 
 /** One plugin the product holds, as its manifest declares it (decision 0035, item 11). */
 export interface PluginDecl {
   readonly id: string;
+  /** The major version the manifest binds (`glossary@1.…` names major 1). */
   readonly version: string;
+  /** The plugin's folder in the product repository, `/`-separated. */
+  readonly path?: string;
   readonly inputs: readonly string[];
   readonly outputs: readonly string[];
   readonly closure: readonly string[];
+  /** The plugin's own contract, read from its folder (`contract.json`); absent when the folder holds none. */
+  readonly contract?: PluginContract;
   readonly line: number;
 }
 
@@ -316,9 +366,11 @@ const DEFINITION_MEMBER_FORMS: readonly DefinitionForm[] = ['operation', 'channe
 
 /**
  * The form a kind's listing page takes (`listing:` of a kind declaration): the plain table of names and places when the
- * field is absent, or the operations table, which names what declares, serves and calls each one (`operations`).
+ * field is absent, the operations table, which names what declares, serves and calls each one (`operations`), or the
+ * glossary's entries, whose text links to the term it uses and whose page states the definition and where it is stated
+ * (`glossary`). Which fields a term's entry reads is the block's, in the product's template: no module names a kind.
  */
-const LISTING_FORMS = ['operations'] as const;
+const LISTING_FORMS = ['operations', 'glossary'] as const;
 export type ListingForm = (typeof LISTING_FORMS)[number];
 
 /**
@@ -451,6 +503,9 @@ export interface KindsManifest {
 export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
+
+/** The shape a manifest field's binding to a plugin field takes: `<plugin>@<major>.<field>` (decision 0035, item 17). */
+const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
@@ -780,6 +835,63 @@ function parsedManifest(text: string, file: string): { readonly doc: Document; r
 }
 
 /** Parses the manifest's text; `productFolder` lets a template's existence be judged. */
+/**
+ * One plugin's own contract, read from its folder in the product repository (decision 0035, items 3, 17 and 18): the
+ * outputs its introduction declares, with each field's type, meaning, example and required flag. A contract the check
+ * cannot read is a finding naming the file and the line, and the plugin stands without one, so every binding to it is
+ * refused rather than trusted.
+ */
+function readPluginContract(productFolder: string, id: string, path: string, manifestFile: string, line: number, findings: Finding[]): PluginContract | undefined {
+  const file = `${path}/contract.json`;
+  let text: string;
+  try {
+    text = readFileSync(join(productFolder, file), 'utf8');
+  } catch (error) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": the contract ${file} cannot be read (${(error as Error).message}): a plugin's folder holds its contract.json` });
+    return undefined;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    findings.push({ file, line: jsonLine(text, 0), message: `the plugin contract ${file} is not JSON: ${(error as Error).message}` });
+    return undefined;
+  }
+  if (!Value.Check(PluginContractFile, value)) {
+    const first = [...Value.Errors(PluginContractFile, value)][0];
+    const where = first === undefined ? '' : first.instancePath;
+    findings.push({ file, line: jsonLine(text, where.length), message: `the plugin contract ${file} is not a plugin contract: ${first === undefined ? 'it does not fit the protocol' : `${where === '' ? 'the contract' : where.slice(1)} ${first.message}`}` });
+    return undefined;
+  }
+  const contract = value as { id: string; version: string; outputs: PluginContractDeclaration };
+  if (contract.id !== id) findings.push({ file, line: 1, message: `the plugin contract ${file} declares the id ${JSON.stringify(contract.id)}, and the manifest declares the plugin ${JSON.stringify(id)}` });
+  const vertices: PluginOutputKind[] = [];
+  for (const vertex of contract.outputs.vertices) {
+    // A field's declaration is checked whole here, so the table built from it never meets a half-declared field.
+    const fields: PluginFieldDecl[] = vertex.fields ?? [];
+    const seen = new Set<string>();
+    for (const field of fields) {
+      if (seen.has(field.name)) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} declares the field ${JSON.stringify(field.name)} twice` });
+      seen.add(field.name);
+    }
+    for (const keyField of vertex.key) {
+      const declared = fields.find((field) => field.name === keyField);
+      if (declared === undefined) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which its fields do not declare` });
+      else if (declared.claim !== 'authoritative') findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which the contract declares ${declared.claim}: a key field is authoritative` });
+    }
+    vertices.push({ kind: vertex.kind, key: vertex.key, fields });
+  }
+  return { id, version: contract.version, vertices, file };
+}
+
+/** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */
+function jsonLine(text: string, segment: number): number {
+  if (segment === 0) return 1;
+  let at = 0;
+  for (let seen = 0, index = text.indexOf('"'); index >= 0 && seen < segment; index = text.indexOf('"', index + 1), seen += 1) at = index;
+  return text.slice(0, at).split('\n').length;
+}
+
 export function parseKinds(text: string, file: string, productFolder: string): KindsManifest {
   const findings: Finding[] = [];
   const { doc, lines } = parsedManifest(text, file);
@@ -1223,16 +1335,16 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
     const parseFields = (raw: unknown, field: string): FieldDecl[] => {
       if (raw === undefined) return [];
-      if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, role?, producers?, reference? }`); return []; }
+      if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, role?, producers?, reference?, binding? }`); return []; }
       const out: FieldDecl[] = [];
       raw.forEach((entry: unknown, index) => {
         const body = entry as Record<string, unknown> | null;
         if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['name'] !== 'string' || !/^[a-z][a-z0-9_]*$/.test(body['name']) || typeof body['type'] !== 'string' || !fieldTypes.has(body['type'])) {
-          problem([field, index], 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true, role?: authoritative|claimed, producers?: [<producer>], reference?: <kind> }');
+          problem([field, index], 'a field is { name: <lower-case identifier>, type: text|integer|bigint|boolean|timestamp|json, nullable?: true, role?: authoritative|claimed, producers?: [<producer>], reference?: <kind>, binding?: "<plugin>@<major>.<field>" | { agent: <description> } }');
           return;
         }
-        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'role' && key !== 'producers' && key !== 'reference');
-        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, role, producers and reference`); return; }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'role' && key !== 'producers' && key !== 'reference' && key !== 'binding');
+        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, role, producers, reference and binding`); return; }
         const role = body['role'];
         if (role !== undefined && role !== 'authoritative' && role !== 'claimed') { problem([field, index, 'role'], '"role" is "authoritative" or "claimed"'); return; }
         const producers = body['producers'];
@@ -1241,6 +1353,8 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         }
         const reference = body['reference'];
         if (reference !== undefined && (typeof reference !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(reference))) { problem([field, index, 'reference'], '"reference" names a kind of the manifest'); return; }
+        const binding = parseBinding(body['binding'], [field, index, 'binding']);
+        if (binding === null) return;
         out.push({
           name: body['name'],
           type: body['type'] as FieldDecl['type'],
@@ -1248,10 +1362,27 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           ...(role === 'authoritative' || role === 'claimed' ? { role } : {}),
           ...(producers === undefined ? {} : { producers: producers as string[] }),
           ...(reference === undefined ? {} : { reference }),
-          line: at([field, index]),
+          ...(binding === undefined ? {} : { binding }),
+          line: at(['kinds', name, field, index]),
         });
       });
       return out;
+    };
+    /** The producer one field names: `"<plugin>@<major>.<field>"`, or `{ agent: <description> }`. */
+    const parseBinding = (raw: unknown, path: (string | number)[]): FieldBinding | undefined | null => {
+      if (raw === undefined) return undefined;
+      if (typeof raw === 'string') {
+        const parsed = BINDING_PATTERN.exec(raw);
+        if (parsed === null) { problem(path, `"binding" is "<plugin>@<major>.<field>" (a plugin id, the major version the manifest binds, and a field the plugin declares), and is ${JSON.stringify(raw)}`); return null; }
+        return { kind: 'plugin', plugin: parsed[1]!, major: parsed[2]!, field: parsed[3]! };
+      }
+      const body = raw as Record<string, unknown> | null;
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) { problem(path, '"binding" is "<plugin>@<major>.<field>" or { agent: <what the field is and how to extract it> }'); return null; }
+      const extra = Object.keys(body).filter((key) => key !== 'agent');
+      if (extra.length > 0) { problem([...path, extra[0]!], `"${extra[0]}" is not a field of a binding: a binding names a plugin field, or the agent with { agent: <description> }`); return null; }
+      const description = body['agent'];
+      if (typeof description !== 'string' || description.trim() === '') { problem([...path, 'agent'], '"agent" says what the field is and how to extract it'); return null; }
+      return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');
     const key = decl['key'];
@@ -1387,25 +1518,101 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       edges.set(body['name'], { name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, ...(capability === undefined ? {} : { capability }), line });
     });
   }
-  // The plugins the product holds (decision 0035, item 11). A declaration only: the host that runs one is later.
+  // The plugins the product holds (decision 0035, items 3, 11 and 20): the manifest binds a major version and names
+  // the plugin's folder; the folder's own contract states the fields, and the lock names the exact version and closure.
   const plugins = new Map<string, PluginDecl>();
   const rawPlugins = top['plugins'];
   if (rawPlugins !== undefined) {
-    if (!Array.isArray(rawPlugins)) findings.push({ file, line: at(['plugins']), message: '"plugins" is a list of { id, version, inputs, outputs, closure }' });
+    if (!Array.isArray(rawPlugins)) findings.push({ file, line: at(['plugins']), message: '"plugins" is a list of { id, version, path, inputs, outputs, closure }' });
     else rawPlugins.forEach((entry: unknown, index) => {
       const body = entry as Record<string, unknown> | null;
       const line = at(['plugins', index]);
       const names = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((one) => typeof one === 'string' && one.trim() !== '');
-      if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/.test(body['id']) || typeof body['version'] !== 'string' || body['version'].trim() === '' || !names(body['inputs']) || !names(body['outputs']) || !names(body['closure'])) {
-        findings.push({ file, line, message: 'a plugin is { id: <lower-case name>, version: <text>, inputs: [<kind>, ...], outputs: [<kind>, ...], closure: [<path>, ...] }' });
+      const declaredVersion = body === null || typeof body !== 'object' || Array.isArray(body) ? undefined : typeof body['version'] === 'number' ? String(body['version']) : body['version'];
+      if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/.test(body['id']) || typeof declaredVersion !== 'string' || !/^\d+$/.test(declaredVersion) || !names(body['inputs']) || !names(body['outputs']) || !names(body['closure'])) {
+        findings.push({ file, line, message: 'a plugin is { id: <lower-case name>, version: <the major version the manifest binds>, path: <its folder>, inputs: [<kind>, ...], outputs: [<kind>, ...], closure: [<path>, ...] }' });
         return;
       }
-      const extra = Object.keys(body).filter((key) => !['id', 'version', 'inputs', 'outputs', 'closure'].includes(key));
-      if (extra.length > 0) { findings.push({ file, line: at(['plugins', index, extra[0]!]), message: `"${extra[0]}" is not a field of a plugin: the fields are id, version, inputs, outputs and closure` }); return; }
+      const extra = Object.keys(body).filter((key) => !['id', 'version', 'path', 'inputs', 'outputs', 'closure'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['plugins', index, extra[0]!]), message: `"${extra[0]}" is not a field of a plugin: the fields are id, version, path, inputs, outputs and closure` }); return; }
       const id = body['id'] as string;
       if (plugins.has(id)) { findings.push({ file, line: at(['plugins', index, 'id']), message: `plugin "${id}": a plugin id stands once` }); return; }
-      plugins.set(id, { id, version: body['version'] as string, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], line });
+      const path = body['path'];
+      if (typeof path !== 'string' || path === '' || path.startsWith('/') || path.split('/').some((leg) => leg === '' || leg === '.' || leg === '..')) { findings.push({ file, line: at(['plugins', index, 'path']), message: `plugin "${id}": "path" is the plugin's folder in the product repository, relative and with no ".."` }); return; }
+      const contract = readPluginContract(productFolder, id, path, file, at(['plugins', index, 'path']), findings);
+      plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), line });
     });
+  }
+  // The plugin lock and the field bindings (decision 0035, items 17, 18, 19 and 20): the lock names each plugin's exact
+  // version and closure, a field binds to a field its plugin declares, the type is the plugin's, and a required field
+  // the manifest leaves out is the manifest's error. Every problem names the manifest or the contract and its line.
+  const lockRead = readPluginLock(productFolder);
+  if (!lockRead.ok) findings.push({ file: lockRead.file, line: lockRead.line, message: lockRead.message });
+  const locked = new Map((lockRead.ok ? lockRead.entries : []).map((entry) => [entry.id, entry] as const));
+  for (const plugin of plugins.values()) {
+    const held = locked.get(plugin.id);
+    if (held === undefined) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": ${PLUGINS_LOCK_FILE} locks no such plugin: the lock records each plugin's exact version and closure` });
+    else {
+      if (held.path !== plugin.path) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": the manifest names its folder ${JSON.stringify(plugin.path)}, and ${PLUGINS_LOCK_FILE}:${String(held.line)} locks it at ${JSON.stringify(held.path)}` });
+      if (majorOf(held.version) !== plugin.version) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": the manifest binds major version ${plugin.version}, and ${PLUGINS_LOCK_FILE}:${String(held.line)} locks ${held.version}: a major version the manifest does not bind is not run` });
+      if (plugin.contract !== undefined && plugin.contract.version !== held.version) findings.push({ file: join(plugin.path!, 'contract.json'), line: 1, message: `the plugin "${plugin.id}" declares its version ${plugin.contract.version}, and ${PLUGINS_LOCK_FILE}:${String(held.line)} locks ${held.version}` });
+    }
+  }
+  for (const [name, kind] of kinds) {
+    /** The fields of this kind whose producer is a plugin, gathered by the plugin and its output kind. */
+    const byPlugin = new Map<string, { plugin: PluginDecl; output: PluginOutputKind; fields: FieldDecl[] }>();
+    for (const field of kind.fields ?? []) {
+      if (field.binding?.kind !== 'plugin') continue;
+      const binding = field.binding;
+      const line = field.line ?? kind.line;
+      const plugin = plugins.get(binding.plugin);
+      if (plugin === undefined) {
+        findings.push({ file, line, message: `kind "${name}": field "${field.name}" binds to ${binding.plugin}@${binding.major}.${binding.field}, and the manifest declares no plugin "${binding.plugin}"` });
+        continue;
+      }
+      if (plugin.version !== binding.major) {
+        findings.push({ file, line, message: `kind "${name}": field "${field.name}" binds to major version ${binding.major} of the plugin "${binding.plugin}", and the manifest binds version ${plugin.version}` });
+        continue;
+      }
+      const output = plugin.contract?.vertices.find((vertex) => vertex.kind === name);
+      if (output === undefined) {
+        if (plugin.contract !== undefined) findings.push({ file, line, message: `kind "${name}": field "${field.name}" binds to ${binding.plugin}@${binding.major}.${binding.field}, and the plugin's contract ${join(plugin.path!, 'contract.json')}:1 declares no kind "${name}"` });
+        continue;
+      }
+      const declared = output.fields.find((one) => one.name === binding.field);
+      if (declared === undefined) {
+        const known = output.fields.map((one) => one.name);
+        findings.push({ file, line, message: `kind "${name}": field "${field.name}" binds to ${binding.plugin}@${binding.major}.${binding.field}, and the plugin's contract declares no field "${binding.field}" of the kind "${name}": it declares ${known.length === 0 ? 'none' : known.join(', ')}` });
+        continue;
+      }
+      if (declared.type !== field.type) findings.push({ file, line, message: `kind "${name}": field "${field.name}" is ${field.type}, and the plugin's field ${binding.plugin}@${binding.major}.${binding.field} is ${declared.type}: a manifest field takes the type its plugin declares` });
+      if (field.role !== undefined && field.role !== declared.claim) findings.push({ file, line, message: `kind "${name}": field "${field.name}" is ${field.role}, and the plugin's field ${binding.plugin}@${binding.major}.${binding.field} is ${declared.claim}` });
+      const held = byPlugin.get(binding.plugin);
+      if (held === undefined) byPlugin.set(binding.plugin, { plugin, output, fields: [field] });
+      else held.fields.push(field);
+    }
+    if (byPlugin.size === 0) continue;
+    // A kind a plugin fills has a key: the unique index of its table is built from the key's columns.
+    for (const [id, entry] of byPlugin) {
+      if (kind.key === undefined || kind.key.length === 0) {
+        findings.push({ file, line: kind.line, message: `kind "${name}": the plugin "${id}" fills it, and the manifest declares no "key": a table is unique by its kind's natural key` });
+        continue;
+      }
+      // Every required field the plugin declares is bound: a required field left out is the manifest's error (item 18).
+      for (const required of entry.output.fields.filter((one) => one.required)) {
+        if (!entry.fields.some((field) => field.binding?.kind === 'plugin' && field.binding.field === required.name)) {
+          findings.push({ file, line: kind.line, message: `kind "${name}": the plugin "${id}" requires the field "${required.name}" (${required.meaning}), and the manifest binds none: add { name: ${required.name}, type: ${required.type}, binding: "${id}@${entry.plugin.version}.${required.name}" }` });
+        }
+      }
+      // A key field is authoritative, so it is a column: it must be one of the plugin's fields.
+      for (const keyField of kind.key) {
+        const bound = entry.fields.find((field) => field.name === keyField);
+        const declared = entry.output.fields.find((one) => one.name === keyField);
+        if (bound === undefined || declared === undefined || declared.claim !== 'authoritative') {
+          findings.push({ file, line: kind.line, message: `kind "${name}": key field "${keyField}" must be an authoritative field the plugin "${id}" writes, and ${bound === undefined ? 'the manifest binds it to no plugin field' : `the plugin's field is ${declared?.claim ?? 'not declared'}`}` });
+        }
+      }
+    }
   }
   // The contract's preflight (decision 0035, items 2 and 11): every field has a producer, an authoritative field has
   // one, a key field is authoritative, the dependency graph is acyclic and declared, and a plugin reads only what the
@@ -1435,9 +1642,14 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const line = field.line ?? ownerLine;
     const what = edge ? 'edge kind' : 'kind';
     const producers = field.producers ?? [];
-    if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
-    if (field.role === undefined) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" states whether it is authoritative or claimed` });
-    if (field.role === 'authoritative' && producers.length > 1) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" is authoritative and names ${String(producers.length)} producers: an authoritative field has one producer` });
+    // A field with a binding names its producer there: the plugin's own declaration says whether it is authoritative.
+    if (field.binding === undefined) {
+      if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
+      if (field.role === undefined) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" states whether it is authoritative or claimed` });
+      if (field.role === 'authoritative' && producers.length > 1) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" is authoritative and names ${String(producers.length)} producers: an authoritative field has one producer` });
+    } else if (producers.length > 0) {
+      findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names its producer twice, as a binding and as producers: a field names one` });
+    }
     if (field.reference !== undefined && !kinds.has(field.reference)) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" references the kind ${JSON.stringify(field.reference)}, and the manifest declares no such kind` });
   };
   for (const [name, kind] of kinds) {

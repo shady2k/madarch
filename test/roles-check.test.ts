@@ -53,7 +53,9 @@ afterAll(() => {
 const TEMPLATES = ((): string => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-roles-check-'));
   made.push(folder);
-  for (const file of STARTER_FILES.filter((entry) => entry.path.startsWith('templates/'))) {
+  // The whole starter set stands here: the manifest names its plugin and the lock, and a manifest is read against the
+  // product that holds them (decision 0035, items 18 and 20).
+  for (const file of STARTER_FILES) {
     const path = join(folder, file.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.content);

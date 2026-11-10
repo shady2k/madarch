@@ -22,7 +22,7 @@ afterAll(() => {
 const TEMPLATES = ((): string => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-catalog-view-'));
   made.push(folder);
-  for (const file of STARTER_FILES.filter((entry) => entry.path.startsWith('templates/'))) {
+  for (const file of STARTER_FILES) {
     const path = join(folder, file.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.content);

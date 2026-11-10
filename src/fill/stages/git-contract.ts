@@ -40,7 +40,9 @@ const edge: readonly EdgeContract[] = [
 const dictionary = [
   { name: 'path', fields: [text('text')], key: ['text'] },
   { name: 'language', fields: [text('name')], key: ['name'] },
-  { name: 'blob', fields: [text('hash'), text('algorithm'), bigint('bytes'), text('form'), bigint('lines', true)], key: ['hash'], checks: [`(algorithm = 'sha1' AND length(hash) = 40) OR (algorithm = 'sha256' AND length(hash) = 64)`, `(form = 'binary') = (lines IS NULL)`] },
+  // A text file's bytes are stored once per blob (decision 0035, item 9: only the files producer reads the source), so
+  // two files with the same bytes share one row, and a binary file's bytes are kept nowhere.
+  { name: 'blob', fields: [text('hash'), text('algorithm'), bigint('bytes'), text('form'), bigint('lines', true), ({ name: 'content', type: 'text', nullable: true } as const)], key: ['hash'], checks: [`(algorithm = 'sha1' AND length(hash) = 40) OR (algorithm = 'sha256' AND length(hash) = 64)`, `(form = 'binary') = (lines IS NULL)`, `(form = 'text') OR (content IS NULL)`] },
 ];
 
 /** The graph kinds the git capability fills, and the manifest's own names for them. */

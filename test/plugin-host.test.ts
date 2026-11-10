@@ -319,6 +319,23 @@ describe('the sandbox refuses a way out', () => {
     const { outcome } = await behaviour('normal');
     expect(outcome.state).toBe('extracted');
   }, 60_000);
+
+  hostTest('a plugin that declared the filesystem right reads its repository', async () => {
+    expect(partialCause((await behaviour('read-repo')).outcome)).toContain('read-repo: allowed');
+  }, 60_000);
+
+  hostTest('a plugin that declared no filesystem right sees no repository at all', async () => {
+    // The same read the probe makes, by a plugin whose introduction declares graph reads and no filesystem right: the
+    // host binds no /repo, so the file is not there (decision 0035, item 9).
+    const folder = join(FIXTURES, 'plugin-graph');
+    const session = await open(folder);
+    try {
+      const outcome = await session.runUnit({ unitId: 'read-repo', kind: 'probe', key: { id: 'x', behavior: 'read-repo' } });
+      expect(partialCause(outcome)).toContain('read-repo: refused (ENOENT)');
+    } finally {
+      await session.close();
+    }
+  }, 60_000);
 });
 
 describe('the closure and its trust', () => {

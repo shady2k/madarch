@@ -4,6 +4,7 @@ import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
+import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
 import type { RuleSpec } from '../problems/types.js';
@@ -257,8 +258,7 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this", title_ru="Страницы об этом" %}{% endblock %}
 `,
   'term.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% term title="Definition" title-ru="Определение" %}{% endblock %}
-{% block relations %}{% stated title="Stated in" title-ru="Где описано" %}{% endblock %}
+{% block lead %}{% term title="Definition" title-ru="Определение" field="definition" synonyms="synonyms" code="code" %}{% endblock %}
 `,
   'question.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}
@@ -770,7 +770,9 @@ function kindsManifest(): string {
     "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
     "# files of its closure. madarch's own git reader is the first; it runs in process until the plugin host lands.",
     "plugins:",
-    "  - { id: git, version: 0.0.5, inputs: [code.repository], outputs: [code.repository, code.directory, code.file, code.commit, code.author], closure: [plugins/git/plugin.yaml, plugins/git/contract.yaml] }",
+    // The plugins a madarch release carries are declared with their folder and the major version the manifest binds;
+    // the lock beside the manifest records the exact version and the closure hash (decision 0035, items 17 and 20).
+    ...BUNDLED_PLUGINS.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
   );
   return `${lines.join('\n')}\n`;
 }
@@ -808,7 +810,10 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
     if (kind.fields !== undefined && kind.fields.length > 0) {
       lines.push('    fields:');
       for (const field of kind.fields) {
-        lines.push(`      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, role: ${field.role}, producers: [${field.producers.join(', ')}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
+        // A field bound to a plugin states the binding; the plugin's own contract states its type and its role.
+        lines.push(field.binding === undefined
+          ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, role: ${field.role}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
+          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: "${field.binding}" }`);
       }
     }
     if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);
@@ -842,37 +847,29 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
 const KINDS = kindsManifest();
 const WORKFLOWS = workflowsManifest();
 
-/** The git reader's closure, as the product holds it (decision 0035, item 4): a declaration now, the host's input later. */
-const PLUGIN_FILES: readonly StarterFile[] = [
-  {
-    path: 'plugins/git/plugin.yaml',
-    content: [
-      '# The git reader (decision 0035): what it reads and writes, and the files its closure holds.',
-      'id: git',
-      'version: 0.0.5',
-      'inputs: [code.repository]',
-      'outputs: [code.repository, code.directory, code.file, code.commit, code.author]',
-      'closure: [plugins/git/plugin.yaml, plugins/git/contract.yaml]',
-      '',
-    ].join('\n'),
-  },
-  {
-    path: 'plugins/git/contract.yaml',
-    content: [
-      '# The tables the git capability fills, declared apart from the engine (decision 0034, item 14).',
-      'contract: git',
-      'kinds: [repository, directory, file, commit, signature]',
-      'edges: [contains, as-is, history, parent, touched, authored, renamed-from]',
-      'dictionaries: [path, blob, language]',
-      '',
-    ].join('\n'),
-  },
-];
+/** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
+function pluginLockText(): string {
+  const lines = [
+    '# The plugins this product runs (decision 0035, item 20): each one\'s exact version and the hash of its closure.',
+    '# A fill runs exactly what this lock names. A changed closure needs a person\'s approval before it runs.',
+    'plugins:',
+  ];
+  for (const plugin of BUNDLED_PLUGINS) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
+  return `${lines.join('\n')}\n`;
+}
+
+/** The output kinds a bundled plugin's own contract declares. */
+function pluginOutputsOf(plugin: BundledPlugin): string[] {
+  const contract = JSON.parse(plugin.files.find((file) => file.path === 'contract.json')!.content) as { outputs: { vertices: { kind: string }[] } };
+  return contract.outputs.vertices.map((vertex) => vertex.kind);
+}
 
 export const STARTER_FILES: readonly StarterFile[] = [
   { path: 'madarch/kinds.yaml', content: KINDS },
+  { path: 'madarch/plugins.lock', content: pluginLockText() },
   { path: WORKFLOWS_FILE, content: WORKFLOWS },
-  ...PLUGIN_FILES,
+  // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3).
+  ...bundledPluginFiles().map((file) => ({ path: file.path, content: file.content })),
   ...Object.entries(TEMPLATES).map(([name, content]) => ({ path: `templates/${name}`, content })),
 ];
 

@@ -34,6 +34,8 @@ export async function kindNumbers(ctx: RenderContext): Promise<KindNumbers> {
     graph,
     markdown,
     statements,
-    count: (kind, source) => source === 'markdown' ? markdown.get(kind) ?? 0 : source === 'document' ? 0 : graph.get(kind) ?? 0,
+    // A document kind's entities are written by the fill's plugins, so its count is the graph's too; a Markdown kind's is
+    // the index's, and a kind no stage fills counts nothing.
+    count: (kind, source) => source === 'markdown' ? markdown.get(kind) ?? 0 : graph.get(kind) ?? 0,
   };
 }

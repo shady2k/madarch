@@ -385,7 +385,7 @@ describe('the navigation a kind gets travels in its summary', () => {
     expect(of((kind) => (kind.sequence === undefined ? undefined : `${kind.name}: ${kind.sequence}`))).toEqual(['code.symbol: symbol', 'code.route: route']);
     expect(of((kind) => (kind.system === undefined ? undefined : `${kind.name}: ${kind.system}`))).toEqual(['code.service: container', 'code.channel: channel', 'code.database: data-store']);
     expect(of((kind) => (kind.definitionBlock === undefined ? undefined : `${kind.name}: ${kind.definitionBlock}`))).toEqual(['code.operation: operation', 'code.contract: contract', 'code.channel: channel']);
-    expect(of((kind) => (kind.listing === undefined ? undefined : `${kind.name}: ${kind.listing}`))).toEqual(['code.operation: operations']);
+    expect(of((kind) => (kind.listing === undefined ? undefined : `${kind.name}: ${kind.listing}`))).toEqual(['doc.term: glossary', 'code.operation: operations']);
     expect(of((kind) => (kind.nav === undefined ? undefined : `${kind.name}: ${kind.nav}`))).toEqual(['question: loop', 'correction: loop', 'task: own-page', 'doc.term: own-page']);
   });
 });
@@ -407,7 +407,7 @@ describe('the manifest reader refuses a trait it cannot read', () => {
       `${join(folder, 'madarch', 'kinds.yaml')}:10: kind "code.file": "nav" is one of own-page, loop, got "sidebar"`,
       `${join(folder, 'madarch', 'kinds.yaml')}:26: kind "code.route": "sequence" is one of route, symbol, got "call"`,
       `${join(folder, 'madarch', 'kinds.yaml')}:30: kind "code.contract": "definition-block" is one of contract, operation, channel, got "file"`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:34: kind "code.operation": "listing" is one of operations, got "table"`,
+      `${join(folder, 'madarch', 'kinds.yaml')}:34: kind "code.operation": "listing" is one of operations, glossary, got "table"`,
     ]);
   });
 });

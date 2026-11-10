@@ -65,10 +65,18 @@
                     }
                   ],
                   "description": "The network profile. \"none\" is the only one this build runs: the network namespace is unshared and socket creation refused."
+                },
+                "graph": {
+                  "type": "boolean",
+                  "description": "Whether the plugin reads the graph through the host's read-only queries (`graph.files`, `graph.value`); absent, it may not."
+                },
+                "filesystem": {
+                  "type": "boolean",
+                  "description": "Whether the plugin sees the repository snapshot read-only at /repo; absent, it sees no repository at all."
                 }
               },
               "additionalProperties": false,
-              "description": "The rights a plugin declares it needs."
+              "description": "The rights a plugin declares it needs: its network profile, graph reads and the repository snapshot."
             },
             "limits": {
               "type": "object",
@@ -123,7 +131,11 @@
                           "type": "object",
                           "required": [
                             "name",
-                            "claim"
+                            "claim",
+                            "type",
+                            "meaning",
+                            "example",
+                            "required"
                           ],
                           "properties": {
                             "name": {
@@ -142,10 +154,51 @@
                                 }
                               ],
                               "description": "An authoritative field is a column with one producer; a claimed field is one tools may dispute."
+                            },
+                            "type": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "text"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "integer"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "bigint"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "boolean"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "timestamp"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "json"
+                                }
+                              ],
+                              "description": "The PostgreSQL type the field is stored as: the manifest binds a field whose type must be this one."
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "What the field is, in plain words, for the person binding it in the manifest."
+                            },
+                            "example": {
+                              "description": "One value the field holds, as an example."
+                            },
+                            "required": {
+                              "type": "boolean",
+                              "description": "Whether the plugin cannot run without it: a kind's natural key and every field its reading needs."
                             }
                           },
                           "additionalProperties": false,
-                          "description": "One field of a declared kind, and whether it is authoritative or claimed."
+                          "description": "One field of a declared kind: its type, its meaning, an example, whether it is required, and whether it is authoritative or claimed."
                         },
                         "description": "The fields it writes beside the key."
                       }
@@ -185,7 +238,11 @@
                           "type": "object",
                           "required": [
                             "name",
-                            "claim"
+                            "claim",
+                            "type",
+                            "meaning",
+                            "example",
+                            "required"
                           ],
                           "properties": {
                             "name": {
@@ -204,10 +261,51 @@
                                 }
                               ],
                               "description": "An authoritative field is a column with one producer; a claimed field is one tools may dispute."
+                            },
+                            "type": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "text"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "integer"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "bigint"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "boolean"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "timestamp"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "json"
+                                }
+                              ],
+                              "description": "The PostgreSQL type the field is stored as: the manifest binds a field whose type must be this one."
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "What the field is, in plain words, for the person binding it in the manifest."
+                            },
+                            "example": {
+                              "description": "One value the field holds, as an example."
+                            },
+                            "required": {
+                              "type": "boolean",
+                              "description": "Whether the plugin cannot run without it: a kind's natural key and every field its reading needs."
                             }
                           },
                           "additionalProperties": false,
-                          "description": "One field of a declared kind, and whether it is authoritative or claimed."
+                          "description": "One field of a declared kind: its type, its meaning, an example, whether it is required, and whether it is authoritative or claimed."
                         }
                       }
                     },
@@ -307,6 +405,123 @@
       },
       "additionalProperties": false,
       "description": "The host hands the plugin one unit."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "graph.files"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "pattern"
+          ],
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The repository path pattern the file vertices match (`**/glossary*.md`: `*` within a folder, `**` across folders)."
+            }
+          },
+          "additionalProperties": false,
+          "description": "A query for the file vertices whose path matches a pattern."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for the file vertices whose path matches a pattern."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "graph.value"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "kind",
+            "key",
+            "field"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The vertex kind, as the wiki names it (`code.file`)."
+            },
+            "key": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              },
+              "description": "The key fields of one entity: field name to its value, as the kind's contract declares them."
+            },
+            "field": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The field the vertex holds (`content`)."
+            }
+          },
+          "additionalProperties": false,
+          "description": "A query for one field of one vertex."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for one field of one vertex."
     },
     {
       "type": "object",

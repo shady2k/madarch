@@ -88,6 +88,52 @@ export interface GraphContract {
   readonly dictionary: readonly DictionaryContract[];
 }
 
+/** Where a claimed value was read: the repository, the commit or digest, the path and the lines (decision 0035, item 7). */
+export interface ClaimEvidenceDraft {
+  readonly repository?: string;
+  readonly commit?: string;
+  readonly path?: string;
+  readonly lineStart?: number;
+  readonly lineEnd?: number;
+}
+
+/**
+ * One claim a producer publishes (decision 0034, item 7): a claimed field's
+ * value and the evidence under it. A claim is never written over an older one:
+ * every source is kept, and the reader shows the accepted value.
+ */
+export interface ClaimDraft {
+  readonly field: string;
+  readonly value: unknown;
+  readonly evidence: ClaimEvidenceDraft;
+}
+
+/**
+ * One vertex a producer publishes: its kind, its natural key, the values of the
+ * authoritative fields its contract declares as columns, and the claims it makes
+ * of the claimed fields — with one evidence row for the vertex's own columns
+ * (what the unit read) and one per claim.
+ */
+export interface VertexDraft {
+  readonly kind: string;
+  /** The entity's natural key values, by the kind's key fields. */
+  readonly key: Readonly<Record<string, string | number>>;
+  /** The authoritative fields' values, by column; a field the producer did not read is left out. */
+  readonly attributes?: Readonly<Record<string, unknown>>;
+  readonly claims?: readonly ClaimDraft[];
+  /** Where the vertex's own columns were read. */
+  readonly evidence?: ClaimEvidenceDraft;
+  readonly producer: string;
+  readonly producerVersion: string;
+}
+
+/** One entity a producer no longer holds: its claims are withdrawn and it leaves the reads (a removal of a term). */
+export interface VertexRemovalDraft {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, string | number>>;
+  readonly producer: string;
+}
+
 /** The empty contract: a product that declares no kind filled by a capability. */
 export const EMPTY_CONTRACT: GraphContract = { vertex: [], edge: [], dictionary: [] };
 
@@ -209,8 +255,47 @@ async function registerKinds(tx: OuterTransaction, contract: GraphContract): Pro
 }
 
 /**
- * Creates or migrates every table a contract declares, and registers its kinds. The caller must have made the
- * mechanism tables (`createOneGraphSchema`) in the same store.
+ * Drops the table and the rows of one vertex kind the manifest no longer takes (decision 0034, item 14: "a kind the
+ * manifest does not take has no table"). Its claims, evidence, edges and nodes go with it — a table without its nodes,
+ * or nodes without their table, would be a graph that answers two ways — and the journal keeps what people did.
+ */
+async function dropVertexKind(tx: OuterTransaction, name: string): Promise<void> {
+  const table = generatedTableName(name, 'vertex');
+  const nodes = `SELECT n.id FROM node n JOIN kind k ON k.id = n.kind_id WHERE k.name = $1`;
+  await tx.query(`DELETE FROM evidence WHERE node_id IN (${nodes}) OR claim_id IN (SELECT id FROM claim WHERE node_id IN (${nodes})) OR edge_id IN (SELECT id FROM edge WHERE from_node IN (${nodes}) OR to_node IN (${nodes}))`, [name]);
+  await tx.query(`DELETE FROM claim WHERE node_id IN (${nodes})`, [name]);
+  await tx.query(`DELETE FROM edge WHERE from_node IN (${nodes}) OR to_node IN (${nodes})`, [name]);
+  // The kind's own row goes before its node does: the table's foreign key names the node.
+  await tx.query(`DROP TABLE IF EXISTS ${quote(table, 'table')}`);
+  await tx.query(`DELETE FROM node WHERE id IN (${nodes})`, [name]);
+  await tx.query(`DELETE FROM kind WHERE name = $1 AND sort = 'node'`, [name]);
+}
+
+/** Drops the attribute table and the edges of one edge kind the manifest no longer takes. */
+async function dropEdgeKind(tx: OuterTransaction, name: string): Promise<void> {
+  const table = generatedTableName(name, 'edge');
+  const edges = `SELECT e.id FROM edge e JOIN kind k ON k.id = e.kind_id WHERE k.name = $1`;
+  await tx.query(`DELETE FROM evidence WHERE edge_id IN (${edges})`, [name]);
+  await tx.query(`DELETE FROM edge WHERE id IN (${edges})`, [name]);
+  await tx.query(`DELETE FROM kind WHERE name = $1 AND sort = 'edge'`, [name]);
+  await tx.query(`DROP TABLE IF EXISTS ${quote(table, 'table')}`);
+}
+
+/** Every kind the store registers that this contract no longer declares, its table and its rows removed. */
+async function pruneKinds(tx: OuterTransaction, contract: GraphContract): Promise<void> {
+  const declaredVertex = new Set(contract.vertex.map((kind) => kind.name));
+  const declaredEdge = new Set(contract.edge.map((kind) => kind.name));
+  const held = await tx.query<{ name: string; sort: 'node' | 'edge' }>('SELECT name, sort FROM kind ORDER BY name');
+  for (const row of held.rows) {
+    if (row.sort === 'node' && !declaredVertex.has(row.name)) await dropVertexKind(tx, row.name);
+    else if (row.sort === 'edge' && !declaredEdge.has(row.name)) await dropEdgeKind(tx, row.name);
+  }
+}
+
+/**
+ * Creates or migrates every table a contract declares, and registers its kinds; a kind the contract no longer
+ * declares loses its table and its rows, so a product that removes a kind from its manifest holds no table of it. The
+ * caller must have made the mechanism tables (`createOneGraphSchema`) in the same store.
  */
 export async function createContractTables(owner: DatabaseOwner, contract: GraphContract): Promise<void> {
   await owner.transaction('write', async (tx) => {
@@ -230,6 +315,7 @@ export async function createContractTables(owner: DatabaseOwner, contract: Graph
       }
     }
     await registerKinds(tx, contract);
+    await pruneKinds(tx, contract);
   });
 }
 

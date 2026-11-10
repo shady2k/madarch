@@ -1,0 +1,10 @@
+{
+  "name": "glossary",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "The glossary plugin: reads a glossary document and answers its terms (decision 0035)."
+}

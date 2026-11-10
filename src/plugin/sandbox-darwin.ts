@@ -17,6 +17,8 @@ import { log } from '../obs/log.js';
 import { STDERR_LOG_BYTES, type SandboxProcess, type StderrLog } from './sandbox.js';
 
 /** Where a refusal stands. */
+import { pluginInvocation } from './invocation.js';
+
 const WHERE = 'src/plugin/sandbox-darwin.ts';
 
 /** The sentence the operations page and every record of a macOS run carry about the group kill. */
@@ -26,7 +28,8 @@ export const DARWIN_SETSID_LIMIT =
 /** One macOS sandbox's setup: the same folders the Linux sandbox binds, at their own paths. */
 export interface DarwinSandboxSpec {
   readonly closureFolder: string;
-  readonly repository: string;
+  /** The repository a plugin that declared the `filesystem` right reads; absent, it reads no folder but its closure. */
+  readonly repository?: string;
   readonly workFolder: string;
   readonly runtime: string;
   readonly entry: string;
@@ -43,7 +46,7 @@ export function darwinProfile(spec: DarwinSandboxSpec): string {
     '(allow sysctl-read)',
     '(allow mach-lookup (global-name "com.apple.system.logger"))',
     '(allow signal (target self))',
-    `(allow file-read* (subpath "${spec.closureFolder}") (subpath "${spec.repository}") (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library"))`,
+    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library"))`,
     '(allow file-read-metadata)',
     `(allow file-write* (subpath "${spec.workFolder}") (subpath "/private/tmp"))`,
     '(allow file-write-data (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))',
@@ -59,7 +62,7 @@ export function darwinWrapper(spec: DarwinSandboxSpec, profileFile: string): str
     `ulimit -v ${String(memoryKb)} 2>/dev/null || true`,
     `ulimit -t ${String(cpuSeconds)} 2>/dev/null || true`,
     `ulimit -u ${String(spec.limits.pids)} 2>/dev/null || true`,
-    `exec /usr/bin/sandbox-exec -f '${profileFile}' -- '${spec.runtime}' '${join(spec.closureFolder, spec.entry)}'`,
+    `exec /usr/bin/sandbox-exec -f '${profileFile}' -- '${spec.runtime}' ${pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry)).map((word) => `'${word}'`).join(' ')}`,
     '',
   ].join('\n');
 }

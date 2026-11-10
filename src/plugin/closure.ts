@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { PluginContractFile, type PluginRights } from './protocol.js';
 import { SDK_SOURCE } from './sdk-asset.js';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
@@ -149,6 +150,27 @@ export function readPluginManifest(folder: string): PluginManifest {
     throw new ClosureRefusal('plugin-manifest', `${file}:1: ${first === undefined ? 'the manifest is not a plugin manifest' : `${first.instancePath === '' ? 'the manifest' : first.instancePath.slice(1)}: ${first.message}`}`, file);
   }
   return value;
+}
+
+/**
+ * The rights a plugin's own contract declares (decision 0035, items 7 and 9): read from the closure's `contract.json`
+ * before the process starts, because the sandbox binds the repository only for a plugin that declared it. The
+ * introduction repeats the declaration, and the host refuses an introduction that differs.
+ */
+export function pluginRightsOf(closure: Closure): PluginRights {
+  const file = join(closure.folder, 'contract.json');
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new ClosureRefusal('plugin-contract', `${file}:1: the plugin contract cannot be read (${(error as Error).message}): a plugin folder carries its contract.json, which states the rights the host grants it`, file);
+  }
+  if (!Value.Check(PluginContractFile, value)) {
+    const first = [...Value.Errors(PluginContractFile, value)][0];
+    throw new ClosureRefusal('plugin-contract', `${file}:1: ${first === undefined ? 'the contract does not fit the protocol' : first.message}`, file);
+  }
+  const contract = value as { rights?: PluginRights };
+  return contract.rights ?? { network: 'none' };
 }
 
 /** The one dependency madarch hands every plugin: the SDK, at the name a plugin imports it by. */

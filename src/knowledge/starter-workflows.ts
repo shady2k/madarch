@@ -30,10 +30,11 @@ export interface StarterWorkflow {
  * A test holds the list to the registry's own stages.
  */
 const FILL_STAGES: readonly string[] = [
-  // This step's fill and nothing else (madarch-8bdc.2.5, item 6): the tree and the history of
-  // a repository. A later step adds its stage here, and to `FILL_STEP_IDS`, in one commit.
+  // This step's fill (madarch-8bdc.2.5, item 6): the tree and the history of a repository, and the plugins the
+  // product's manifest declares, which read the file vertices the tree published (decision 0035, items 6 and 15).
   'repository-tree',
   'repository-history',
+  'plugin-turns',
 ];
 
 /**

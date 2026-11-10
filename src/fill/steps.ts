@@ -11,7 +11,7 @@ import type { HistoryPublish, RecordCounts, TreePublish } from '../graph/index.j
 import { createEngineStageRegistry } from './stages/index.js';
 
 /** The ids this step's fill runs, in code point order: the one list. */
-const FILL_STEP_IDS = ['repository-history', 'repository-tree'] as const;
+const FILL_STEP_IDS = ['plugin-turns', 'repository-history', 'repository-tree'] as const;
 
 /** What the two passes publish through: the record store's own writes, and the paths this fill covers. */
 export interface RecordPassWiring {

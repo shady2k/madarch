@@ -46,9 +46,9 @@ const FIXTURE: Readonly<Record<string, readonly string[]>> = {
       2,
     ),
   ],
-  'src/index.ts': ["import { publish } from './graph/index.js';", '', 'export const entry = publish;', ''],
-  'src/graph/publish.ts': ['/** The graph store\'s publication API. */', 'export function publish(): string {', "  return 'published';", '}', ''],
-  'src/graph/index.ts': ["export { publish } from './publish.js';", ''],
+  'src/index.ts': ["import { write } from './graph/index.js';", '', 'export const entry = write;', ''],
+  'src/graph/write.ts': ['/** The graph store\'s one writer. */', 'export function write(): string {', "  return 'written';", '}', ''],
+  'src/graph/index.ts': ["export { write } from './write.js';", ''],
   'src/adapters/database-owner.ts': ['/** The process\'s one connection. */', 'export interface DatabaseOwner {', '  query(sql: string): Promise<unknown>;', '}', ''],
   'src/sql-driver.ts': ['/** What a module runs a statement through. */', 'export interface SqlExecutor {', '  query(sql: string): Promise<unknown>;', '}', ''],
   'src/extract/driver/index.ts': [
@@ -111,16 +111,16 @@ describe('the architecture check', () => {
     await acceptWhatIsFound(root, ['graph-single-writer']);
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['graph-single-writer'] }))).toEqual([]);
 
-    const plant = ['/**', ' * A second writer of the graph, planted by the test.', ' */', "import { publish } from './graph/publish.js';", '', 'export const written = publish;'];
+    const plant = ['/**', ' * A second writer of the graph, planted by the test.', ' */', "import { write } from './graph/write.js';", '', 'export const written = write;'];
     writeModule(root, 'src/second-writer.ts', plant);
 
     const planted = await architectureCheck({ root, rules: ['graph-single-writer'] });
     expect(planted.comparison.unlisted).toEqual([
-      { rule: 'graph-single-writer', file: 'src/second-writer.ts', line: lineOf(plant, 'graph/publish.js'), symbol: 'src/graph/publish.ts' },
+      { rule: 'graph-single-writer', file: 'src/second-writer.ts', line: lineOf(plant, 'graph/write.js'), symbol: 'src/graph/write.ts' },
     ]);
     const problems = architectureProblemLines(planted);
     expect(problems.length).toBe(1);
-    expect(problems[0]).toContain(`${join(root, 'src', 'second-writer.ts')}:${lineOf(plant, 'graph/publish.js')}: graph-single-writer:`);
+    expect(problems[0]).toContain(`${join(root, 'src', 'second-writer.ts')}:${lineOf(plant, 'graph/write.js')}: graph-single-writer:`);
     expect(problems[0]).toContain(`${VIOLATION_LIST} does not list it`);
 
     rmSync(join(root, 'src', 'second-writer.ts'));
@@ -363,14 +363,14 @@ describe('the architecture check', () => {
 
   test('the violations come out in code point order of rule, file and symbol, whatever order they are found in', async () => {
     const root = fixtureProject();
-    writeModule(root, 'src/zzz-writer.ts', ["import { publish } from './graph/publish.js';", '', 'export const written = publish;']);
+    writeModule(root, 'src/zzz-writer.ts', ["import { write } from './graph/write.js';", '', 'export const written = write;']);
     writeModule(root, 'src/aaa-query.ts', ["import type { SqlExecutor } from './sql-driver.js';", '', 'export type Rogue = SqlExecutor;']);
-    writeModule(root, 'src/aaa-writer.ts', ["import { publish } from './graph/publish.js';", '', 'export const also = publish;']);
+    writeModule(root, 'src/aaa-writer.ts', ["import { write } from './graph/write.js';", '', 'export const also = write;']);
 
     const report = await architectureCheck({ root, rules: ['graph-single-writer', 'sql-only-in-storage-layer'] });
     expect(report.found.map((violation) => `${violation.rule} ${violation.file} ${violation.symbol}`)).toEqual([
-      'graph-single-writer src/aaa-writer.ts src/graph/publish.ts',
-      'graph-single-writer src/zzz-writer.ts src/graph/publish.ts',
+      'graph-single-writer src/aaa-writer.ts src/graph/write.ts',
+      'graph-single-writer src/zzz-writer.ts src/graph/write.ts',
       'sql-only-in-storage-layer src/aaa-query.ts src/sql-driver.ts',
     ]);
     expect(renderViolationListOf(report)).toBe(`${JSON.stringify(report.found.map((violation) => ({ rule: violation.rule, file: violation.file, symbol: violation.symbol })), null, 2)}\n`);

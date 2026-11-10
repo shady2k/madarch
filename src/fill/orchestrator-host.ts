@@ -62,6 +62,12 @@ export interface ProductFillWiring {
   source?(): Promise<SnapshotSource> | SnapshotSource;
   inputs(ref: UnitRef): Promise<Readonly<Record<string, string | Uint8Array>>> | Readonly<Record<string, string | Uint8Array>>;
   guard?: HumanEditGuard;
+  /**
+   * Where a unit's graph drafts go when its generation publishes (decision 0035, item 6): a stage's vertices and
+   * claims are applied inside the publication's own transaction, so a unit publishes with its claims or not at all.
+   * A wiring that leaves it out publishes no graph row.
+   */
+  facts?: FactApplication;
 }
 
 interface ProductFill {
@@ -246,7 +252,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       snapshot: () => wiring.snapshot(),
       graph: (ref, transaction) => wiring.graph(ref, transaction),
       inputs: (ref) => wiring.inputs(ref),
-      facts: NO_FACTS,
+      facts: wiring.facts ?? NO_FACTS,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
       control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),

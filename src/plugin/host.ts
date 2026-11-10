@@ -20,8 +20,8 @@ import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
-import { ClosureRefusal, closureOf, interpreterPinProblem, type Closure } from './closure.js';
-import { PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport } from './protocol.js';
+import { ClosureRefusal, closureOf, interpreterPinProblem, pluginRightsOf, type Closure } from './closure.js';
+import { PluginGraphFilesRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startSandbox, sandboxSetupProblem, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -98,6 +98,16 @@ export type UnitOutcome =
   | (UnitTrace & { readonly state: 'extracted'; readonly unitId: string; readonly result: ValidatedUnit })
   | (UnitTrace & { readonly state: 'not-extracted'; readonly unitId: string; readonly cause: UnitCause });
 
+/**
+ * The graph reads a plugin asks its host for (decision 0035, item 15): the file vertices a pattern names, and one field
+ * of one vertex — a file's content, which the files producer stored by blob. The host answers from the graph and only
+ * from it; a plugin that declared no `graph` right is refused, and a host given no answerer answers none.
+ */
+export interface GraphAnswerer {
+  files(pattern: string): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
+  value(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<unknown>;
+}
+
 /** What a session is opened from. */
 export interface PluginHostOptions {
   /** The plugin's folder, the closure's source. */
@@ -107,8 +117,10 @@ export interface PluginHostOptions {
    * it stands instead of reading the folder again, so the copy is held to the closure the caller named.
    */
   readonly closure?: Closure;
-  /** The repository snapshot the plugin may read, bound read-only. */
+  /** The repository snapshot a plugin that declared the `filesystem` right may read, bound read-only. */
   readonly repository: string;
+  /** The graph a plugin that declared the `graph` right reads through its queries; absent, every query is refused. */
+  readonly graph?: GraphAnswerer;
   /** The host's own scratch root for this run: snapshots, logs and the seccomp filter. */
   readonly workRoot: string;
   /** Whether the closure runs as production (a release closure only) or as validation (the conformance kit). */
@@ -171,6 +183,8 @@ export class PluginHost {
   private sandbox: SandboxProcess | undefined;
   private snapshot: { folder: string; hash: string } | undefined;
   private declared: PluginIntroduce | undefined;
+  /** The rights the closure's own contract declares, read before the plugin starts. */
+  private contractRights: import('./protocol.js').PluginRights | undefined;
   private failure: SessionFailure | undefined;
   private handshake: { startedAt: number; resolve: () => void; reject: (cause: UnitCause) => void } | undefined;
   private readonly inFlight = new Map<string, InFlight>();
@@ -208,6 +222,9 @@ export class PluginHost {
     if (pin !== undefined) throw pin;
     const trust = closureTrustProblem(closure, this.options.trust, join(closure.folder, 'plugin.json'), this.options.releaseHashes);
     if (trust !== undefined) throw trust;
+    // The rights are the contract's, read before the process starts: the sandbox binds a repository only for a plugin
+    // whose contract declared the filesystem right (decision 0035, item 9).
+    this.contractRights = pluginRightsOf(closure);
     const snapshot = await withSpan('plugin.snapshot', { 'madarch.plugin.hash': closure.hash }, async () => {
       const copy = await snapshotClosure(closure, this.options.workRoot);
       log.info('plugin closure copied', { folder: copy.folder, hash: copy.hash });
@@ -220,9 +237,12 @@ export class PluginHost {
       log.error('the sandbox cannot run here', { problem: problem.code }, problem.message);
       throw new ClosureRefusal('sandbox-unavailable', problem.message, WHERE);
     }
+    // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
+    // the files producer alone reads the source tree (decision 0035, item 9).
+    const readsRepository = this.contractRights?.filesystem === true;
     const spec: SandboxSpec = {
       closureFolder: snapshot.folder,
-      repository: this.options.repository,
+      ...(readsRepository ? { repository: this.options.repository } : {}),
       workFolder,
       runtime: process.execPath,
       entry: closure.manifest.entry,
@@ -302,7 +322,11 @@ export class PluginHost {
         this.takeIntroduction(value.id, value.params);
         return;
       }
-      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; the plugin asks nothing of the host in this protocol version`));
+      if (value.method === 'graph.files' || value.method === 'graph.value') {
+        void this.answerGraph(value.id, value.method, value.params);
+        return;
+      }
+      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files and graph.value`));
       return;
     }
     if (isNotification(value)) {
@@ -347,6 +371,42 @@ export class PluginHost {
     }
   }
 
+  /**
+   * One graph read of a plugin (decision 0035, item 15): answered from the graph when the plugin declared the right and
+   * the host was given an answerer, and refused by name otherwise. The plugin never sees a folder: a file's content
+   * comes through this answer, as the files producer stored it.
+   */
+  private async answerGraph(id: number | string, method: 'graph.files' | 'graph.value', params: unknown): Promise<void> {
+    if (this.declared?.rights?.graph !== true || this.options.graph === undefined) {
+      const cause = this.declared?.rights?.graph !== true
+        ? `${WHERE}:1: the plugin declared no graph right in its introduction, so it may read nothing of the graph: declare "graph": true beside the rights it needs, or read no graph`
+        : `${WHERE}:1: the host was given no graph to answer from, so the query is refused`;
+      this.write(failureText(id, RPC_INVALID_PARAMS, cause, { cause: 'graph-denied' }));
+      return;
+    }
+    try {
+      if (method === 'graph.files') {
+        if (!Value.Check(PluginGraphFilesRequest, params)) {
+          const first = [...Value.Errors(PluginGraphFilesRequest, params)][0];
+          this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.files takes { pattern }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
+          return;
+        }
+        const files = await this.options.graph.files(params.pattern);
+        this.write(successText(id, { files }));
+        return;
+      }
+      if (!Value.Check(PluginGraphValueRequest, params)) {
+        const first = [...Value.Errors(PluginGraphValueRequest, params)][0];
+        this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.value takes { kind, key, field }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
+        return;
+      }
+      const value = await this.options.graph.value(params.kind, params.key, params.field);
+      this.write(successText(id, { value }));
+    } catch (error) {
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the graph answered ${JSON.stringify(method)} with a failure: ${(error as Error).message}`, { cause: 'graph-failed' }));
+    }
+  }
+
   /** The introduction: held to the schema and the protocol version, then answered. */
   private takeIntroduction(id: number | string, params: unknown): void {
     const greeting = this.handshake;
@@ -361,6 +421,13 @@ export class PluginHost {
       greeting.reject({ code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
       this.handshake = undefined;
       this.fail({ code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
+      return;
+    }
+    if (this.contractRights !== undefined && JSON.stringify(canonicalRights(declared.rights ?? { network: 'none' })) !== JSON.stringify(canonicalRights(this.contractRights))) {
+      const cause: UnitCause = { code: 'rights-mismatch', message: `${WHERE}:1: the plugin introduced itself with the rights ${JSON.stringify(declared.rights ?? { network: 'none' })}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractRights)}: the contract is what the host grants, and the introduction repeats it` };
+      this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
+      this.handshake = undefined;
+      this.fail(cause);
       return;
     }
     if (declared.rights?.network !== undefined && declared.rights.network !== 'none') {
@@ -613,6 +680,11 @@ export class PluginHost {
       await this.sandbox.dispose();
     }
   }
+}
+
+/** Rights with their keys in code point order, so two declarations of the same rights compare equal. */
+function canonicalRights(rights: { readonly network: string; readonly graph?: boolean; readonly filesystem?: boolean }): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(rights).filter(([, value]) => value !== undefined).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)));
 }
 
 /** A validation refusal as the unit's cause, with the plugin's folder in the message. */

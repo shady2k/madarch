@@ -207,6 +207,40 @@ export function languageOfPath(path: string): { language: string; candidates: re
   return best.length === 1 ? { language: best[0]!, candidates: best } : { language: 'ambiguous', candidates: best };
 }
 
+/**
+ * The bytes of many blobs as text, in one `git cat-file --batch` call (decision 0035, item 9: the files producer reads
+ * the source, once per blob). A blob whose bytes are no UTF-8 is kept as no content, never as replacement characters;
+ * the batch's own header states each object's size, so a content holding a line that looks like a header is read whole.
+ */
+async function blobContents(root: string, blobs: readonly string[]): Promise<Map<string, string | null>> {
+  const contents = new Map<string, string | null>();
+  if (blobs.length === 0) return contents;
+  const wanted = [...new Set(blobs)];
+  let held = Buffer.alloc(0);
+  let index = 0;
+  const take = (chunk: Uint8Array): void => {
+    held = held.length === 0 ? Buffer.from(chunk) : Buffer.concat([held, Buffer.from(chunk)]);
+    for (;;) {
+      if (index >= wanted.length) return;
+      // A header is `<oid> <type> <size>` and a newline; the content follows, then its own newline.
+      const newline = held.indexOf(0x0a);
+      if (newline < 0) return;
+      const header = held.subarray(0, newline).toString('latin1');
+      const parts = header.split(' ');
+      if (parts.length !== 3) { index += 1; held = held.subarray(newline + 1); continue; }
+      const size = Number(parts[2]);
+      if (!Number.isFinite(size) || held.length < newline + 1 + size + 1) return;
+      const bytes = held.subarray(newline + 1, newline + 1 + size);
+      contents.set(wanted[index]!, textOf(bytes) ?? null);
+      held = held.subarray(newline + 1 + size + 1);
+      index += 1;
+    }
+  };
+  await gitStream(root, ['cat-file', '--batch'], (chunk) => take(chunk), { input: `${wanted.join('\n')}\n` });
+  take(new Uint8Array(0));
+  return contents;
+}
+
 /** The `linguist-language` overrides one tree states, read by git's own attribute parser in one call. */
 async function languageOverridesAt(root: string, commit: string, paths: readonly string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -327,10 +361,14 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish
       bytes: entry.size ?? 0,
       form,
       lines: form === 'text' ? (held?.added ?? 0) : null,
+      content: null,
       language: typeof language === 'string' ? language : language.language,
       candidates: typeof language === 'string' ? [language] : language.candidates,
     });
   }
+  // The text files' bytes, once per blob: two files with the same bytes share one row in the store (item 9).
+  const contents = await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
+  for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
   return { repository: { name: pin.repository, url: pin.url, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps };

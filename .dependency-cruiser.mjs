@@ -28,9 +28,9 @@ export default {
       name: 'graph-single-writer',
       severity: 'error',
       comment:
-        "The graph's publication API (src/graph/publish.ts) is the one writer of the graph store (decision 0033, item 3: one writer per store). Only the graph store's own modules (src/graph) and the storage layer (src/adapters) may import it; every other module reads through the store's interface and hands its draft to the store, which publishes it.",
+        "The graph's writer (src/graph/write.ts) is the one writer of the graph store (decision 0033, item 3: one writer per store; decision 0035, item 6: a plugin's answer is published by it). Only the graph store's own modules (src/graph) and the storage layer (src/adapters) may import it; every other module reads through the store's interface and hands its draft to the store, which publishes it.",
       from: { pathNot: '^(src/graph|src/adapters)/' },
-      to: { path: '^src/graph/publish\\.ts$' },
+      to: { path: '^src/graph/write\\.ts$' },
     },
     {
       name: 'no-retired-surfaces',
