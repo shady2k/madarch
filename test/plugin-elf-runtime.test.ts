@@ -265,3 +265,44 @@ describe('nix-ld s folder of symlinks', () => {
     expect(resolved.problems.some((problem) => problem.includes(join(root, 'farm')))).toBe(true);
   });
 });
+
+describe('a loader s own folder', () => {
+  test('a PT_INTERP loader finds the libraries that stand beside it', () => {
+    // The runtime needs a library no system folder holds; the loader's real folder is the only place it stands. The
+    // loader's own folder belongs to the default search path, so the name resolves and that folder is bound.
+    const root = scratch();
+    mkdirSync(join(root, 'loader'), { recursive: true });
+    mkdirSync(join(root, 'store', 'glibc-p', 'lib'), { recursive: true });
+    writeFileSync(join(root, 'store', 'glibc-p', 'lib', 'ld-madarch.so'), elf64());
+    writeFileSync(join(root, 'store', 'glibc-p', 'lib', 'libmadarch-loader-dep.so.1'), elf64());
+    symlinkSync(join(root, 'store', 'glibc-p', 'lib', 'ld-madarch.so'), join(root, 'loader', 'ld-madarch.so'));
+    const runtime = join(root, 'madarch');
+    writeFileSync(runtime, elf64({ interpreter: join(root, 'loader', 'ld-madarch.so'), needed: ['libmadarch-loader-dep.so.1'] }));
+
+    const resolved = runtimeSandbox(runtime, {});
+    expect(resolved.problems).toEqual([]);
+    expect(resolved.mounts).toContain(join(root, 'store', 'glibc-p', 'lib'));
+  });
+
+  test('the loader NIX_LD names finds the libraries that stand beside it', () => {
+    // The shim's loader is a symlink in a farm; the library it runs with stands in the loader's real folder, and
+    // nowhere in the farm: the loader's folder is on the default search path for the runtime's names too.
+    const root = scratch();
+    mkdirSync(join(root, 'lib64'), { recursive: true });
+    mkdirSync(join(root, 'store', 'nix-ld-1', 'bin'), { recursive: true });
+    mkdirSync(join(root, 'store', 'glibc-n', 'lib'), { recursive: true });
+    mkdirSync(join(root, 'farm'), { recursive: true });
+    writeFileSync(join(root, 'store', 'nix-ld-1', 'bin', 'nix-ld'), elf64());
+    symlinkSync(join(root, 'store', 'nix-ld-1', 'bin', 'nix-ld'), join(root, 'lib64', 'ld-linux-x86-64.so.2'));
+    writeFileSync(join(root, 'store', 'glibc-n', 'lib', 'ld.so'), elf64());
+    writeFileSync(join(root, 'store', 'glibc-n', 'lib', 'libmadarch-loader-dep.so.1'), elf64());
+    symlinkSync(join(root, 'store', 'glibc-n', 'lib', 'ld.so'), join(root, 'farm', 'ld.so'));
+    const runtime = join(root, 'madarch');
+    writeFileSync(runtime, elf64({ interpreter: join(root, 'lib64', 'ld-linux-x86-64.so.2'), needed: ['libmadarch-loader-dep.so.1'] }));
+    const env = { NIX_LD: join(root, 'farm', 'ld.so'), NIX_LD_LIBRARY_PATH: join(root, 'farm') };
+
+    const resolved = runtimeSandbox(runtime, env);
+    expect(resolved.problems).toEqual([]);
+    expect(resolved.mounts).toContain(join(root, 'store', 'glibc-n', 'lib'));
+  });
+});

@@ -315,13 +315,25 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
   // LD_LIBRARY_PATH), so the runtime's own names are resolved there too. The folder is read as it is given: its
   // entries are symlinks into a store path each, and the name the loader opens is the one in the folder.
   const nixLdFolders = nixLd ? (env['NIX_LD_LIBRARY_PATH'] ?? '').split(':').map((one) => one.trim()).filter((one) => one !== '') : [];
+  const nixLdPath = nixLd ? (env['NIX_LD'] ?? '').trim() : '';
+  // The loader the runtime runs under, by the real file behind its symlinks: the interpreter PT_INTERP names, and for
+  // nix-ld's shim the loader NIX_LD names. The loader's own folder is where it finds the libraries it runs with (on
+  // NixOS, the glibc store path's lib), so it belongs to the default search path — for the runtime's names and for the
+  // loader's own alike.
+  const resolvedLoader = nixLdPath === '' ? undefined : realOf(nixLdPath);
+  const loaderFolders = [...new Set([
+    ...(resolvedInterpreter === undefined ? [] : [dirname(resolvedInterpreter)]),
+    ...(resolvedLoader === undefined ? [] : [dirname(resolvedLoader)]),
+  ])];
+  const defaults = [...defaultLibraryFolders(platform), ...loaderFolders];
   const searchPaths = [...hostPaths, ...nixLdFolders];
   // The folders a file is searched in, in the loader's order: a DT_RPATH that stands alone, then the host's
   // LD_LIBRARY_PATH and a nix-ld shim's NIX_LD_LIBRARY_PATH, then DT_RUNPATH (which replaces DT_RPATH when it stands),
-  // then the loader's own folders. A name that is a path of its own is read where it stands.
+  // then the loader's own folders and its own folder's default paths. A name that is a path of its own is read where it
+  // stands.
   const foldersFor = (from: ElfDynamic, object: string): string[] => {
     const expand = (folder: string): string => expandPath(folder, object, platform);
-    return [...from.rpath.map(expand), ...searchPaths, ...from.runpath.map(expand), ...defaultLibraryFolders(platform)];
+    return [...from.rpath.map(expand), ...searchPaths, ...from.runpath.map(expand), ...defaults];
   };
   const seen = new Set<string>();
   const resolveLibrary = (name: string, folders: readonly string[]): string | undefined => {
@@ -361,17 +373,15 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
     }
   }
   if (nixLd) {
-    const nixLdPath = env['NIX_LD']?.trim();
-    if (nixLdPath !== undefined && nixLdPath !== '') {
+    if (nixLdPath !== '') {
       environment['NIX_LD'] = nixLdPath;
       // NIX_LD is a symlink to the loader: the folder of the name the shim opens, the folder of the file it names,
-      // and the loader's own needs, resolved through the search path above.
+      // and the loader's own needs, resolved through the search path above (its own folder among them).
       addFile(nixLdPath);
-      const real = realOf(nixLdPath);
-      if (real !== undefined && real !== nixLdPath) {
-        addFolder(dirname(real));
+      if (resolvedLoader !== undefined) {
+        addFolder(dirname(resolvedLoader));
         try {
-          follow(readElfDynamic(real), real, 0);
+          follow(readElfDynamic(resolvedLoader), resolvedLoader, 0);
         } catch (error) {
           problems.push((error as Error).message);
         }
@@ -400,9 +410,10 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
       refusal = refusal ?? problem;
     }
   }
-  // The folders a distribution's loader stands in are kept whatever the runtime states: a plugin's own code may load a
-  // system library the loader finds there, and binding them changes nothing on a machine that holds none.
-  for (const folder of defaultLibraryFolders(platform)) if (folderOf(folder) !== undefined) addFolder(folder);
+  // The folders a distribution's loader stands in are kept whatever the runtime states, and so is the loader's own
+  // folder: a plugin's own code may load a library the loader finds there, and binding them changes nothing on a
+  // machine that holds none.
+  for (const folder of defaults) if (folderOf(folder) !== undefined) addFolder(folder);
   return {
     mounts: [...mounts].sort(byCodePoint),
     environment,
