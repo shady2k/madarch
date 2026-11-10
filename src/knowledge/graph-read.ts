@@ -191,19 +191,41 @@ const REPOSITORY_KEY = (alias: string): string => `(${alias}.key->'repository'->
 /** The path a file, folder or gitlink names in its key. */
 const PATH_KEY = (alias: string): string => `(${alias}.key->>'path')`;
 
-/** One open opinion of a node's table as a jsonb array: its id, its producer and version, its language, its evidence. */
-const OPINIONS_OF = (table: string, node: string, columns: readonly string[]): string =>
-  `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence"${columns.map((column) => `, '${column}', o."${column}"`).join('')}) ORDER BY o."id")
+/**
+ * Whether a vertex has an edge of one relation, as SQL: the entity's id is looked up once (an InitPlan), never per row
+ * (a bulk read of 1 846 rows made 1 846 index scans of `entity` for the relation's name), and only the base context
+ * counts, as every edge read does.
+ */
+const EDGE_EXISTS = (side: 'from_node' | 'to_node', relation: string, node: string): string =>
+  `EXISTS (SELECT 1 FROM edge e WHERE e.${side} = ${node}.id AND e.context_id = 1 AND e.entity_id = (SELECT id FROM entity WHERE name = '${relation}'))`;
+
+/**
+ * One open opinion of a node's table as a jsonb array: its id, its producer and version, its language, its evidence —
+ * or, for a bulk read, its language and its values alone (`values`): a list shows values, and nothing in a list shows
+ * where a value was stated, so a listing does not pay to carry and parse the evidence of every opinion it reads
+ * (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms, against 1.21 MB and 24 ms without them).
+ */
+const OPINIONS_OF = (table: string, node: string, columns: readonly string[], values = false): string =>
+  `(SELECT jsonb_agg(jsonb_build_object(${values ? '' : `'id', o."id"::text, 'said_by', o."said_by", `}'lang', o."lang"${values ? '' : `, 'evidence', o."evidence"`}${columns.map((column) => `, '${column}', o."${column}"`).join('')}) ORDER BY o."id")
      FROM ${table} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND o."context_id" = 1)`;
 
 /** The opinion columns of an entity row: every open opinion of the entity's kind, as jsonb arrays. */
 const ENTITY_OPINION_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
-      'mode', o."mode", 'blob_id', o."blob_id", 'languages', o."languages",
+      'mode', o."mode", 'languages', o."languages",
       'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
     FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'])} END AS commit_opinions,
   CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'])} END AS repository_opinions,`;
+
+/** The same opinions without their sources: a bulk read of a kind's entities answers every value and no evidence. */
+const ENTITY_VALUE_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('lang', o."lang",
+      'mode', o."mode", 'languages', o."languages",
+      'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
+    FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
+    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], true)} END AS commit_opinions,
+  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'], true)} END AS repository_opinions,`;
 
 /** The same columns without the opinions: the history and graph reads answer keys, labels and edges only. */
 const ENTITY_PLAIN_COLUMNS = `  NULL AS file_opinions, NULL AS commit_opinions, NULL AS repository_opinions,`;
@@ -222,14 +244,14 @@ const ENTITY_SCOPE_EXPRESSION = `(CASE WHEN k.name = '${GIT_KINDS.repository}' T
  * knows the scope — a history read of one repository — passes it, and every row carries it as a constant, so no row looks
  * its repository up; a caller that names none gets the correlated lookup, and reads few rows.
  */
-function entitySelectSql(scope: string | null, plain: boolean): string {
+function entitySelectSql(scope: string | null, columns: 'full' | 'values' | 'plain'): string {
   const scopeColumn = scope !== null && /^\d+$/u.test(scope) ? `'${scope}'::text` : ENTITY_SCOPE_EXPRESSION;
   return `SELECT n.id::text AS node_id, k.name AS kind,
   CASE WHEN k.name = '${GIT_KINDS.repository}' THEN (n.key->>'name') ELSE ${REPOSITORY_KEY('n')} END AS repository_name,
   ${REPOSITORY_KEY('n')} AS scope_repository_name,
   ${PATH_KEY('n')} AS path,
   (n.key->>'hash') AS commit_hash, (n.key->>'name') AS signature_name, (n.key->>'email') AS email,
-${plain ? ENTITY_PLAIN_COLUMNS : ENTITY_OPINION_COLUMNS}
+${columns === 'plain' ? ENTITY_PLAIN_COLUMNS : columns === 'values' ? ENTITY_VALUE_COLUMNS : ENTITY_OPINION_COLUMNS}
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id AND pe.context_id = 1) ELSE 0 END AS parent_count,
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'name' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 LIMIT 1) END AS commit_author_name,
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'email' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 LIMIT 1) END AS commit_author_email,
@@ -303,18 +325,21 @@ interface GraphOpinion {
   readonly values: Readonly<Record<string, unknown>>;
 }
 
-/** The opinions one aggregate column reads, from the jsonb array the statement builds. */
-function graphOpinions(value: unknown, fields: readonly string[]): GraphOpinion[] {
+/**
+ * The opinions one aggregate column reads, from the jsonb array the statement builds. A bulk read (`sources`) states the
+ * values alone: it carries no opinion id, no producer and no evidence, so nothing here may guess that it has them.
+ */
+function graphOpinions(value: unknown, fields: readonly string[], sources = true): GraphOpinion[] {
   // A plain read (the history and graph blocks) carries no opinion column: nothing is assembled for it.
   if (!Array.isArray(value) || value.length === 0) return [];
   return value.map((entry) => {
     const held = (entry ?? {}) as Record<string, unknown>;
-    const saidBy = String(held['said_by'] ?? '');
+    const saidBy = sources ? String(held['said_by'] ?? '') : '';
     const at = saidBy.lastIndexOf('@');
     const language = held['lang'] === null || held['lang'] === undefined ? null : String(held['lang']);
-    const places = Array.isArray(held['evidence']) ? held['evidence'] as readonly Record<string, unknown>[] : [];
+    const places = sources && Array.isArray(held['evidence']) ? held['evidence'] as readonly Record<string, unknown>[] : [];
     return {
-      id: String(held['id'] ?? ''),
+      id: sources ? String(held['id'] ?? '') : '',
       saidBy,
       producer: at < 0 ? saidBy : saidBy.slice(0, at),
       lang: language,
@@ -374,13 +399,18 @@ function labelOf(row: Raw): string {
   return String(row['node_id']);
 }
 
-function entityOf(row: Raw): GraphEntity {
+/**
+ * One entity row as the wiki holds it. `sources` says whether the row's statement carried the opinions' ids, producers
+ * and evidence: a single entity's read does, a bulk listing (`entitiesOfKinds`) does not, and its entities therefore
+ * carry no `evidence` or `opinions` — a list shows values, and no page shows where a value was stated from a list.
+ */
+function entityOf(row: Raw, sources = true): GraphEntity {
   const graphKind = String(row['kind']);
   const kind = WIKI_KIND[graphKind] ?? graphKind;
   const properties: Record<string, unknown> = { recordKey: keyOf(row) };
-  const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'languages']);
-  const commitOpinions = graphOpinions(row['commit_opinions'], ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min']);
-  const repositoryOpinions = graphOpinions(row['repository_opinions'], ['url', 'default_branch']);
+  const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'languages'], sources);
+  const commitOpinions = graphOpinions(row['commit_opinions'], ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], sources);
+  const repositoryOpinions = graphOpinions(row['repository_opinions'], ['url', 'default_branch'], sources);
   if (graphKind === `${GIT_KINDS.repository}`) {
     properties['name'] = row['repository_name'];
     properties['url'] = agreedValue(repositoryOpinions, 'url');
@@ -417,9 +447,9 @@ function entityOf(row: Raw): GraphEntity {
     properties['name'] = row['signature_name'];
     properties['email'] = row['email'];
   }
-  const opinions = [...entityOpinions(fileOpinions), ...entityOpinions(commitOpinions), ...entityOpinions(repositoryOpinions)];
+  const opinions = sources ? [...entityOpinions(fileOpinions), ...entityOpinions(commitOpinions), ...entityOpinions(repositoryOpinions)] : [];
   const evidence: GraphEvidence[] = [];
-  for (const one of opinions) for (const place of one.evidence) evidence.push(Object.assign({}, place, { field: one.field, ...(one.producer === '' ? {} : { saidBy: one.producer }) }));
+  if (sources) for (const one of opinions) for (const place of one.evidence) evidence.push(Object.assign({}, place, { field: one.field, ...(one.producer === '' ? {} : { saidBy: one.producer }) }));
   const span = spanOf(properties['span']) ?? spanFromProvenance(properties);
   return {
     key: presentedKey(kind, properties), kind, label: labelOf(row), properties,
@@ -598,8 +628,8 @@ export class GraphReader {
           : graphKind === `${GIT_KINDS.signature}` ? "(n.key->>'email') = $2"
             : referenceKind && repository !== '' ? `(${REPOSITORY_KEY('n')} = $2 AND ${PATH_KEY('n')} = $3)` : `${PATH_KEY('n')} = $2`;
       const params = referenceKind && repository !== '' ? [graphKind, repository, path] : [graphKind, referenceKind ? path : tail];
-      const found = await tx.query<Raw>(`${entitySelectSql(this.scope ?? null, false)} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
-      return this.scoped(found.rows.map(entityOf));
+      const found = await tx.query<Raw>(`${entitySelectSql(this.scope ?? null, 'full')} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
+      return this.scoped(found.rows.map((row) => entityOf(row)));
     });
   }
 
@@ -907,14 +937,14 @@ export class GraphReader {
     // A read of no code kind asks the store nothing: a product that declares only its own kinds holds no code table.
     if (graphKinds.length === 0) return [];
     const found = await tx.query<Raw>(
-      `${entitySelectSql(this.scope ?? null, false)} WHERE k.name = ANY($1::text[])
-       AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.to_node = n.id))
-       AND (k.name <> '${GIT_KINDS.commit}' OR EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.history}' WHERE e.to_node = n.id))
-       AND (k.name <> '${GIT_KINDS.signature}' OR EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.authored}' WHERE e.from_node = n.id))
+      `${entitySelectSql(this.scope ?? null, 'values')} WHERE k.name = ANY($1::text[])
+       AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')})
+       AND (k.name <> '${GIT_KINDS.commit}' OR ${EDGE_EXISTS('to_node', GIT_KINDS.history, 'n')})
+       AND (k.name <> '${GIT_KINDS.signature}' OR ${EDGE_EXISTS('from_node', GIT_KINDS.authored, 'n')})
        ORDER BY n.id`,
       [`{${graphKinds.join(',')}}`],
     );
-    return this.scoped(found.rows.map(entityOf));
+    return this.scoped(found.rows.map((row) => entityOf(row, false)));
   }
 
   /** The entities of every manifest-declared kind a read names, from the tables their declarations made. */
@@ -929,7 +959,7 @@ export class GraphReader {
 
   private async entitiesOfIds(tx: OuterTransaction, ids: readonly string[], scope: string | null = this.scope ?? null): Promise<Map<string, GraphEntity>> {
     if (ids.length === 0) return new Map();
-    const found = await tx.query<Raw>(`${entitySelectSql(scope, true)} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
+    const found = await tx.query<Raw>(`${entitySelectSql(scope, 'plain')} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
     const held = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
     // A node the code kinds' select did not answer is one of a manifest-declared kind: its table answers it.
     const missing = ids.filter((id) => !held.has(id));
@@ -1325,7 +1355,7 @@ export class GraphReader {
   private async historyEvidenceOnce(scope: string): Promise<HistoryEvidence> {
     return await this.run(async (tx) => {
       const found = await tx.query<Raw>(
-        `${entitySelectSql(scope, true)} WHERE
+        `${entitySelectSql(scope, 'plain')} WHERE
            n.id = $1::bigint
            OR (n.key->'repository'->'key'->>'name') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
            OR n.id IN (SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint)
@@ -1334,7 +1364,7 @@ export class GraphReader {
          ORDER BY n.id`,
         [scope],
       );
-      const entities = found.rows.map(entityOf);
+      const entities = found.rows.map((row) => entityOf(row));
       const byId = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
       const edges = await tx.query<{ id: string; relation: string; from_node: string; to_node: string; discriminator: string; change: string | null; added: string | null; removed: string | null; position: number | null; walk: number | null }>(
         `WITH evidence_nodes AS (
@@ -1437,8 +1467,8 @@ export class GraphReader {
         );
       const nodeIds = new Set<string>(subject.nodeIds);
       for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
-      const entityRows = await tx.query<Raw>(`${entitySelectSql(subject.scope === '' ? null : subject.scope, true)} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
-      const entities = entityRows.rows.map(entityOf);
+      const entityRows = await tx.query<Raw>(`${entitySelectSql(subject.scope === '' ? null : subject.scope, 'plain')} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
+      const entities = entityRows.rows.map((row) => entityOf(row));
       const byId = new Map(entityRows.rows.map((row) => [String(row['node_id']), entityOf(row)]));
       const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];
       return {

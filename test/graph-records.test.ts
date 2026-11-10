@@ -375,4 +375,24 @@ describe('a git date of a zero or a negative offset', () => {
     await publishHistory(owner, history);
     expect(await commitFacts(owner, 'z-dates', 'b'.repeat(40))).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
   }, 120_000);
+
+  test('a listing answers the opinions\' values without their sources, and a single entity answers both', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const reader = new GraphReader(owner, () => new Date().toISOString());
+    // The bulk read a page's treemap and the Problems listing make: every value, and no opinion's id, producer or
+    // evidence (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms with the sources, 1.21 MB and
+    // 24 ms without). A list shows values, and no page shows where a value was stated from a list.
+    const listed = await reader.byPrefix('code.file', 'code.file:', 100);
+    const file = listed.rows.find((one) => one.key === 'code.file:fixture/src/a.ts');
+    if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
+    expect(typeof file.properties['path']).toBe('string');
+    expect(typeof file.properties['mode']).toBe('string');
+    expect(file.evidence ?? []).toEqual([]);
+    expect(file.opinions ?? []).toEqual([]);
+    // The single entity's read is the one that states the sources, and the value is the same one.
+    const one = (await reader.find('code.file:fixture/src/a.ts'))[0];
+    expect(one?.properties['mode']).toBe(file.properties['mode']);
+    expect((one?.evidence ?? []).length).toBeGreaterThan(0);
+    expect((one?.opinions ?? []).length).toBeGreaterThan(0);
+  }, 120_000);
 });
