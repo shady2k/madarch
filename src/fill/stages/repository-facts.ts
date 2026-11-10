@@ -20,6 +20,7 @@ import { log } from '../../obs/log.js';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
+import { decideLanguage } from './language-heuristics.js';
 import type { DeclaredKinds, HistoryCommit, HistoryPublish, RecordCounts, TreeFile, TreeGitlink, TreePublish } from '../../graph/index.js';
 
 /** The stage ids of the two passes, as a later step registers them. */
@@ -404,6 +405,15 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
   // The text files' bytes, once per blob: two files with the same bytes share one row in the store (item 9).
   const contents = await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
   for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
+  // A path whose extension several languages claim is decided by GitHub Linguist's own rules (madarch-j9ao.1, item 7):
+  // the vendored data, over the first 50 KiB of the text, with the Oniguruma engine Ruby's regexes are built on. A path
+  // git's `.gitattributes` overrides keeps git's answer, and a path no rule decides keeps the dataset's candidates.
+  for (let at = 0; at < files.length; at += 1) {
+    const file = files[at]!;
+    if (file.form !== 'text' || file.candidates.length <= 1 || overrides.has(file.path) || file.content === null) continue;
+    const decided = await decideLanguage(file.path, file.content, file.candidates);
+    if (decided !== undefined) files[at] = { ...file, language: decided.language, candidates: [decided.language] };
+  }
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
   // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a

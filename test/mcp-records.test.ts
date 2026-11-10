@@ -126,10 +126,10 @@ describe('the tools this step serves', () => {
     const { isError, answer } = await call('get_file', { path: 'src/a.ts' });
     expect(isError).toBe(false);
     expect(answer).toMatchObject({
-      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: null,
+      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'TypeScript',
       commitCount: 2, authors: ['Ada Example'],
     });
-    expect(answer['candidates']).toEqual(['TypeScript', 'XML']);
+    expect(answer['candidates']).toEqual(['TypeScript']);
     expect((answer['created'] as Record<string, unknown>)['commit']).toBe(first);
     expect((answer['modified'] as Record<string, unknown>)['commit']).toBe(third);
     expect((answer['created'] as Record<string, unknown>)['author']).toBe('Ada Example');
