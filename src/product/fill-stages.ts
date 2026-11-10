@@ -189,7 +189,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);

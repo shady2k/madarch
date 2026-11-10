@@ -84,10 +84,12 @@ const SCHEMA: readonly string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS edge_once ON edge (entity_id, from_node, to_node, discriminator, context_id)`,
   `CREATE INDEX IF NOT EXISTS edge_to ON edge (to_node, entity_id)`,
   `CREATE INDEX IF NOT EXISTS edge_from ON edge (from_node, entity_id)`,
-  // One journal for what people and the agent do (and, from stage 2, what every producer's unit did).
+  // One journal of every change: each publication's unit, and every operation a person or the agent makes. Its author
+  // is a producer and its version, `agent`, or `person:<uid>`; the change names the vertices, edges and opinions it
+  // touched, by id (stage 2).
   `CREATE TABLE IF NOT EXISTS operation (
-    id uuid PRIMARY KEY,
-    author bigint REFERENCES node (id),
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    author text NOT NULL CHECK (author <> ''),
     machine text NOT NULL DEFAULT '',
     session text NOT NULL DEFAULT '',
     at timestamptz NOT NULL DEFAULT now(),
@@ -142,7 +144,10 @@ async function graphShapeStands(tx: OuterTransaction): Promise<boolean> {
   const columns = await tx.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'node' AND column_name IN ('key', 'removed')`,
   );
-  return columns.rows.length === 2;
+  const author = await tx.query<{ data_type: string }>(
+    `SELECT data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'operation' AND column_name = 'author'`,
+  );
+  return columns.rows.length === 2 && author.rows[0]?.data_type === 'text';
 }
 
 /** Drops every graph table, and the opinions of every entity kind the store held, in one transaction. */
@@ -155,8 +160,22 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
   // The journal's rows are kept; its author links name vertices a fill makes again, so they are cleared here, and the
   // constraint that names a node is dropped and made again once the graph stands.
   if (tables.has('operation')) {
-    await tx.query('ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_author_fkey');
-    await tx.query('UPDATE operation SET author = NULL WHERE author IS NOT NULL');
+    const author = await tx.query<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'operation' AND column_name = 'author'`,
+    );
+    const type = author.rows[0]?.data_type;
+    if (type !== undefined && type !== 'text') {
+      // A journal written before stage 2 linked its author to a node; its rows are kept, the link is kept beside the
+      // new author (which a person's or the agent's operation states in words), and the vertices are made again.
+      await tx.query('ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_author_fkey');
+      await tx.query('ALTER TABLE operation RENAME COLUMN author TO author_node');
+      await tx.query(`ALTER TABLE operation ADD COLUMN author text NOT NULL DEFAULT ''`);
+      await tx.query('UPDATE operation SET author_node = NULL WHERE author_node IS NOT NULL');
+    } else if (type === undefined) {
+      await tx.query(`ALTER TABLE operation ADD COLUMN author text NOT NULL DEFAULT ''`);
+    }
+    // A journal row written before stage 2 may carry no default for its id; the writer names none, so the database does.
+    await tx.query(`ALTER TABLE operation ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
   }
   for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
     await tx.query(`DROP TABLE IF EXISTS "${table}"`);
@@ -183,13 +202,7 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
     const reset = !await graphShapeStands(tx);
     if (reset) await resetGraph(tx);
     for (const statement of SCHEMA) await tx.query(statement);
-    if (reset) {
-      await tx.query(`DO $$ BEGIN
-        IF to_regclass(current_schema() || '.operation') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'operation_author_fkey') THEN
-          ALTER TABLE operation ADD CONSTRAINT operation_author_fkey FOREIGN KEY (author) REFERENCES node (id);
-        END IF;
-      END $$`);
-    }
+
     const base = await tx.query<{ id: string }>('SELECT id::text AS id FROM context WHERE parent IS NULL ORDER BY id LIMIT 1');
     if (base.rows[0] === undefined) await tx.query(`INSERT INTO context (parent, ref) VALUES (NULL, '')`);
     await createContractTablesIn(tx, contract);

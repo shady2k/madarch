@@ -75,7 +75,7 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/kinds.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"'],
+      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],

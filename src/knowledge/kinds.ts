@@ -446,6 +446,8 @@ export interface KindsManifest {
   roles: ReadonlyMap<string, RoleDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
+  /** `journal:` — whether the journal keeps every request a plugin makes, its reads included (off unless it is said). */
+  journal?: { readonly debug: boolean };
   /** The renderer the diagrams open on (`diagram:` at the top of the manifest: likec4, mermaid or archify); absent means the environment's, else LikeC4. */
   diagram?: string;
   /** The reader-facing labels and value formats of the properties the kinds show. */
@@ -910,7 +912,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -1663,7 +1665,21 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const closure = closureOf(earliest);
     for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });
   }
-  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  // `journal: { debug: true }` keeps every request a plugin makes, its reads included, in the journal; off by default,
+  // and a plugin never logs itself.
+  let journal: { debug: boolean } | undefined;
+  const rawJournal = top['journal'];
+  if (rawJournal !== undefined) {
+    if (rawJournal === null || typeof rawJournal !== 'object' || Array.isArray(rawJournal)) {
+      findings.push({ file, line: at(['journal']), message: '"journal" is { debug: true|false }: whether the journal keeps every request a plugin makes, its reads included' });
+    } else {
+      for (const key of Object.keys(rawJournal)) if (key !== 'debug') findings.push({ file, line: at(['journal', key]), message: `"journal" holds only "debug", and "${key}" is not one` });
+      const debug = (rawJournal as Record<string, unknown>)['debug'];
+      if (debug !== undefined && typeof debug !== 'boolean') findings.push({ file, line: at(['journal', 'debug']), message: '"journal" "debug" is true or false' });
+      if (debug === true) journal = { debug: true };
+    }
+  }
+  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**

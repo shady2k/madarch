@@ -43,6 +43,8 @@ export interface PluginTurnWiring {
   readonly releaseHashes?: readonly string[];
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
+  /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
+  readonly debug?: boolean;
 }
 
 /** One unit of a plugin's turn: the plugin, and the kind whose documents it reads. */
@@ -132,26 +134,29 @@ function canonicalKey(key: Readonly<Record<string, string | number>>): string {
  * The graph the host answers a plugin's reads from: the file vertices its pattern names, and a file's content as the
  * files producer stored it. The plugin never sees a folder (decision 0035, item 9).
  */
-function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
+function answererOf(wiring: PluginTurnWiring, reads: { method: string; size: number }[] | undefined): GraphAnswerer {
+  /** Records one request and the size of its answer, when the product's journal keeps the plugin's requests. */
+  const read = (method: string, size: number): void => { reads?.push({ method, size }); };
   return {
-    files: async (pattern) => (await graphFiles(wiring.owner, wiring.contract))
-      .filter((file) => matchesAny([pattern], file.path))
-      .map((file) => ({ kind: GIT_WIKI.file, key: { repository: file.repository, path: file.path } })),
+    files: async (pattern) => {
+      const files = (await graphFiles(wiring.owner, wiring.contract))
+        .filter((file) => matchesAny([pattern], file.path))
+        .map((file) => ({ kind: GIT_WIKI.file, key: { repository: file.repository, path: file.path } }));
+      read('graph.files', files.length);
+      return files;
+    },
     value: async (kind, key, field) => {
       if (kind !== GIT_WIKI.file) throw new Error(`the graph read of a ${JSON.stringify(kind)} is not one the host answers: a plugin reads the files producer's vertices (${GIT_WIKI.file})`);
       const repository = String(key['repository'] ?? '');
       const path = String(key['path'] ?? '');
       if (field !== 'content') throw new Error(`the field ${JSON.stringify(field)} is not one a plugin reads of a file: the files producer stores its content`);
-      return await fileContent(wiring.owner, repository, path);
+      const value = await fileContent(wiring.owner, repository, path);
+      read('graph.value', value === null ? 0 : value.length);
+      return value;
     },
   };
 }
 
-/**
- * Runs one unit of a plugin's turn: the plugin answers the terms of every document its kind names, read through the
- * host from the graph, and the answer lands as drafts — one vertex per entity with its claims, and one removal per
- * entity the producer holds and this answer does not (a complete unit only; a partial unit publishes no removal).
- */
 export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter): Promise<void> {
   const unit = unitOf(wiring, id);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
@@ -160,11 +165,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
   const workRoot = mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-'));
+  const reads: { method: string; size: number }[] | undefined = wiring.debug === true ? [] : undefined;
   const host = new PluginHost({
     pluginFolder,
     closure,
     repository: wiring.productFolder,
-    graph: answererOf(wiring),
+    graph: answererOf(wiring, reads),
     workRoot,
     trust: 'production',
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
@@ -200,6 +206,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           producerVersion: unit.lock.version,
         } });
       }
+      // The unit's entry names its author and, under the debug setting, every request it made with its answer's size.
+      // It is a draft like the rest, so it lands in the publication's own transaction.
+      draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author: `${unit.plugin.id}@${unit.lock.version}`, ...(reads === undefined ? {} : { reads }) } });
       if (outcome.result.end.state === 'complete') {
         for (const held of await producerEntities(wiring.owner, wiring.contract, unit.kind.name, unit.plugin.id)) {
           if (answered.has(canonicalKey(held.key))) continue;

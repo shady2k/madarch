@@ -177,6 +177,7 @@ export type StageDraftWrite =
   /** One vertex and its claims a plugin's answer publishes (decision 0035, items 6 and 7): the graph's writer applies it. */
   | { kind: 'vertex'; evidence: string; value: VertexDraft }
   | { kind: 'edge'; evidence: string; value: import('../graph/write.js').EdgeDraft }
+  | { kind: 'journal'; evidence: string; value: { readonly author: string; readonly reads?: readonly { readonly method: string; readonly size: number }[] } }
   /** One entity the producer no longer holds: its claims are withdrawn and it leaves the reads. */
   | { kind: 'vertex-removal'; evidence: string; value: VertexRemovalDraft };
 

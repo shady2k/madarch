@@ -18,6 +18,8 @@ import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { gitEnv } from './git-env.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { productStoreFolder } from '../src/product/store.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -87,6 +89,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     execFileSync('git', ['commit', '--quiet', '-m', 'First commit'], { cwd: code, env: gitEnv(IDENTITY) });
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
+    // The debug journal keeps every request the plugin makes, its reads included (stage 2).
+    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    writeFileSync(kindsFile, `${readFileSync(kindsFile, 'utf8')}\njournal:\n  debug: true\n`);
   });
 
   afterAll(async () => {
@@ -114,6 +119,17 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     expect(block.usedIn).toContain('docs/glossary.md:3');
     expect(block.usedIn).toContain('/src?path=docs%2Fglossary.md&line=3');
     expect(page.page.findings).toEqual([]);
+    // One journal entry for the plugin's turn, authored by the plugin and its version, naming the term vertices it
+    // declared, the opinions it opened and the requests it made (the debug setting is on).
+    const storeOwner = await createTestDatabaseOwner({ store: join(productStoreFolder(folder, join(work, 'store')), 'graph'), btreeGist: true });
+    const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number }[] } }>('SELECT author, change FROM operation ORDER BY at, author'));
+    await storeOwner.close();
+    const plugin = journal.rows.filter((one) => one.author === 'glossary@1.0.0');
+    expect(plugin).toHaveLength(1);
+    expect(plugin[0]?.change.vertices.map((one) => one.entity)).toEqual(['doc.term', 'doc.term']);
+    expect(plugin[0]?.change.opinions.every((one) => one.state === 'opened')).toBe(true);
+    expect(plugin[0]?.change.reads?.map((one) => one.method)).toEqual(['graph.files', 'graph.value']);
+    expect(plugin[0]?.change.reads?.every((one) => one.size > 0)).toBe(true);
   }, 300_000);
 
   test('an edited definition is the one the next fill shows, and the old value stays a claim of its own', async () => {

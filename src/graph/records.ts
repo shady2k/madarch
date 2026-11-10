@@ -32,7 +32,7 @@ import { raise } from '../model/raise.js';
 import { createOneGraphSchema } from './one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { EvidenceDraft, EvidenceEntry, GraphContract } from './contract.js';
-import { ensureEdge, ensureEdges, ensureVertex, publishEdgeOpinion, publishOpinion, removeEdgeById } from './write.js';
+import { ensureEdge, ensureEdges, ensureVertex, journalFor, journalOn, publishEdgeOpinion, publishOpinion, removeEdgeById, writeJournal } from './write.js';
 
 /** The producers of this store's opinions, and the version each states with them. */
 const TREE_PRODUCER = 'git-tree';
@@ -334,6 +334,8 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
   const repository = input.repository.name;
   const evidenceOf = (path: string): EvidenceDraft => ({ type: 'file', repository, commit_or_digest: input.commit, path });
   return await write(owner, async (tx) => {
+    const journal = journalFor(`${TREE_PRODUCER}@${TREE_VERSION}`);
+    journalOn(tx, journal);
     const heldRepository = await repositoryNodeOf(tx, input.repository);
     let counts: RecordCounts = heldRepository.counts;
     const commit = await commitNodeOf(tx, input.commit, 'tree');
@@ -452,6 +454,7 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
 
     // The tree pass retracts only the gaps it wrote: a tree published after a history keeps the history's rows.
     counts = sum(counts, await publishGaps(tx, heldRepository.node, input.gaps, 'tree'));
+    await writeJournal(tx, journal);
     return counts;
   });
 }
@@ -505,6 +508,8 @@ function walkCommitsBefore(rows: readonly { readonly commit: string }[]): string
 export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish): Promise<RecordCounts> {
   const repository = input.repository.name;
   return await write(owner, async (tx) => {
+    const journal = journalFor(`${HISTORY_PRODUCER}@${HISTORY_VERSION}`);
+    journalOn(tx, journal);
     const entities = await entityIds(tx);
     const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.repository, key: { name: repository } });
     let counts: RecordCounts = { inserted: made.created ? 1 : 0, updated: 0, deleted: 0, unchanged: made.created ? 0 : 1 };
@@ -664,6 +669,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     for (const row of staleRenamed.rows) if (!desiredRenamed.has(`${row.from_node}\u0000${row.to_node}\u0000${row.discriminator}`)) { await removeEdgeById(tx, GIT_CONTRACT, `${GIT_KINDS.renamedFrom}`, row.id); counts = { ...counts, deleted: counts.deleted + 1 }; }
 
     counts = sum(counts, await publishGaps(tx, made.nodeId, input.gaps, `${GIT_KINDS.history}`));
+    await writeJournal(tx, journal);
     return counts;
   });
 }

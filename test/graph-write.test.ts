@@ -16,6 +16,7 @@ import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
 import type { VertexDraft } from '../src/graph/contract.js';
@@ -236,8 +237,10 @@ describe('the manifest makes the table and the writer fills it', () => {
       expect(tables.rows).toEqual([]);
       const nodes = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM node'));
       expect(nodes.rows[0]?.n).toBe('0');
-      const journal = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string; author: string | null }>('SELECT count(*)::text AS n, min(author::text) AS author FROM operation'));
-      expect(journal.rows[0]).toEqual({ n: '1', author: null });
+      // The journal's row is kept; its old node link is cleared and the author's word is empty, because no producer
+      // stated it.
+      const journal = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string; author: string; author_node: string | null }>('SELECT count(*)::text AS n, min(author) AS author, min(author_node::text) AS author_node FROM operation'));
+      expect(journal.rows[0]).toEqual({ n: '1', author: '', author_node: null });
       // The empty graph takes a fill: a publication writes its rows again.
       await createRecordSchema(old);
       const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [], gaps: [] });
@@ -291,6 +294,41 @@ describe('the manifest makes the table and the writer fills it', () => {
     await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'edge', evidence: 'x', value: links }]));
     const cleared = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM unresolved_reference'));
     expect(cleared.rows[0]?.n).toBe('0');
+  });
+
+  test('one publication writes one journal entry, authored by the producer, naming the vertices and opinions by id', async () => {
+    const before = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [
+      { kind: 'vertex', evidence: 'docs/glossary.md', value: { kind: 'doc.term', key: { name: 'Journaled' }, values: { definition: 'a term' }, producer: 'glossary', producerVersion: '1.0.0' } },
+    ]));
+    const after = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string; uid: string; node: string; state: string }[]; edges: unknown[]; opinions: { id: string; node: string; state: string; fields: string[] }[] } }>('SELECT author, change FROM operation ORDER BY at'));
+    expect(after.rows).toHaveLength(Number(before.rows[0]?.n ?? '0') + 1);
+    const entry = after.rows[after.rows.length - 1]!;
+    expect(entry.author).toBe('glossary@1.0.0');
+    expect(entry.change.vertices).toHaveLength(1);
+    expect(entry.change.vertices[0]).toMatchObject({ entity: 'doc.term', state: 'declared' });
+    const opened = entry.change.opinions.find((one) => one.state === 'opened');
+    expect(opened?.fields).toEqual(['definition']);
+    // The opinion's id is the row's id, and the vertex it names is the one that stands.
+    const table = contract.vertex[0]!.table;
+    const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ id: string; node: string }>(`SELECT o."id"::text AS id, n.uid::text AS node FROM ${table} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND (n.key->>'name') = 'Journaled'`));
+    expect(rows.rows).toEqual([{ id: opened?.id ?? '', node: entry.change.vertices[0]?.uid ?? '' }]);
+    expect((entry.change.opinions[0]?.node)).toBe(entry.change.vertices[0]?.uid);
+  });
+
+  test('an agent operation is one entry with its words, and its opinion rests on the conversation', async () => {
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{
+        kind: 'doc.term', key: { name: 'Spoken' }, values: { definition: 'a term we said' },
+        evidence: [{ type: 'conversation', id: 'talk-2026-11-11', speaker: 'the owner', at: '2026-11-11T09:00:00Z' }],
+        producer: 'agent', producerVersion: '1',
+      }],
+      removals: [],
+    }, 1, { author: 'agent', words: 'the owner said this term means a term we said' }));
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; words: string }>(`SELECT author, words FROM operation WHERE author = 'agent' ORDER BY at DESC LIMIT 1`));
+    expect(entries.rows).toEqual([{ author: 'agent', words: 'the owner said this term means a term we said' }]);
+    const evidence = await owner.transaction('snapshot', async (tx) => await tx.query<{ evidence: readonly Record<string, unknown>[] }>(`SELECT o.evidence FROM ${contract.vertex[0]!.table} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND (n.key->>'name') = 'Spoken'`));
+    expect(evidence.rows[0]?.evidence).toEqual([{ type: 'conversation', id: 'talk-2026-11-11', speaker: 'the owner', at: '2026-11-11T09:00:00Z' }]);
   });
 
   test('a kind the contract does not declare is refused by the writer, naming it', async () => {
