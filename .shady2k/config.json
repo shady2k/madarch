@@ -1,6 +1,6 @@
 {
   "strength": "block",
-  "currentMilestone": "wiki-for-people",
+  "currentMilestone": "wiki-for-engine",
   "milestoneLabels": [
     "knowledge-base",
     "registry",
@@ -12,7 +12,8 @@
     "standalone",
     "tracker",
     "self-filling",
-    "wiki-for-people"
+    "wiki-for-people",
+    "wiki-for-engine"
   ],
   "areaLabels": [
     "model",
