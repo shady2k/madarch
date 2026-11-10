@@ -169,9 +169,14 @@ are the repository's installation, and each person's plugin and hooks are theirs
   committed export. Tracker writes need no commit: the tracker commands publish them
   (see "Tracker synchronization"), and a commit carries code and documents only.
 - **Tracker synchronization:** the set's mechanism, copied byte for byte from
-  shady2k-skills 0.128.0 (setup 0.58.0, madarch-j6ho.4; it stops a record
-  leaving a whole copy of the store behind, and removes the copies older
-  versions left on its first run): `.shady2k/tracker-sync.mjs` with
+  shady2k-skills 0.143.0 (madarch-znmp, 2026-11-10; earlier 0.128.0,
+  madarch-j6ho.4). Since 0.143.0 a change costs what the change costs, not the
+  whole store (shady2k/skills#52): measured on this machine's store (591
+  items, 1 293 recordings), a claim took 349 s at an 881 MB process-tree peak
+  on 0.128.0 and 4.6 s at 180 MB on 0.143.0, and a status transition 9.4 s
+  at 420 MB. The recipe also carries br's `policy.yaml` on the ref when a
+  store has one. Its first run repaired what older versions left, without a
+  flag: `.shady2k/tracker-sync.mjs` with
   `.shady2k/argv.mjs` and `.shady2k/regular-file.mjs` beside it
   (version in `.shady2k/tracker-sync.version`; `node .shady2k/tracker.mjs status
   --expect-version <the set's version>` says when the copy is behind), the br
