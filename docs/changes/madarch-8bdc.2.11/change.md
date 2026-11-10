@@ -163,6 +163,17 @@ under `timeout 600`: the generated-table builder `src/graph/contract.ts:100-230`
 `test/api-role-first-page.test.ts` produced 53 mutants: 2 killed, 51 survived, score 3.77%
 (1 min 24 s). The survivors are listed in `/work/out/stryker-run/contract.json` and
 `/work/out/stryker-run/status.json`; mutation never blocks.
+
+### Entity ids and the validation owner
+
+The CI walk found `code.directory:docs` twice in a shop with two repositories. A directory,
+file or gitlink id now carries its repository name (`code.directory:<repository>/<path>`), so
+the catalogue, entity pages, search hits and MCP answers name the same entity; `byPrefix` keeps
+path-prefix reads. The post-fill graph validation opens its own database owner for the snapshot
+instead of borrowing the reader's owner, which the api role may close as idle while the fill
+role has just ended. Tests: `test/knowledge-entity-ids.test.ts` (two repositories sharing
+`docs`) and the repository-wiki case that fills and then validates without the closed-owner
+error.
 ## Acceptance evidence
 
 - `test/graph-one-schema.test.ts`: the DDL, the normal form, the natural keys, the edge repeat
@@ -176,6 +187,7 @@ under `timeout 600`: the generated-table builder `src/graph/contract.ts:100-230`
 - `test/fill-orchestrator.test.ts`: the fill tables' foreign keys and the one queue.
 - `test/knowledge-tracker-only.test.ts`: a tracker-only product opens, fills and serves; its
   catalogue counts its Markdown kinds and its store has the mechanism tables and no code table.
+- `test/knowledge-entity-ids.test.ts`: two repositories sharing `docs` have two directory ids, each naming its repository.
 - `test/graph-contract-lock.test.ts`, `test/trace-retention.test.ts`,
   `test/api-role-first-page.test.ts`: the contract lock, the one-span statement counts and
   retention, and the 2 s first / 50 ms second status bounds.
