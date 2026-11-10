@@ -163,7 +163,9 @@ async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; 
 
 /** The archify page of a view: the vendored renderer's page over the layout LikeC4 computes, with the click bridge. */
 export async function archifyFrame(view: GraphView, _env: Readonly<Record<string, string | undefined>>): Promise<Frame> {
-  if (view.spec.type === 'er') return frameFailure('ER tables are drawn only by Mermaid erDiagram; table links remain under the picture');
+  // A type archify cannot draw says so by name: the vendored renderer draws components and connections, and a sequence
+  // has neither. An ER view is drawn: one box per table, its columns as the node's line, an arrow per foreign key.
+  if (view.spec.type === 'sequence') return frameFailure('a sequence is drawn only by Mermaid: archify draws components and connections, not lifelines in an order');
   const held = workspaceOf(view);
   const scratch = scratchOf(held.workspace);
   if (!scratch.ok) return scratch;

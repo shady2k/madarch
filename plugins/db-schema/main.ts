@@ -688,48 +688,20 @@ function answerOf(model: Model): UnitResult {
   const edges: EdgeResult[] = [];
   const databases = [...model.databases.values()].filter((database) => database.tables.size > 0).sort((left, right) => compare(left.name, right.name));
   for (const database of databases) {
-    vertices.push({
-      kind: DATABASE_KIND,
-      key: { name: database.name },
-      attributes: { repository: database.repository },
-      evidence: evidenceOf(database.place),
-    });
+    vertices.push(vertexOf(DATABASE_KIND, { name: database.name }, databaseValuesOf(database), database.place));
     const tables = [...database.tables.values()].sort((left, right) => compare(left.name, right.name));
     for (const table of tables) {
       const tableKey = tableKeyOf(database.name, table.name);
-      vertices.push({
-        kind: TABLE_KIND,
-        key: { database: database.name, name: table.name },
-        attributes: { database: database.name, schema: table.schema },
-        evidence: evidenceOf(table.place),
-      });
+      vertices.push(vertexOf(TABLE_KIND, { database: database.name, name: table.name }, tableValuesOf(database, table), table.place));
       edges.push({ kind: DECLARED_IN, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: 'code.file', key: { repository: table.place.repository, path: table.place.path } }, evidence: evidenceOf(table.place) });
       const columns = [...table.columns.values()].sort((left, right) => compare(left.name, right.name));
       for (const column of columns) {
-        vertices.push({
-          kind: COLUMN_KIND,
-          key: { table: tableKey, name: column.name },
-          attributes: {
-            table: tableKey,
-            type: column.type,
-            nullable: column.nullable,
-            default: column.defaultText,
-            primary_key: column.primary_key,
-            unique: column.unique,
-            check: column.checks,
-          },
-          evidence: evidenceOf(column.place),
-        });
+        vertices.push(vertexOf(COLUMN_KIND, { table: tableKey, name: column.name }, columnValuesOf(tableKey, column), column.place));
         edges.push({ kind: HAS_COLUMN, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: COLUMN_KIND, key: { table: tableKey, name: column.name } }, evidence: evidenceOf(table.place) });
       }
       const indexes = [...table.indexes.values()].sort((left, right) => compare(left.name, right.name));
       for (const index of indexes) {
-        vertices.push({
-          kind: INDEX_KIND,
-          key: { table: tableKey, name: index.name },
-          attributes: { table: tableKey, unique: index.unique, columns: index.columns, where: index.where },
-          evidence: evidenceOf(index.place),
-        });
+        vertices.push(vertexOf(INDEX_KIND, { table: tableKey, name: index.name }, indexValuesOf(tableKey, index), index.place));
         edges.push({ kind: HAS_INDEX, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: INDEX_KIND, key: { table: tableKey, name: index.name } }, evidence: evidenceOf(index.place) });
       }
     }
@@ -761,6 +733,40 @@ function answerOf(model: Model): UnitResult {
 /** A table's key value inside a column or index key: its database and its name, as one path. */
 function tableKeyOf(database: string, table: string): string {
   return `${database}/${table}`;
+}
+
+// ---- one entity's values ---------------------------------------------------------------------
+
+/**
+ * One entity's field values, by field name. They are assembled here, in one function per kind, and nowhere else: protocol
+ * `madarch.plugins/2` answers one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
+ * a move to it changes `vertexOf` and the declaration's field markers alone, never the reading below.
+ */
+type Values = Readonly<Record<string, unknown>>;
+
+/** One entity as the plugin answers it: its kind, its key, its values and the place it was read at. */
+function vertexOf(kind: string, key: Readonly<Record<string, string>>, values: Values, place: Place): VertexResult {
+  return { kind, key, attributes: values, evidence: evidenceOf(place) };
+}
+
+/** A database's values: the repository whose SQL names it. */
+function databaseValuesOf(database: Database): Values {
+  return { repository: database.repository };
+}
+
+/** A table's values: the database it stands in and the schema the SQL names (null for `public`). */
+function tableValuesOf(database: Database, table: Table): Values {
+  return { database: database.name, schema: table.schema };
+}
+
+/** A column's values: its type, whether it admits null, its default, its key flags and its checks. */
+function columnValuesOf(tableKey: string, column: Column): Values {
+  return { table: tableKey, type: column.type, nullable: column.nullable, default: column.defaultText, primary_key: column.primary_key, unique: column.unique, check: column.checks };
+}
+
+/** An index's values: whether it is unique, the columns it covers and a partial index's predicate. */
+function indexValuesOf(tableKey: string, index: Index): Values {
+  return { table: tableKey, unique: index.unique, columns: index.columns, where: index.where };
 }
 
 /** Code point order, as the host orders keys. */

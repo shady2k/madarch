@@ -42,7 +42,9 @@ const RENDERERS = ['likec4', 'mermaid', 'archify', 'echarts'] as const;
 export type Renderer = (typeof RENDERERS)[number];
 
 /**
- * What each type is drawn by (decision 0026): archify and Mermaid wherever they can, LikeC4 for C4 and deployment. The
+ * What each type is drawn by (decision 0026; the owner's addendum of 2026-11-10 for the ER view): archify and Mermaid
+ * wherever they can, LikeC4 for C4 and deployment. An ER view is drawn by all three: Mermaid's own `erDiagram`, LikeC4
+ * as one box per table with its columns and an arrow per foreign key, and archify from that same LikeC4 layout. The
  * vendored archify renders an architecture document — components and connections — and so draws no lifeline with an
  * order: a sequence is Mermaid's alone.
  */
@@ -54,7 +56,7 @@ export const RENDERERS_OF: Readonly<Record<ViewType, readonly Renderer[]>> = {
   deployment: ['likec4', 'mermaid', 'archify'],
   domain: ['likec4', 'mermaid', 'archify'],
   'domain-map': ['likec4', 'mermaid', 'archify'],
-  er: ['mermaid'],
+  er: ['likec4', 'mermaid', 'archify'],
   state: ['mermaid', 'archify'],
   sequence: ['mermaid'],
 };

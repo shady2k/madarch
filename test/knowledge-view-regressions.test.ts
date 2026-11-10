@@ -37,14 +37,39 @@ test('disconnected domain services retain their ownership in the actual LikeC4 l
   expect(frame.html).toContain('html[data-embed="true"] .diagram-nav{display:inline-flex!important;position:fixed!important');
 }, 30_000);
 
-test('ER uses only Mermaid and rejects the architecture-only archify frame', async () => {
-  expect(tabsOf('er', 'archify')).toEqual(['mermaid']);
-  expect(tabsOf('er', 'likec4')).toEqual(['mermaid']);
-  const view: GraphView = { ...domainMap, spec: { type: 'er', subject: 'orders' } };
-  const frame = await archifyFrame(view, {});
-  expect(frame.ok).toBe(false);
-  if (frame.ok) throw new Error('archify must not draw an ER table');
-  expect(frame.message).toContain('only by Mermaid erDiagram');
+test('an ER view draws in all three engines, and a sequence still says archify cannot', async () => {
+  // The ER view switches between the three renderers the wiki holds (the owner's addendum of 2026-11-10).
+  expect(tabsOf('er', 'archify')).toEqual(['archify', 'likec4', 'mermaid']);
+  expect(tabsOf('er', 'likec4')).toEqual(['likec4', 'mermaid', 'archify']);
+  expect(tabsOf('er', 'mermaid')).toEqual(['mermaid', 'likec4', 'archify']);
+  const er: GraphView = {
+    spec: { type: 'er', subject: 'code.table:shop/orders' },
+    title: 'Tables: orders',
+    label: 'Tables',
+    elements: [
+      { id: 'code.table:shop/orders', label: 'orders', kind: 'table', href: '/e/orders', dashed: false, columns: [{ name: 'id', type: 'uuid', key: true }, { name: 'user_id', type: 'uuid', fk: true }] },
+      { id: 'code.table:shop/users', label: 'users', kind: 'table', href: '/e/users', dashed: false, columns: [{ name: 'id', type: 'uuid', key: true }] },
+    ],
+    edges: [{ from: 'code.table:shop/orders', to: 'code.table:shop/users', label: 'user_id', dashed: false }],
+    notes: [],
+    empty: null,
+    marker: null,
+  };
+  // LikeC4 lays the same tables out as one box per table with its columns, and archify draws that layout.
+  const model = await likec4Model(er);
+  if (!model.ok) throw new Error(`LikeC4 did not lay out the ER view: ${model.message}`);
+  expect(JSON.stringify(model.model)).toContain('orders');
+  const frame = await archifyFrame(er, {});
+  if (!frame.ok) throw new Error(`archify did not draw the ER view: ${frame.message}`);
+  expect(frame.html).toContain('orders');
+  expect(frame.html).toContain('user_id');
+  expect(frame.html).toContain('users');
+  // A type an engine cannot draw says so, naming the engine and the type.
+  const sequence: GraphView = { ...domainMap, spec: { type: 'sequence', subject: 'orders' } };
+  const refused = await archifyFrame(sequence, {});
+  expect(refused.ok).toBe(false);
+  if (refused.ok) throw new Error('archify must not draw a sequence');
+  expect(refused.message).toContain('a sequence is drawn only by Mermaid');
 });
 
 test('renderer HTTP failure stays 500 and includes escaped actionable diagnostics',async()=>{
