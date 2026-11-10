@@ -195,7 +195,9 @@ export async function historyBlock(ctx: RenderContext, subject: Subject, params:
   } else {
     projected = shape === 'task' ? { sections: [], notes: [] } : projectHistory(
       shape === 'path' || shape === 'author'
-        ? await ctx.graph.historyEvidenceFor(entity, shape, limit)
+        ? typeof ctx.graph.historyEvidenceFor === 'function'
+          ? await ctx.graph.historyEvidenceFor(entity, shape, limit)
+          : await ctx.graph.historyEvidence(entity.scope)
         : await withSpan('wiki.history.evidence', { 'wiki.history.scope': entity.scope }, async () => await (ctx.historyEvidence ?? ((scope: string) => ctx.graph.historyEvidence(scope)))(entity.scope)),
       entity, shape, limit, (one) => refOfGraph(ctx, one),
     );

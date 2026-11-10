@@ -56,9 +56,10 @@ None.
 The repository history is one aggregate query for its summary, one grouped query for hotspots
 (with renamed paths merged) and one grouped query for authors. A commit's parents and branch
 commits are set-based queries; its changed files are one query with churn, rename and symbol
-counts. The treemap's in-degrees read the entities already fetched. The history evidence is cached
-per snapshot and warmed with the product at server start; the server also opens each product's
-reader before the first request. Block spans name every block in the trace.
+counts. The treemap's in-degrees read the entities already fetched. A file's history reads its
+own commits, its top coupled files and their counts; an author's history reads that author's
+commits and the files they touched. No page holds a whole repository's history evidence in the
+api role: the per-scope memo and its warm-up are gone. Block spans name every block in the trace.
 
 Before/after, from the api role's trace on the madarch repository (1 876 files, 2 503 commits):
 
@@ -77,8 +78,26 @@ that read per row; the new page reads it once per block.
 ## Acceptance evidence
 
 - `test/knowledge-page-budget.test.ts`: a 1 800-file repository, four entity pages, statement and
-  row bounds from the trace's `db.statements`/`db.rows` and time bounds.
+  row bounds from the trace's `db.statements`/`db.rows` and time bounds. The repository and commit
+  pages assert that no `wiki.history.evidence` span is read.
 - The walk store page JSON compared before/after: repository and commit history sections, items
-  and totals are equal; the file and author history sections are unchanged (the file page keeps
-  its commits and coupling; the author page its commits and files).
+  and totals are equal; the author page is equal; the file page keeps its commits and coupling
+  (its rows now name the author signature the commit's authored edge names).
 - CI wiki walk: `bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json` passes.
+
+## Review round
+
+The history memo held 9 948 542 bytes of JSON for the two repositories of the madarch store
+(6 229 entities and 35 164 edges); the api role's RSS after opening every page kind cold was
+268 752 KiB and after ten minutes of polling every kind 256 308 KiB. The memo is gone; file and
+author pages read their own bounded evidence, and a repository/commit page reads none.
+
+Cold page times after a restart with no history warm-up, empty memo (ms): repository 93, commit
+42, file 88, author 27, directory 217 for the first request and 17 after the server's first page.
+The first request pays the one-time page/status setup; the page itself is the bounded read above.
+The default server opens the product's context at start, so the first page after a normal restart
+is 93/48/102/31/17 ms respectively (repository/commit/file/author/directory).
+
+Mutation: Stryker 9 over the changed line ranges of `graph-read.ts` and `history.ts`, command
+runner with `test/knowledge-page-budget.test.ts` and `test/knowledge-history-product.test.ts`,
+under `timeout 600`. See the report for the score and survivors.
