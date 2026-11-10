@@ -10,9 +10,10 @@ import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner
 import { byCodePoint } from '../model/order.js';
 import type { LandmarkPlan } from './history-landmarks.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
-import { commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listFiles, listRepositories, repositoryFacts } from '../graph/index.js';
+import { commitWithPaths, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts } from '../graph/index.js';
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
 import { entityAddress } from './addresses.js';
+import { DOCUMENT_SUFFIXES } from './doc-sources.js';
 
 export interface SourceSpan {
   path: string;
@@ -91,6 +92,9 @@ export interface HistoryEvidence {
 }
 
 type Raw = Record<string, unknown>;
+
+/** A store that declares no code kind holds no file or repository table: an empty answer, never an error. */
+const missingTable = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === '42P01';
 
 const WIKI_KIND: Readonly<Record<string, string>> = {
   repository: 'code.repository',
@@ -368,6 +372,9 @@ export interface GraphCommitFacts {
   readonly changed: readonly { readonly path: string; readonly change: string; readonly added: number | null; readonly removed: number | null; readonly previousPath: string | null; readonly href: string | null }[];
 }
 
+/** The text one file held at one commit, or why the graph holds none of that version. */
+export type ContentAt = { readonly text: string } | { readonly absent: string };
+
 export class GraphReader {
   constructor(
     private readonly owner: DatabaseOwner,
@@ -451,7 +458,7 @@ export class GraphReader {
    * answer, never a page model of another store.
    */
   async repository(name: string): Promise<GraphRepositoryFacts | null> {
-    const facts = await repositoryFacts(this.storeOwner(), name);
+    const facts = await repositoryFacts(this.storeOwner(), name).catch((error: unknown) => { if (missingTable(error)) return null; throw error; });
     if (facts === null) return null;
     return {
       nodeId: facts.nodeId, id: `code.repository:${facts.name}`, name: facts.name, url: facts.url,
@@ -473,9 +480,49 @@ export class GraphReader {
     return out;
   }
 
+  /** The text of one file the files producer stored: null when the graph holds none (binary, no fill read it, or the path left the tree). */
+  async content(repository: string, path: string): Promise<string | null> {
+    return await fileContent(this.storeOwner(), repository, path).catch((error: unknown) => { if (missingTable(error)) return null; throw error; });
+  }
+
+  /** The text of many files at once, by path: the listing's titles read in one statement, never one per file. */
+  async contentsOf(repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
+    return await fileContents(this.storeOwner(), repository, paths).catch((error: unknown) => { if (missingTable(error)) return new Map<string, string | null>(); throw error; });
+  }
+
+  /**
+   * The text one file held at one commit, or why the graph holds none of that version: a path no commit after it
+   * touched stands on the blob it has now, and a path one did touch is absent by name, never answered with today's text.
+   */
+  async contentAt(repository: string, path: string, commit: string): Promise<ContentAt> {
+    const held = await fileTextAt(this.storeOwner(), repository, path, commit).catch((error: unknown) => {
+      if (missingTable(error)) return { absent: 'no-file' as const };
+      throw error;
+    });
+    if ('text' in held) return held;
+    const where = `${JSON.stringify(path)} of ${JSON.stringify(repository)}`;
+    switch (held.absent) {
+      case 'no-file': return { absent: `the graph holds no file ${where} in the current tree: the fill has not read it (src/knowledge/graph-read.ts)` };
+      case 'binary': return { absent: `the blob ${where} stood on at ${commit} is binary: the files producer stores no text of it (src/knowledge/graph-read.ts)` };
+      case 'touched-after': return { absent: `a commit after ${commit} changed ${where}, and the graph keeps no text of the version before it: the answer is absent, never today's text under that commit's name (src/knowledge/graph-read.ts)` };
+      case 'commit-not-in-history': return { absent: `the graph's history of ${JSON.stringify(repository)} holds no commit ${commit}: it cannot name the text ${where} held there (src/knowledge/graph-read.ts)` };
+      case 'unread': return { absent: `the graph holds no text of ${where} at the commit ${commit}: the fill stored no content for its blob (src/knowledge/graph-read.ts)` };
+    }
+  }
+
+  /**
+   * One page of a repository's current Markdown documents, in code point order: the path rule stands in the statement,
+   * so a repository of more files than a page holds still answers its documents, and a store that holds no such
+   * repository answers an empty page.
+   */
+  async documents(repository: string, options: { readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
+    return await listDocuments(this.storeOwner(), { repository, suffixes: DOCUMENT_SUFFIXES, ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit })
+      .catch((error: unknown) => { if (missingTable(error)) return { rows: [] as readonly FileRecord[], next: null }; throw error; });
+  }
+
   /** One page of a repository's files, for an agent's listing: the graph's own answer, never a checkout's. */
   async files(repository: string, options: { readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
+    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit }).catch((error: unknown) => { if (missingTable(error)) return { rows: [], next: null }; throw error; });
   }
 
   /** One file with its dates and authors, as the graph holds it. */

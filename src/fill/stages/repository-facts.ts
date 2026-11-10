@@ -286,6 +286,24 @@ function treeRecordOf(record: Buffer): TreeRecord | undefined {
   return { entry: { mode, type, blob, size: size === '-' || size === undefined ? null : Number(size), path } };
 }
 
+/**
+ * A remote's address with any user name and password cut from it. `git remote get-url origin` answers what the
+ * checkout was cloned with, and a remote written `https://user:token@host/...` names a credential: the graph stores
+ * the address without it, never the original. A remote that is no URL (git's scp-like `user@host:path`, a local path)
+ * carries no userinfo a URL parser reads, and stands as git states it.
+ */
+function remoteAddressOf(remote: string): string {
+  try {
+    const parsed = new URL(remote);
+    if (parsed.username === '' && parsed.password === '') return remote;
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return remote;
+  }
+}
+
 /** Reads one repository's tree at one commit: `ls-tree -r -l` for the entries, one `diff --numstat` for text, lines and sizes. */
 export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
   const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
@@ -371,7 +389,11 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish
   for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
-  return { repository: { name: pin.repository, url: pin.url, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps };
+  // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a
+  // repository a person connected declares a local path, and the pages link to the host the remote names. A remote
+  // carrying a user and a password keeps neither: the graph is read by everyone, the credential is not stored.
+  const remote = remoteAddressOf((await gitText(pin.root, ['remote', 'get-url', 'origin']).catch(() => '')).trim());
+  return { repository: { name: pin.repository, url: remote === '' ? pin.url : remote, ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) }, commit: pin.commit, files, gitlinks, gaps };
 }
 
 /** The shallow-clone gap of one history, read by git's own answer. */

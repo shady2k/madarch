@@ -56,16 +56,31 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(product); mkdirSync(source);
     writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: linked-id\nname: Linked\nrepos:\n  - name: source\n    url: https://example.invalid/source.git\n');
     writeFileSync(join(source, 'README.md'), '# Linked source\n'); writeFileSync(join(source, 'src.ts'), 'export {}');
-    const run = (args: string[]): void => { const result = Bun.spawnSync(['git', ...args], { cwd: source, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr)); };
+    const runIn = (cwd: string, args: string[]): void => { const result = Bun.spawnSync(['git', ...args], { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr)); };
+    const run = (args: string[]): void => runIn(source, args);
     run(['init', '--quiet', '--initial-branch=main']); run(['add', '-A']); run(['commit', '--quiet', '-m', 'Source']);
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
+    runIn(product, ['init', '--quiet', '--initial-branch=main']); runIn(product, ['add', '-A']); runIn(product, ['commit', '--quiet', '-m', 'Product']);
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
+    // The documents are the graph's now: the files producer reads the checkout into the store first (decision 0035, item 9).
+    const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(pressed.status).toBe(202);
+    for (let attempt = 0; attempt < 1200; attempt++) {
+      const status = await (await fetch(`${result.url}/api/status`)).json() as { fill: { state: string } };
+      if (status.fill.state !== 'running') break;
+      await new Promise((rest) => setTimeout(rest, 100));
+    }
     const listed = await (await fetch(`${result.url}/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
     expect(listed.documents).toContainEqual({ repo: 'source', path: 'README.md', title: 'Linked source' });
     const response = await fetch(`${result.url}/api/document?repo=source&path=README.md`);
     const page = await response.json() as { title: string; markdown: string };
     expect(response.status, JSON.stringify(page)).toBe(200);
     expect({ title: page.title, markdown: page.markdown }).toEqual({ title: 'Linked source', markdown: '# Linked source\n' });
+    // The text is the graph's: the checkout may go, and the source view still answers it (decision 0035, item 24).
+    rmSync(join(source, 'README.md'));
+    const held = await fetch(`${result.url}/api/source?repo=source&path=README.md`);
+    expect(held.status).toBe(200);
+    expect((await held.json() as { text: string }).text).toBe('# Linked source\n');
   }, 60_000);
 
   test('preserves the manifest identity for a valid product', async () => {

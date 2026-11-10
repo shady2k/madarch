@@ -246,6 +246,8 @@ export function createKnowledgePart(
       }
       const read = await product.source(repo === null || repo === '' ? null : repo, path, selection);
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
+      // A past commit's text the graph cannot name is a 404 that says why, never the current tree's bytes under that commit's name.
+      if ('absent' in read) return refused(404, { field: 'path', message: read.absent });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
       return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text, ...(read.history === undefined ? {} : { history: read.history }) }) };
     }),

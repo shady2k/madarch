@@ -34,8 +34,11 @@ export interface FillFolderIdentity {
  */
 export function productRepositoryId(identity: ProductIdentity): string {
   const declared = new Set(identity.repos.map((repo) => repo.name));
-  if (!declared.has(identity.name)) return identity.name;
-  const first = `${identity.name}-product`;
+  // The display name is the repository's when it can be one; a name with a space (say) is no repository name, and the
+  // product's own id stands instead. A declared repository carrying that name takes the `-product` family.
+  const own = ID_PATTERN.test(identity.name) ? identity.name : identity.id;
+  if (!declared.has(own)) return own;
+  const first = `${own}-product`;
   if (!declared.has(first)) return first;
   for (let number = 2; number <= 99; number += 1) {
     const candidate = `${first}-${number}`;
@@ -63,8 +66,7 @@ export function fillFolderIdentity(folder: string): FillFolderIdentity {
   }
   const read = readProduct(absolute);
   if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
-  if (!ID_PATTERN.test(read.product.name)) {
-    throw new Error(`the product ${read.product.folder} names itself ${JSON.stringify(read.product.name)}, which is no repository name: a name a repository is read under starts with a letter or a digit and carries letters, digits, ".", "_" or "-" (write "name:" in ${read.product.folder}/workspace.yaml)`);
-  }
+  // The manifest's name is the product's display name; its repository id is `productRepositoryId`, which falls back
+  // to the product's own id when the display name is no repository name (a space, say).
   return { product: true, identity: read.product };
 }
