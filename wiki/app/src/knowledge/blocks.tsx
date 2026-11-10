@@ -31,6 +31,7 @@ import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, isWikiAddress, WIKI_PROBLEMS } from './routes.js';
+import { FileFactsBlock, FolderBlock, RepositoryFactsBlock } from './repository.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements } from './statements.js';
@@ -787,6 +788,9 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'history': return <History block={block} />;
     case 'definition': return <Definition block={block} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
+    case 'repository': return <RepositoryFactsBlock data={block.data} />;
+    case 'folder': return <FolderBlock data={block.data} />;
+    case 'file': return <FileFactsBlock data={block.data} />;
     case 'problem': return <Problem block={block} />;
   }
 }

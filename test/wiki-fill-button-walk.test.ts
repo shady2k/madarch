@@ -96,18 +96,18 @@ test('the button fills the store and the pages read the graph it published', asy
   // of the agent stage is not what this step's fill writes, and no page is drawn from it here.
   expect(JSON.stringify(filledAt)).toContain('walk-code');
   expect((filledAt['repository'] as Record<string, unknown>)['steps']).toEqual({ 'tree': true, 'history': true });
-  const repository = await json('/products/walk/api/repository');
+  const repository = await json('/products/walk/api/page?id=code.repository%3Awalk-code&full=1');
   expect(repository.status).toBe(200);
   expect(JSON.stringify(repository.body)).toContain('walk-code');
-  const root = await json('/products/walk/api/folder?path=');
-  expect(root.status).toBe(200);
-  expect(((root.body['folder'] as Record<string, unknown>)['folders'] as string[])).toContain('src');
-  const file = await json('/products/walk/api/file?path=src%2Fslice.ts');
+  const rootBlock = (repository.body['blocks'] as { type: string; data: Record<string, unknown> }[]).find((block) => block.type === 'folder')!;
+  expect((rootBlock.data['folders'] as { path: string }[]).map((folder) => folder.path)).toContain('src');
+  const file = await json('/products/walk/api/page?id=code.file%3Awalk-code%2Fsrc%2Fslice.ts&full=1');
   expect(file.status).toBe(200);
-  const model = file.body['file'] as Record<string, unknown>;
-  expect((model['file'] as Record<string, unknown>)['path']).toBe('src/slice.ts');
-  expect(model['created']).not.toBeNull();
-  expect((model['history'] as unknown[]).length).toBe(1);
+  const fileBlock = (file.body['blocks'] as { type: string; data: Record<string, unknown> }[]).find((block) => block.type === 'file')!;
+  expect(fileBlock.data['path']).toBe('src/slice.ts');
+  expect(fileBlock.data['created']).not.toBeNull();
+  const history = (file.body['blocks'] as { type: string; sections: { role: string; rows: unknown[] }[] }[]).find((block) => block.type === 'history')!;
+  expect(history.sections.find((section) => section.role === 'commits')!.rows.length).toBe(1);
 }, 240_000);
 
 test('the server still answers a page after the fill queue has been left alone', async () => {

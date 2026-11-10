@@ -119,6 +119,9 @@ type BlockShape =
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
   | { type: 'deferred'; block: string; title: string; id: string }
+  | { type: 'repository'; title: string; data: RepositoryBlockData; run?: { finishedAt: string; wallMs: number }; unread?: { repository: string; path: string; reason: string }[] }
+  | { type: 'folder'; title: string; data: FolderBlockData }
+  | { type: 'file'; title: string; data: FileBlockData }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
@@ -229,6 +232,7 @@ export type RepositoryCounts = { files: number; commits: number; folders: number
 
 /** The repository the graph holds, as the wiki's pages state it (madarch-8bdc.2.5, item 3). */
 export type RepositoryFactsView = {
+  id: string;
   name: string;
   url: string;
   defaultBranch: string | null;
@@ -382,59 +386,52 @@ export type WikiStatus = {
   repository?: RepositoryFactsView;
 };
 
-/** One file as the repository pages show it. */
-export type PageFile = {
+/** The repository as its entity-page block states it: the graph's facts, its as-is commit and its gaps. */
+export type RepositoryBlockData = {
+  nodeId: string;
+  id: string;
+  name: string;
+  url: string;
+  defaultBranch: string | null;
+  asIsCommit: string | null;
+  asIsHref: string | null;
+  counts: RepositoryCounts;
+  gaps: { what: string; reason: string }[];
+  steps: { tree: boolean; history: boolean };
+};
+
+/** One file of a folder's table: the fields the table shows, not the facts of its own page. */
+export type FolderFileData = {
   path: string;
-  mode: string;
-  blob: string;
-  bytes: number;
+  id: string;
+  href: string;
+  mode: string | null;
+  blob: string | null;
+  bytes: number | null;
   lines: number | null;
-  form: 'text' | 'binary';
-  language: string;
+  form: 'text' | 'binary' | null;
+  language: string | null;
   candidates: string[];
 };
 
-/** One folder's page: its own subfolders and one page of its own files. */
-export type FolderPageModel = {
+/** One file as its own block states it: the table's fields and its dates and authors. */
+export type FileBlockData = FolderFileData & {
   repository: string;
-  asIsCommit: string | null;
-  folder: string;
-  parent: string | null;
-  folders: string[];
-  files: PageFile[];
-  next: string | null;
-};
-
-/** One commit of a file's history. */
-/** One row of a file's history: the author's clock with its offset, as the record states it. */
-export type PageHistoryRow = { commit: string; change: string; added: number | null; removed: number | null; previousPath: string | null; date: string; offsetMin: number; subject: string; walk: number };
-
-/** One file's page: every fact of the file and one page of its history. */
-export type FilePageModel = {
-  repository: string;
-  asIsCommit: string | null;
-  file: PageFile;
-  created: { date: string; offsetMin: number; commit: string; author: string } | null;
-  modified: { date: string; offsetMin: number; commit: string; author: string } | null;
+  created: { date: string; offsetMin: number; commit: string; author: string; href: string } | null;
+  modified: { date: string; offsetMin: number; commit: string; author: string; href: string } | null;
   commitCount: number;
   authors: string[];
-  history: PageHistoryRow[];
-  next: { walk: number; commit: string } | null;
 };
 
-/** One commit's page: its facts and the paths it changed. */
-export type CommitPageModel = {
+/** One folder's block: its own subfolders and one page of its files, each with its graph address. */
+export type FolderBlockData = {
   repository: string;
-  asIsCommit: string | null;
-  hash: string;
-  author: { name: string; email: string };
-  authorDate: string;
-  authorOffsetMin: number;
-  commitDate: string;
-  commitOffsetMin: number;
-  subject: string;
-  parents: string[];
-  changed: { path: string; change: string; added: number | null; removed: number | null; previousPath: string | null }[];
+  id: string;
+  folder: string;
+  parent: { path: string; href: string } | null;
+  folders: { path: string; href: string }[];
+  files: FolderFileData[];
+  nextHref: string | null;
 };
 
 export type SourceFile = { history?: HistoryContext; repo: string | null; path: string; language: string; commit: string | null; text: string };

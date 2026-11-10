@@ -10,7 +10,7 @@
  * no heading, a refused page or a page whose text is cut is a defect, named on
  * standard output and a non-zero exit.
  *
- * Usage: bun scripts/repository-view-walk.ts [--out <folder>] [--work <folder>] [--width <px>]
+ * Usage: bun scripts/entity-page-walk.ts [--out <folder>] [--work <folder>] [--width <px>]
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -29,7 +29,7 @@ function argument(name: string, fallback: string): string {
 }
 
 const out = resolve(argument('out', '/work/out/view-shots'));
-const work = resolve(argument('work', '/tmp/madarch-repository-view-walk'));
+const work = resolve(argument('work', '/tmp/madarch-entity-page-walk'));
 const width = Number(argument('width', '1440'));
 const height = 900;
 mkdirSync(out, { recursive: true });
@@ -209,13 +209,13 @@ try {
 
   // 3. The end: the run is done and the home is the repository the fill read, with the counts and
   // the time the run took. A reload then shows the same page read from the store alone.
-  await until(page, '[data-testid=repository-page]', 'the repository page', 300_000);
+  await until(page, '[data-testid=repository-block]', 'the repository entity page', 300_000);
   // The tree stands under the facts: the page is photographed when its listing is there, never while
   // its skeleton still stands in its place.
   await until(page, '[data-testid=file-rows], [data-testid=repository-empty], [data-testid=repository-refused]', 'the repository tree');
   await shot(page, '03-end');
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await until(page, '[data-testid=repository-page]', 'the repository page after a reload');
+  await until(page, '[data-testid=repository-block]', 'the repository entity page after a reload');
   await until(page, '[data-testid=file-rows], [data-testid=repository-empty], [data-testid=repository-refused]', 'the repository tree after a reload');
   await shot(page, '04-repository');
 
@@ -231,7 +231,7 @@ try {
     if (href === null || seen.has(href)) continue;
     seen.add(href);
     await page.goto(new URL(href, server.url).toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await until(page, '[data-testid=folder-page]', 'the folder page');
+    await until(page, '[data-testid=folder-block]', 'the folder entity page');
     const held = await page.evaluate(() => ({
       file: (document.querySelector('[data-testid=file-link]') as HTMLAnchorElement | null)?.getAttribute('href') ?? null,
       folders: [...document.querySelectorAll('[data-testid=folder-link]')].map((link) => (link as HTMLAnchorElement).getAttribute('href')),
@@ -244,7 +244,7 @@ try {
 
   // 5. The file that folder holds: every fact of it and its history.
   await page.goto(new URL(filePage, server.url).toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await until(page, '[data-testid=file-page]', 'the file page');
+  await until(page, '[data-testid=file-block]', 'the file entity page');
   await shot(page, '06-file');
 
   // 6. A commit: the first commit the file's history names, then the commit's own page.
@@ -254,7 +254,7 @@ try {
   });
   if (commitHref === null) throw new Error('the file page holds no commit, so the walk cannot show one');
   await page.goto(new URL(commitHref, server.url).toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await until(page, '[data-testid=commit-page]', 'the commit page');
+  await until(page, '[data-testid=entity-page][data-kind=code.commit]', 'the commit entity page');
   await shot(page, '07-commit');
 
   // 7. The run page: every step's time, its memory and its slowest names, from the trace.
@@ -264,14 +264,14 @@ try {
 
   // 8. The same pages at a narrower width, where a table is most likely to spill.
   await page.setViewport({ width: 1024, height });
-  await page.goto(`${base}/file?${filePage.split('?')[1] ?? ''}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await until(page, '[data-testid=file-page]', 'the file page at 1024 px');
+  await page.goto(new URL(filePage, server.url).toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await until(page, '[data-testid=file-block]', 'the file entity page at 1024 px');
   await shot(page, '09-file-narrow');
 
   // 9. The file page at a phone's width, where a table is most likely to spill.
   await page.setViewport({ width: 390, height: 844 });
-  await page.goto(`${base}/file?${filePage.split('?')[1] ?? ''}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await until(page, '[data-testid=file-page]', 'the file page at 390 px');
+  await page.goto(new URL(filePage, server.url).toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await until(page, '[data-testid=file-block]', 'the file entity page at 390 px');
   await shot(page, '10-file-phone');
 } finally {
   await browser?.close();

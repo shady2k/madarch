@@ -3,12 +3,9 @@ import { appRoute } from '../app-base.js';
 /** The knowledge wiki's routes, at the root (decision 0029, amended by madarch-q6mx: no `/k` segment). */
 export type WikiRoute =
   | { name: 'home' }
-  | { name: 'entity'; id: string }
+  | { name: 'entity'; id: string; after: string | null }
   | { name: 'kind'; kind: string }
   | { name: 'source'; repo: string | null; path: string; line: number | null }
-  | { name: 'folder'; path: string; after: string | null }
-  | { name: 'file'; path: string; after: { walk: number; commit: string } | null }
-  | { name: 'commit'; hash: string }
   | { name: 'run'; run: string | null }
   | { name: 'docs' }
   | { name: 'doc'; repo: string | null; path: string }
@@ -40,23 +37,6 @@ export const WIKI_FILL = '/fill';
 export const WIKI_TASKS = '/tasks';
 /** The newest run's trace, step by step: its wall clock, its memory and its slowest names (madarch-8bdc.2.5, item 4). */
 export const WIKI_RUN = '/run';
-
-/** Where one folder of the repository stands: its subfolders and one page of its files. */
-export function addressOfFolder(path: string, after?: string): string {
-  const query = new URLSearchParams({ path });
-  if (after !== undefined && after !== '') query.set('after', after);
-  return `/folder?${query.toString()}`;
-}
-
-/** Where one file stands: its entity page, the same page every other entity has. */
-export function addressOfFile(path: string, _after?: { walk: number; commit: string }): string {
-  return addressOfEntity(`code.file:${path}`);
-}
-
-/** Where one commit stands: its facts and the paths it changed. */
-export function addressOfCommit(hash: string): string {
-  return `/commit?${new URLSearchParams({ hash }).toString()}`;
-}
 
 /** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
 export const addressOfTask = (id: string): string => `/task?${new URLSearchParams({ id }).toString()}`;
@@ -104,10 +84,6 @@ export const API = {
   view: '/api/view',
   viewFrame: '/api/view-frame',
   source: '/api/source',
-  repository: '/api/repository',
-  folder: '/api/folder',
-  file: '/api/file',
-  commit: '/api/commit',
   run: '/api/run',
   products: '/api/products',
   fill: '/api/fill',
@@ -177,7 +153,9 @@ export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
       // A question or a correction has its place in the loop's pages, not a generic entity page.
       if (id.startsWith('question:')) return { name: 'question', slug: id.slice('question:'.length) };
       if (id.startsWith('correction:')) return { name: 'problems' };
-      return { name: 'entity', id };
+      const query = new URLSearchParams(search);
+      const after = query.get('after');
+      return { name: 'entity', id, after: after === null || after === '' ? null : after };
     } catch {
       return { name: 'home' };
     }
@@ -205,22 +183,6 @@ export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
     const file = query.get('path');
     if (file === null || file === '') return { name: 'docs' };
     return { name: 'doc', repo: query.get('repo'), path: file };
-  }
-  if (path === '/folder') {
-    const query = new URLSearchParams(search);
-    return { name: 'folder', path: query.get('path') ?? '', after: query.get('after') };
-  }
-  if (path === '/file') {
-    // The file's page is its entity page (decision 0034): the old address goes there.
-    const query = new URLSearchParams(search);
-    const file = query.get('path');
-    if (file === null || file === '') return { name: 'home' };
-    return { name: 'entity', id: `code.file:${file}` };
-  }
-  if (path === '/commit') {
-    const query = new URLSearchParams(search);
-    const hash = query.get('hash');
-    return hash === null || hash === '' ? { name: 'home' } : { name: 'commit', hash };
   }
   if (path === '/run') {
     const query = new URLSearchParams(search);

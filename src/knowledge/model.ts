@@ -11,6 +11,7 @@ import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape } from './views.js';
+import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
 
 /**
  * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
@@ -212,6 +213,9 @@ type BlockShape =
   | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
+  | { type: 'repository'; title: string; data: GraphRepositoryFacts; run?: { finishedAt: string; wallMs: number }; unread?: readonly { repository: string; path: string; reason: string }[] }
+  | { type: 'folder'; title: string; data: GraphFolderFacts }
+  | { type: 'file'; title: string; data: GraphFileFacts }
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 
@@ -461,6 +465,8 @@ export interface RepositoryCounts {
  * the gaps the fill recorded, and which of the fill's steps have run.
  */
 export interface RepositoryFactsView {
+  /** The graph entity's id, `code.repository:<name>`: the page the home opens. */
+  readonly id: string;
   readonly name: string;
   readonly url: string;
   readonly defaultBranch: string | null;
