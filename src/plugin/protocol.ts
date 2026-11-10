@@ -142,7 +142,8 @@ export const PluginFieldDeclaration = Type.Object(
 export const PluginVertexKindDeclaration = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
-    key: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: 'The key fields, in the contract\'s order.' }),
+    // A kind with no natural key stands by a random identity: its declaration names no key field, and a result names an empty key.
+    key: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: 'The key fields, in the contract\'s order; none for a kind with no natural key.' })),
     fields: Type.Optional(Type.Array(PluginFieldDeclaration, { description: 'The fields it writes beside the key.' })),
   },
   { additionalProperties: false, description: 'One vertex kind the plugin produces: its name, its key fields and its fields.' },

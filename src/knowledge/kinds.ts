@@ -873,11 +873,11 @@ function readPluginContract(productFolder: string, id: string, path: string, man
       if (seen.has(field.name)) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} declares the field ${JSON.stringify(field.name)} twice` });
       seen.add(field.name);
     }
-    for (const keyField of vertex.key) {
+    for (const keyField of vertex.key ?? []) {
       const declared = fields.find((field) => field.name === keyField);
       if (declared === undefined) findings.push({ file, line: 1, message: `the plugin contract ${file}: the kind ${JSON.stringify(vertex.kind)} is keyed by ${JSON.stringify(keyField)}, which its fields do not declare` });
     }
-    vertices.push({ kind: vertex.kind, key: vertex.key, fields });
+    vertices.push({ kind: vertex.kind, key: vertex.key ?? [], fields });
   }
   return { id, version: contract.version, vertices, file };
 }

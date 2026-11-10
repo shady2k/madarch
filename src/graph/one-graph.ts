@@ -111,16 +111,21 @@ const SCHEMA: readonly string[] = [
     PRIMARY KEY (repository_node, what)
   )`,
   // A reference to a key no vertex holds: the publication records it and goes on (A2; the consistency plugin
-  // madarch-stm0.7 reads these). A declaration never creates the vertex a reference names.
+  // madarch-stm0.7 reads these). A rerun of the same answer records the same row once (nulls not distinct); the row
+  // names its producer and, for an edge end, the edge kind and the other endpoint; and it goes when the reference
+  // resolves.
   `CREATE TABLE IF NOT EXISTS unresolved_reference (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     referrer_node bigint REFERENCES node (id),
+    edge_entity text,
     field text NOT NULL CHECK (field <> ''),
     target_entity text NOT NULL CHECK (target_entity <> ''),
     target_key jsonb NOT NULL,
+    producer text NOT NULL CHECK (producer <> ''),
+    against_node bigint REFERENCES node (id),
     context_id bigint NOT NULL DEFAULT 1,
     at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (referrer_node, field, target_entity, target_key, context_id)
+    UNIQUE NULLS NOT DISTINCT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id)
   )`,
 ];
 

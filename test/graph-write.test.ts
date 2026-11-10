@@ -258,6 +258,41 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(nodes.rows[0]?.n).toBe('1');
   });
 
+  test('a kind with no key stands by a random identity, and two declarations make two vertices', async () => {
+    const graph: GraphContract = {
+      vertex: [...contract.vertex, { name: 'doc.note', table: generatedTableName('doc.note', 'vertex'), fields: [{ name: 'text', type: 'text' }], key: [], capability: 'glossary' }],
+      edge: [], dictionary: [],
+    };
+    await createOneGraphSchema(owner, graph);
+    const note = (text: string): VertexDraft => ({ kind: 'doc.note', key: {}, values: { text }, producer: 'glossary', producerVersion: '1.0.0' });
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: note('one') }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: note('two') }]));
+    const nodes = await owner.transaction('snapshot', async (tx) => await tx.query<{ key: unknown; uid: string }>(`SELECT n.key, n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = 'doc.note' ORDER BY n.id`));
+    expect(nodes.rows.map((row) => row.key)).toEqual([{}, {}]);
+    expect(new Set(nodes.rows.map((row) => row.uid)).size).toBe(2);
+  });
+
+  test('an edge end no vertex holds is recorded once per producer and cleared when the edge publishes', async () => {
+    const graph: GraphContract = {
+      vertex: [...contract.vertex, { name: 'doc.page', table: generatedTableName('doc.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'glossary' }],
+      edge: [{ name: 'doc.links', table: generatedTableName('doc.links', 'edge'), from: ['doc.page'], to: ['doc.page'], repeats: false, fields: [], capability: 'glossary' }],
+      dictionary: [],
+    };
+    await createOneGraphSchema(owner, graph);
+    const page = (title: string): VertexDraft => ({ kind: 'doc.page', key: { title }, values: {}, producer: 'glossary', producerVersion: '1.0.0' });
+    const links = { kind: 'doc.links', from: { kind: 'doc.page', key: { title: 'A' } }, to: { kind: 'doc.page', key: { title: 'Missing' } }, producer: 'glossary', producerVersion: '1.0.0' };
+    const once = async (): Promise<void> => { await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: page('A') }, { kind: 'edge', evidence: 'x', value: links }])); };
+    await once();
+    await once();
+    const held = await owner.transaction('snapshot', async (tx) => await tx.query<{ edge_entity: string; field: string; target_entity: string; producer: string; against: string | null }>('SELECT edge_entity, field, target_entity, producer, against_node::text AS against FROM unresolved_reference'));
+    // One row for a rerun of the same answer; the kind, the field, the target, the producer and the end that stands are kept.
+    expect(held.rows).toEqual([{ edge_entity: 'doc.links', field: 'to', target_entity: 'doc.page', producer: 'glossary@1.0.0', against: null }]);
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: page('Missing') }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'edge', evidence: 'x', value: links }]));
+    const cleared = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM unresolved_reference'));
+    expect(cleared.rows[0]?.n).toBe('0');
+  });
+
   test('a kind the contract does not declare is refused by the writer, naming it', async () => {
     await expect(owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: { ...term('x', 'y'), kind: 'doc.other' } }]))).rejects.toThrow(/doc.other/);
   });

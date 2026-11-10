@@ -146,7 +146,13 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // `.h` is C, C++ and Objective-C in the dataset: the claim holds the candidates, and no one language is picked.
+    // The language is the opinion's own `lang`: blob.bin is one language (`unknown`). A `.ts` or `.md` file is not: the
+    // dataset gives `.ts` TypeScript and XML and `.md` GCC Machine Description and Markdown, so the opinion names its
+    // candidates and picks none.
+    expect(byPath.get('blob.bin')?.language).toBe('unknown');
+    expect(byPath.get('src/a.ts')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
+    // `.h` is C, C++ and Objective-C in the dataset: the opinion holds the candidates, and no one language is picked.
     const header = byPath.get('src/b.h')!;
     expect(header.language).toBeNull();
     expect(header.candidates.length).toBeGreaterThan(1);

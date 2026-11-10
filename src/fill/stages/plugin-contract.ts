@@ -39,7 +39,9 @@ function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { 
 export function manifestContractOf(manifest: KindsManifest): GraphContract {
   const vertex: VertexContract[] = [];
   for (const kind of manifest.kinds.values()) {
-    if (kind.fields === undefined || kind.key === undefined || kind.key.length === 0) continue;
+    // A kind with no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
+    if (kind.fields === undefined) continue;
+    const keyFields = kind.key ?? [];
     const fields: FieldContract[] = [];
     let bound = false;
     let capability = '';
@@ -51,8 +53,8 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
       fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
     }
     // A kind whose key has no declaration makes no table: a producer must be able to name the entity it writes about.
-    if (!bound || !kind.key.every((field) => fields.some((held) => held.name === field))) continue;
-    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: kind.key, capability: capability === '' ? 'agent' : capability });
+    if (!bound || !keyFields.every((field) => fields.some((held) => held.name === field))) continue;
+    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
   if (vertex.length === 0) return { vertex: [], edge: [], dictionary: [] };
   return { vertex, edge: [], dictionary: [PATH_DICTIONARY] };
@@ -66,7 +68,8 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
   for (const kind of manifest.kinds.values()) {
-    if (kind.fields === undefined || kind.key === undefined || kind.key.length === 0) continue;
+    if (kind.fields === undefined) continue;
+    const keyFields = kind.key ?? [];
     const columns: string[] = [];
     const types: Record<string, GeneratedKindRead['types'][string]> = {};
     const bound = new Set<string>();
@@ -74,13 +77,13 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
       const held = resolved(field, kind, manifest);
       if (held === undefined) continue;
       bound.add(field.name);
-      if (kind.key.includes(field.name)) continue;
+      if (keyFields.includes(field.name)) continue;
       columns.push(field.name);
       types[field.name] = held.type;
     }
     // A kind no declaration fills, or whose key no producer names, has no table a reader can answer from.
-    if (bound.size === 0 || !kind.key.every((field) => bound.has(field))) continue;
-    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: kind.key });
+    if (bound.size === 0 || !keyFields.every((field) => bound.has(field))) continue;
+    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields });
   }
   return reads;
 }

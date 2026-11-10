@@ -114,10 +114,21 @@ function normaliseKeyValue(contract: GraphContract, field: FieldContract, value:
     if (typeof value === 'object' && value !== null) throw new Error(`${WHERE}:1: ${where} is a text, and the draft names an object`);
     return String(value);
   }
-  if (field.type === 'integer' || field.type === 'bigint') {
+  if (field.type === 'integer') {
     const number = Number(value);
-    if (!Number.isInteger(number)) throw new Error(`${WHERE}:1: ${where} is an ${field.type}, and the draft names ${JSON.stringify(value)}`);
+    if (!Number.isSafeInteger(number)) throw new Error(`${WHERE}:1: ${where} is an integer, and the draft names ${JSON.stringify(value)}: an integer key is a safe integer, and a wider one is declared a bigint`);
     return number;
+  }
+  // A bigint key is its decimal text (the review of stage 1c, finding 8): 9007199254740993 and 9007199254740992 are two
+  // identities, and JavaScript's Number would make them one.
+  if (field.type === 'bigint') {
+    if (typeof value === 'number') {
+      if (!Number.isSafeInteger(value)) throw new Error(`${WHERE}:1: ${where} is a bigint, and the draft names the number ${JSON.stringify(value)}, which no longer holds its digits: name it as a decimal string`);
+      return String(value);
+    }
+    const text = String(value);
+    if (!/^-?\d+$/u.test(text)) throw new Error(`${WHERE}:1: ${where} is a bigint, and the draft names ${JSON.stringify(value)}: a bigint key is a decimal string`);
+    return text;
   }
   if (field.type === 'boolean') {
     if (value !== true && value !== false) throw new Error(`${WHERE}:1: ${where} is a boolean, and the draft names ${JSON.stringify(value)}`);
@@ -271,8 +282,12 @@ export async function publishEdgeOpinion(executor: SqlExecutor, contract: GraphC
   return await stateOpinion(executor, kind.table, 'edge_id', edgeId, `${draft.producer}@${draft.producerVersion}`, new Map(Object.entries(draft.values ?? {})), fields, evidenceList(draft), draft.lang ?? null, contextId);
 }
 
-/** One edge of a kind between two nodes, declared: made where it stands in no other way, found where it does. */
-export async function ensureEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, fromNode: string, toNode: string, discriminator = '', contextId = 1): Promise<{ id: string; created: boolean }> {
+/**
+ * One edge of a kind between two nodes, declared: made where it stands in no other way, found where it does. The
+ * producer's existence opinion of the edge is stated with it, so "who says this edge exists" is answerable for an
+ * attribute-free edge too.
+ */
+export async function ensureEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, fromNode: string, toNode: string, discriminator = '', opinion?: { readonly producer: string; readonly producerVersion: string; readonly evidence?: readonly EvidenceDraft[] }, contextId = 1): Promise<{ id: string; created: boolean }> {
   if (!contract.edge.some((held) => held.name === kindName)) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kindName)} is no kind the product declares: the contract holds ${contract.edge.length === 0 ? 'none' : contract.edge.map((one) => one.name).join(', ')}`);
   const entityId = await entityIdOf(executor, kindName, 'edge');
   const made = await executor.query<{ id: string }>(
@@ -280,15 +295,20 @@ export async function ensureEdge(executor: SqlExecutor, contract: GraphContract,
      ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id`,
     [entityId, fromNode, toNode, discriminator, String(contextId)],
   );
-  const created = made.rows[0];
-  if (created !== undefined) return { id: created.id, created: true };
-  const held = await executor.query<{ id: string }>(
-    `SELECT id::text AS id FROM edge WHERE entity_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = $4 AND context_id = $5::bigint`,
-    [entityId, fromNode, toNode, discriminator, String(contextId)],
-  );
-  const id = held.rows[0]?.id;
-  if (id === undefined) throw new Error(`${WHERE}:1: the edge of ${JSON.stringify(kindName)} between ${fromNode} and ${toNode} was declared and the store holds neither it nor its echo`);
-  return { id, created: false };
+  const created = made.rows[0]?.id;
+  let id = created;
+  if (id === undefined) {
+    const held = await executor.query<{ id: string }>(
+      `SELECT id::text AS id FROM edge WHERE entity_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = $4 AND context_id = $5::bigint`,
+      [entityId, fromNode, toNode, discriminator, String(contextId)],
+    );
+    id = held.rows[0]?.id;
+    if (id === undefined) throw new Error(`${WHERE}:1: the edge of ${JSON.stringify(kindName)} between ${fromNode} and ${toNode} was declared and the store holds neither it nor its echo`);
+  }
+  // The existence opinion is the producer's first statement of the edge; an edge that already stands keeps its opinion
+  // (a value opinion of the same producer is that edge's whole opinion, and a rerun writes nothing).
+  if (opinion !== undefined && created !== undefined) await publishEdgeOpinion(executor, contract, kindName, id, { values: {}, ...opinion }, contextId);
+  return { id, created: created !== undefined };
 }
 
 /** Declares many edges of one kind at once, with the batch the fill's history pass needs; each stands once. */
@@ -340,20 +360,27 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
 
 /** What a key or an edge end names and no vertex holds, recorded for the consistency check. */
 export interface UnresolvedReference {
-  /** The vertex whose key holds the reference, or the edge's from-node; null when the publication declares no such node. */
+  /** The vertex whose key holds the reference, or the edge end that did resolve; null when neither end stands. */
   readonly referrer: string | null;
+  /** The edge kind whose end names the missing vertex, null for a key reference. */
+  readonly edgeEntity?: string | null;
   readonly field: string;
   readonly targetEntity: string;
   readonly targetKey: unknown;
+  /** The producer and version that named it: a rerun of the same answer records it once. */
+  readonly producer: string;
+  /** The other end of the edge, when that end stands. */
+  readonly against?: string | null;
   readonly contextId: number;
 }
 
-/** Records one unresolved reference; the same one stated twice stands once. */
+/** Records one unresolved reference; the same one stated twice — by one producer — stands once. */
 async function recordUnresolved(executor: SqlExecutor, reference: UnresolvedReference): Promise<void> {
   await executor.query(
-    `INSERT INTO unresolved_reference (referrer_node, field, target_entity, target_key, context_id) VALUES ($1::bigint, $2, $3, $4::jsonb, $5::bigint)
-     ON CONFLICT (referrer_node, field, target_entity, target_key, context_id) DO NOTHING`,
-    [reference.referrer, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), String(reference.contextId)],
+    `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id)
+     VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8::bigint)
+     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id) DO NOTHING`,
+    [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, String(reference.contextId)],
   );
 }
 
@@ -368,20 +395,20 @@ function referenceOf(field: FieldContract, value: unknown): EntityRefDraft | und
  * Resolves the references one vertex's key names, recording each an absent vertex answers. A declaration has already
  * made the node, so the publication can go on whatever the reference says.
  */
-async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract, kind: string, nodeId: string, draft: Readonly<Record<string, KeyValueDraft>>, contextId: number): Promise<void> {
+async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract, kind: string, nodeId: string, draft: Readonly<Record<string, KeyValueDraft>>, producer: string, contextId: number): Promise<void> {
   const vertex = vertexOf(contract, kind);
   for (const field of vertex.key) {
     const declared = keyFieldOf(vertex, field);
     const ref = referenceOf(declared, draft[field]);
     if (ref === undefined) continue;
+    const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
+    const targetKey = canonicalKeyOf(contract, target, ref.key, `the reference ${JSON.stringify(field)}`);
     if (await referencedNodeOf(executor, contract, ref, `the key field ${JSON.stringify(field)} of ${JSON.stringify(kind)}`) !== undefined) {
-      // The reference stands now: a record of it not standing any more goes.
-      const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
-      await executor.query('DELETE FROM unresolved_reference WHERE referrer_node = $1::bigint AND field = $2 AND target_entity = $3 AND target_key = $4::jsonb AND context_id = $5::bigint', [nodeId, field, ref.kind, JSON.stringify(canonicalKeyOf(contract, target, ref.key, `the reference ${JSON.stringify(field)}`)), String(contextId)]);
+      // The reference stands now: the record of its not standing goes.
+      await executor.query(`DELETE FROM unresolved_reference WHERE referrer_node = $1::bigint AND edge_entity IS NULL AND field = $2 AND target_entity = $3 AND target_key = $4::jsonb AND producer = $5 AND context_id = $6::bigint`, [nodeId, field, ref.kind, JSON.stringify(targetKey), producer, String(contextId)]);
       continue;
     }
-    const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
-    await recordUnresolved(executor, { referrer: nodeId, field, targetEntity: ref.kind, targetKey: canonicalKeyOf(contract, target, ref.key, `the reference ${JSON.stringify(field)}`), contextId });
+    await recordUnresolved(executor, { referrer: nodeId, edgeEntity: null, field, targetEntity: ref.kind, targetKey, producer, against: null, contextId });
   }
 }
 
@@ -429,24 +456,36 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   for (const { draft, nodeId } of declared) {
     if (await publishOpinion(executor, contract, { ...draft, nodeId }, contextId)) written += 1;
   }
-  // An edge whose ends do not stand is a reference no vertex answers: recorded, never invented.
+  // An edge whose ends do not stand is a reference no vertex answers: recorded, never invented. A published edge's
+  // records go.
   for (const draft of drafts.edges ?? []) {
-    const ends: string[] = [];
+    const ends: (string | undefined)[] = [];
     for (const [field, ref] of [['from', draft.from], ['to', draft.to]] as const) {
-      const node = await referencedNodeOf(executor, contract, ref, `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
-      if (node === undefined) {
-        const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
-        await recordUnresolved(executor, { referrer: null, field, targetEntity: ref.kind, targetKey: canonicalKeyOf(contract, target, ref.key, `the ${field} of ${JSON.stringify(draft.kind)}`), contextId });
-        ends.length = 0;
-        break;
-      }
-      ends.push(node);
+      ends.push(await referencedNodeOf(executor, contract, ref, `the ${field} of the edge ${JSON.stringify(draft.kind)}`));
     }
-    if (ends.length !== 2) continue;
-    const edge = await ensureEdge(executor, contract, draft.kind, ends[0]!, ends[1]!, draft.discriminator ?? '', contextId);
+    const [fromNode, toNode] = ends;
+    if (fromNode === undefined || toNode === undefined) {
+      for (const [field, ref, other] of [['from', draft.from, toNode], ['to', draft.to, fromNode]] as const) {
+        const named = field === 'from' ? fromNode : toNode;
+        if (named !== undefined) continue;
+        const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
+        await recordUnresolved(executor, {
+          referrer: other ?? null, edgeEntity: draft.kind, field, targetEntity: ref.kind,
+          targetKey: canonicalKeyOf(contract, target, ref.key, `the ${field} of ${JSON.stringify(draft.kind)}`),
+          producer: `${draft.producer}@${draft.producerVersion}`, against: null, contextId,
+        });
+      }
+      continue;
+    }
+    const edge = await ensureEdge(executor, contract, draft.kind, fromNode, toNode, draft.discriminator ?? '', { producer: draft.producer, producerVersion: draft.producerVersion, ...(draft.evidence === undefined ? {} : { evidence: draft.evidence }) }, contextId);
     if (edge.created) written += 1;
     if (await publishEdgeOpinion(executor, contract, draft.kind, edge.id, draft, contextId)) written += 1;
+    await executor.query(
+      `DELETE FROM unresolved_reference WHERE edge_entity = $1 AND producer = $2 AND context_id = $3::bigint
+         AND (referrer_node = $4::bigint OR referrer_node = $5::bigint OR referrer_node IS NULL)`,
+      [draft.kind, `${draft.producer}@${draft.producerVersion}`, String(contextId), fromNode, toNode],
+    );
   }
-  for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, contextId);
+  for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);
   return written;
 }

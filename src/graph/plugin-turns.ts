@@ -49,12 +49,14 @@ export interface ProducerEntity {
  */
 export async function fileContent(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
   return await owner.transaction('snapshot', async (tx) => {
+    // Every open opinion that names a blob counts: the content is read when they all stand on the same blob, and the
+    // host privileges no producer (no field is authoritative).
     const found = await tx.query<{ content: string | null }>(
       `SELECT b.content FROM node f
        JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}'
-       LEFT JOIN LATERAL (SELECT o."blob_id" FROM ${GIT_TABLES.file} o WHERE o."node_id" = f.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-tree' ORDER BY o."id" DESC LIMIT 1) g ON true
+       LEFT JOIN LATERAL (SELECT min(o."blob_id") AS blob_id FROM ${GIT_TABLES.file} o WHERE o."node_id" = f.id AND o."state" = 'open' AND o."context_id" = 1 AND o."blob_id" IS NOT NULL HAVING count(DISTINCT o."blob_id") = 1) g ON true
        LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
-       WHERE (f.key->'repository'->'key'->>'name') = $1 AND (f.key->>'path') = $2 AND NOT f.removed
+       WHERE (f.key->'repository'->'key'->>'name') = $1 AND (f.key->>'path') = $2 AND f.context_id = 1 AND NOT f.removed
        LIMIT 1`,
       [repository, path],
     );
