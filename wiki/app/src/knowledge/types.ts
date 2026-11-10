@@ -410,8 +410,10 @@ export type FolderFileData = {
   bytes: number | null;
   lines: number | null;
   form: 'text' | 'binary' | null;
-  language: string | null;
-  candidates: string[];
+  /** The one language's name a reader reads; null when several open opinions/candidates stand or no rule matched. */
+  languageName: string | null;
+  /** The candidates' names when the answer is undetermined; empty when no rule matched. */
+  candidateNames: string[];
 };
 
 /** One file as its own block states it: the table's fields and its dates and authors. */

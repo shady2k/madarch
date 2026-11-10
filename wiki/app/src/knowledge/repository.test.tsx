@@ -51,7 +51,7 @@ const answer = (path: string, body: unknown): void => {
 
 const file = (over: Partial<FileBlockData> = {}): FileBlockData => ({
   repository: 'code', path: 'src/a.ts', id: 'code.file:code/src/a.ts', href: '/e/code.file%3Acode%2Fsrc%2Fa.ts',
-  mode: '100644', blob: 'a'.repeat(40), bytes: 20, lines: 1, form: 'text', language: 'ambiguous', candidates: ['TypeScript', 'XML'],
+  mode: '100644', blob: 'a'.repeat(40), bytes: 20, lines: 1, form: 'text', languageName: null, candidateNames: ['TypeScript', 'XML'],
   created: { date: '2026-11-07T13:00:00+03:00', offsetMin: 180, commit: 'a'.repeat(40), author: 'Ada', href: '/e/code.commit%3A' + 'a'.repeat(40) },
   modified: { date: '2026-11-07T14:00:00+03:00', offsetMin: 180, commit: 'b'.repeat(40), author: 'Ada', href: '/e/code.commit%3A' + 'b'.repeat(40) },
   commitCount: 2, authors: ['Ada'], ...over,
@@ -146,9 +146,48 @@ describe('a folder and a file', () => {
     const container = into(createElement(FileFactsBlock, { data: file() }));
     await until(() => container.querySelector('[data-testid=file-facts]') !== null, 'the facts');
     const text = container.textContent ?? '';
-    for (const fact of ['100644', 'a'.repeat(40), '20', '1', 'text', 'ambiguous (TypeScript, XML)', 'Ada', '2']) expect(text).toContain(fact);
+    for (const fact of ['100644', 'a'.repeat(40), '20 bytes', '1', 'text', 'not determined: TypeScript, XML', 'Ada', '2']) expect(text).toContain(fact);
     expect(text).toContain('2026-11-07 13:00:00 +03:00');
     expect(text).toContain('2026-11-07 14:00:00 +03:00');
+  });
+});
+
+describe('a file\'s size and language read in the reader\'s language (madarch-u3vw.15)', () => {
+  test('the size stands once, with the reader\'s unit, and an undetermined language names its candidates', async () => {
+    const container = into(createElement(FileFactsBlock, { data: file({ bytes: 1001 }) }));
+    await until(() => container.querySelector('[data-testid=file-facts]') !== null, 'the facts');
+    expect(container.querySelector('[data-testid=file-size]')!.textContent).toBe('1001 bytes');
+    // The figure stands once: no second «1001 B» beside it.
+    expect(container.querySelector('[data-testid=file-facts]')!.textContent).not.toContain('1001 B');
+    expect(container.querySelector('[data-testid=file-languages]')!.textContent).toBe('not determined: TypeScript, XML');
+    expect(container.querySelector('[data-testid=file-facts]')!.textContent).not.toContain('ambiguous');
+  });
+
+  test('in Russian the size takes its unit and its decimal comma, and the undetermined language is said in Russian', async () => {
+    await setWikiLanguage('ru');
+    try {
+      const container = into(createElement(FileFactsBlock, { data: file({ bytes: 1229 }) }));
+      await until(() => container.querySelector('[data-testid=file-facts]') !== null, 'the facts');
+      expect(container.querySelector('[data-testid=file-size]')!.textContent).toBe('1,2 КБ');
+      expect(container.querySelector('[data-testid=file-languages]')!.textContent).toBe('не определён: TypeScript, XML');
+    } finally {
+      await setWikiLanguage('en');
+    }
+  });
+
+  test('a resolved language reads as its one name, and a file no rule matched reads as no language', async () => {
+    const resolved = file({ languageName: 'TypeScript', candidateNames: ['TypeScript'], bytes: 1 });
+    const container = into(createElement(FileFactsBlock, { data: resolved }));
+    await until(() => container.querySelector('[data-testid=file-facts]') !== null, 'the facts');
+    expect(container.querySelector('[data-testid=file-languages]')!.textContent).toBe('TypeScript');
+    expect(container.querySelector('[data-testid=file-size]')!.textContent).toBe('1 byte');
+    rendered?.unmount();
+    rendered = undefined;
+    document.body.innerHTML = '';
+    const unknown = file({ languageName: null, candidateNames: [] });
+    const second = into(createElement(FileFactsBlock, { data: unknown }));
+    await until(() => second.querySelector('[data-testid=file-facts]') !== null, 'the facts');
+    expect(second.querySelector('[data-testid=file-languages]')!.textContent).toBe('—');
   });
 });
 

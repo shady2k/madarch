@@ -813,7 +813,7 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
       const data = block.data;
       const lines = [
         ...data.folders.map((folder) => `${folder.path}/`),
-        ...data.files.map((file) => `${file.path} — ${file.language ?? ''} · ${file.lines ?? '—'} lines · ${file.bytes ?? 0} bytes`),
+        ...data.files.map((file) => `${file.path} — ${file.languageName ?? file.candidateNames.join(' / ')} · ${file.lines ?? '—'} lines · ${file.bytes ?? 0} bytes`),
       ];
       return { title: block.title, type: 'text', text: lines.join('\n'), links: data.files.map((file) => ({ title: file.path, url: at(file.href, prefix) })) };
     }
@@ -828,7 +828,7 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
           { name: 'bytes', label: 'Bytes', value: String(data.bytes ?? 0) },
           { name: 'lines', label: 'Lines', value: data.lines === null ? '—' : String(data.lines) },
           { name: 'form', label: 'Form', value: data.form ?? '—' },
-          { name: 'language', label: 'Language', value: data.language ?? '—' },
+          { name: 'language', label: 'Language', value: data.languageName ?? (data.candidateNames.length === 0 ? '—' : `not determined: ${data.candidateNames.join(', ')}`) },
           { name: 'created', label: 'Created', value: data.created === null ? '—' : `${data.created.date} ${data.created.author} ${data.created.commit}` },
           { name: 'modified', label: 'Modified', value: data.modified === null ? '—' : `${data.modified.date} ${data.modified.author} ${data.modified.commit}` },
           { name: 'commitCount', label: 'Commits', value: String(data.commitCount) },

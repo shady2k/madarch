@@ -81,7 +81,7 @@ export function FolderFileTable({ files }: { files: readonly FolderFileData[] })
               <KLink href={file.href} testId="file-link">{file.path.slice(file.path.lastIndexOf('/') + 1)}</KLink>
               {file.form === 'binary' && <Badge variant="outline" className="ml-2">{t('knowledge.repository.binary')}</Badge>}
             </td>
-            <td className="py-1 pr-3 text-muted" data-testid="file-language" title={file.candidates.join(', ')}>{file.language === 'ambiguous' ? file.candidates.join(' / ') : file.language}</td>
+            <td className="py-1 pr-3 text-muted" data-testid="file-language" title={file.candidateNames.join(', ')}>{file.languageName ?? file.candidateNames.join(' / ')}</td>
             <td className="py-1 text-right text-muted">{file.lines === null ? '—' : String(file.lines)}</td>
             <td className="py-1 text-right text-muted">{bytesText(file.bytes ?? 0)}</td>
           </tr>
@@ -182,14 +182,25 @@ export function FolderBlock({ data }: { data: FolderBlockData }): React.ReactEle
 
 /** One file's facts as a block: every fact the graph holds of it, its dates and its authors. */
 export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? 'en';
+  const numbers = new Intl.NumberFormat(language, { maximumFractionDigits: 1, useGrouping: false });
+  /** The size once, in the reader's language and its unit: «1001 байт», «1,2 КБ». */
+  const sizeOf = (bytes: number | null): string => {
+    const count = bytes ?? 0;
+    if (count < 1024) return t('knowledge.repository.sizeBytes', { count, size: numbers.format(count) });
+    if (count < 1024 * 1024) return t('knowledge.repository.sizeKilobytes', { size: numbers.format(count / 1024) });
+    return t('knowledge.repository.sizeMegabytes', { size: numbers.format(count / (1024 * 1024)) });
+  };
+  /** The language as the classifier declared it, or the candidates of an undetermined answer, never the raw word. */
+  const languageOf = (): string => data.languageName ?? (data.candidateNames.length === 0 ? '—' : t('knowledge.repository.languageUndetermined', { languages: data.candidateNames.join(', ') }));
   const facts: [string, React.ReactNode][] = [
     [t('knowledge.repository.mode'), <code key="mode">{data.mode}</code>],
     [t('knowledge.repository.blob'), <code key="blob" className="break-all">{data.blob}</code>],
-    [t('knowledge.repository.bytes'), <span key="bytes">{data.bytes} ({bytesText(data.bytes ?? 0)})</span>],
+    [t('knowledge.repository.bytes'), <span key="bytes" data-testid="file-size">{sizeOf(data.bytes)}</span>],
     [t('knowledge.repository.lines'), <span key="lines">{data.lines === null ? '—' : String(data.lines)}</span>],
     [t('knowledge.repository.form'), <span key="form">{data.form === 'binary' ? t('knowledge.repository.binary') : t('knowledge.repository.text')}</span>],
-    [t('knowledge.repository.language'), <span key="language" data-testid="file-languages">{data.language}{data.candidates.length > 1 || data.candidates[0] !== data.language ? ` (${data.candidates.join(', ')})` : ''}</span>],
+    [t('knowledge.repository.language'), <span key="language" data-testid="file-languages">{languageOf()}</span>],
     [t('knowledge.repository.created'), data.created === null ? <span key="created">—</span> : <span key="created"><KLink href={data.created.href}><code>{data.created.commit.slice(0, 12)}</code></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</span>],
     [t('knowledge.repository.modified'), data.modified === null ? <span key="modified">—</span> : <span key="modified"><KLink href={data.modified.href}><code>{data.modified.commit.slice(0, 12)}</code></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</span>],
     [t('knowledge.repository.commitCount'), <span key="count">{data.commitCount}</span>],

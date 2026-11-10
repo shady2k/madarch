@@ -15,6 +15,7 @@ import { commitWithPaths, fileContent, fileContents, fileFacts, fileHistory, fil
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
 import { entityAddress } from './addresses.js';
 import { DOCUMENT_SUFFIXES } from './doc-sources.js';
+import { languageWords, opinionLanguageCandidates } from './language-names.js';
 
 export interface SourceSpan {
   path: string;
@@ -472,6 +473,16 @@ export interface GraphRepositoryFacts {
   readonly steps: { readonly tree: boolean; readonly history: boolean };
 }
 
+/**
+ * The language one file's open opinions state: the `lang` they all name, or every candidate the opinions name when
+ * they name no one language (argument madarch-64o5.2; never one of several open values picked). A contested `lang`
+ * and a single ambiguous opinion both leave `language` null with the candidates beside it.
+ */
+function languageOfOpinions(record: FileRecord): { language: string | null; candidates: readonly string[] } {
+  if (record.language !== null) return { language: record.language, candidates: record.candidates };
+  return { language: null, candidates: opinionLanguageCandidates(record.opinions ?? []) };
+}
+
 /** One file of a repository as a block shows it. */
 export interface GraphFileFacts {
   readonly repository: string;
@@ -485,6 +496,10 @@ export interface GraphFileFacts {
   readonly form: 'text' | 'binary' | null;
   readonly language: string | null;
   readonly candidates: readonly string[];
+  /** The one language's name a reader reads, or null when several open opinions/candidates stand or no rule matched. */
+  readonly languageName: string | null;
+  /** The candidates' names when the answer is undetermined; empty when no rule matched. */
+  readonly candidateNames: readonly string[];
   readonly created: (FileDate & { readonly href: string }) | null;
   readonly modified: (FileDate & { readonly href: string }) | null;
   readonly commitCount: number;
@@ -501,8 +516,10 @@ export interface GraphFolderFile {
   readonly bytes: number | null;
   readonly lines: number | null;
   readonly form: 'text' | 'binary' | null;
-  readonly language: string | null;
-  readonly candidates: readonly string[];
+  /** The one language's name a reader reads, or null when several open opinions/candidates stand or no rule matched. */
+  readonly languageName: string | null;
+  /** The candidates' names when the answer is undetermined; empty when no rule matched. */
+  readonly candidateNames: readonly string[];
 }
 
 /** One page of a folder's own folders and files. */
@@ -688,9 +705,12 @@ export class GraphReader {
   async file(repository: string, path: string): Promise<GraphFileFacts | null> {
     const facts = await fileFacts(this.storeOwner(), repository, path);
     if (facts === null) return null;
+    const held = languageOfOpinions(facts);
+    const words = languageWords(held.language, held.candidates);
     return {
       repository, path, id: `code.file:${repository}/${path}`, href: entityAddress(`code.file:${repository}/${path}`),
-      mode: facts.mode, blob: facts.blob, bytes: facts.bytes, lines: facts.lines, form: facts.form, language: facts.language, candidates: [...facts.candidates],
+      mode: facts.mode, blob: facts.blob, bytes: facts.bytes, lines: facts.lines, form: facts.form, language: held.language, candidates: [...held.candidates],
+      languageName: words.name, candidateNames: words.candidates,
       created: facts.created === null ? null : { ...facts.created, href: entityAddress(`code.commit:${facts.created.commit}`) },
       modified: facts.modified === null ? null : { ...facts.modified, href: entityAddress(`code.commit:${facts.modified.commit}`) },
       commitCount: facts.commitCount, authors: [...facts.authors],
@@ -724,10 +744,15 @@ export class GraphReader {
     if (folder !== '' && found === undefined) return null;
     const parent = folder === '' ? null : found?.parent ?? '';
     const page = await folderFiles(this.storeOwner(), { repository, folder, limit, ...(after === undefined ? {} : { after }) });
-    const files: GraphFolderFile[] = page.rows.map((row) => ({
-      path: row.path, id: `code.file:${repository}/${row.path}`, href: entityAddress(`code.file:${repository}/${row.path}`),
-      mode: row.mode, blob: row.blob, bytes: row.bytes, lines: row.lines, form: row.form, language: row.language, candidates: [...row.candidates],
-    }));
+    const files: GraphFolderFile[] = page.rows.map((row) => {
+      const held = languageOfOpinions(row);
+      const words = languageWords(held.language, held.candidates);
+      return {
+        path: row.path, id: `code.file:${repository}/${row.path}`, href: entityAddress(`code.file:${repository}/${row.path}`),
+        mode: row.mode, blob: row.blob, bytes: row.bytes, lines: row.lines, form: row.form,
+        languageName: words.name, candidateNames: words.candidates,
+      };
+    });
     const children = await folderChildrenOf(this.storeOwner(), repository, folder);
     const id = folder === '' ? `code.repository:${repository}` : `code.directory:${repository}/${folder}`;
     return {
