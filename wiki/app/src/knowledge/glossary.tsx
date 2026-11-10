@@ -193,11 +193,15 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
   if (glossary === null && error === null) return <PageSkeleton testId="glossary-loading" rows />;
   if (glossary === null) return <Alert variant="problem" data-testid="glossary-error"><AlertDescription><p>{error}</p></AlertDescription></Alert>;
   const shown = filterTerms(glossary.terms, query);
+  // The names column is a column only when a term on the page has another name: an always-empty column is noise.
+  const hasNames = shown.some((term) => term.synonyms.length > 0 || term.code.length > 0);
   return (
     <section data-testid="glossary-page">
       <header className="mb-4">
-        <h1>{t('knowledge.glossary.title')}</h1>
-        <p>{t('knowledge.glossary.lead', { count: glossary.terms.length })}</p>
+        <div className="mb-2 flex items-center gap-2">
+          <h1 className="mb-0">{t('knowledge.glossary.title')}</h1>
+          <Badge data-testid="glossary-count">{glossary.terms.length}</Badge>
+        </div>
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="glossary-filter" />
       </header>
       {glossary.terms.length === 0 && <p className="text-muted" data-testid="glossary-empty">{t('knowledge.glossary.empty')}</p>}
@@ -207,7 +211,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
             <TableRow>
               <TableHead>{t('knowledge.glossary.colTerm')}</TableHead>
               <TableHead>{t('knowledge.glossary.colDefinition')}</TableHead>
-              <TableHead>{t('knowledge.glossary.colNames')}</TableHead>
+              {hasNames && <TableHead>{t('knowledge.glossary.colNames')}</TableHead>}
               <TableHead>{t('knowledge.glossary.colPlace')}</TableHead>
             </TableRow>
           </TableHeader>
@@ -233,7 +237,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
                     </details>
                   )}
                 </TableCell>
-                <TableCell className="min-w-[8rem] align-top"><Names term={term} /></TableCell>
+                {hasNames && <TableCell className="min-w-[8rem] align-top"><Names term={term} /></TableCell>}
                 <TableCell className="min-w-[11rem] align-top">
                   <p className="m-0 text-small text-muted" data-testid="term-ground">
                     {t('knowledge.glossary.statedAt')}{' '}
