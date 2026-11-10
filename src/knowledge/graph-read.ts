@@ -305,7 +305,8 @@ interface GraphOpinion {
 
 /** The opinions one aggregate column reads, from the jsonb array the statement builds. */
 function graphOpinions(value: unknown, fields: readonly string[]): GraphOpinion[] {
-  if (!Array.isArray(value)) return [];
+  // A plain read (the history and graph blocks) carries no opinion column: nothing is assembled for it.
+  if (!Array.isArray(value) || value.length === 0) return [];
   return value.map((entry) => {
     const held = (entry ?? {}) as Record<string, unknown>;
     const saidBy = String(held['said_by'] ?? '');

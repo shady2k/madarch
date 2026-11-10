@@ -1004,12 +1004,19 @@ async function readCommitWithPaths(tx: OuterTransaction, repository: string, has
   const commit = await readCommitFacts(tx, repository, hash);
   if (commit === null) return null;
   const found = await tx.query<Record<string, unknown>>(
-    `SELECT ${PATH_OF('fn')} AS path, ${TOUCHED_OPINIONS('e')} AS touched, ${PATH_OF('pn')} AS previous
+    // The touched rows and their opinions in one pass, grouped per edge: no opinion subquery per row (the page's
+    // history navigation reads a commit's 1 800 changed paths, and a query per row made that span four times main's).
+    `SELECT ${PATH_OF('fn')} AS path,
+            jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'change', o."change", 'added', o."added", 'removed', o."removed") ORDER BY o."id") AS touched,
+            ${PATH_OF('pn')} AS previous
      FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
      JOIN node ct ON ct.id = e.from_node JOIN node fn ON fn.id = e.to_node
+     LEFT JOIN ${GIT_TABLES.touched} o ON o."edge_id" = e.id AND o."state" = 'open' AND o."context_id" = 1
      LEFT JOIN edge r ON r.from_node = e.to_node AND r.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.renamedFrom}') AND r.context_id = 1 AND r.discriminator = (ct.key->>'hash')
      LEFT JOIN node pn ON pn.id = r.to_node
-     WHERE (ct.key->>'hash') = $1 ORDER BY ${PATH_OF('fn')}`,
+     WHERE (ct.key->>'hash') = $1
+     GROUP BY e.id, ${PATH_OF('fn')}, ${PATH_OF('pn')}
+     ORDER BY ${PATH_OF('fn')}`,
     [hash],
   );
   const touched = found.rows.map((row) => {
@@ -1055,8 +1062,10 @@ export async function folderChildrenOf(owner: DatabaseOwner, repository: string,
     const parent = folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}' WHERE (n.key->'repository'->'key'->>'name') = $1::text AND (n.key->>'path') = $2::text AND n.context_id = 1 AND NOT n.removed`, [repository, folder])).rows[0]?.node_id;
     if (parent === undefined) return [];
     const found = await tx.query<{ path: string }>(
-      `SELECT (dn.key->>'path') AS path FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' JOIN node dn ON dn.id = e.to_node AND EXISTS (SELECT 1 FROM entity en WHERE en.id = dn.entity_id AND en.name = '${GIT_KINDS.directory}')
-       WHERE e.from_node = $1::bigint ORDER BY (dn.key->>'path')`, [parent],
+      `SELECT (dn.key->>'path') AS path FROM edge e
+       JOIN node dn ON dn.id = e.to_node AND dn.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.directory}')
+       WHERE e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.from_node = $1::bigint AND e.context_id = 1
+       ORDER BY (dn.key->>'path')`, [parent],
     );
     return found.rows.map((row) => row.path);
   }));
@@ -1207,10 +1216,11 @@ export async function listDirectories(owner: DatabaseOwner, repository: string):
     const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<{ path: string; parent: string }>(
       `SELECT (n.key->>'path') AS path, coalesce((pn.key->>'path'), '') AS parent
-       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}'
+       FROM node n
        JOIN edge e ON e.to_node = n.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1
        LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> $1::bigint
-       WHERE (n.key->'repository'->'key'->>'name') = $2::text AND n.context_id = 1 AND NOT n.removed ORDER BY (n.key->>'path')`,
+       WHERE n.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.directory}')
+         AND (n.key->'repository'->'key'->>'name') = $2::text AND n.context_id = 1 AND NOT n.removed ORDER BY (n.key->>'path')`,
       [repositoryId, repository],
     );
     return found.rows;

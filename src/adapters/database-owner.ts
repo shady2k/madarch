@@ -82,7 +82,9 @@ async function spannedStatement<T extends { readonly rows: readonly unknown[] }>
   counts?: StatementCounts,
 ): Promise<T> {
   const held = statementOf(sql);
-  const answer = await run();
+  // One span per statement: the client's send to its answer, the operation and the statement's own size (a statement's
+  // text is never written to a trace — its parameters hold the data). The duration is server execution and the trip.
+  const answer = await withSpan('db.statement', { 'db.system': 'postgres', 'db.operation': held.operation, 'db.sql.bytes': new TextEncoder().encode(sql).length }, async () => await run());
   if (counts !== undefined) {
     if (held.operation === 'SELECT') counts.select += 1;
     else if (held.operation === 'INSERT') counts.insert += 1;
@@ -229,8 +231,10 @@ class PostgresOwner implements DatabaseOwner {
   async transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
     this.ensureOpen();
     this.ensureOutsideOwnWork();
-    await this.ready;
-    const client = await this.pool.connect();
+    const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
+      await this.ready;
+      return await this.pool.connect();
+    });
     let releaseError: Error | undefined;
     try {
       const begin = kind === 'snapshot'
@@ -290,8 +294,10 @@ class PostgresOwner implements DatabaseOwner {
   async exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
     this.ensureOpen();
     this.ensureOutsideOwnWork();
-    await this.ready;
-    const client = await this.pool.connect();
+    const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
+      await this.ready;
+      return await this.pool.connect();
+    });
     let releaseError: Error | undefined;
     try {
       // One client for the whole text: `pg` sends a statement text with no

@@ -2458,17 +2458,19 @@ export class KnowledgeProduct {
     // These operations can open their own snapshots; finish them before holding the reader pipe.
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const planned = history === undefined ? await this.plannedForPage(id) : undefined;
-    const owner = await this.open();
+    // The store's open and the page's two halves have spans of their own: a slow page says which of them it is (the
+    // trace is the answer to slowness, decision 0033).
+    const owner = await withSpan('wiki.store.open', {}, async () => await this.open());
     // A newer snapshot may replace this one while the page is being rendered (a fill swaps readers under open reads).
     // The rendered owner is still a store, so its page keeps its Problems badge.
     const ownerWasReader = this.reader?.owner === owner;
     const validAt = this.validAt();
     const pins = new Map(this.pins);
     const rendered: PageResult = await owner.transaction('snapshot', async (transaction) => {
-      const context = await this.context(history, { owner, transaction, validAt, pins }, options.after);
+      const context = await withSpan('wiki.context', {}, async () => await this.context(history, { owner, transaction, validAt, pins }, options.after));
       if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
       if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
-      const result: PageResult = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
+      const result: PageResult = await withSpan('wiki.render', {}, async () => await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false }));
       if (!result.ok) return result;
       const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
       // Which runs of the journal hold this page, so the page says «Как агент писал эту страницу» only where it can be read.
