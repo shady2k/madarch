@@ -129,7 +129,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     const answer = fillCommand('--entity', 'code.file');
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Also filling doc.term, which depends on code.file.');
-    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, doc.term.');
+    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, doc.term.');
     expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual([]);
   }, 600_000);
 
