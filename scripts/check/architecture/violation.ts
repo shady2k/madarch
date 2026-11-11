@@ -36,6 +36,7 @@ export const ARCHITECTURE_RULES = [
   'no-retired-surfaces',
   'no-unreachable-code',
   'one-fill-entry',
+  'product-file-readers',
   'sql-only-in-storage-layer',
   'starter-data-when-copying',
 ] as const;
