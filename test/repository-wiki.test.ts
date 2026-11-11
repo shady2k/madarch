@@ -1,4 +1,6 @@
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { byCodePoint } from '../src/model/order.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The repository pages of the wiki (madarch-8bdc.2.5, items 2, 3 and 4): an
@@ -230,7 +232,7 @@ git(folder,'commit','-qm','the nested file moves');
     }
   }, 300_000);
 
-  test('the product\'s documents are never read at request time: the empty store answers no layer, and a fill leaves the document kinds empty', async () => {
+  test('the product\'s documents are never read at request time: the empty store lists declarations without entities, and a fill leaves the document kinds empty', async () => {
     const { folder } = product('docs', (repository) => {
       mkdirSync(join(repository, 'src'), { recursive: true });
       writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
@@ -251,14 +253,19 @@ git(folder,'commit','-qm','the nested file moves');
       expect(empty.status).toBe(200);
       // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
       expect(empty.body['findingCount']).toBe(0);
-      // The manifest is the graph's: before the fill the graph holds none, so the wiki names no kind at all.
-      expect(empty.body['kinds']).toEqual([]);
+      // Startup publishes the declared catalogue, not document entities inferred from working-tree files.
+      const declared = readKinds(folder);
+      if (!declared.present) throw new Error(`${folder}/madarch/kinds.yaml:1: fixture kinds are absent`);
+      const expectedKinds = [...(declared.manifest.catalog?.kinds.keys() ?? declared.manifest.kinds.keys())].sort(byCodePoint);
+      const emptyKinds = empty.body['kinds'] as { kind: string; count: number }[];
+      expect(emptyKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
+      expect(emptyKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
       const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
-      // No manifest in the graph is no kind at all: the listing refuses by name rather than answering an empty list.
+      // The kind is declared, but file text alone produces no document entity.
       const useCases = await json(server, 'docs', '/api/entities?kind=doc.use-case');
-      expect(useCases.status).toBe(404);
-      expect(String(useCases.body['message'])).toContain('declares no kind "doc.use-case"');
+      expect(useCases.status).toBe(200);
+      expect(useCases.body).toMatchObject({ total: 0, rows: [] });
       // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.
       const ended = await press(server, 'docs');
       const fill = ended['fill'] as Record<string, unknown>;
