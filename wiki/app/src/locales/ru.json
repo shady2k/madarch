@@ -926,6 +926,7 @@
     "historyDateTitle": "{{repo}} на {{date}}",
     "historyCurrent": "Вернуться к текущему коду",
     "historyRepository": "Репозиторий",
+    "historyDateFormat": "ГГГГ-ММ-ДД",
     "historyChooseDate": "Дата (UTC)",
     "historyOpenDate": "Открыть эту дату",
     "historyPointUnread": "структура не прочитана",
@@ -1038,7 +1039,21 @@
     "pageProblems": "Проблем на странице: {{count}}",
     "findingsWhere": "Открыть проблемы",
     "findingsCount": "Находок: {{count}}",
-    "noStageYet": "Ни один этап заполнения пока не пишет этот вид."
+    "noStageYet": "Ни один этап заполнения пока не пишет этот вид.",
+    "filePage": {
+      "cochangeShown": "Показано {{shown}} из {{total}} файлов, изменённых вместе не менее двух раз.",
+      "overview": "Обзор",
+      "history": "История",
+      "cochange": "Совместные изменения",
+      "rendered": "Отрисовано",
+      "source": "Исходный текст",
+      "softWrap": "Мягкий перенос",
+      "sourcesPage": "Открыть в источниках",
+      "noSource": "В графе нет текста этого файла.",
+      "noHistory": "Ни один коммит не менял этот файл.",
+      "noCochange": "Ни один другой файл не менялся вместе с ним в двух и более коммитах.",
+      "share": "{{both}} из {{total}} коммитов · {{share}}%"
+    }
   },
   "loop": {
     "questionsTitle": "Вопросы",

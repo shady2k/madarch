@@ -621,7 +621,8 @@ describe('the agent stage', () => {
     expect(container.querySelector('[data-testid=writer-message]')!.textContent).toContain('some pages were not written');
     (container.querySelector('[data-testid=writer-retry]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls.at(-1)).toBe('POST /api/fill {"agent":"codex"}');
+    // The agent choice's own `GET /api/agents` may settle after the press; the press is what this case proves.
+    expect(calls).toContain('POST /api/fill {"agent":"codex"}');
   });
 });
 
