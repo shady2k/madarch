@@ -20,7 +20,6 @@ import { productsHome, type DraftEnv } from './home.js';
 import { listProducts } from './list.js';
 import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
-import { startServer } from '../server/http.js';
 import {
   fillProgressOf,
   openFillDatabase,
@@ -37,13 +36,11 @@ import {
 import type { RunStatus } from '../fill/orchestrator.js';
 import { createFillStateSchema, readChain, readRun } from '../fill/state-store.js';
 import { createOrchestratorSchema } from '../fill/orchestrator-store.js';
-import { finishKnowledgeStore } from '../knowledge/fill-run.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { selfCommand } from './self-command.js';
 import { readProduct } from './manifest.js';
 import { runningVersion } from './version.js';
-import { runFill } from '../fill/run.js';
 import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
 import { createRecordSchema } from '../graph/records.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
@@ -710,6 +707,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       held.service = undefined;
       await previous.stop();
     }
+    const { runFill } = await import('../fill/run.js');
     const result = await runFill({
       product: request.product.folder,
       database: held.owner,
@@ -728,6 +726,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     if (result.ok && result.settled && result.state === 'succeeded') {
       // The daemon's update runs finish beside a service it keeps open: the pins come first, and the statistics are
       // written beside the answer, never inside it, so the update's answer is not held behind an analyze.
+      const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
       await finishKnowledgeStore(held.owner, undefined, false);
       void held.owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE')).catch(() => undefined);
     }
@@ -859,6 +858,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     }
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
     const manifests = createManifestWatch(folders, (value) => fills.publishManifests(value), (line) => console.error(line));
+    const { startServer } = await import('../server/http.js');
     const server = await startServer({
       productHome: home,
       knowledgeRoot: knowledgeRootOf(home),

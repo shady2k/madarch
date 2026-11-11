@@ -24,7 +24,7 @@
  */
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
-import { startServer, type StartedServer } from '../server/http.js';
+import type { StartedServer } from '../server/http.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
@@ -143,6 +143,7 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
+    const { startServer } = await import('../server/http.js');
     server = await startServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(dirname(folder)), appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest });
   } catch (error) {
     const message = (error as Error).message;

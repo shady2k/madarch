@@ -27,7 +27,7 @@ import { generatedTableName } from '../graph/contract.js';
 import { closureOf } from '../plugin/closure.js';
 import { PluginHost, RequestLog, type GraphAnswerer } from '../plugin/host.js';
 import { canonicalKey } from '../plugin/results.js';
-import { releaseClosureHashes } from '../plugin/release-closures.js';
+import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
@@ -377,7 +377,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     graph: answererOf(wiring),
     workRoot,
     trust: 'production',
-    releaseHashes: wiring.releaseHashes ?? releaseClosureHashes(),
+    releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
     ...(requests === undefined ? {} : { requests }),
   });
