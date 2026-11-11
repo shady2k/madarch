@@ -138,3 +138,42 @@ test('CLI and MCP forward revision conflicts without losing current values or au
   expect(JSON.parse(response.result.content[0].text).error).toEqual(refused.body.error);
   expect((await cli('show', 'note', uid)).body.entity.values.title).toBe('Current');
 }, 60_000);
+
+test('CLI conditional deletes forward stale, malformed and wrong-entity revisions', async () => {
+  const made = (await cli('create', 'note', '--title', 'Delete baseline')).body.entity;
+  const other = (await cli('create', 'note', '--title', 'Other entity')).body.entity;
+  const changed = (await cli('update', 'note', made.uid, '--field', 'count=2')).body.entity;
+  for (const revision of [made.revision, 'invalid', other.revision]) {
+    const refused = await cli('delete', 'note', made.uid, '--if-revision', revision);
+    expect(refused.exit).toBe(2);
+    expect(refused.body.error.message).toContain('revision');
+    expect((await cli('show', 'note', made.uid)).body.entity.revision).toBe(changed.revision);
+  }
+  expect((await cli('delete', 'note', made.uid, '--if-revision', changed.revision)).exit).toBe(0);
+  expect((await cli('show', 'note', made.uid)).exit).toBe(2);
+  expect((await cli('delete', 'note', other.uid)).exit).toBe(0);
+}, 60_000);
+
+test('MCP conditional deletes forward stale, malformed and wrong-entity revisions', async () => {
+  const made = (await cli('create', 'note', '--title', 'MCP delete baseline')).body.entity;
+  const other = (await cli('create', 'note', '--title', 'MCP other entity')).body.entity;
+  const changed = (await cli('update', 'note', made.uid, '--field', 'count=2')).body.entity;
+  const remove = async (uid: string, ifRevision?: string) => {
+    let output = '';
+    await mcpCommand(['--product', folder, '--home', home], { env,
+      input: (async function* () { yield JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'delete_entity', arguments: { kind: 'note', uid, ...(ifRevision === undefined ? {} : { ifRevision }) } } }) + '\n'; })(),
+      stdout: { write: (text) => { output += text; } },
+    });
+    const response = JSON.parse(output.trim()).result;
+    return { isError: response.isError, body: JSON.parse(response.content[0].text) };
+  };
+  for (const revision of [made.revision, 'invalid', other.revision]) {
+    const refused = await remove(made.uid, revision);
+    expect(refused.isError).toBe(true);
+    expect(refused.body.error.message).toContain('revision');
+    expect((await cli('show', 'note', made.uid)).body.entity.revision).toBe(changed.revision);
+  }
+  expect((await remove(made.uid, changed.revision)).isError).toBe(false);
+  expect((await cli('show', 'note', made.uid)).exit).toBe(2);
+  expect((await remove(other.uid)).isError).toBe(false);
+}, 60_000);

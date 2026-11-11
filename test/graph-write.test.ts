@@ -424,6 +424,59 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(new Set(nodes.rows.map((row) => row.uid)).size).toBe(2);
   });
 
+  test('withdrawing a vertex removes all incident edges atomically and journals every producer opinion', async () => {
+    const durable = await createTestDatabaseOwner();
+    const vertexTable = generatedTableName('record', 'vertex');
+    const edgeTable = generatedTableName('links', 'edge');
+    const graph: GraphContract = {
+      vertex: [{ name: 'record', table: vertexTable, fields: [{ name: 'name', type: 'text' }], key: ['name'], capability: 'fixture' }],
+      edge: [{ name: 'links', table: edgeTable, from: ['record'], to: ['record'], repeats: false, fields: [], capability: 'fixture' }], dictionary: [],
+    };
+    const ref = (name: string) => ({ kind: 'record', key: { name } });
+    const removal = { kind: 'record', key: { name: 'Center' }, producer: 'person:reader', withdrawAll: true };
+    const snapshot = async () => await durable.run(async (tx) => ({
+      edges: (await tx.query<{ id: string }>('SELECT id::text AS id FROM edge ORDER BY id')).rows,
+      opinions: (await tx.query<{ id: string; state: string }>(`SELECT id::text AS id, state FROM ${edgeTable} ORDER BY id`)).rows,
+      vertices: (await tx.query<{ removed: boolean }>('SELECT removed FROM node ORDER BY id')).rows,
+      operations: (await tx.query<{ seq: string }>('SELECT seq::text AS seq FROM operation ORDER BY seq')).rows,
+    }));
+    try {
+      await createOneGraphSchema(durable, graph);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, {
+        vertices: ['Center', 'Left', 'Right'].map((name) => ({ ...ref(name), producer: 'source', producerVersion: '1' })), removals: [],
+        edges: [['Left', 'Center'], ['Center', 'Right'], ['Left', 'Right']].map(([from, to]) => ({ kind: 'links', from: ref(from!), to: ref(to!), producer: 'first', producerVersion: '1' })),
+      }));
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [], edges: [
+        { kind: 'links', from: ref('Left'), to: ref('Center'), producer: 'second', producerVersion: '2' },
+      ] }));
+      const before = await snapshot();
+      await expect(durable.transaction('write', async (tx) => {
+        await publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] });
+        throw new Error('rollback incident withdrawal');
+      })).rejects.toThrow('rollback incident withdrawal');
+      expect(await snapshot()).toEqual(before);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }));
+      const after = await snapshot();
+      expect(after.edges).toEqual([before.edges[2]!]);
+      expect(after.vertices).toEqual([{ removed: true }, { removed: false }, { removed: false }]);
+      expect(after.opinions).toEqual([before.opinions[2]!]);
+      const vertexHistory = await durable.run((tx) => tx.query<{ name: string; state: string }>(`SELECT n.key->>'name' AS name, o.state FROM ${vertexTable} o JOIN node n ON n.id = o.node_id ORDER BY n.id`));
+      expect(vertexHistory.rows).toEqual([{ name: 'Center', state: 'closed' }, { name: 'Left', state: 'open' }, { name: 'Right', state: 'open' }]);
+      const history = await durable.run((tx) => tx.query<{ change: { edges: { edge: string; from: string; to: string; state: string }[]; opinions: { id: string; state: string }[] } }>('SELECT change FROM operation ORDER BY seq'));
+      const declared = history.rows.flatMap((one) => one.change.edges).filter((one) => one.state === 'declared');
+      const opened = history.rows.flatMap((one) => one.change.opinions).filter((one) => one.state === 'opened');
+      expect(before.opinions.every((opinion) => opened.some((one) => one.id === opinion.id))).toBe(true);
+      const entry = await durable.run((tx) => tx.query<{ change: { edges: { edge: string; state: string }[]; opinions: { id: string; state: string; said_by: string }[] } }>('SELECT change FROM operation ORDER BY seq DESC LIMIT 1'));
+      expect(entry.rows[0]!.change.edges.map((one) => [one.edge, one.state])).toEqual(before.edges.slice(0, 2).map((one) => [one.id, 'removed']));
+      expect(history.rows.at(-1)!.change.edges).toEqual(declared.slice(0, 2).map((one) => ({ ...one, state: 'removed' })));
+      const closed = entry.rows[0]!.change.opinions.filter((one) => one.state === 'closed');
+      expect(closed.map((one) => one.said_by).sort()).toEqual(['first@1', 'first@1', 'second@2', 'source@1']);
+      expect(closed.filter((one) => before.opinions.some((opinion) => opinion.id === one.id))).toHaveLength(3);
+      expect(await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }))).toBe(0);
+      expect(await snapshot()).toEqual(after);
+    } finally { await durable.close(); }
+  }, 120_000);
+
   test('an edge end no vertex holds is recorded once per producer and cleared when the edge publishes', async () => {
     const graph: GraphContract = {
       vertex: [...contract.vertex, { name: 'doc.page', table: generatedTableName('doc.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'glossary' }],

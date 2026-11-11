@@ -120,3 +120,25 @@ test('revision rejects changed fields but merges unchanged fields against comple
   await call('delete', { uid: made.uid });
   await call('delete', { uid: unrelated.uid });
 });
+
+test('conditional deletes reject every intervening change and invalid revisions without writing', async () => {
+  const made = (await call('create', { values: { title: 'Delete baseline', count: 1 } })).entity!;
+  const unrelated = (await call('create', { values: { title: 'Different revision owner' } })).entity!;
+  await call('edit', { uid: made.uid, values: { count: 2 } });
+  const current = (await call('edit', { uid: made.uid, values: { count: 1 } })).entity!;
+  const before = await owner.run((tx) => tx.query('SELECT * FROM operation ORDER BY seq'));
+  for (const ifRevision of [made.revision, '0', 'malformed', '999999999999999999999999', unrelated.revision]) {
+    try {
+      await call('delete', { uid: made.uid, ifRevision, words: 'Must not be recorded' });
+      throw new Error('expected conditional deletion refusal');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthoredRefusal);
+      expect((error as AuthoredRefusal).status).toBe(412);
+    }
+    expect((await call('read', { uid: made.uid })).entity).toEqual(current);
+    expect((await owner.run((tx) => tx.query('SELECT * FROM operation ORDER BY seq'))).rows).toEqual(before.rows);
+  }
+  expect((await call('delete', { uid: made.uid, ifRevision: current.revision })).entity!.uid).toBe(made.uid);
+  await expect(call('read', { uid: made.uid })).rejects.toThrow('entity was deleted');
+  await call('delete', { uid: unrelated.uid });
+});

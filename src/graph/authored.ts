@@ -114,6 +114,12 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
   const journal = journalFor(person, args.words === undefined ? {} : { words: args.words });
   if (action === 'delete') {
     const entity = await view(node!);
+    if (args.ifRevision !== undefined) {
+      const rows = await history(node!);
+      const baseline = /^[1-9][0-9]*$/u.test(args.ifRevision) ? rows.find((row) => row['id'] === args.ifRevision) : undefined;
+      if (baseline === undefined) throw new AuthoredRefusal(412, `revision ${JSON.stringify(args.ifRevision)}: no such revision for this entity`);
+      if (entity.revision !== args.ifRevision) throw new AuthoredRefusal(412, `entity changed since revision ${args.ifRevision}; current revision ${entity.revision}`);
+    }
     await removeEntity(tx, contract, { kind, key: node!.key, uid: node!.uid, producer, withdrawAll: true }, 1, journal);
     await writeJournal(tx, journal);
     return { ...result, entity };

@@ -18,6 +18,7 @@ import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { gitEnv } from './git-env.js';
+import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { productStoreFolder } from '../src/product/store.js';
 
@@ -98,6 +99,16 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     await product?.close();
     rmSync(work, { recursive: true, force: true });
   });
+
+  test('the starter authored terms do not run an unbound glossary plugin', async () => {
+    writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
+    commit('A glossary document beside authored terms');
+    product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
+    await refill();
+    expect((await product.glossary()).terms).toEqual([]);
+    await product.close();
+    useExtractedGlossary(folder);
+  }, 300_000);
 
   test('the first fill publishes the terms the glossary states, and the listing and the page read only the graph', async () => {
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);

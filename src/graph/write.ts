@@ -635,7 +635,14 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   const removed = Number(open.rows[0]?.n ?? '0') === 0;
   // The vertex is journaled as removed only where no open opinion of any producer remains: a producer that withdraws
   // while another's opinion stands closed its own opinion and removed nothing.
-  if (removed) journal?.removedVertex(vertex.name, uid, nodeId);
+  if (removed) {
+    const incident = await executor.query<{ id: string; kind: string }>(
+      `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
+       WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
+    );
+    for (const edge of incident.rows) await removeEdgeById(executor, contract, edge.kind, edge.id, journal);
+    journal?.removedVertex(vertex.name, uid, nodeId);
+  }
   await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, removed]);
   return true;
 }

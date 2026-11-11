@@ -15,7 +15,7 @@ const tool = (action: string, description: string, required: readonly string[]):
     uid: { type: 'string', description: 'Stable uid returned by create or read; not a display id' },
     values: { type: 'object', description: 'Declared field names and their values' },
     words: { type: 'string', description: 'Exact original words to keep with the operation' },
-    ifRevision: { type: 'string', description: 'Edit only the revision returned by a read' },
+    ifRevision: { type: 'string', description: 'Check the read revision before an update or delete' },
   }, required, additionalProperties: false },
 });
 
@@ -39,7 +39,7 @@ export async function callAuthoredTool(product: KnowledgeProduct, name: string, 
     if (args['values'] !== undefined && (typeof args['values'] !== 'object' || args['values'] === null || Array.isArray(args['values']))) throw new Error('values must be an object of field names and values');
     if (args['words'] !== undefined && typeof args['words'] !== 'string') throw new Error('words must be a string');
     if (args['ifRevision'] !== undefined && typeof args['ifRevision'] !== 'string') throw new Error('ifRevision must be a string');
-    if (args['ifRevision'] !== undefined && name !== 'update_entity') throw new Error(`${name} takes no ifRevision`);
+    if (args['ifRevision'] !== undefined && name !== 'update_entity' && name !== 'delete_entity') throw new Error(`${name} takes no ifRevision`);
     if ((name === 'update_entity' || name === 'delete_entity') && args['uid'] === undefined) throw new Error(`${name} requires uid`);
     if (name === 'create_entity' && args['uid'] !== undefined) throw new Error('create_entity takes no uid');
     if (name === 'read_entity' && (args['values'] !== undefined || args['words'] !== undefined)) throw new Error(`${name} takes no values or words`);

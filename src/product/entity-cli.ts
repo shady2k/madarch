@@ -18,7 +18,7 @@ const HELP = [
   '  --field name=value   Set a declared field; repeat for several fields',
   '  --<field> <value>    Set a declared field by its own name',
   '  --words <text>       Keep these exact words with the operation',
-  '  --if-revision <id>   Edit only the revision returned by a read',
+  '  --if-revision <id>   Check the read revision before an update or delete',
   '  --json               Print one JSON object',
   '',
   'Run madarch entity schema <kind> to see fields. Use uid from a list or create response.',
@@ -103,7 +103,7 @@ export async function entityCommand(args: readonly string[], options: {
     if (['create', 'list', 'schema'].includes(action) && uid !== undefined) throw new Error(`${action} takes no uid`);
     if (action !== 'create' && action !== 'update' && Object.keys(rawValues).length > 0) throw new Error(`${action} takes no field values`);
     if (!['create', 'update', 'delete'].includes(action) && words !== undefined) throw new Error(`${action} takes no --words`);
-    if (ifRevision !== undefined && action !== 'update') throw new Error(`${action} takes no --if-revision`);
+    if (ifRevision !== undefined && action !== 'update' && action !== 'delete') throw new Error(`${action} takes no --if-revision`);
     const env = options.env ?? process.env;
     const productFolder = entityProductFolder(folder, options.cwd ?? process.cwd());
     product = new KnowledgeProduct({ productFolder, storeRoot: knowledgeRootOf(productsHome(env, home)), env });

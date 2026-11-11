@@ -70,3 +70,20 @@ test('conditional HTTP edits preserve intervening fields and report conflicts wi
   expect(await conflict.json()).toMatchObject({ error: { field: 'title', conflict: { field: 'title', current: 'Bob title', author: expect.stringContaining('person:') } } });
   await send('DELETE', {}, made.entity.uid);
 }, 30000);
+
+test('conditional HTTP deletes refuse stale and invalid If-Match revisions before removing an entity', async () => {
+  const made = await (await send('POST', { values: { title: 'Delete baseline', count: 1 } })).json() as { entity: { uid: string; revision: string } };
+  const other = await (await send('POST', { values: { title: 'Other entity' } })).json() as { entity: { uid: string; revision: string } };
+  const changed = await (await send('PATCH', { values: { count: 2 } }, made.entity.uid)).json() as { entity: { revision: string } };
+  const remove = (revision: string) => fetch(`${base}&uid=${made.entity.uid}`, {
+    method: 'DELETE', headers: { 'content-type': 'application/json', 'if-match': `"${revision}"` }, body: '{}',
+  });
+  expect((await remove('invalid')).status).toBe(400);
+  for (const revision of [made.entity.revision, '0', other.entity.revision]) {
+    expect((await remove(revision)).status).toBe(412);
+    expect(await (await fetch(`${base}&uid=${made.entity.uid}`)).json()).toMatchObject({ entity: { revision: changed.entity.revision, values: { count: 2 } } });
+  }
+  expect((await remove(changed.entity.revision)).status).toBe(200);
+  expect((await fetch(`${base}&uid=${made.entity.uid}`)).status).toBe(404);
+  expect((await send('DELETE', {}, other.entity.uid)).status).toBe(200);
+}, 30000);

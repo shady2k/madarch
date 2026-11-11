@@ -21,6 +21,7 @@ import { manifestWithRepo } from '../src/product/manifest.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { gitEnv } from './git-env.js';
+import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -49,6 +50,7 @@ function product(name: string): { folder: string; storeRoot: string } {
   const draft = createDraft({ home, name, gitEnv: gitEnv(IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
   const folder = draft.folder;
+  useExtractedGlossary(folder);
   const code = join(folder, 'repos', 'app');
   mkdirSync(code, { recursive: true });
   writeFileSync(join(code, 'README.md'), '# App\n');

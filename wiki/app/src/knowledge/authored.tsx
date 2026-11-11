@@ -99,7 +99,7 @@ export function AuthoredPage({ kind, uid, version }: { kind: string; uid: string
   const read = useRead<AuthoredView>(`${kind}\0${uid}`, version + revision, (signal) => readAuthored(kind, uid, signal));
   const entity = read.data?.entity;
   useTabTitle(entity === undefined ? null : titleOf(entity));
-  const remove = async (): Promise<void> => { setBusy(true); setError(null); try { await writeAuthored(kind, 'DELETE', uid); setDeleted(true); } catch (failure) { setError(words(failure)); } finally { setBusy(false); } };
+  const remove = async (): Promise<void> => { setBusy(true); setError(null); try { await writeAuthored(kind, 'DELETE', uid, undefined, entity?.revision); setDeleted(true); } catch (failure) { setError(words(failure)); } finally { setBusy(false); } };
   if (deleted) return <section><h1>{t('authored.deleted')}</h1><KLink href={addressOfKind(kind)}>{t('authored.back')}</KLink></section>;
   return <article data-testid="authored-page"><KLink href={addressOfKind(kind)}>{t('authored.back')}</KLink>
     {(error ?? read.error) !== null && <p role="alert">{error ?? read.error}</p>}

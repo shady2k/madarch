@@ -49,7 +49,8 @@ test('list links use persistent uid and offer New', async () => {
 
 test('delete sends nothing until confirmed; cancel keeps the entity; confirmed deletion returns to list', async () => {
   let deletes = 0;
-  globalThis.fetch = (async (_url: unknown, options?: RequestInit) => { if (options?.method === 'DELETE') { deletes++; expect(JSON.parse(String(options.body))).toEqual({ confirm: true }); } return respond({ kind: 'note', fields, entity }); }) as unknown as typeof fetch;
+  const header = { match: null as string | null };
+  globalThis.fetch = (async (_url: unknown, options?: RequestInit) => { if (options?.method === 'DELETE') { deletes++; header.match = new Headers(options.headers).get('if-match'); expect(JSON.parse(String(options.body))).toEqual({ confirm: true }); } return respond({ kind: 'note', fields, entity }); }) as unknown as typeof fetch;
   mount(createElement(AuthoredPage, { kind: 'note', uid: 'u1', version: 0 }));
   await until(() => [...document.querySelectorAll('button')].some((button) => button.textContent === 'Delete'));
   const click = (text: string): void => [...document.querySelectorAll('button')].find((button) => button.textContent === text)!.click();
@@ -63,6 +64,7 @@ test('delete sends nothing until confirmed; cancel keeps the entity; confirmed d
   click('Delete entity');
   await until(() => document.body.textContent!.includes('Entity deleted'));
   expect(deletes).toBe(1);
+  expect(header.match).toBe('"10"');
 });
 
 test('API preserves field diagnostics on a create refusal', async () => {
