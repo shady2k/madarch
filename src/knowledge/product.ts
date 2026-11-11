@@ -1859,9 +1859,12 @@ export class KnowledgeProduct {
     // A folder that is no product is answered with the file it lacks, and nothing is written into it to stamp a key.
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    // The memo key and the live fields share one publication read on a cached poll. A body
+    // rebuilt below follows again afterward, because a fill can publish while that work runs.
+    await this.followStoreFill();
     let key = '';
     try {
-      key = await this.statusKey();
+      key = await this.statusKey(this.storeStamp);
     } catch {
       // A product whose inputs cannot be stamped is answered afresh: a key that cannot be computed caches nothing.
       key = '';
@@ -1871,7 +1874,7 @@ export class KnowledgeProduct {
       return await this.statusLive(made.body, made.ctx);
     }
     const held = this.statusMemo;
-    if (held !== undefined && held.key === key) return await this.statusLive(held.body, held.ctx);
+    if (held !== undefined && held.key === key) return await this.statusLive(held.body, held.ctx, true);
     // Eight polls of one reader, or three readers polling together, wait for one read of the same files.
     const flight = this.statusFlight;
     if (flight !== undefined && flight.key === key) {
@@ -1985,9 +1988,9 @@ export class KnowledgeProduct {
    * is the one collected for exactly these inputs, else absent: an answer never keeps a count collected for inputs the
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
-  private async statusLive(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
+  private async statusLive(body: WikiStatus, ctx: RenderContext | undefined, followed = false): Promise<WikiStatus> {
     try {
-      return await this.statusLiveNow(body, ctx);
+      return await this.statusLiveNow(body, ctx, followed);
     } catch {
       // The store could not be read for this answer: the fill state is this process's own and is answered regardless.
       return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
@@ -2053,8 +2056,8 @@ export class KnowledgeProduct {
     }
   }
 
-  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
-    await this.followStoreFill();
+  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined, followed: boolean): Promise<WikiStatus> {
+    if (!followed) await this.followStoreFill();
     // Without a manifest in the graph there is no Problems listing to collect. Opening a new
     // store here would block the next poll on initdb for a product nobody has filled.
     if (ctx === undefined) return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
@@ -2163,7 +2166,7 @@ export class KnowledgeProduct {
    * A file's own content is the stamp: an edit that keeps its size and restores its mtime is still an edit, and the
    * content hash is kept beside the metadata so an unchanged file is not read again on every poll.
    */
-  private async statusKey(): Promise<string> {
+  private async statusKey(revision?: string): Promise<string> {
     let finished = '-';
     try {
       finished = this.contentStamp(join(this.storeFolder(), 'last-fill.json'));
@@ -2172,7 +2175,7 @@ export class KnowledgeProduct {
     }
     // The graph revision is the key of every product file the body reads; the store's own last finish is madarch's
     // operational state, kept beside the store, and its content stamp is what moves the menu when a run ends.
-    return `${await this.problemInputsKey()}|finished:${finished}`;
+    return `${await this.problemInputsKey(revision)}|finished:${finished}`;
   }
 
   /**
