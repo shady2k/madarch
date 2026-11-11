@@ -27,6 +27,8 @@ import type { PluginAgentOptions } from '../plugin/agent.js';
 
 /** What one fill is asked for. */
 export interface RunFillOptions {
+  /** The owning process prepares the exact pinned contract before any fill client attaches. */
+  readonly prepareContract?: (contract: import('../graph/contract.js').GraphContract) => Promise<void>;
   /** The product's folder: its manifest and the repositories it pins. */
   readonly product: string;
   /** The process's one database owner. */
@@ -162,7 +164,7 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  const fill = await createStagesFill({ product, database: options.database, runId, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
+  const fill = await createStagesFill({ product, database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
   // Reading the pins is what names a checkout with no commit: the answer says what the run did for
   // it once the run has settled, and a run of this product still reads every other repository.

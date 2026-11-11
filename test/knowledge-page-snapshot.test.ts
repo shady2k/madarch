@@ -9,13 +9,12 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRecordSchema } from '../src/graph/index.js';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { KnowledgeProduct, pageSnapshotOwner } from '../src/knowledge/product.js';
 import { renderPage } from '../src/knowledge/render.js';
-import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
@@ -24,8 +23,7 @@ const id = 'code.author:walk@example.test';
 let owner: DatabaseOwner;
 
 beforeAll(async () => {
-  owner = await createTestDatabaseOwner({});
-  await createRecordSchema(owner);
+  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
   await owner.transaction('write', async (tx) => {
     const node = await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id`, ['signature', JSON.stringify({ name: 'Walk', email: 'walk@example.test' })]);
     await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, said_by) VALUES ($1::bigint, 'git-history@1')`, [node.rows[0]!.id]);

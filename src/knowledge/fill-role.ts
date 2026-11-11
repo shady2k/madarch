@@ -4,6 +4,7 @@
  * so a fill never takes a core from the answers) or by hand (`madarch --role fill`), and several of them may run against
  * one store: the queue's claim hands each job to exactly one of them.
  */
+import { requestStorePreparation } from '../product/store-preparation.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
@@ -217,6 +218,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       storeFolder: held.storeFolder,
       runId: data.runId,
       database: owner,
+      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract),
       // The language the press named, as `madarch fill --language` names it: a run that asks for another language
       // translates the pages it writes (madarch-8bdc.12).
       ...(data.language === undefined ? {} : { language: data.language }),

@@ -211,7 +211,7 @@ export async function openRepositoryGraph(options: {
   const commit = headCommit(repository);
   let owner: DatabaseOwner | undefined;
   try {
-    owner = await createDatabaseOwner({ store: databasePath, btreeGist: true });
+    owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
     const openedOwner = owner;
     const started = performance.now();
     let fill = readFillOutcome(folder);

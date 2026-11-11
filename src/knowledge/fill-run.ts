@@ -70,6 +70,8 @@ const DEFAULT_PUBLISH_MS = 8_000;
 
 /** What one fill of a knowledge store was asked for. */
 export interface KnowledgeFillOptions {
+  /** The owning process prepares the exact pinned contract before any fill client attaches. */
+  readonly prepareContract?: (contract: import('../graph/contract.js').GraphContract) => Promise<void>;
   /** The product's folder: its manifest and the repositories it pins. */
   readonly productFolder: string;
   /** The product's knowledge store folder: `<graph>` and `<read>/<n>` live in it. */
@@ -229,6 +231,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         const result = await runFill({
           product: options.productFolder,
           database: owner,
+          ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }),
           runId: options.runId,
           home: options.storeFolder,
           workers: options.workers ?? 16,

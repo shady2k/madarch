@@ -11,6 +11,7 @@
  * and cause. The child's output goes to a log file beside the state file, so
  * a failed start can be read up.
  */
+import { requestStorePreparation } from './store-preparation.js';
 import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -446,7 +447,10 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   catch (error) { return { ok: false, message: `the daemon log at ${logPath(home)} cannot be written: ${(error as Error).message}` }; }
   const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const child = daemonCommand(home, port);
-  const proc = spawn(child.command, child.args, { detached: true, stdio: ['ignore', log, log], env: { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist } });
+  const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist };
+  delete env.MADARCH_STORE_OWNER_URL;
+  delete env.MADARCH_STORE_OWNER_TOKEN;
+  const proc = spawn(child.command, child.args, { detached: true, stdio: ['ignore', log, log], env });
   proc.unref();
   // A spawn that cannot even happen (a PATH without bun) is a failed start,
   // not an uncaught error on a process the state file already names.
@@ -658,6 +662,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
       mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
+      await requestStorePreparation(storeDatabasePath(storeFolder));
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
       await owner.ready;
       const one: HeldStore = { storeFolder, owner };
@@ -699,6 +704,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const result = await runFill({
       product: request.product.folder,
       database: held.owner,
+      prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(held.storeFolder), contract),
       runId: request.runId,
       home: held.storeFolder,
       store: held.storeFolder,

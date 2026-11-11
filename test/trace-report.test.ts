@@ -9,6 +9,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { readTraceReport, readTraceRun, readTraceSpans, stepReportsOf, traceReportOf, type StepReport } from '../src/obs/trace-report.js';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../src/obs/trace.js';
 import { main } from '../src/product/cli.js';
@@ -63,7 +65,8 @@ describe('madarch trace', () => {
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');
-      const result = await runFill({ product, database: owner, runId: 'steps', store, workers: 2, maxPasses: 100_000 });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const result = await runFill({ product, database: owner, runId: 'steps', store, workers: 2, maxPasses: 100_000, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(result.ok).toBe(true);
       const run = readTraceRun({ store, runId: 'steps' });
       expect(run.runId).toBe('steps');
@@ -134,7 +137,8 @@ describe('madarch trace', () => {
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');
-      const result = await runFill({ product, database: owner, runId: 'uncovered', store, workers: 2, maxPasses: 100_000 });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const result = await runFill({ product, database: owner, runId: 'uncovered', store, workers: 2, maxPasses: 100_000, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(result.ok).toBe(true);
       const report = readTraceReport({ store, runId: 'uncovered' });
       expect(report.spanCount).toBeGreaterThan(10);

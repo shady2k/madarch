@@ -1,3 +1,14 @@
+import { withStorePreparationOwner } from '../src/adapters/store-preparation-owner.js';
+
+let releasePreparationOwner!: () => void;
+let preparationOwner: Promise<void>;
+async function openPreparationOwner(): Promise<void> {
+  let opened!: () => void;
+  const ready = new Promise<void>((resolve) => { opened = resolve; });
+  const closed = new Promise<void>((resolve) => { releasePreparationOwner = resolve; });
+  preparationOwner = withStorePreparationOwner(async () => { opened(); await closed; });
+  await ready;
+}
 /**
  * The update after commits to a default branch, end to end (madarch-tzte.26.2;
  * decision 0026, "Updates" and "Pages"; decision 0027's host): the background
@@ -54,6 +65,7 @@ function commitAll(folder: string, message: string): string {
 const pause = (ms: number): Promise<void> => new Promise((answer) => setTimeout(answer, ms));
 
 beforeAll(async () => {
+  await openPreparationOwner();
   root = mkdtempSync(join(tmpdir(), 'madarch-update-run-'));
   home = join(root, 'home');
   product = join(home, 'shop');
@@ -93,12 +105,16 @@ beforeAll(async () => {
       break;
     }
   }
+  // A durable terminal state precedes the watcher's completion log; drain its in-flight pass before observing both.
+  await watch.pass();
   if (update === undefined) throw new Error(`the watcher started no run named ${lastRequest} after a commit on the default branch: the commit is ${commit}`);
 }, 900_000);
 
 afterAll(async () => {
   watch?.stop();
   await service?.stop();
+  releasePreparationOwner();
+  await preparationOwner;
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 

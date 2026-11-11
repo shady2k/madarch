@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The repository pages of the wiki (madarch-8bdc.2.5, items 2, 3 and 4): an
  * empty product, the press, the progress, the end state, and then the
@@ -18,7 +20,8 @@ import { symlinkSync } from 'node:fs';
 import { runFill } from '../src/fill/run.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import type { FillStepView } from '../src/knowledge/model.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -100,7 +103,7 @@ git(folder,'commit','-qm','the tree is written');
 git(folder,'mv','src/nested/b.ts','src/nested/c.ts');
 git(folder,'commit','-qm','the nested file moves');
 });
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty state: the manifest reads, the store holds no repository and no trace.
       const empty = await json(server, 'walk', '/api/status');
@@ -112,7 +115,7 @@ git(folder,'commit','-qm','the nested file moves');
       expect(String(noRepository.body['message'])).toContain('no such path');
 
       const ended = await press(server, 'walk');
-      expect((ended['fill'] as Record<string, unknown>)['state']).toBe('done');
+      expect((ended['fill'] as Record<string, unknown>)['state'], JSON.stringify(ended)).toBe('done');
       expect(ended['filled']).toBe(true);
       expect(ended['incomplete']).toBe(false);
       // The counts and the time: the store's own numbers, and the run's own wall clock.
@@ -187,7 +190,7 @@ git(folder,'commit','-qm','the nested file moves');
       git(folder, 'commit', '-qm', 'two thousand files');
     });
     expect(git(repository, 'rev-list', '--count', 'HEAD')).toBe('1');
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const ended = await press(server, 'many');
       const facts = ended['repository'] as Record<string, unknown>;
@@ -233,7 +236,7 @@ git(folder,'commit','-qm','the nested file moves');
       '- **Payment token** - The proof a provider returns when it captured money.', '',
     ].join('\n'));
     writeFileSync(join(folder, 'docs', 'use-cases.md'), ['# Use cases', '', '- **UC-1 Place order.** A shopper submits a cart.', ''].join('\n'));
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const empty = await json(server, 'docs', '/api/status');
       expect(empty.status).toBe(200);
@@ -281,7 +284,7 @@ git(folder,'commit','-qm','the nested file moves');
     symlinkSync(empty, join(folder, 'repos', 'empty-code'), 'dir');
     git(folder, 'add', '-A');
     git(folder, 'commit', '-qm', 'a product with one repository that holds no commit');
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty wiki answers: no 500, the repository listed, and a finding that names its path.
       const emptyStatus = await json(server, 'half', '/api/status');
@@ -337,12 +340,13 @@ git(folder,'commit','-qm','the nested file moves');
     mkdirSync(join(store, 'graph'), { recursive: true });
     const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
     try {
-      const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
+      const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
     } finally {
       await owner.close();
     }
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const status = await json(server, 'treeonly', '/api/status');
       const repository = status.body['repository'] as Record<string, unknown>;
@@ -367,7 +371,7 @@ git(folder,'commit','-qm','the nested file moves');
       git(folder, 'commit', '-qm', 'one file');
     });
     const errors: string[] = [];
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
     try {
       await press(server, 'validated');
       await new Promise((resolve) => setTimeout(resolve, 1_000));

@@ -16,6 +16,7 @@
  *   queue-binary <store folder> first|second
  */
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const [folder, phase] = process.argv.slice(2);
@@ -27,6 +28,10 @@ if (folder === undefined || (phase !== 'first' && phase !== 'second')) {
 const QUEUE = 'binary-units';
 const DEAD = 'binary-units-dead';
 const owner = await createTestDatabaseOwner({ store: folder });
+await prepareStore(owner, { queue: { schema: 'binary_queue', declarations: [
+  { name: DEAD, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+  { name: QUEUE, leaseSeconds: 60, retries: 2, retryDelaySeconds: 1, retryBackoff: false, deadLetter: DEAD },
+] } });
 const queue = await createPgBossQueue({ owner, schema: 'binary_queue', supervise: false });
 try {
   await queue.declare({ name: DEAD, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });

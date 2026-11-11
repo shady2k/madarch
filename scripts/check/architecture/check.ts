@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { dependencyRuleViolations } from './dependency-rules.js';
 import { fillEntryViolations } from './fill-entry.js';
 import { graphWriteViolations } from './graph-writes.js';
+import { schemaPreparationViolations } from './schema-preparation.js';
 import { starterDataViolations } from './starter-data.js';
 import { unreachableViolations } from './reachability.js';
 import { moduleSet, repositoryRoot } from './sources.js';
@@ -71,6 +72,7 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
   if (rules.includes('one-fill-entry')) found.push(...fillEntryViolations(root));
   if (rules.includes('graph-writes-in-writer')) found.push(...graphWriteViolations(root));
   if (rules.includes('no-unreachable-code')) found.push(...(await unreachableViolations(root)));
+  if (rules.includes('schema-preparation-only')) found.push(...await schemaPreparationViolations(root));
   if (rules.includes('starter-data-when-copying')) found.push(...starterDataViolations(root));
   const located = orderedViolations(found);
   if (!existsSync(listPath)) {
@@ -128,12 +130,12 @@ export function architectureProblemLines(report: ArchitectureReport): string[] {
   const listText = report.listText;
   for (const entry of report.noBaseline) {
     lines.push(
-      `${report.listPath}:${lineOfListedEntry(listText, entry)}: ${entry.rule}: ${entry.file}: ${entry.symbol ?? 'the file itself'} is listed, and ${entry.rule} takes no baseline: dead code is fixed, never written into ${VIOLATION_LIST}`,
+      `${report.listPath}:${lineOfListedEntry(listText, entry)}: ${entry.rule}: ${entry.file}: ${entry.symbol ?? 'the file itself'} is listed, and ${entry.rule} takes no baseline: violations are fixed, never written into ${VIOLATION_LIST}`,
     );
   }
   for (const violation of report.comparison.unlisted) {
     lines.push(
-      `${absolute(report.root, violation.file)}:${violation.line}: ${violation.rule}: ${describe(violation)}; ${VIOLATION_LIST} does not list it, and a violation that is not written down is a new one — fix it, or list it in a commit that carries the owner's decision`,
+      `${absolute(report.root, violation.file)}:${violation.line}: ${violation.rule}: ${describe(violation)}; ${NO_BASELINE_RULES.includes(violation.rule) ? `${violation.rule} takes no baseline — fix the violation` : `${VIOLATION_LIST} does not list it, and a violation that is not written down is a new one — fix it, or list it in a commit that carries the owner's decision`}`,
     );
   }
   for (const entry of report.comparison.duplicated) {
@@ -172,6 +174,8 @@ export function countsByRule(violations: readonly ArchitectureViolation[]): Read
 /** What one violation is, in the words of its rule. */
 function describe(violation: ArchitectureViolation): string {
   switch (violation.rule) {
+    case 'schema-preparation-only':
+      return `${violation.file} reaches schema preparation (${violation.symbol}): only the store preparation boundary may change a schema, and runtime consumers may not import it`;
     case 'graph-single-writer':
       return `${violation.file} imports the graph's publication API ${violation.symbol}, which only the graph store (src/graph) and the storage layer (src/adapters) may import — every other module drafts and has its draft published`;
     case 'graph-writes-in-writer':

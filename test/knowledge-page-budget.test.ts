@@ -8,9 +8,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { finishKnowledgeStore } from '../src/knowledge/fill-run.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { makeProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -72,7 +75,8 @@ beforeAll(async () => {
     mkdirSync(join(store, 'graph'), { recursive: true });
     const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
     try {
-      const run = await runFill({ product, database: owner, store, home: store, runId: `page-budget-${product === folder ? 'shop' : 'history'}` });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const run = await runFill({ product, database: owner, store, home: store, runId: `page-budget-${product === folder ? 'shop' : 'history'}`, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
       // What every settled fill does (the button, the CLI, the daemon): the store's statistics and pins.
       await finishKnowledgeStore(owner);
@@ -80,7 +84,7 @@ beforeAll(async () => {
       await owner.close();
     }
   }
-  server = await startServer({ productHome: home, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
   // The two fills read this checkout's own history into the graph (stage C), and a shared or slow machine takes
   // minutes over it: the setup names twice the minute bound the earlier case carried, and no assertion is moved.
 }, 600_000);

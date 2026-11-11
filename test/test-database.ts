@@ -18,6 +18,8 @@
  * `store`, and pays for that store's own cluster.
  */
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import type { GraphContract } from '../src/graph/contract.js';
 import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
 import { ensureRunPostgres } from './run-postgres.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
@@ -86,6 +88,7 @@ export async function testStoreServer(): Promise<{ readonly socketDir: string; r
 
 /** What a case asks the run's server for: a fresh database, or a store folder's own cluster. */
 export interface TestDatabaseOptions {
+  readonly graphContract?: GraphContract;
   /** Opens `btree_gist`, which the temporal graph's no-overlap constraints need. */
   readonly btreeGist?: boolean;
   /** A store folder of the case's own: its cluster is opened and stopped with the owner. */
@@ -109,7 +112,11 @@ async function dropDatabase(socketDir: string, database: string): Promise<void> 
 export async function createTestDatabaseOwner(options: TestDatabaseOptions = {}): Promise<DatabaseOwner> {
   // A store of the case's own opens its own cluster and needs no run server: a compiled driver (`queue-binary-driver.ts`,
   // `fill-crash-driver.ts`) is no test run at all.
-  if (options.store !== undefined) return await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
+  if (options.store !== undefined) {
+    const owner = await createDatabaseOwner({ store: options.store, ...(options.database === undefined ? {} : { database: options.database }) });
+    await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
+    return owner;
+  }
   // The run's server is started here, on the first case that needs one.
   await ensureRunPostgres();
   const socketDir = options.socket ?? testServerSocket();
@@ -119,6 +126,7 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   const database = options.database ?? `t_${String(process.pid)}_${String(made)}`;
   const own = options.database === undefined;
   const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(options.btreeGist === true ? { btreeGist: true } : {}) });
+  await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
   let closed: Promise<void> | undefined;
   return {
     location: owner.location,
@@ -150,8 +158,9 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
 export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string }): Promise<HistoryStore> {
   if (options.store !== undefined) {
     // A history of a store of its own: it opens and closes the store, and names it in the errors it reports.
-    const held = createHistoryStore({ store: options.store, clock: options.clock });
-    return { ...held, close: async () => { await held.close(); } };
+    const owner = await createTestDatabaseOwner({ store: options.store });
+    const held = createHistoryStore({ owner, clock: options.clock });
+    return { ...held, close: async () => { try { await held.close(); } finally { await owner.close(); } } };
   }
   const owner = await createTestDatabaseOwner();
   const history = createHistoryStore({ owner, clock: options.clock });

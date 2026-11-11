@@ -17,6 +17,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { fillInProcess } from './fill-inline.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-product-'));
@@ -63,6 +64,7 @@ beforeAll(async () => {
   connectedCommit = run(connected, 'rev-parse', 'HEAD');
   mkdirSync(path.join(PRODUCT, 'repos'), { recursive: true });
   symlinkSync(connected, path.join(PRODUCT, 'repos', 'sample'), 'dir');
+  await fillInProcess(PRODUCT, path.join(HOME, 'products'));
   session = await RepositorySession.open({ repository: PRODUCT, env: { ...process.env, MADARCH_HOME: HOME } });
 }, 600_000);
 

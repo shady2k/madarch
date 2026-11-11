@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
+import { fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
 import { commitWithPaths as commitFacts } from '../src/graph/records.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
@@ -77,8 +77,7 @@ beforeAll(async () => {
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
   two = commitAll('two');
-  owner = await createTestDatabaseOwner({});
-  await createRecordSchema(owner);
+  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
 });
 
 afterAll(async () => {

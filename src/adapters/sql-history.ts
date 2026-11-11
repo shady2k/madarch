@@ -16,6 +16,7 @@ import type {
 import { byCodePoint } from '../model/order.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { createDatabaseOwner, type DatabaseClusterRef, type DatabaseOwner, type OuterTransaction } from './database-owner.js';
+import { requireSchema } from './store-readiness.js';
 
 export interface HistoryStoreOptions {
   /** The store the history keeps its tables in; omitted for a private database in the temporary folder, removed with the history. */
@@ -221,45 +222,6 @@ async function closeAssertionRows(executor: Executor, recordedTo: number, rows: 
 }
 
 /**
- * The history's own tables, created once per database the history is given
- * — its own, or the process's shared owner — before any operation runs.
- * Each statement is separate: the owner's `transaction` runs statements one
- * at a time through the port both adapters share.
- */
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS assertions (
-    source TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    valid_from DOUBLE PRECISION NOT NULL,
-    valid_to DOUBLE PRECISION,
-    opened_by TEXT NOT NULL,
-    closed_by TEXT,
-    recorded_from DOUBLE PRECISION NOT NULL,
-    recorded_to DOUBLE PRECISION
-  )`,
-  `CREATE INDEX IF NOT EXISTS assertions_current ON assertions (source, kind, entity_id, recorded_to)`,
-  `CREATE INDEX IF NOT EXISTS assertions_time ON assertions (valid_from, valid_to, recorded_from, recorded_to)`,
-  `CREATE INDEX IF NOT EXISTS assertions_other ON assertions (kind, recorded_to, source)`,
-  `CREATE TABLE IF NOT EXISTS source_commits (
-    source TEXT NOT NULL,
-    commit_id TEXT NOT NULL,
-    committed_at DOUBLE PRECISION NOT NULL,
-    content_digest TEXT NOT NULL,
-    recorded_at DOUBLE PRECISION NOT NULL,
-    canonical_digest TEXT NOT NULL,
-    PRIMARY KEY (source, commit_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS source_commits_order_c ON source_commits (source, committed_at, commit_id COLLATE "C")`,
-  `CREATE TABLE IF NOT EXISTS source_registry (
-    source TEXT PRIMARY KEY,
-    id TEXT NOT NULL UNIQUE,
-    former_names TEXT NOT NULL
-  )`,
-] as const;
-
-/**
  * The history store over a PostgreSQL database: the owner lent in
  * `options.owner` (the process's one database, shared with the query
  * projection), or a store's owner opened at `options.store` and closed by
@@ -275,15 +237,11 @@ export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
   /** The owner, opened on first use: a store's cluster is started there, and a history no operation touched opens nothing. */
   let openedOwner: DatabaseOwner | undefined = options.owner;
   let location = options.owner?.location ?? (options.store === undefined ? 'a private database' : `${options.store} (${options.database ?? 'madarch'})`);
-  // The tables are created before the first operation, and the transaction
-  // that creates them is queued on the owner at once — before this function
-  // returns, so ahead of any later work on the owner, its close included. A
-  // caller that constructs a history from inside a transaction of the same
-  // owner would deadlock on that order, and is a defect this adapter does
-  // not serve.
+  // Readiness is checked before any history operation can use this owner.
   const opened = (async () => {
     try {
       const owner = openedOwner ?? await createDatabaseOwner({
+        connectOnly: true,
         // A cluster another part of the run holds is opened on its own; `store` then only names the place a message
         // speaks of.
         ...(options.store === undefined || options.cluster !== undefined ? {} : { store: options.store }),
@@ -293,22 +251,7 @@ export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
       openedOwner = owner;
       // A store names the place a message speaks of; only a history with no store of its own is named by the owner.
       if (options.store === undefined) location = owner.location;
-      await owner.transaction('write', async (transaction) => {
-        for (const statement of SCHEMA) await transaction.query(statement);
-        const columns = await transaction.query<{ column_name: string }>(
-          "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'source_commits'",
-        );
-        if (!columns.rows.some((column) => column.column_name === 'canonical_digest')) {
-          const legacyCommit = await transaction.query<{ source: string; commit_id: string }>(
-            'SELECT source, commit_id FROM source_commits ORDER BY source, committed_at, commit_id LIMIT 1',
-          );
-          if (legacyCommit.rows.length > 0) {
-            const row = legacyCommit.rows[0]!;
-            throw new Error(`the history database "${location}" holds commit "${row.commit_id}" of source "${row.source}" without a canonical model digest; the stored assertions cannot faithfully recover the model's original array order, so the history must be migrated by a server that still has the original sent models`);
-          }
-          await transaction.query('ALTER TABLE source_commits ADD COLUMN canonical_digest TEXT');
-        }
-      });
+      await requireSchema(owner, 'history');
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(errorMessage(error), { cause: error });
       throw new Error(`the history directory "${location}" cannot be opened: ${errorMessage(error)}`, { cause });
@@ -690,10 +633,11 @@ export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
   }
 
   async function renameSource(from: string, to: string, registryInput?: SourceRegistry, outer?: OuterTransaction): Promise<void> {
-    // Keep validation and mutation in one transaction. Yielding between them
-    // lets concurrent async callers both validate the same source.
+    // Lock the commits before validation so concurrent renames cannot both
+    // validate the old source name before either updates it.
     await opened;
     await write(outer, async (tx) => {
+      await tx.query('SELECT source FROM source_commits ORDER BY source, commit_id FOR UPDATE');
       const { selectSources, renameRegistry, upsertRegistry, renameCommitSource, renameAssertionSource } = statements(tx);
       const held = (await selectSources.all()).map((row) => row.source).sort(byCodePoint);
       if (held.length !== 1 || held[0] !== from) {

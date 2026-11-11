@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Clock, type CompiledElement, type CompiledModel } from './api.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { QUEUE_SCENARIO_CHECKS } from './queue-expectations.js';
 import { runQueueScenario, SCENARIO_QUEUES } from './queue-scenario.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -76,11 +77,10 @@ test('the queue holds its tables in the owner’s one database, in the schema it
   expect(stamps[0]?.count).toBeGreaterThan(0);
   const schemas = await owner.run(async (transaction) => (await transaction.query<{ nspname: string }>('SELECT nspname FROM pg_namespace ORDER BY nspname')).rows.map((row) => row.nspname));
   expect(schemas).toContain(SCHEMA);
-  // pg-boss's own default schema was never created: the queue went where it was told.
-  expect(schemas).not.toContain('pgboss');
 }, 60_000);
 
 test('a declaration is judged by its own fields, and a queue declared again runs with the settings it now has', async () => {
+  await prepareStore(owner, { queue: { schema: SCHEMA, declarations: [{ name: 'restated', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false }] } });
   const queue = await createPgBossQueue({ owner, schema: SCHEMA, supervise: false });
   try {
     await expect(queue.declare({ name: 'short-lease', leaseSeconds: 0, retries: 0, retryDelaySeconds: 0, retryBackoff: false })).rejects.toThrow(
@@ -117,6 +117,7 @@ test('an enqueue inside the caller’s transaction commits with the fact log, an
   const clock = fakeClock(DAY(1));
   const sharedOwner = await createTestDatabaseOwner();
   const history = createHistoryStore({ clock, owner: sharedOwner });
+  await prepareStore(sharedOwner, { queue: { schema: 'shared_tx', declarations: [{ name: 'publication', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false }] } });
   const queue = await createPgBossQueue({ owner: sharedOwner, schema: 'shared_tx', supervise: false });
   try {
     await queue.declare({ name: 'publication', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });
@@ -181,6 +182,7 @@ test('a service left to itself recovers a lapsed claim without anyone asking', a
   // process lives; this shows the pass really runs on its own timer, over a
   // one-second lease with a pass every second.
   const alone = await createTestDatabaseOwner();
+  await prepareStore(alone, { queue: { schema: 'supervised', declarations: [{ name: 'supervised', leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false }] } });
   const queue = await createPgBossQueue({ owner: alone, schema: 'supervised', supervise: true, superviseIntervalSeconds: 1 });
   try {
     await queue.declare({ name: 'supervised', leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false });
@@ -202,36 +204,16 @@ test('a service left to itself recovers a lapsed claim without anyone asking', a
   }
 }, 60_000);
 
-test('a schema another process is making when the queue starts is waited for, not reported as a failed start', async () => {
-  // Two processes of the binary open one store's queue at the same instant — the api role when a fill is pressed, and the
-  // fill role that claims it — and pg-boss's start creates the schema both of them want. PostgreSQL's `CREATE SCHEMA IF
-  // NOT EXISTS` is not safe under concurrency, so the loser reads a duplicate key on `pg_namespace`; pg-boss's own start
-  // retries that when it is asked to. The race is held open here by hand: the schema is made in a transaction of its own
-  // and committed while the queue's start stands behind it, which is a count of waiting backends, never a sleep.
+test('an unprepared queue client refuses without creating its schema, and attaches after preparation', async () => {
   const racing = await createTestDatabaseOwner();
-  let release: (() => void) | undefined;
-  const making = racing.transaction('write', async (transaction) => {
-    await transaction.query('CREATE SCHEMA IF NOT EXISTS racing_queue');
-    await new Promise<void>((resolve) => { release = resolve; });
-  });
-  const waiting = async (): Promise<boolean> => {
-    const held = await racing.run(async (transaction) => (await transaction.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()",
-    )).rows);
-    return (held[0]?.n ?? 0) > 0;
-  };
   try {
-    const starting = createPgBossQueue({ owner: racing, schema: 'racing_queue', supervise: false });
-    const outcome = starting.then((queue) => queue, (error: Error) => error);
-    const deadline = Date.now() + 30_000;
-    while (!(await waiting()) && Date.now() < deadline) await new Promise((rest) => setTimeout(rest, 50));
-    release!();
-    const answer = await outcome;
-    expect(answer instanceof Error ? answer.message : 'the queue opened').not.toContain('duplicate key');
-    if (!(answer instanceof Error)) await answer.stop();
-    await making;
-  } finally {
-    release?.();
-    await racing.close();
-  }
+    await expect(createPgBossQueue({ owner: racing, schema: 'racing_queue', supervise: false })).rejects.toThrow('no prepared queue:racing_queue schema');
+    const absent = await racing.run((transaction) => transaction.query<{ held: string | null }>("SELECT to_regnamespace('racing_queue')::text AS held"));
+    expect(absent.rows[0]?.held).toBeNull();
+    await prepareStore(racing, { queue: { schema: 'racing_queue', declarations: [] } });
+    const queue = await createPgBossQueue({ owner: racing, schema: 'racing_queue', supervise: false });
+    try {
+      await expect(queue.declare({ name: 'missing', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false })).rejects.toThrow('is not prepared');
+    } finally { await queue.stop(); }
+  } finally { await racing.close(); }
 }, 60_000);

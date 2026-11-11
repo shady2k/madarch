@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * A product that is only a tracker (decision 0034, item 14): its manifest declares two Markdown kinds
  * and binds no capability. It opens, fills and serves its wiki, and its store holds the mechanism
@@ -12,7 +14,7 @@ import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/databas
 import { runFill } from '../src/fill/run.js';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { startServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 
@@ -74,7 +76,7 @@ afterAll(() => {
 
 describe('a product that is only a tracker', () => {
   test('opens, fills and serves with no code table in its store', async () => {
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     let owner: DatabaseOwner | undefined;
     try {
       // The manifest stands in the repository and no fill has read it: the second state, `not-filled`, and the graph
@@ -90,7 +92,9 @@ describe('a product that is only a tracker', () => {
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
       owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
-      const filled = await runFill({ product, database: owner, store, home, runId: 'tracker-only' });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const preparedOwner = owner;
+      const filled = await runFill({ product, database: owner, store, home, runId: 'tracker-only', prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
       expect(filled.ok).toBe(true);
       if (!filled.ok) return;
       // The fill runs the product repository's files as mechanism state (madarch-hsqs stage C): one tree unit, and no

@@ -9,7 +9,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { commitProduct, makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
@@ -49,7 +50,7 @@ beforeAll(async () => {
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   // The Problems page reads the graph: one pass of the files producer in this process stores the product repository.
   await fillInProcess(folder, home, join(work, 'store'));
   await get('/api/status');

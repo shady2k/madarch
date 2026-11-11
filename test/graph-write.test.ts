@@ -1,3 +1,4 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The graph's one writer (decision 0035, items 6 and 7; the amendment of 2026-11-10): the contract a manifest's field
  * bindings make, and the rows a producer's answer becomes — a vertex with its key, one opinion of the kind's fields per
@@ -8,14 +9,13 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { generatedTableName } from '../src/graph/contract.js';
-import { createRecordSchema, publishTree } from '../src/graph/records.js';
+import { publishTree } from '../src/graph/records.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { createTestDatabaseOwner } from './test-database.js';
+import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
 import { ensureEdges, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
@@ -74,8 +74,7 @@ beforeAll(async () => {
   const read = parseKinds(await Bun.file(join(folder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', folder);
   expect(read.findings).toEqual([]);
   contract = manifestContractOf(read);
-  owner = await createTestDatabaseOwner();
-  await createOneGraphSchema(owner, contract);
+  owner = await createTestDatabaseOwner({ graphContract: contract });
 });
 
 afterAll(async () => { await owner.close(); });
@@ -249,7 +248,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       ],
       edge: [], dictionary: [],
     };
-    await createOneGraphSchema(owner, graph);
+    await prepareStore(owner, { contract: graph });
     const page: VertexDraft = { kind: 'doc.page', key: { repo: { kind: 'doc.term', key: { name: 'Nowhere' } }, path: 'a.md' }, values: { title: 'A page' }, producer: 'glossary', producerVersion: '1.0.0' };
     const written = await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: page }]));
     expect(written).toBeGreaterThan(0);
@@ -335,7 +334,7 @@ describe('the manifest makes the table and the writer fills it', () => {
   });
 
   test('a store whose graph predates this shape resets as one and needs a fill; the journal is kept', async () => {
-    const old = await createTestDatabaseOwner();
+    const old = await createDatabaseOwner({ cluster: await testStoreServer(), database: `legacy_${crypto.randomUUID().replaceAll('-', '')}` });
     try {
       // The pre-change shape, as this repository held it: `kind`, `node(kind_id)`, `edge(kind_id)`, `claim`, `evidence`.
       for (const statement of [
@@ -350,7 +349,7 @@ describe('the manifest makes the table and the writer fills it', () => {
         `INSERT INTO node (kind_id) SELECT id FROM kind WHERE name = 'file'`,
         `INSERT INTO operation (id, author, change) SELECT gen_random_uuid(), id, '{}'::jsonb FROM node LIMIT 1`,
       ]) await old.run(async (tx) => await tx.query(statement));
-      const made = await createOneGraphSchema(old);
+      const made = await prepareStore(old);
       expect(made.reset).toBe(true);
       const tables = await old.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname IN ('claim', 'evidence', 'kind')`));
       expect(tables.rows).toEqual([]);
@@ -361,7 +360,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       const journal = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string; author: string; author_node: string | null }>('SELECT count(*)::text AS n, min(author) AS author, min(author_node::text) AS author_node FROM operation'));
       expect(journal.rows[0]).toEqual({ n: '1', author: '', author_node: null });
       // The empty graph takes a fill: a publication writes its rows again.
-      await createRecordSchema(old);
+      await prepareStore(old, { contract: GIT_CONTRACT });
       const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [] });
       expect(counts.inserted).toBeGreaterThan(0);
     } finally {
@@ -374,7 +373,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     try {
       // A store as d633a460's shape made it: the current tables, no revision row, and a journal without its order
       // column. Its file opinion carries a programming language where the old meaning kept one — in `lang`.
-      await createOneGraphSchema(old, GIT_CONTRACT);
+      await prepareStore(old, { contract: GIT_CONTRACT });
       const made = await old.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'r' } }, path: 'a.ts' } }));
       await old.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: made.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript'] } }));
       await old.run(async (tx) => await tx.query(`UPDATE ${GIT_TABLES.file} SET lang = 'TypeScript', language = NULL`));
@@ -382,7 +381,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       await old.run(async (tx) => await tx.query(`DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph-revision'`));
       await old.run(async (tx) => await tx.query('ALTER TABLE operation DROP COLUMN seq'));
       // The revision moved: the store's rows mean something else now, so the graph is reset as a whole and asks for a fill.
-      const reset = await createOneGraphSchema(old, GIT_CONTRACT);
+      const reset = await prepareStore(old, { contract: GIT_CONTRACT });
       expect(reset.reset).toBe(true);
       const opinions = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file}`));
       expect(opinions.rows[0]?.n).toBe('0');
@@ -391,7 +390,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       const marks = await old.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT name FROM madarch_meta.schema_stamp WHERE name IN ('graph-reset', 'one-graph-revision') ORDER BY name`));
       expect(marks.rows.map((row) => row.name)).toEqual(['graph-reset', 'one-graph-revision']);
       // A second open finds the revision it wrote, and resets nothing again.
-      expect((await createOneGraphSchema(old, GIT_CONTRACT)).reset).toBe(false);
+      expect((await prepareStore(old, { contract: GIT_CONTRACT })).reset).toBe(false);
       const kept = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'));
       expect(kept.rows[0]?.n).toBe('1');
     } finally {
@@ -415,7 +414,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       vertex: [...contract.vertex, { name: 'doc.note', table: generatedTableName('doc.note', 'vertex'), fields: [{ name: 'text', type: 'text' }], key: [], capability: 'glossary' }],
       edge: [], dictionary: [],
     };
-    await createOneGraphSchema(owner, graph);
+    await prepareStore(owner, { contract: graph });
     const note = (text: string): VertexDraft => ({ kind: 'doc.note', key: {}, values: { text }, producer: 'glossary', producerVersion: '1.0.0' });
     await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: note('one') }]));
     await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: note('two') }]));
@@ -483,7 +482,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       edge: [{ name: 'doc.links', table: generatedTableName('doc.links', 'edge'), from: ['doc.page'], to: ['doc.page'], repeats: false, fields: [], capability: 'glossary' }],
       dictionary: [],
     };
-    await createOneGraphSchema(owner, graph);
+    await prepareStore(owner, { contract: graph });
     const page = (title: string): VertexDraft => ({ kind: 'doc.page', key: { title }, values: {}, producer: 'glossary', producerVersion: '1.0.0' });
     const links = { kind: 'doc.links', from: { kind: 'doc.page', key: { title: 'A' } }, to: { kind: 'doc.page', key: { title: 'Missing' } }, producer: 'glossary', producerVersion: '1.0.0' };
     const once = async (): Promise<void> => { await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: page('A') }, { kind: 'edge', evidence: 'x', value: links }])); };
@@ -555,7 +554,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       edge: [{ name: 'doc.links', table: generatedTableName('doc.links', 'edge'), from: ['doc.page'], to: ['doc.page'], repeats: false, fields: [], capability: 'glossary' }],
       dictionary: [],
     };
-    await createOneGraphSchema(owner, graph);
+    await prepareStore(owner, { contract: graph });
     // Two vertices of the links kind's ends, declared by the writer, so the edge has something to name.
     for (const title of ['From', 'To']) await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: { kind: 'doc.page', key: { title }, values: {}, producer: 'glossary', producerVersion: '1.0.0' } }]));
     const ids = await owner.transaction('snapshot', async (tx) => await tx.query<{ id: string; name: string }>(

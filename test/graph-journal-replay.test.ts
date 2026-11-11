@@ -1,3 +1,4 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The journal is the history (decision 0034, A6): rows hold the present, and history is a snapshot plus the journal's
  * replay. This file plays a sequence of the writer's changes against a real store — declarations, changed values,
@@ -10,7 +11,6 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
 import { canonicalJson, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishOpinion, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
@@ -289,8 +289,8 @@ describe('a replay over the journal answers the store', () => {
       const source = await createTestDatabaseOwner();
       const target = await createTestDatabaseOwner();
       try {
-        await createOneGraphSchema(source, GIT_CONTRACT);
-        await createOneGraphSchema(target, GIT_CONTRACT);
+        await prepareStore(source, { contract: GIT_CONTRACT });
+        await prepareStore(target, { contract: GIT_CONTRACT });
         const steps = sequence(seed);
         // The state after every step, and how many journal rows existed then: the cut points the replay is held to.
         const states: Record<string, unknown>[] = [];

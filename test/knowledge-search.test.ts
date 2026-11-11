@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, writeSamplePages } from './knowledge-fixture.js';
 
@@ -43,7 +44,7 @@ beforeAll(async () => {
   const app = join(work, 'app');
   mkdirSync(app, { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
-  server = await startServer({ productFolder: product, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
+  server = await startPreparedServer({ productFolder: product, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
   // The fixture product holds its own copy of the starter set; the pages then stand in the product's repository.
   const seeded = await fetch(`${server.url}/api/status`);
   expect(seeded.status).toBe(200);

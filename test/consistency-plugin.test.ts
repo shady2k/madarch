@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The consistency plugin's engine side (madarch-stm0.7.1): a whole-graph plugin is planned in its own stage only after
  * every plugin turn published, reads the writer's records through the host one bounded page at a time, and answers one
@@ -146,7 +148,9 @@ afterAll(async () => {
 describe('a whole-graph fixture plugin reads through the host and runs last', () => {
   test('a consistent fill states no finding', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'consistent', home: join(root, 'home') });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    const preparedOwner = owner;
+    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.state).toBe('succeeded');
@@ -164,7 +168,9 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
       vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' }],
       removals: [],
     }, 1));
-    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.opinion'] }, runId: 'unevidenced', home: join(root, 'home') });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    const preparedOwner = owner;
+    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.opinion'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.state).toBe('succeeded');
@@ -187,7 +193,9 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     }, 1));
     expect((await unresolvedReferences(owner, { limit: 10 })).rows.map((one) => one.edge === undefined ? 'key' : 'edge')).toEqual(['key']);
     expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['contains']);
-    const alone = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home') });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    const preparedOwner = owner;
+    const alone = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(alone.ok).toBe(true);
     if (!alone.ok) return;
     expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:whole-graph@')]);
@@ -203,7 +211,9 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     writeFileSync(join(repositoryFolder, 'src', 'a.ts'), 'export const a = 2;\n');
     git(repositoryFolder, 'add', '-A');
     git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
-    const fixed = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'fixed', home: join(root, 'home') });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    const preparedOwner = owner;
+    const fixed = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(fixed.ok).toBe(true);
     if (!fixed.ok) return;
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);

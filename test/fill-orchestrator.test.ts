@@ -16,6 +16,7 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
+import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageExecutionResult, type StageUnitScope } from '../src/fill/stage.js';
@@ -882,7 +883,7 @@ describe('the service the background server owns', () => {
     }
   });
 
-  test('a wired service opens the store it is given, runs a fill to its end and closes what it opened', async () => {
+  test('a wired service opens the store it is given, runs a fill to its end and closes what it opened', async () => await withStorePreparationOwner(async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-host-'));
     // The store is the caller's: a service is given the product's store, never a home to guess one from.
     const databasePath = join(home, 'store', 'graph');
@@ -900,6 +901,7 @@ describe('the service the background server owns', () => {
         }),
       });
       expect(existsSync(databasePath)).toBe(false);
+      await requestStorePreparation(databasePath);
       const result = await service.run({ product: { name: 'fixture-product', folder: home }, runId: 'run-host-1', workers: 2 });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -925,7 +927,7 @@ describe('the service the background server owns', () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
-  });
+  }));
 
   test('a service given no store refuses a run by name and opens nothing', async () => {
     const home = await mkdtemp(join(tmpdir(), 'madarch-fill-nostore-'));

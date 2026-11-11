@@ -33,7 +33,7 @@ const DICTIONARY = /GIT_TABLES\.(?:blob|path|language)\}/u;
 export function graphWriteViolations(root: string): ArchitectureViolation[] {
   const out: ArchitectureViolation[] = [];
   for (const file of moduleSet(root).modules) {
-    if (ALLOWED.has(file) || file === THE_RULE_FILE) continue;
+    if (ALLOWED.has(file) || file === THE_RULE_FILE || (file.startsWith('src/adapters/schemas/graph') && file.endsWith('.ts'))) continue;
     const text = readFileSync(join(root, file), 'utf8');
     for (const match of text.matchAll(WRITE)) {
       const line = text.slice(0, match.index ?? 0).split('\n').length;

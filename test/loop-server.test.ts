@@ -4,10 +4,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { authoredEnv, authoredFixture } from './authored-fixture.js';
+import { startPreparedServer } from './prepared-server.js';
 
 let work: string;
 let folder: string;
@@ -26,7 +27,7 @@ beforeAll(async () => {
   store = productStoreFolder(folder, knowledgeRootOf(home));
   const app = join(work, 'app');
   mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
-  server = await startServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: () => {} });
+  server = await startPreparedServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: () => {} });
   base = `${server.url}/products/authored/api`;
 }, 60_000);
 afterAll(async () => { await server?.stop(); if (work) rmSync(work, { recursive: true, force: true }); });

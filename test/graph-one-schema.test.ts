@@ -6,7 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createOneGraphSchema, FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from '../src/graph/one-graph.js';
+import { FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from '../src/graph/one-graph.js';
 import { OPINION_FIELDS, generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -24,8 +24,7 @@ const RECORD_TABLES = [
 let owner: DatabaseOwner | undefined;
 
 beforeAll(async () => {
-  owner = await createTestDatabaseOwner({});
-  await createOneGraphSchema(owner, GIT_CONTRACT);
+  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
 });
 
 afterAll(async () => {

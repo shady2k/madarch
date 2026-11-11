@@ -12,7 +12,7 @@ import { starterPageKindNames } from '../src/knowledge/seed.js';
 import { STARTER_TEMPLATES, templateMenuLines } from '../src/knowledge/starter-templates.js';
 import { checkStarterTemplate } from '../scripts/template-check.js';
 import { createDraft } from '../src/product/draft.js';
-import { startServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 
@@ -96,7 +96,7 @@ describe('the templates madarch new offers', () => {
   });
 
   test('a product made from a template reads not-filled before any fill, and a scratch product reads no-manifest', async () => {
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       for (const template of STARTER_TEMPLATES) {
         const answer = await fetch(`${server.url}/products/${encodeURIComponent(template.id)}/api/status`, { headers: { accept: 'application/json' } });
