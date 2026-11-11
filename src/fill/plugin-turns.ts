@@ -25,9 +25,8 @@ import { graphFiles, producerEdges, producerEntities, writeRequestEntry } from '
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf } from '../plugin/closure.js';
-import { PluginHost, RequestLog, type GraphAnswerer } from '../plugin/host.js';
+import type { GraphAnswerer, RequestLog } from '../plugin/host.js';
 import { canonicalKey } from '../plugin/results.js';
-import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
@@ -348,6 +347,8 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
 }
 
 export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal): Promise<void> {
+  const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
+  const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
   // The unit's meter (madarch-stm0.4): the agent part of this plugin hands it each ACP session update, and what it holds
   // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
@@ -358,7 +359,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
   const workRoot = mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-'));
-  const requests: RequestLog | undefined = wiring.debug === true ? new RequestLog() : undefined;
+  const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
   let agentReport: PluginAgentReport | undefined;
   const catalogue = unit.plugin.contract?.agent?.catalogue === true;
   const outputs = {
