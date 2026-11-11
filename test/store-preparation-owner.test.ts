@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { publishStoreOwner, requestHistoryPreparation, requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
@@ -30,11 +31,11 @@ test('owner prepares pinned contracts and new source databases for attach-only r
       try {
         await expect(withStorePreparationOwner(async () => undefined)).rejects.toThrow('cannot own schema preparation');
         const client = await createDatabaseOwner({ store, connectOnly: true });
-        try { await createOneGraphSchema(client, GIT_CONTRACT); } finally { await client.close(); }
+        try { await createOneGraphSchema(client, withManifestContract(GIT_CONTRACT)); } finally { await client.close(); }
         const changed: GraphContract = { vertex: [{ name: 'owner_added', table: 'owner_added_opinions', capability: 'test', fields: [{ name: 'label', type: 'text' }], key: ['label'] }], edge: [], dictionary: [] };
         await requestStorePreparation(store, changed);
         const changedClient = await createDatabaseOwner({ store, connectOnly: true });
-        try { await createOneGraphSchema(changedClient, changed); } finally { await changedClient.close(); }
+        try { await createOneGraphSchema(changedClient, withManifestContract(changed)); } finally { await changedClient.close(); }
         await requestHistoryPreparation(store, 'h_added_source');
         const history = await createDatabaseOwner({ store, database: 'h_added_source', connectOnly: true });
         try {
