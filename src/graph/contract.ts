@@ -316,9 +316,12 @@ async function makeDictionary(tx: OuterTransaction, table: string, dictionary: D
     [`${table}_${dictionary.key.join('_')}_key`],
   );
   const definition = held.rows[0]?.definition;
+  // `pg_get_indexdef` spells a simple identifier without quotes, so the key's columns are compared as the database
+  // writes them. The quoted spelling never matched, and a migration dropped and made every dictionary's key index
+  // (madarch-8bdc.2.9).
   if (definition === undefined) {
     await tx.query(`CREATE UNIQUE INDEX ${index} ON ${name} (${wanted})`);
-  } else if (!definition.includes(`(${dictionary.key.map((column) => `"${column}"`).join(', ')})`)) {
+  } else if (!definition.includes(`(${dictionary.key.join(', ')})`)) {
     await tx.query(`DROP INDEX ${index}`);
     await tx.query(`CREATE UNIQUE INDEX ${index} ON ${name} (${wanted})`);
   }
