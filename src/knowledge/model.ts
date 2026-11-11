@@ -296,7 +296,7 @@ type BlockShape =
   | { type: 'guide'; data: GuidePageData }
   | { type: 'markdown'; markdown: string }
   | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
-  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; definedIn: string | null; usages: { location: string; count: number }[]; usageCount: number; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | DiagramsBlockShape

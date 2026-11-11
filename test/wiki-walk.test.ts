@@ -103,7 +103,7 @@ function cleanBlocks(language: string): Block[] {
       members: [{ anchor: 'op-list', label: 'listOrders', href: null }], membersTotal: 1, membersShown: 1, memberCuts: [],
       spec: { text: 'openapi: 3.0.0', lines: 1 },
     },
-    { type: 'term', title: word(language, 'Term', 'Термин'), definition: 'An order is a request to buy something from the shop.', synonyms: ['purchase'], code: [], usedIn: null, ambiguous: null },
+    { type: 'term', title: word(language, 'Term', 'Термин'), definition: 'An order is a request to buy something from the shop.', synonyms: ['purchase'], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null },
   ];
 }
 
@@ -449,7 +449,7 @@ describe('the shapes a reader meets are read, not skipped', () => {
   test('a synonym is a name, not a sentence in another language', () => {
     const findings = inspectPage({
       id: 'term:order', kind: 'term', title: 'Заказ', trail: [],
-      blocks: [{ type: 'term', title: 'Термин', definition: 'Заказ — это просьба купить что-нибудь в магазине.', synonyms: ['Kubernetes'], code: [], usedIn: null, ambiguous: null }],
+      blocks: [{ type: 'term', title: 'Термин', definition: 'Заказ — это просьба купить что-нибудь в магазине.', synonyms: ['Kubernetes'], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null }],
       resolutions: {}, findings: [], notes: [],
     }, inspectOptions('ru'));
     expect(findings).toEqual([]);

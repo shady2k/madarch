@@ -37,6 +37,7 @@ const GLOSSARY = `# Glossary
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases that fill are skipped with it, never passed. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -121,16 +122,15 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     expect(listed.terms.find((term) => term.title === 'Fill')?.definition).toBe('the one run that reads a product\'s repositories and writes its graph.\nA second fill finds what the first published and writes only what moved.');
     expect(listed.terms.find((term) => term.title === 'Fill')?.synonyms).toEqual(['body fill']);
     expect(listed.terms.find((term) => term.title === 'Fill')?.code).toEqual(['fillRun']);
-    // The listing's place column states where the definition stands; the term's own place is not said twice there.
-    expect(listed.terms.find((term) => term.title === 'Fill')?.usedIn).toBeNull();
+    expect(listed.terms.find((term) => term.title === 'Fill')?.definedIn).toContain('docs/glossary.md:3');
 
     const page = await product.page('doc.term:Fill');
     if (!page.ok) throw new Error(page.message);
     const block = termBlock(page.page);
     expect(block.definition).toContain('the one run that reads');
     // The page links to the lines the definition stands on: the file, and the first line of the item.
-    expect(block.usedIn).toContain('docs/glossary.md:3');
-    expect(block.usedIn).toContain('/src?path=docs%2Fglossary.md&line=3');
+    expect(block.definedIn).toContain('docs/glossary.md:3');
+    expect(block.definedIn).toContain('/src?path=docs%2Fglossary.md&line=3');
     expect(page.page.findings).toEqual([]);
     // One journal entry for the plugin's turn, authored by the plugin and its version, naming the term vertices it
     // declared, the opinions it opened and the requests it made (the debug setting is on).
@@ -143,9 +143,30 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     expect(plugin[0]?.change.opinions.every((one) => one.state === 'opened')).toBe(true);
     // Every request the plugin made is recorded where the host received it — its introduction too — with what came of
     // it and the size of its answer, never an argument or a text.
-    expect(plugin[0]?.change.reads?.map((one) => one.method)).toEqual(['introduce', 'graph.files', 'graph.value']);
-    expect(plugin[0]?.change.reads?.map((one) => one.outcome)).toEqual(['answered', 'answered', 'answered']);
-    expect(plugin[0]?.change.reads?.slice(1).every((one) => one.size > 0)).toBe(true);
+    expect(plugin[0]?.change.reads?.slice(0, 3).map((one) => one.method)).toEqual(['introduce', 'graph.files', 'graph.files']);
+    expect(plugin[0]?.change.reads?.every((one) => one.outcome === 'answered')).toBe(true);
+    expect(plugin[0]?.change.reads?.slice(1, 3).every((one) => one.size > 0)).toBe(true);
+  }, 300_000);
+
+  test('mentions added and removed outside the glossary move the next fill and never read the working tree', async () => {
+    const file = join(folder, 'docs', 'mentions.md');
+    writeFileSync(file, 'Fill fillRun body fill. refill fillRunExtra.\n');
+    commit('Mention the fill');
+    await refill();
+    let listed = await product.glossary();
+    const used = listed.terms.find((term) => term.title === 'Fill')!;
+    const mention = used.usages.find((one) => one.location.includes('docs/mentions.md:1'));
+    expect(mention?.count).toBe(3);
+    expect(mention?.location).toContain('/src?path=docs%2Fmentions.md&line=1');
+    expect(used.usageCount).toBe(used.usages.reduce((total, one) => total + one.count, 0));
+    writeFileSync(file, 'No mentions remain.\n');
+    // A read keeps the graph's published result until the edited file is committed and filled.
+    listed = await product.glossary();
+    expect(listed.terms.find((term) => term.title === 'Fill')?.usages).toEqual(used.usages);
+    commit('Remove the mention');
+    await refill();
+    listed = await product.glossary();
+    expect(listed.terms.find((term) => term.title === 'Fill')?.usages.some((one) => one.location.includes('docs/mentions.md'))).toBe(false);
   }, 300_000);
 
   test('an edited definition is the one the next fill shows, and the old value stays a claim of its own', async () => {

@@ -263,7 +263,7 @@ describe('the menu', () => {
 
 describe('the glossary table', () => {
   const term = (title: string, over: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
-    id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
+    id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null,
     repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false,
     href: `/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...over,
   });

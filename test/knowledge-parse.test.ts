@@ -239,7 +239,7 @@ describe('the starter set madarch new seeds', () => {
         'node_modules/libpg-query/wasm/index.js', 'node_modules/libpg-query/wasm/libpg-query.js', 'node_modules/libpg-query/wasm/libpg-query.wasm',
         'plugin.json',
       ].map((path) => `plugins/db-schema/${path}`),
-      'plugins/glossary/contract.json', 'plugins/glossary/main.ts', 'plugins/glossary/plugin.json',
+      'plugins/glossary/contract.json', 'plugins/glossary/main.ts', 'plugins/glossary/plugin.json', 'plugins/glossary/usages.ts',
       'templates/entity.liquid',
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
       'templates/partials/relations.liquid', 'templates/partials/history.liquid',

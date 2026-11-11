@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Input } from '@/components/ui/input.js';
+import { MetadataLine } from '@/components/ui/metadata-line.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getGlossary } from './api.js';
 import { KLink, KMarkdown } from './blocks.js';
@@ -156,8 +157,28 @@ function Ambiguity({ term, pageId, resolutions }: { term: Pick<GlossaryTerm, 'am
   );
 }
 
+/** Definition and mentions are separate facts, each on its own line. */
+function TermLocations({ term, resolutions }: { term: Pick<GlossaryTerm, 'definedIn' | 'usages' | 'usageCount'>; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <>
+      {term.definedIn !== null && <MetadataLine className="mt-1" label={t('knowledge.glossary.definedIn')} data-testid="term-defined-in">
+        <KMarkdown text={term.definedIn} resolutions={resolutions} />
+      </MetadataLine>}
+      <MetadataLine className="mb-2 mt-1" label={t('knowledge.glossary.usages', { count: term.usageCount })} data-testid="term-usages">
+        {term.usages.length === 0 ? t('knowledge.glossary.noUsages') : term.usages.map((usage) => (
+          <MetadataLine key={usage.location} data-testid="term-usage">
+            <KMarkdown text={usage.location} resolutions={resolutions} />
+            <Badge>{usage.count}</Badge>
+          </MetadataLine>
+        ))}
+      </MetadataLine>
+    </>
+  );
+}
+
 /** The block of a term's page. */
-export function TermBlockView({ block, pageId, resolutions }: { block: { definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }; pageId: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+export function TermBlockView({ block, pageId, resolutions }: { block: { definition: string; synonyms: string[]; code: string[]; definedIn: string | null; usages: { location: string; count: number }[]; usageCount: number; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }; pageId: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
   const { t } = useTranslation();
   const term = { ...block, id: pageId };
   return (
@@ -165,7 +186,7 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
       <KMarkdown text={upperFirst(block.definition)} resolutions={resolutions} exceptTerm={pageId} />
       <Names term={term as unknown as GlossaryTerm} />
       <Ambiguity term={term} pageId={pageId} resolutions={resolutions} />
-      {block.usedIn !== null && <div className="mb-2 flex flex-wrap items-baseline gap-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={block.usedIn} resolutions={resolutions} /></div>}
+      <TermLocations term={block} resolutions={resolutions} />
       {'localized' in block && block.localized !== undefined && <details className="mt-5 border-t border-line pt-4" data-testid="localized-source">
         <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
         <KMarkdown text={block.localized.original} resolutions={resolutions} />
@@ -229,7 +250,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
                     <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
                   </div>
                   <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
-                  {term.usedIn !== null && <div className="mt-1 flex flex-wrap items-baseline gap-2 text-small leading-snug"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}
+                  <TermLocations term={term} resolutions={glossary.resolutions} />
                   {term.source !== undefined && (
                     <details className="mt-1 border-t border-line pt-1" data-testid="localized-source">
                       <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>

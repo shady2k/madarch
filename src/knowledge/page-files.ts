@@ -602,12 +602,13 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
     case 'markdown':
       return { title: '', type: 'text', text: resolved(block.markdown), links: textLinks(block.markdown, page.resolutions, prefix) };
     case 'term': {
-      const text = [resolved(block.definition), block.usedIn === null ? '' : resolved(block.usedIn)].filter(Boolean).join('\n\n');
+      const usageText = block.usages.map((usage) => `${usage.location} (${String(usage.count)})`).join('\n');
+      const text = [resolved(block.definition), block.definedIn === null ? '' : resolved(block.definedIn), resolved(usageText)].filter(Boolean).join('\n\n');
       return {
         title: block.title,
         type: 'text',
         text,
-        links: textLinks([block.definition, block.usedIn ?? '', block.ambiguous ?? ''].join('\n\n'), page.resolutions, prefix),
+        links: textLinks([block.definition, block.definedIn ?? '', usageText, block.ambiguous ?? ''].join('\n\n'), page.resolutions, prefix),
         items: [
           ...block.synonyms.map((synonym) => ({ title: synonym, url: null, badge: 'synonym' })),
           ...block.code.map((entry) => ({ title: entry, url: null, badge: 'code' })),

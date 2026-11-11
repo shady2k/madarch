@@ -150,7 +150,7 @@ export type OverviewBlock = {
 type BlockShape =
   | { type: 'guide'; data: { guide: { id: string; kind: 'administrator-guide' | 'user-guide'; title: string; locale: 'en' | 'ru'; context: { valid: string; known: string; state: string; repositories: { name: string; commit: string }[] }; unitVersion: string; inputDigest: string; prerequisites: string[]; gaps: string[]; procedures: { id: string; title: string; goal: string; role: string; prerequisites: string[]; steps: { id: string; title: string; cwd: string; environment: string; inputs: { name: string; description: string; secret: boolean }[]; instruction: { kind: 'command' | 'http'; content: string }; expected: { status: number; observation: string }; grounds: { repository: string; commit: string; path: string; line: number; endLine: number }[] }[] }[] }; walk: { status: 'passed' | 'failed' | 'not-walked'; diagnostics: { file: string; line: number; path: string; code: string; message: string }[] }; markdown: string; diagnostics: { file: string; line: number; path: string; code: string; message: string }[]; coverage: 'procedures' | 'gap-only'; sourceViewWarning?: string; grounds: { procedure: string; step: string; repository: string; commit: string; path: string; line: number; endLine: number; href: string }[] } }
   | { type: 'markdown'; markdown: string }
-  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; definedIn: string | null; usages: { location: string; count: number }[]; usageCount: number; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
@@ -585,7 +585,7 @@ export type SourceFile = { history?: HistoryContext; repo: string | null; path: 
 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 
-export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; single: boolean; href: string };
+export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; definedIn: string | null; usages: { location: string; count: number }[]; usageCount: number; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; single: boolean; href: string };
 export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findingCount: number };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
