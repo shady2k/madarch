@@ -12,7 +12,7 @@ import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
 
 const RECORD_TABLES = [
   ...MECHANISM_TABLES,
@@ -98,7 +98,7 @@ describe('a vertex is identity and its key', () => {
     const nodeColumns = found.rows.filter((row) => row.table_name === 'node').map((row) => row.column_name);
     expect(nodeColumns.sort()).toEqual(['context_id', 'entity_id', 'id', 'key', 'removed', 'uid']);
     // The key is the vertex's: no entity's table repeats it as a column.
-    const perEntity = found.rows.filter((row) => !['node', 'entity', 'edge', 'context', 'layer_entry', 'operation', 'gap', GIT_TABLES.path, GIT_TABLES.language, GIT_TABLES.blob].includes(row.table_name));
+    const perEntity = found.rows.filter((row) => !['node', 'entity', 'edge', 'context', 'operation', GIT_TABLES.path, GIT_TABLES.language, GIT_TABLES.blob].includes(row.table_name));
     for (const row of perEntity) {
       if ([...OPINION_FIELDS, 'node_id', 'edge_id'].includes(row.column_name)) continue;
       expect({ table: row.table_name, column: row.column_name, key: row.column_name === 'name' || row.column_name === 'path' || row.column_name === 'hash' || row.column_name === 'email' }).not.toEqual({ table: row.table_name, column: row.column_name, key: true });

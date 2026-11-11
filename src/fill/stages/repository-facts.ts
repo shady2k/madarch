@@ -16,6 +16,7 @@ import * as languages from 'linguist-languages';
 import { withSpan } from '../../obs/trace.js';
 import { raise } from '../../model/raise.js';
 import { Type } from 'typebox';
+import { log } from '../../obs/log.js';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
@@ -305,8 +306,24 @@ function remoteAddressOf(remote: string): string {
 }
 
 /** Reads one repository's tree at one commit: `ls-tree -r -l` for the entries, one `diff --numstat` for text, lines and sizes. */
-export async function readRepositoryTree(pin: RepositoryAt): Promise<TreePublish> {
-  const gaps: { what: string; reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[] = [];
+/** What one pass could not read: a problem for a person, said in the run's log and trace (stage 3: `gap` is gone). */
+export interface ReadGap {
+  readonly what: string;
+  readonly reason: 'non-utf8-path' | 'shallow-history' | 'unreadable';
+}
+
+/** What the tree pass read, and what it could not read. The publisher takes the tree; the gaps stay the run's. */
+export interface RepositoryTreeRead extends TreePublish {
+  readonly gaps: readonly ReadGap[];
+}
+
+/** What the history pass read, what it could not read, and whether its clone was shallow. */
+export interface RepositoryHistoryRead extends HistoryPublish {
+  readonly gaps: readonly ReadGap[];
+}
+
+export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryTreeRead> {
+  const gaps: ReadGap[] = [];
   const entries: TreeEntry[] = [];
   const treeSplit = byteSplit();
   const takeTree = (record: Buffer): void => {
@@ -504,7 +521,7 @@ function entryWithoutNewline(record: Buffer): Buffer {
  * counts), so the two walks are one git call each, with the same format, joined by the commit and
  * the path. Both are git's own answers; nothing here parses source text.
  */
-export async function readRepositoryHistory(pin: RepositoryAt): Promise<HistoryPublish> {
+export async function readRepositoryHistory(pin: RepositoryAt): Promise<RepositoryHistoryRead> {
   type Touched = HistoryCommit['touched'][number];
   const gaps: RepositoryGap[] = [];
   const shallow = await shallowGapOf(pin);
@@ -650,6 +667,9 @@ export function createRepositoryTreeStage(wiring: RepositoryPassWiring): FillSta
         // (madarch-8bdc.2.5, item 4b: a scoped publication touches its scope only).
         scope: [...wiring.paths],
       };
+      // What the pass could not read is a problem for a person, not a graph row (stage 3: `gap` is gone): the run's log
+      // and trace name each one, and an unreadable file keeps its own opinion with no blob.
+      for (const gap of read.gaps) log.warn('the tree pass could not read', { repository: pin.repository, what: gap.what, reason: gap.reason });
       if (wiring.publishTree === undefined) raise(`the tree pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
       const counts = await wiring.publishTree(covered);
       context.progress(`${pin.repository} at ${pin.commit}: ${String(covered.files.length)} files, ${String(covered.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
@@ -675,8 +695,11 @@ export function createRepositoryHistoryStage(wiring: RepositoryPassWiring): Fill
     execute: async (unit: StageUnit, context): Promise<StageExecutionResult> => {
       const pin = await pinOf(wiring.sources, repositoryOfUnit(unit.id));
       const read = await readRepositoryHistory(pin);
+      for (const gap of read.gaps) log.warn('the history pass could not read', { repository: pin.repository, what: gap.what, reason: gap.reason });
       if (wiring.publishHistory === undefined) raise(`the history pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
-      const counts = await wiring.publishHistory(read);
+      // A shallow clone is a fact about what the pass was given, so the pass states it as its own opinion of the
+      // repository instead of a table of its own.
+      const counts = await wiring.publishHistory({ repository: read.repository, commits: read.commits, shallow: read.gaps.some((gap) => gap.reason === 'shallow-history') });
       context.progress(`${pin.repository}: ${String(read.commits.length)} commits, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };
     },

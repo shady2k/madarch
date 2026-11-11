@@ -132,7 +132,7 @@ async function factsOf(context: RecordContext): Promise<{ ok: true; facts: NonNu
 }
 
 /** The envelope every answer carries: the as-is commit, the changed paths and the recorded gaps. */
-function envelope(context: RecordContext, gaps: readonly { readonly what: string; readonly reason: string }[]): Record<string, unknown> {
+function envelope(context: RecordContext, historyShallow: boolean | null): Record<string, unknown> {
   return {
     source: {
       repository: context.source.repository,
@@ -141,7 +141,8 @@ function envelope(context: RecordContext, gaps: readonly { readonly what: string
       ...(context.source.head === null ? {} : { head: context.source.head }),
       changed: context.source.changed.map((one) => ({ path: one.path, status: one.status })),
     },
-    gaps: gaps.map((gap) => ({ what: gap.what, reason: gap.reason })),
+    // The history producer's own opinion of the repository: a shallow clone's walk is not the whole history.
+    historyShallow,
   };
 }
 
@@ -157,7 +158,7 @@ async function listFilesAnswer(context: RecordContext, args: Record<string, unkn
     const page = await readerOf(context).files(context.repository, { limit, ...(prefix === undefined ? {} : { prefix }), ...(language === undefined ? {} : { language }), ...(after === undefined ? {} : { after }) });
     return {
       answer: {
-        ...envelope(context, held.facts.gaps),
+        ...envelope(context, held.facts.historyShallow),
         repository: held.facts.name,
         files: page.rows.map(fileRow),
         next: page.next,
@@ -180,7 +181,7 @@ async function getFileAnswer(context: RecordContext, args: Record<string, unknow
   if (file === null) return fail('no-such-file', `the as-is commit ${held.facts.asIsCommit} holds no file ${JSON.stringify(path)}; list_files names the paths it holds (src/mcp/records.ts)`);
   return {
     answer: {
-      ...envelope(context, held.facts.gaps),
+      ...envelope(context, held.facts.historyShallow),
       repository: held.facts.name,
       ...fileRow(file),
       created: file.created,
@@ -208,7 +209,7 @@ async function getFileHistoryAnswer(context: RecordContext, args: Record<string,
   const page = await readerOf(context).fileHistory(context.repository, path, { limit, ...(after === undefined ? {} : { after: after.value }) });
   return {
     answer: {
-      ...envelope(context, held.facts.gaps),
+      ...envelope(context, held.facts.historyShallow),
       repository: held.facts.name,
       path,
       commits: page.rows.map((row) => ({
@@ -232,7 +233,7 @@ async function getCommitAnswer(context: RecordContext, args: Record<string, unkn
   if (commit === null) return fail('no-such-commit', `the store holds no commit ${JSON.stringify(hash)} of ${context.repository}; get_file_history answers the hashes it holds (src/mcp/records.ts)`);
   return {
     answer: {
-      ...envelope(context, held.facts.gaps),
+      ...envelope(context, held.facts.historyShallow),
       repository: held.facts.name,
       hash: commit.hash,
       author: { name: commit.author.name, email: commit.author.email },
@@ -257,7 +258,7 @@ async function getRepositoryAnswer(context: RecordContext): Promise<RecordToolAn
   if (facts === null) return notRun(context.repository, 'repository-tree', 'the store holds no repository node');
   return {
     answer: {
-      ...envelope(context, facts.gaps),
+      ...envelope(context, facts.historyShallow),
       repository: facts.name,
       url: facts.url,
       defaultBranch: facts.defaultBranch,
