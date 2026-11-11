@@ -10,8 +10,7 @@ import { headCommitOf } from '../product/fill-updates.js';
 import { KINDS_FILE, readKindsFrom, type Finding, type KindsManifest } from '../product/manifest/kinds.js';
 import { workingTreeFiles, type ProductFileRead } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
-import { parsePluginLock, PLUGINS_LOCK_FILE } from '../plugin/lock.js';
-import { parsePluginManifest, ClosureRefusal } from '../plugin/closure.js';
+import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -45,19 +44,7 @@ export function validateProductManifests(productFolder: string, files: ProductFi
   const findings: Finding[] = read.present ? [...read.manifest.findings] : [];
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
-  const lock = parsePluginLock(files.text(PLUGINS_LOCK_FILE), join(folder, PLUGINS_LOCK_FILE));
-  if (!lock.ok && !findings.some((one) => one.message === lock.message)) findings.push(lock);
-  for (const plugin of read.present ? read.manifest.plugins?.values() ?? [] : []) {
-    if (plugin.path === undefined) continue;
-    const path = `${plugin.path}/plugin.json`;
-    const file = join(folder, path);
-    const text = files.text(path);
-    if (text === undefined) findings.push({ file, line: 1, message: 'the named plugin holds no readable plugin.json' });
-    else try { parsePluginManifest(text, file); } catch (error) {
-      if (!(error instanceof ClosureRefusal)) throw error;
-      findings.push({ file: error.file, line: error.line, message: error.message });
-    }
-  }
+  for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));
   if (findings.length > 0) return { ok: false, findings };
