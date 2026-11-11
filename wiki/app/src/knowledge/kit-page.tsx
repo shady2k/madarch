@@ -14,7 +14,6 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/comp
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogPreview } from '@/components/ui/dialog.js';
-import { Popover, PopoverTrigger, PopoverContent, PopoverClose, PopoverPreview } from '@/components/ui/popover.js';
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb.js';
 import { Progress } from '@/components/ui/progress.js';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group.js';
@@ -73,11 +72,6 @@ export function KitPage() {
       <KitSection title="Sheet" description={state('overlayHint')}>
         <Sheet><SheetTrigger asChild><Button variant="default" size="default">{state('open')}</Button></SheetTrigger><SheetContent title={state('notice')} closeLabel={state('close')}><Paragraph>{state('content')}</Paragraph></SheetContent></Sheet>
         <Sheet><SheetTrigger asChild><Button size="default" disabled>{state('disabled')}</Button></SheetTrigger></Sheet>
-      </KitSection>
-      <KitSection title="Popover">
-        <KitState label={state('open')}><PopoverPreview><Paragraph>{state('content')}</Paragraph><Button size="default" disabled>{state('disabled')}</Button></PopoverPreview></KitState>
-        <Popover><PopoverTrigger asChild><Button variant="default" size="default">{state('open')}</Button></PopoverTrigger><PopoverContent><Paragraph>{state('content')}</Paragraph><PopoverClose asChild><Button size="default">{state('close')}</Button></PopoverClose></PopoverContent></Popover>
-        <Popover><PopoverTrigger asChild><Button size="default" disabled>{state('disabled')}</Button></PopoverTrigger></Popover>
       </KitSection>
       <KitSection title="DropdownMenu">
         <DropdownMenu><DropdownMenuTrigger asChild><Button variant="default" size="default">{state('open')}</Button></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuLabel>{state('name')}</DropdownMenuLabel><DropdownMenuItem>{state('action')}</DropdownMenuItem><DropdownMenuItem disabled>{state('disabled')}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>

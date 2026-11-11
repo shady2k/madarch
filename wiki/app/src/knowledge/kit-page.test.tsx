@@ -14,7 +14,7 @@ for (const language of ['en', 'ru'] as const) test(`kit renders the review set i
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => { root!.render(createElement(KitPage)); });
   const headings = [...container.querySelectorAll('h2')].map(node => node.textContent);
-  for (const name of ['Button', 'Input / Textarea', 'Badge', 'Toggle', 'Alert', 'Card', 'Table', 'Skeleton', 'Tabs', 'Dialog', 'Sheet', 'Popover', 'DropdownMenu', 'Tooltip', 'Breadcrumb', 'Progress', 'RadioGroup', 'Switch']) expect(headings).toContain(name);
+  for (const name of ['Button', 'Input / Textarea', 'Badge', 'Toggle', 'Alert', 'Card', 'Table', 'Skeleton', 'Tabs', 'Dialog', 'Sheet', 'DropdownMenu', 'Tooltip', 'Breadcrumb', 'Progress', 'RadioGroup', 'Switch']) expect(headings).toContain(name);
   expect(container.querySelector('h1')?.textContent).toBe('UI kit');
   expect(container.querySelectorAll('[aria-invalid="true"]').length).toBeGreaterThan(2);
   expect(container.querySelectorAll('button:disabled').length).toBeGreaterThan(3);
