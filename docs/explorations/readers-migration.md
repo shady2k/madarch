@@ -135,7 +135,13 @@ Authored Markdown is opaque in exports; engine AST link rewriting is removed. St
 
 ## Verification
 
-Verification details and external artifacts are recorded in `/work/out/report-madarch-64o5.13.md`. Root static check passes: TypeScript, architecture, catalog and workflow checks. Product-file-reader baseline is empty. Focused graph, anchor, template and reset tests and bounded manual mutation samples pass. Full-suite and wiki failures must not be described as passing acceptance.
+Verification details and external artifacts are recorded in `/work/out/report-madarch-64o5.13.md`. Final root `bun run check` passes: TypeScript, architecture, catalog and workflow checks. Product-file-reader baseline is empty. Final boundary/architecture/anchor/template/reset suite: 46 passed; graph/render/definition/closure suite: 68 passed. After the title-opinion fix, non-root search/reset/starter schema suite: 14 passed. Starter affected suite: 107 passed, 1 skipped.
+
+Full non-root diagnostic suite at the earlier scratch snapshot: 2,013 passed, 194 skipped, 73 failed (416.57 seconds). This snapshot predates the final schema fixture, malformed-body and title fixes; it is not final-source acceptance. Remaining integration failures are not all established as pre-existing. They include file-backed loop assumptions without the parallel opinion producer, page rendering without structured templates, stale catalogue/revision assertions and other failures requiring follow-up. The full suite was not rerun after the last fixes. `MADARCH_PLUGIN_SANDBOX=off` was explicit because this machine lacks delegated cgroup controllers; it does not validate confinement. `MADARCH_SKIP_PERF=1` skipped performance cases.
+
+Final wiki app check passed; tests: 365 passed, 7 failed. Five are tab/history cases also observed in the earlier run; two route/tab cases additionally failed in the final run. No comparison on the base revision was run, so these are not certified unrelated. No wiki frontend source was changed. Integration acceptance remains pending.
+
+Bounded manual mutation samples killed four rule mutations, two anchor mutations, one structured-template mutation, one stream-dedup mutation and one source graph/Markdown mutation. A starter serializer inversion survived and is not counted as killed. These are samples, not exhaustive mutation coverage.
 
 ## Checkout incident
 
