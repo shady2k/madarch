@@ -22,8 +22,6 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { questionFootnoteId } from './ids.js';
 
-export const QUESTIONS_FOLDER = 'docs/questions';
-export const CORRECTIONS_FOLDER = 'docs/corrections';
 export const QUESTION_KIND = 'question';
 export const CORRECTION_KIND = 'correction';
 

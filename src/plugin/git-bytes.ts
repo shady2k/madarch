@@ -94,4 +94,3 @@ export async function blobContents(root: string, blobs: readonly string[]): Prom
   take(new Uint8Array(0));
   return contents;
 }
-
