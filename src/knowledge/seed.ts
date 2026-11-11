@@ -238,6 +238,7 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this author", title_ru="Страницы об этом авторе" %}{% endblock %}
 `,
   'database.liquid': `{% layout "./entity.liquid" %}
+{% block lead %}{% if lang == "ru" %}Статическое чтение показывает таблицы, явно объявленные в коде. Таблицы, создаваемые во время выполнения, не показаны до заполнения агентом; это не полная схема базы данных.{% else %}Static reading shows tables explicitly declared in code. Tables generated at run time are not shown until the agent fill; this is not the complete database schema.{% endif %}{% endblock %}
 {% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this", title_ru="Вокруг этого" %}{% endblock %}
 {% block parts %}{% assign tables_prefix = "code.table:" | append: page.label | append: "/" %}

@@ -960,7 +960,7 @@ export class GraphReader {
         `SELECT (n.key->>'name') AS name, n.id::text AS node FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = $2
          WHERE (n.key->>'name') = ANY($1::text[]) AND n.context_id = 1 AND NOT n.removed`,
         [`{${repositories.join(',')}}`, GIT_KINDS.repository],
-      ).catch((error: unknown) => { if (missingTable(error)) return { rows: [] }; throw error; });
+      );
       for (const row of found.rows) repositoryNodes.set(row.name, row.node);
     }
     return rows.map((row) => {
