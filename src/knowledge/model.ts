@@ -435,6 +435,10 @@ export interface CatalogKindView {
   labels?: Record<string, { one: string; many: string }>;
   /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
   descriptions?: Record<string, string>;
+  /** The standards or documents the kind declaration cites. */
+  sources?: readonly string[];
+  /** The product repository file and line that declare the kind. */
+  declaration?: { repo: string | null; path: string; line: number };
   count: number;
   /** The statements the pages of this kind make, when the index holds any. */
   statements?: number;

@@ -64,6 +64,20 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
+  test('shows standards and the product declaration file together with navigable source line', async () => {
+    await setWikiLanguage('en');
+    stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, sources: ['https://example.test/standard'], declaration: { repo: 'shop', path: 'madarch/kinds.yaml', line: 42 } }] });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="kind-declaration"]') !== null, 'kind sources');
+    const row = page.querySelector('[data-kind="code.file"]')!;
+    expect(row.querySelector('a[href="https://example.test/standard"]')).not.toBeNull();
+    const link = row.querySelector('[data-testid="kind-declaration"]')!;
+    expect(link.textContent).toBe('madarch/kinds.yaml:42');
+    const url = new URL(link.getAttribute('href')!, 'http://localhost');
+    expect(url.pathname).toBe('/src');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ repo: 'shop', path: 'madarch/kinds.yaml', line: '42' });
+  });
+
   test('shows kinds by section, their meaning, record links, producers and states without fill controls', async () => {
     await setWikiLanguage('en');
     const calls: { url: string; method: string }[] = [];

@@ -1000,6 +1000,10 @@
       "needsPerson": "{{kind}} is filled by a person.",
       "invalidCap": "Enter a positive whole-number token cap.",
       "unsupported": "Selected runs currently support own producers only. Agent execution and token caps are not supported yet."
+    },
+    "kindSources": {
+      "standards": "Standards and documents",
+      "declaration": "Declared in"
     }
   },
   "loop": {

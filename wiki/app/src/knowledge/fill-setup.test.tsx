@@ -17,7 +17,7 @@ afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = '
 const catalog: CatalogView = {
   product: { id: 'p', name: 'Test' }, language: 'en', groups: [{ group: 'code', labels: { en: 'Code' } }, { group: 'docs', labels: { en: 'Documents' } }], findings: [],
   kinds: [
-    { kind: 'base', area: 'code', subgroup: '', count: 3, page: true, filled: true, state: 'filled', fillWith: 'agent', labels: { en: { one: 'Base', many: 'Bases' } } },
+    { kind: 'base', sources: ['https://example.test/base'], declaration: { repo: 'product', path: 'madarch/kinds.yaml', line: 7 }, area: 'code', subgroup: '', count: 3, page: true, filled: true, state: 'filled', fillWith: 'agent', labels: { en: { one: 'Base', many: 'Bases' } } },
     { kind: 'middle', area: 'code', subgroup: '', count: 2, page: true, filled: false, state: 'never', fillWith: 'own', dependsOn: ['base'], labels: { en: { one: 'Middle', many: 'Middles' } } },
     { kind: 'leaf', area: 'docs', subgroup: '', count: 1, page: true, filled: false, state: 'never', fillWith: 'own', dependsOn: ['middle'], labels: { en: { one: 'Leaf', many: 'Leaves' } } },
     { kind: 'unrelated', area: 'docs', subgroup: '', count: 0, page: true, filled: false, state: 'never', fillWith: 'person', labels: { en: { one: 'Other', many: 'Others' } } },
@@ -40,6 +40,16 @@ function render(calls: { url: string; body: unknown }[], refresh = (): void => {
   const container = document.createElement('div'); document.body.appendChild(container);
   root = createRoot(container); root.render(createElement(FillSetup, { refresh })); return container;
 }
+
+test('fill choices show both standard and product declaration without selecting on a source link', async () => {
+  const page = render([]);
+  await until(() => page.querySelector('[data-testid="kind-declaration"]') !== null);
+  const row = page.querySelector('[data-kind="base"]')!;
+  expect(row.querySelector('a[href="https://example.test/base"]')).not.toBeNull();
+  expect(row.querySelector('[data-testid="kind-declaration"]')!.getAttribute('href')).toBe('/src?repo=product&path=madarch%2Fkinds.yaml&line=7');
+  expect(row.querySelector('label a')).toBeNull();
+  expect((row.querySelector('input') as HTMLInputElement).checked).toBe(false);
+});
 
 test('starts empty, does not read saved selection, and cannot Run empty', async () => {
   const calls: { url: string; body: unknown }[] = [];

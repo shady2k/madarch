@@ -136,6 +136,23 @@ function context(): RenderContext {
 }
 
 describe('the catalogue view lists every declared kind', () => {
+  test('each kind carries its standards and the actual product declaration file and line', async () => {
+    const ctx = context();
+    const file = join(TEMPLATES, 'manifests/catalog.yaml');
+    const manifest = parseKinds(MANIFEST, file, TEMPLATES);
+    const kinds = await catalogKinds({ ...ctx, manifest, ownRepository: 'product' });
+    for (const kind of kinds) {
+      expect(kind.sources).toEqual([`https://example.test/${kind.kind}`]);
+      expect(kind.declaration).toEqual({
+        repo: 'product', path: 'manifests/catalog.yaml',
+        line: MANIFEST.split('\n').indexOf(`  ${kind.kind}:`) + 1,
+      });
+    }
+    const withoutRepository = await catalogKinds(ctx);
+    expect(withoutRepository[0]!.declaration).toEqual({
+      repo: null, path: 'madarch/kinds.yaml', line: MANIFEST.split('\n').indexOf('  filled:') + 1,
+    });
+  });
   test('status includes catalogue-only kinds and preserves the catalogue counts and page markers', async () => {
     const ctx = context();
     const catalogue = await catalogKinds(ctx);
@@ -187,5 +204,9 @@ describe('the catalogue view lists every declared kind', () => {
     const kinds = await catalogKinds({ ...context(), manifest } as unknown as RenderContext);
     expect(kinds.map((kind) => kind.kind)).toEqual(['written']);
     expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
+    expect(kinds[0]!.sources).toBeUndefined();
+    expect(kinds[0]!.declaration).toEqual({
+      repo: null, path: 'madarch/kinds.yaml', line: bare.split('\n').indexOf('  written:') + 1,
+    });
   });
 });

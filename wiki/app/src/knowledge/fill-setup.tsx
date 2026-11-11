@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input.js';
 import { Select } from '@/components/ui/select.js';
 import { fillSelected, getAgents, getCatalog } from './api.js';
 import { areaOf } from './catalog-area.js';
+import { KindSources } from './kind-sources.js';
 import { dependencySplit } from './dependency-page.js';
 import { addedByDependency, estimateOf } from './fill-selection.js';
 import { useRead } from './live.js';
@@ -82,10 +83,10 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
               const on = section.kinds.filter((kind) => checked.has(kind.kind)).length;
               return <section key={section.area} className="mb-4" data-testid="fill-setup-section">
                 <h3 className="mt-0 flex items-center gap-2 text-small"><Checkbox aria-label={t('knowledge.fillSetup.section', { section: section.name })} checked={on === section.kinds.length} ref={(input) => { if (input !== null) input.indeterminate = on > 0 && on < section.kinds.length; }} disabled={locked} onChange={() => change(section.kinds.map((kind) => kind.kind), on === section.kinds.length)} />{section.name}</h3>
-                {section.kinds.map((kind) => <label key={kind.kind} className="mb-2 flex items-start gap-2 text-small" data-kind={kind.kind}>
+                {section.kinds.map((kind) => <div key={kind.kind} className="mb-2 text-small" data-kind={kind.kind}><label className="flex items-start gap-2">
                   <Checkbox data-testid={`fill-setup-check-${kind.kind}`} checked={active.has(kind.kind)} disabled={locked || added.has(kind.kind)} onChange={() => change([kind.kind], checked.has(kind.kind))} />
                   <span>{name(kind)}{added.has(kind.kind) && <span className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.neededBy', { kind: neededName(added.get(kind.kind)!) })}</span>}</span>
-                </label>)}
+                </label><div className="ml-6"><KindSources kind={kind} /></div></div>)}
               </section>;
             })}
           </div>

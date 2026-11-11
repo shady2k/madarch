@@ -223,6 +223,8 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
+  sources?: readonly string[];
+  declaration?: { repo: string | null; path: string; line: number };
   kind: string;
   /** Derived by the app from the catalogue groups when the answer leaves it out. */
   area?: string;

@@ -1,4 +1,5 @@
 import { Operations } from './operations.js';
+import { KindSources } from './kind-sources.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -632,7 +633,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             <TableCell className="whitespace-nowrap align-top">
               {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}
             </TableCell>
-            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}</TableCell>
+            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} /></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
               {kind.page && kind.count > 0 ? <KLink href={addressOfKind(kind.kind)}>{kind.count}</KLink> : kind.count}
               {kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}
