@@ -16,6 +16,7 @@
  * is marked `unordered` and drawn apart.
  */
 import { byCodePoint } from '../model/order.js';
+import { entityAddress } from './addresses.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { RenderContext, Subject } from './blocks.js';
 import { idOf, locationOf, refOfGraph, refOfMarkdown, declaredNeighbors, relatesGroups } from './blocks.js';
@@ -953,16 +954,16 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   if (params['scope'] !== undefined) scope = params['scope'].replace(/\/+$/, '');
   // The treemap of a container covers the folder its code stands in; one opened on the product's page covers every file.
   else if (subject.source === 'graph' && systemPartOf(ctx.manifest, subject.entity.kind) === 'container' && subject.entity.span !== undefined) scope = dirname(subject.entity.span.path) === '.' ? '' : dirname(subject.entity.span.path);
-  const found = await ctx.graph.byPrefix('code.file', scope === '' ? 'code.file:' : `code.file:${scope}/`, limit);
+  // The picture needs one number a row, so it asks for one: the read answers path, repository, key and the lines the
+  // file's opinions agree on, and never loads an opinion, a field or an evidence entry it would not draw.
+  const found = await ctx.graph.fileFacts(scope === '' ? '' : `${scope}/`, limit);
   const notes: string[] = [];
     // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency
   // extractor's `code.lockfile` node for that exact path, or the file's own `generated` fact (a repository that
   // declares it generated or vendored). No file name is special here, so the picture and the note name none.
   const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
   const lockPaths = new Set(locks.rows.map((lock) => lockPathOf(lock.key)));
-  const churn = typeof ctx.graph.inDegreesOf === 'function'
-    ? await ctx.graph.inDegreesOf('code.touched', found.rows)
-    : await ctx.graph.inDegrees('code.touched', found.rows.map((file) => file.key));
+  const churn = await ctx.graph.inDegreesOfNodes('code.touched', found.rows.map((file) => ({ id: file.node, key: file.key })));
   let lockfiles = 0;
   let declared = 0;
   const files: TreemapFile[] = [];
@@ -970,26 +971,26 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   const queue = [...found.rows];
   const read = async (): Promise<void> => {
     for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-      const path = String(file.properties['path'] ?? pathOfKey(file.key));
+      const path = file.path;
       if (lockPaths.has(path)) {
         lockfiles += 1;
         continue;
       }
-      if (file.properties['generated'] === true) {
+      if (file.generated === true) {
         declared += 1;
         continue;
       }
       // The file's size is its fact: the tree lister files every path with the lines it holds, so a row that carries
       // that count is measured without reading a byte. Only a row that lacks it falls back to the bytes, and a file
       // those bytes cannot answer for is said, never drawn as empty.
-      const counted = file.properties['lines'];
+      const counted = file.lines;
       const lines = typeof counted === 'number' && Number.isSafeInteger(counted) && counted >= 0
         ? counted : await linesOfSource(ctx, file.scope, path);
       if (lines === undefined) {
         unread += 1;
         continue;
       }
-      files.push({ id: file.key, path, href: refOfGraph(ctx, file).href, lines, churn: churn.get(file.key) ?? 0 });
+      files.push({ id: file.key, path, href: ctx.manifest.kinds.has('code.file') ? entityAddress(file.key) : null, lines, churn: churn.get(file.key) ?? 0 });
     }
   };
   await Promise.all(Array.from({ length: 8 }, read));

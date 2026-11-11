@@ -13,7 +13,7 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 import { collectNeighbors, treemapBlock } from '../src/knowledge/diagrams.js';
 import { definitionBlock } from '../src/knowledge/definition.js';
-import { GraphReader, type GraphEntity, type NeighborGroup } from '../src/knowledge/graph-read.js';
+import { GraphReader, type FileFactRow, type GraphEntity, type NeighborGroup } from '../src/knowledge/graph-read.js';
 import { byCodePoint } from '../src/model/order.js';
 import { readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
 import { kindSummaries, listEntities } from '../src/knowledge/render.js';
@@ -109,6 +109,16 @@ class FixtureReader extends GraphReader {
     const rows = this.entities.filter((one) => one.kind === kind && one.key.startsWith(prefix));
     return { rows: rows.slice(0, limit), total: rows.length };
   }
+  override async fileFacts(prefix: string, limit: number): Promise<{ total: number; rows: readonly FileFactRow[] }> {
+    const rows = this.entities.filter((one) => one.kind === 'code.file' && one.key.startsWith(`code.file:${prefix}`)).sort((a, b) => byCodePoint(a.key, b.key));
+    return {
+      total: rows.length,
+      rows: rows.slice(0, limit).map((one) => ({
+        key: one.key, node: one.nodeIds[0] ?? '', path: String(one.properties['path'] ?? ''), repository: 'repo', scope: one.scope,
+        lines: typeof one.properties['lines'] === 'number' ? one.properties['lines'] : null,
+      })),
+    };
+  }
   override async relationEdges(relation: string, limit = 2000) {
     const rows = this.facts.filter((edge) => edge.relation === relation);
     return { rows: rows.slice(0, limit), total: rows.length };
@@ -131,6 +141,9 @@ class FixtureReader extends GraphReader {
   }
   override async inDegreesOf(relation: string, entities: readonly GraphEntity[]) {
     return await this.inDegrees(relation, entities.map((entity) => entity.key));
+  }
+  override async inDegreesOfNodes(relation: string, nodes: readonly { readonly id: string; readonly key: string }[]) {
+    return await this.inDegrees(relation, nodes.map((one) => one.key));
   }
   override async edgesOf(entity: GraphEntity, relation: string, direction: 'out' | 'in', limit: number) {
     const rows = this.facts.filter((edge) => edge.relation === relation && (direction === 'out' ? edge.from.key : edge.to.key) === entity.key)

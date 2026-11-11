@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closureOf } from '../src/plugin/closure.js';
 import { checkConformance } from '../src/plugin/conformance.js';
-import { PluginHost, runUnits, type PluginSession, type UnitOutcome } from '../src/plugin/host.js';
+import { PluginHost, RequestLog, runUnits, type PluginSession, type UnitOutcome } from '../src/plugin/host.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { bwrapForUse } from '../src/plugin/bwrap-install.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
@@ -48,7 +48,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf> } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -59,6 +59,8 @@ async function open(folder: string, options: { readonly work?: string; readonly 
     releaseHashes: options.releaseHashes ?? [closureOf(folder).hash],
     limits: { ...LIMITS, ...(options.limits ?? {}) },
     cgroupParent: options.cgroupParent ?? parent,
+    ...(options.graph === undefined ? {} : { graph: options.graph }),
+    ...(options.requests === undefined ? {} : { requests: options.requests }),
   });
   return await host.open();
 }
@@ -324,6 +326,32 @@ describe('the sandbox refuses a way out', () => {
     expect(partialCause((await behaviour('read-repo')).outcome)).toContain('read-repo: allowed');
   }, 60_000);
 
+  hostTest('every request a plugin makes is recorded where the host dispatches it: answered, refused and its cause', async () => {
+    const folder = join(FIXTURES, 'plugin-graph');
+    // Answered: the host was given a graph, so the read the plugin declared is answered and its size is recorded.
+    const answered = new RequestLog();
+    const session = await open(folder, { requests: answered, graph: { files: async () => [{ kind: 'probe', key: { id: 'one' } }, { kind: 'probe', key: { id: 'two' } }], value: async () => null } });
+    try {
+      const outcome = await session.runUnit({ unitId: 'read-graph', kind: 'probe', key: { id: 'x', behavior: 'read-graph' } });
+      expect(partialCause(outcome)).toContain('read-graph: 2 files');
+    } finally {
+      await session.close();
+    }
+    const kept = answered.finish();
+    expect(kept.map((one) => [one.method, one.outcome])).toEqual([['introduce', 'answered'], ['graph.files', 'answered']]);
+    expect(kept[1]?.size).toBe(2);
+    // Refused: a host with no graph answers the same request with a refusal, and the record states its class.
+    const refused = new RequestLog();
+    const bare = await open(folder, { requests: refused });
+    try {
+      const outcome = await bare.runUnit({ unitId: 'read-graph', kind: 'probe', key: { id: 'x', behavior: 'read-graph' } });
+      expect(partialCause(outcome)).toContain('read-graph: refused');
+    } finally {
+      await bare.close();
+    }
+    expect(refused.finish().map((one) => [one.method, one.outcome, one.cause])).toEqual([['introduce', 'answered', undefined], ['graph.files', 'refused', 'graph-denied']]);
+  }, 60_000);
+
   hostTest('a plugin that declared no filesystem right sees no repository at all', async () => {
     // The same read the probe makes, by a plugin whose introduction declares graph reads and no filesystem right: the
     // host binds no /repo, so the file is not there (decision 0035, item 9).
@@ -336,6 +364,23 @@ describe('the sandbox refuses a way out', () => {
       await session.close();
     }
   }, 60_000);
+});
+
+describe('the debug journal\'s bound', () => {
+  test('a request still waiting is abandoned, and a bound stops the record with one marker', () => {
+    const log = new RequestLog(2, 1_000);
+    const first = log.begin('graph.files');
+    log.settle(first, 'answered', 4);
+    log.begin('graph.value');
+    // The third request passes the count's bound: nothing more is kept, and the entry says where it stopped.
+    expect(log.begin('graph.files')).toBeUndefined();
+    const kept = log.finish();
+    expect(kept.map((one) => [one.method, one.outcome])).toEqual([['graph.files', 'answered'], ['graph.value', 'abandoned'], ['truncated', 'truncated']]);
+    expect(kept[2]?.size).toBe(2);
+    // A log that is emitted answers the same records on every read, and a slot settled afterwards changes nothing.
+    log.settle(first, 'failed', 9);
+    expect(log.finish()).toEqual(kept);
+  });
 });
 
 describe('the closure and its trust', () => {

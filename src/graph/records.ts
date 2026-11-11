@@ -32,7 +32,7 @@ import { raise } from '../model/raise.js';
 import { createOneGraphSchema } from './one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { EvidenceDraft, EvidenceEntry, GraphContract } from './contract.js';
-import { ensureEdge, ensureEdges, ensureVertex, journalFor, journalOn, publishEdgeOpinion, publishOpinion, removeEdgeById, writeJournal } from './write.js';
+import { ensureEdge, ensureEdges, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishOpinion, removeEdgeById, writeJournal } from './write.js';
 
 /** The producers of this store's opinions, and the version each states with them. */
 const TREE_PRODUCER = 'git-tree';
@@ -310,13 +310,13 @@ interface HeldFile {
   readonly mode: string | null;
   readonly blob: string | null;
   readonly languages: unknown;
-  readonly lang: unknown;
+  readonly language: unknown;
 }
 
 /** Whether a held file already says what the pass read, in both producers' opinions. */
 function sameFile(held: HeldFile, file: TreeFile): boolean {
   const read = languageOfFile(file);
-  const heldLanguage = languageOfOpinion(held.languages, held.lang);
+  const heldLanguage = languageOfOpinion(held.languages, held.language);
   return held.mode === file.mode && held.blob === file.blob && heldLanguage.language === read.language && JSON.stringify(heldLanguage.candidates) === JSON.stringify(read.candidates);
 }
 
@@ -357,16 +357,16 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
 
     // What the store holds of this repository's files: their node, the tree's opinion and the dataset's.
     const held = new Map<string, HeldFile>();
-    const found = await tx.query<{ path: string; node_id: string; mode: string | null; hash: string | null; languages: unknown; lang: string | null }>(
-      `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id, g.mode, b.hash, l.languages, l.lang
+    const found = await tx.query<{ path: string; node_id: string; mode: string | null; hash: string | null; languages: unknown; language: string | null }>(
+      `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id, g.mode, b.hash, l.languages, l.language
        FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
        LEFT JOIN LATERAL (SELECT o."mode", o."blob_id" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${TREE_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) g ON true
        LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
-       LEFT JOIN LATERAL (SELECT o."languages", o."lang" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${LINGUIST_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) l ON true
+       LEFT JOIN LATERAL (SELECT o."language", o."languages" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${LINGUIST_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) l ON true
        WHERE ${REPOSITORY_OF('n')} = $1 AND NOT n.removed`,
       [repository],
     );
-    for (const row of found.rows) held.set(row.path, { nodeId: row.node_id, mode: row.mode, blob: row.hash, languages: row.languages, lang: row.lang });
+    for (const row of found.rows) held.set(row.path, { nodeId: row.node_id, mode: row.mode, blob: row.hash, languages: row.languages, language: row.language });
 
     const toWrite = files.filter((file) => { const known = held.get(file.path); return known === undefined || !sameFile(known, file); });
     counts = { ...counts, unchanged: counts.unchanged + (files.length - toWrite.length) };
@@ -383,8 +383,14 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
       const evidence = evidenceOf(file.path);
       const treeWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, values: { mode: file.mode, blob_id: blobIds.get(file.blob) ?? null }, evidence: [evidence] });
       const read = languageOfFile(file);
-      const languageWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: LINGUIST_PRODUCER, producerVersion: LINGUIST_VERSION, values: { languages: [...read.candidates] }, lang: read.language, evidence: [evidence] });
+      // A file's programming language is an ordinary field of the file, stated by the dataset as its own opinion: the
+      // opinion's `lang` column is the natural language of a text value and stands null for a language name, so an
+      // answer that states another language replaces a value and closes the opinion it supersedes.
+      const languageWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: LINGUIST_PRODUCER, producerVersion: LINGUIST_VERSION, values: { language: read.language, languages: [...read.candidates] }, evidence: [evidence] });
       counts = { ...counts, inserted: counts.inserted + (known === undefined ? (treeWritten ? 1 : 0) + (languageWritten ? 1 : 0) : 0), updated: counts.updated + (known === undefined ? 0 : (treeWritten ? 1 : 0) + (languageWritten ? 1 : 0)) };
+      // The pass's entry is written in batches of the writer's own loop: a repository whose tree grows never makes one
+      // row of it, and every row still lands in this transaction (codex, stage 2 review, item 7).
+      await flushJournalIfFull(tx, journal);
     }
 
     // The gitlinks: a submodule is a vertex of its own, with its repository and the commit the tree holds.
@@ -449,6 +455,7 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
       if (heldContains.has(key) || !within(want.path)) continue;
       await ensureEdge(tx, GIT_CONTRACT, `${GIT_KINDS.contains}`, want.parent, want.child, '', { producer: TREE_PRODUCER, producerVersion: TREE_VERSION, evidence: [evidenceOf(want.path)] });
       counts = { ...counts, inserted: counts.inserted + 1 };
+      await flushJournalIfFull(tx, journal);
     }
     counts = { ...counts, unchanged: counts.unchanged + [...desired.keys()].filter((key) => heldContains.has(key)).length };
 
@@ -553,6 +560,9 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       if (historyEdge.created) counts = { ...counts, inserted: counts.inserted + 1 }; else counts = { ...counts, unchanged: counts.unchanged + 1 };
       const walkWritten = await publishEdgeOpinion(tx, GIT_CONTRACT, `${GIT_KINDS.history}`, historyEdge.id, { values: { walk }, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION });
       if (walkWritten) counts = historyEdge.created ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, updated: counts.updated + 1 };
+      // The pass's entry is written in batches of its own loops, all in this transaction: a history whose journal grew to
+      // 27 MB in one row (2 532 commits, 35 648 edges, 52 261 opinions) writes rows of a few megabytes (codex, item 7).
+      await flushJournalIfFull(tx, journal);
     }
 
     // The parents: one edge commit -> parent, its position in the opinion table; the ones a rewritten commit no longer has go.
@@ -574,6 +584,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
         else if (positionWritten) counts = { ...counts, updated: counts.updated + 1 };
         else counts = { ...counts, unchanged: counts.unchanged + 1 };
       }
+      await flushJournalIfFull(tx, journal);
     }
 
     // The signature of every commit: one `authored` edge, and a rewritten author replaces the one that stood.
@@ -594,6 +605,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       } else {
         counts = { ...counts, unchanged: counts.unchanged + 1 };
       }
+      await flushJournalIfFull(tx, journal);
     }
 
     // Every path the walk touched has its file vertex, even when the current tree no longer holds it. The oldest commit
@@ -613,6 +625,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
       if (one.created) {
         await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: one.node, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidence: [{ type: 'file', repository, commit_or_digest: firstSeen.get(path) ?? '', path }] });
         counts = { ...counts, inserted: counts.inserted + 2 };
+        await flushJournalIfFull(tx, journal);
       }
     }
 
@@ -654,6 +667,7 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
           counts = { ...counts, inserted: counts.inserted + 2 };
         }
       }
+      await flushJournalIfFull(tx, journal);
     }
     // A touched row the walk no longer states goes, and so does its rename; a commit that fell out of the walk keeps its vertex.
     const walkCommits = sqlIds(input.commits.map((commit) => commitNodes.get(commit.hash)!.node));
@@ -726,7 +740,7 @@ function opinionsOfJson(value: unknown, carried: readonly string[]): HeldOpinion
     const saidBy = String(held['said_by'] ?? '');
     const at = saidBy.lastIndexOf('@');
     const values: Record<string, unknown> = {};
-    for (const field of [...carried, 'lang', 'mode', 'blob_id', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
+    for (const field of [...carried, 'lang', 'mode', 'blob_id', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
     return {
       id: String(held['id'] ?? ''),
       saidBy,
@@ -766,7 +780,7 @@ const IN_TREE = `EXISTS (SELECT 1 FROM edge e JOIN entity en2 ON en2.id = e.enti
 /** The opinions of one file, as a jsonb array: each opinion's id, producer, language, evidence and the values it states. */
 const FILE_OPINIONS = `LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
-      'mode', o."mode", 'blob_id', o."blob_id", 'languages', o."languages",
+      'mode', o."mode", 'blob_id', o."blob_id", 'language', o."language", 'languages', o."languages",
       'blob', b."hash", 'bytes', b."bytes"::text, 'form', b."form", 'lines', b."lines"::text) ORDER BY o."id") AS opinions
     FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} b ON b.id = o."blob_id"
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) fo ON true`;
@@ -797,7 +811,7 @@ function fileOf(row: Record<string, unknown>): FileRecord {
   const mode = fieldRead(opinions, 'mode', asText);
   const blob = fieldRead(opinions, 'blob', asText);
   const languages = fieldRead(opinions, 'languages', (value) => (Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : null));
-  const language = fieldRead(opinions, 'lang', asText);
+  const language = fieldRead(opinions, 'language', asText);
   return {
     path: String(row['path']),
     mode: mode.value,
@@ -859,7 +873,7 @@ export async function listFiles(owner: DatabaseOwner, input: { readonly reposito
   }, async () => await owner.transaction('snapshot', async (tx) => {
     await repositoryIdOf(tx, input.repository);
     const where = `($4::text IS NULL OR left((n.key->>'path'), length($4::text)) = $4::text)
-      AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM ${GIT_TABLES.file} lo WHERE lo."node_id" = n.id AND lo."state" = 'open' AND lo."context_id" = 1 AND lo."lang" = $5))`;
+      AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM ${GIT_TABLES.file} lo WHERE lo."node_id" = n.id AND lo."state" = 'open' AND lo."context_id" = 1 AND lo."language" = $5))`;
     const found = await filePage(tx, input.repository, where, [input.prefix ?? null, input.language ?? null], input.after ?? null, input.limit);
     const rows = found.map(fileOf);
     const more = rows.length > input.limit;

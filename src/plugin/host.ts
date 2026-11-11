@@ -108,6 +108,74 @@ export interface GraphAnswerer {
   value(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<unknown>;
 }
 
+/**
+ * One request a plugin made of the host, as the debug journal keeps it: the method, the size of the answer, what came
+ * of it and — for a refusal or a failure — the class of the cause. It never carries the request's arguments, a file's
+ * text or an answer's content.
+ */
+export interface RecordedRequest {
+  readonly method: string;
+  readonly size: number;
+  readonly outcome: 'answered' | 'refused' | 'failed' | 'abandoned' | 'truncated';
+  readonly cause?: string;
+}
+
+/** How many requests one unit's debug journal keeps, and how many serialized bytes its records may take. */
+export const REQUEST_LOG_REQUESTS = 256;
+export const REQUEST_LOG_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The requests one unit made, kept in the host's dispatcher (codex, stage 2 review, items 5 and 6): a request is
+ * recorded when it is received — before the protocol and the dispatcher hold it to anything — so a malformed, a
+ * refused, a failed and an abandoned one stand beside an answered one, and the record holds a method, a size and a
+ * class, never an argument or a text. The bound is on the records themselves: how many one unit may make the entry
+ * hold, and how many bytes their serialization takes; past it nothing more is kept, and the entry ends with one
+ * `truncated` record naming how many were.
+ */
+export class RequestLog {
+  private readonly kept: { method: string; state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string }[] = [];
+  private bytes = 0;
+  private truncatedAt: number | undefined;
+  private emitted: readonly RecordedRequest[] | undefined;
+  constructor(private readonly maxRequests = REQUEST_LOG_REQUESTS, private readonly maxBytes = REQUEST_LOG_BYTES) {}
+
+  /** Keeps one request, unless the journal's bound is reached; answers the slot its outcome is settled through. */
+  begin(method: string): { method: string; state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string } | undefined {
+    if (this.emitted !== undefined) return undefined;
+    if (this.kept.length >= this.maxRequests || this.bytes >= this.maxBytes) {
+      this.truncatedAt ??= this.kept.length;
+      return undefined;
+    }
+    const slot: { method: string; state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string } = { method, state: 'pending', size: 0 };
+    this.kept.push(slot);
+    return slot;
+  }
+
+  /** States what came of one kept request; a slot settled after the log was emitted changes nothing. */
+  settle(slot: { method: string; state: 'answered' | 'refused' | 'failed' | 'pending'; size: number; cause?: string } | undefined, outcome: 'answered' | 'refused' | 'failed', size: number, cause?: string): void {
+    if (slot === undefined || this.emitted !== undefined) return;
+    slot.state = outcome;
+    slot.size = size;
+    if (cause !== undefined) slot.cause = cause;
+    // What the bound counts is the entry these records make: their serialized bytes, never an answer's size (codex,
+    // stage 2 review, item 6).
+    this.bytes += Buffer.byteLength(JSON.stringify({ method: slot.method, size, outcome, ...(cause === undefined ? {} : { cause }) }), 'utf8');
+  }
+
+  /** The records an entry carries: a request still waiting is abandoned, and a bound hit leaves one marker. */
+  finish(): readonly RecordedRequest[] {
+    if (this.emitted !== undefined) return this.emitted;
+    const records: RecordedRequest[] = this.kept.map((held) => ({
+      method: held.method, size: held.size,
+      outcome: held.state === 'pending' ? 'abandoned' : held.state,
+      ...(held.cause === undefined ? {} : { cause: held.cause }),
+    }));
+    if (this.truncatedAt !== undefined) records.push({ method: 'truncated', size: this.truncatedAt, outcome: 'truncated', cause: `after ${String(this.truncatedAt)} requests or ${String(REQUEST_LOG_BYTES)} bytes` });
+    this.emitted = records;
+    return records;
+  }
+}
+
 /** What a session is opened from. */
 export interface PluginHostOptions {
   /** The plugin's folder, the closure's source. */
@@ -132,6 +200,8 @@ export interface PluginHostOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cgroupParent?: string;
   readonly platform?: string;
+  /** `journal.debug`: where the host records every request the plugin makes, refused and abandoned ones included. */
+  readonly requests?: RequestLog;
 }
 
 /** One open plugin: its declaration, the way to run units, and the controls a run needs. */
@@ -314,19 +384,34 @@ export class PluginHost {
     }
     const first = [...Value.Errors(PluginProtocolMessage, value)][0];
     if (first !== undefined) {
+      // A message the protocol does not hold is recorded before it is refused, under the method it named: a malformed
+      // graph request stands in the journal with its class, not only a well-formed refusal (codex, stage 2 review, 5).
+      const named = typeof value === 'object' && value !== null && typeof (value as { method?: unknown }).method === 'string' ? (value as { method: string }).method : '';
+      if (named !== '') {
+        const slot = this.options.requests?.begin(named);
+        this.options.requests?.settle(slot, 'refused', 0, 'malformed-message');
+      }
       this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a message the protocol does not hold: ${first.instancePath === '' ? 'the message' : first.instancePath.slice(1)} ${first.message}` });
       return;
     }
     if (isRequest(value)) {
+      // Every request is recorded where it is received, so a refusal, a failure and a request the unit never saw
+      // answered stand beside an answered one in the debug journal (codex, stage 2 review, item 5).
+      const log = this.options.requests;
       if (value.method === 'introduce') {
-        this.takeIntroduction(value.id, value.params);
+        const slot = log?.begin('introduce');
+        const taken = this.takeIntroduction(value.id, value.params);
+        log?.settle(slot, taken ? 'answered' : 'refused', 0, taken ? undefined : 'introduce-refused');
         return;
       }
       if (value.method === 'graph.files' || value.method === 'graph.value') {
-        void this.answerGraph(value.id, value.method, value.params);
+        const slot = log?.begin(value.method);
+        void this.answerGraph(value.id, value.method, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
+      const slot = log?.begin(String(value.method));
       this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files and graph.value`));
+      log?.settle(slot, 'refused', 0, 'method-not-found');
       return;
     }
     if (isNotification(value)) {
@@ -376,43 +461,45 @@ export class PluginHost {
    * the host was given an answerer, and refused by name otherwise. The plugin never sees a folder: a file's content
    * comes through this answer, as the files producer stored it.
    */
-  private async answerGraph(id: number | string, method: 'graph.files' | 'graph.value', params: unknown): Promise<void> {
+  private async answerGraph(id: number | string, method: 'graph.files' | 'graph.value', params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
     if (this.declared?.rights?.graph !== true || this.options.graph === undefined) {
       const cause = this.declared?.rights?.graph !== true
         ? `${WHERE}:1: the plugin declared no graph right in its introduction, so it may read nothing of the graph: declare "graph": true beside the rights it needs, or read no graph`
         : `${WHERE}:1: the host was given no graph to answer from, so the query is refused`;
       this.write(failureText(id, RPC_INVALID_PARAMS, cause, { cause: 'graph-denied' }));
-      return;
+      return { outcome: 'refused', size: 0, cause: 'graph-denied' };
     }
     try {
       if (method === 'graph.files') {
         if (!Value.Check(PluginGraphFilesRequest, params)) {
           const first = [...Value.Errors(PluginGraphFilesRequest, params)][0];
           this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.files takes { pattern }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
-          return;
+          return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
         }
         const files = await this.options.graph.files(params.pattern);
         this.write(successText(id, { files }));
-        return;
+        return { outcome: 'answered', size: files.length };
       }
       if (!Value.Check(PluginGraphValueRequest, params)) {
         const first = [...Value.Errors(PluginGraphValueRequest, params)][0];
         this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.value takes { kind, key, field }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
-        return;
+        return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
       }
       const value = await this.options.graph.value(params.kind, params.key, params.field);
       this.write(successText(id, { value }));
+      return { outcome: 'answered', size: typeof value === 'string' ? value.length : 0 };
     } catch (error) {
       this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the graph answered ${JSON.stringify(method)} with a failure: ${(error as Error).message}`, { cause: 'graph-failed' }));
+      return { outcome: 'failed', size: 0, cause: 'graph-failed' };
     }
   }
 
-  /** The introduction: held to the schema and the protocol version, then answered. */
-  private takeIntroduction(id: number | string, params: unknown): void {
+  /** The introduction: held to the schema and the protocol version, then answered; false when it was refused. */
+  private takeIntroduction(id: number | string, params: unknown): boolean {
     const greeting = this.handshake;
     if (greeting === undefined) {
       this.write(failureText(id, RPC_INVALID_REQUEST, `${WHERE}:1: the plugin introduced itself twice`));
-      return;
+      return false;
     }
     const declared = params as PluginIntroduce;
     if (declared === null || typeof declared !== 'object' || declared.protocol !== PROTOCOL_VERSION) {
@@ -421,27 +508,28 @@ export class PluginHost {
       greeting.reject({ code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
       this.handshake = undefined;
       this.fail({ code: 'protocol-version', message: `${WHERE}:1: the plugin introduced itself as ${said}, and this host speaks ${PROTOCOL_VERSION}` });
-      return;
+      return false;
     }
     if (this.contractRights !== undefined && JSON.stringify(canonicalRights(declared.rights ?? { network: 'none' })) !== JSON.stringify(canonicalRights(this.contractRights))) {
       const cause: UnitCause = { code: 'rights-mismatch', message: `${WHERE}:1: the plugin introduced itself with the rights ${JSON.stringify(declared.rights ?? { network: 'none' })}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractRights)}: the contract is what the host grants, and the introduction repeats it` };
       this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
       this.handshake = undefined;
       this.fail(cause);
-      return;
+      return false;
     }
     if (declared.rights?.network !== undefined && declared.rights.network !== 'none') {
       const cause: UnitCause = { code: 'rights-unsupported', message: `${WHERE}:1: the plugin asks for the network profile "${String(declared.rights.network)}", and this build runs only "none": the network namespace is unshared and socket creation refused` };
       this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
       this.handshake = undefined;
       this.fail(cause);
-      return;
+      return false;
     }
     this.declared = declared;
     this.write(successText(id, { protocol: PROTOCOL_VERSION, units: 1 }));
     this.handshake = undefined;
     greeting.resolve();
     log.info('plugin introduced', { name: declared.name, version: declared.version, vertices: declared.outputs?.vertices?.length ?? 0, edges: declared.outputs?.edges?.length ?? 0 });
+    return true;
   }
 
   /** Marks a sign of life for one unit, or for the session when no unit is named. */
