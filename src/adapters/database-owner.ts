@@ -36,7 +36,7 @@ import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
 import type { SqlTransactionKind } from '../sql-driver.js';
-import { clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
+import { clusterEndpoint, clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
 
@@ -517,7 +517,7 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
         if (held.length === 0) throw error;
       }
     }
-    const inner = await createPostgresDatabaseOwner({ host: cluster.socketDir, port: cluster.port, database, user: cluster.user, max: 8 });
+    const inner = await createPostgresDatabaseOwner({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), database, user: cluster.user, max: 8 });
     await inner.ready;
     return new ServerStoreOwner(inner, release);
   } catch (error) {

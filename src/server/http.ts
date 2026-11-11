@@ -550,7 +550,7 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
-    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
+    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
       stop: async () => {
