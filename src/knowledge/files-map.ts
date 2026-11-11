@@ -15,6 +15,7 @@
  */
 import type { RenderContext, Subject } from './blocks.js';
 import { entityAddress } from './addresses.js';
+import type { FileRhythm } from './graph-read.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The measure the area of a treemap cell follows. */
@@ -199,7 +200,7 @@ async function readFilesMapUncached(
     d90: new Date(now - 90 * DAY_MS).toISOString(),
     d365: new Date(now - 365 * DAY_MS).toISOString(),
   };
-  const rhythm = await ctx.graph.fileRhythm(scope.repository, windows);
+  const rhythm = inside.length === 0 ? new Map<string, FileRhythm>() : await ctx.graph.fileRhythm(scope.repository, windows);
   const languages = new Map<string, FilesMapLanguage>();
   let withoutLines = 0;
   let other = 0;

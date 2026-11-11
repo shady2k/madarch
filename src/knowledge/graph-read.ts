@@ -1644,6 +1644,7 @@ export class GraphReader {
   async fileRhythm(repository: string, windows: { readonly d30: string; readonly d90: string; readonly d365: string }): Promise<Map<string, FileRhythm>> {
     const answer = new Map<string, FileRhythm>();
     if (this.declared !== undefined && this.declared.size === 0) return answer;
+    if (!this.holds(GIT_KINDS.file)) return answer;
     return await this.run(async (tx) => {
       // The read is a set of aggregates joined once; the planner's default estimate for a CTE scan is a handful of rows
       // and it nested-loops the whole map of marks over every file (measured: 156 ms against 7 ms on 1 800 files). The
