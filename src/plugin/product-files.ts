@@ -130,7 +130,7 @@ interface SnapshotEntryLike {
  * stores from this tree, never from the working tree, so a fill that stores a commit and a reader that reads the graph
  * see the same bytes (madarch-hsqs stage C).
  */
-export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryLike[]; readText(path: string): Promise<string> }): Promise<ProductFileSource> {
+export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryLike[]; readTexts(paths: readonly string[]): Promise<readonly string[]> }): Promise<ProductFileSource> {
   const entries = new Map<string, SnapshotEntryLike>();
   for (const entry of reader.entries()) {
     // A symlink is a blob whose bytes are its target: no read follows one, as every reader of the tree skips them.
@@ -148,15 +148,15 @@ export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryL
       return held.get(path) ?? undefined;
     },
     ensure: async (paths) => {
-      const pending = [...new Set(paths)].filter((path) => !held.has(path));
-      // Git reads are independent; bound concurrency rather than starting one process per file at once.
-      for (let at = 0; at < pending.length; at += 8) {
-        const batch = await Promise.all(pending.slice(at, at + 8).map(async (path) => {
-          const entry = entries.get(path);
-          return [path, entry === undefined || entry.form !== 'blob' ? null : await reader.readText(path)] as const;
-        }));
-        for (const [path, text] of batch) held.set(path, text);
+      const pending = [...new Set(paths)].filter((path) => !held.has(path)).sort(byCodePoint);
+      if (pending.length === 0) return;
+      const blobs = pending.filter((path) => entries.get(path)?.form === 'blob');
+      const texts = await reader.readTexts(blobs);
+      if (texts.length !== blobs.length) {
+        throw new Error(`${blobs[0] ?? '(empty batch)'}: the pinned tree answered ${texts.length} files for ${blobs.length} requested paths`);
       }
+      for (const path of pending) held.set(path, null);
+      for (let at = 0; at < blobs.length; at++) held.set(blobs[at]!, texts[at]!);
     },
     filesIn: (folder) => {
       const prefix = folder.replace(/\/+$/, '') + '/';

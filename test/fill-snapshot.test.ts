@@ -452,3 +452,44 @@ describe('the source of a run\'s pins', () => {
     }
   });
 });
+
+describe('batched snapshot text', () => {
+  test('one batch preserves binary framing, UTF-8, duplicate requests, links and caller order', async () => {
+    const f = await fixture();
+    try {
+      const body = Buffer.concat([Buffer.from('first\n\0é😀\n'), Buffer.alloc(100_000, 120), Buffer.from('\nlast')]);
+      await writeFile(join(f.root, 'binary.txt'), body);
+      await writeFile(join(f.root, 'empty.txt'), '');
+      execFileSync('git', ['-C', f.root, 'add', '-A']);
+      execFileSync('git', ['-C', f.root, 'commit', '-qm', 'batch inputs']);
+      const reader = await SnapshotReader.open(pinOf(f, 'HEAD'));
+      const paths = ['binary.txt', 'empty.txt', 'link.ts', 'binary.txt', 'README.md'];
+      expect(await reader.readTexts(paths)).toEqual([
+        body.toString('utf8'), '', 'src/a.ts', body.toString('utf8'), '# fixture\n',
+      ]);
+      expect(await reader.readTexts([])).toEqual([]);
+    } finally { await f.dispose(); }
+  });
+
+  test('batch refusals name the path and retain tree byte-count checks', async () => {
+    const f = await fixture();
+    try {
+      const reader = await SnapshotReader.open(pinOf(f, f.second));
+      const missing = await raised(() => reader.readTexts(['src/missing.ts']));
+      expect(missing.refusal).toBe('not-in-tree');
+      expect(namesAll(missing, reader.repository, reader.commit, 'src/missing.ts')).toBe(true);
+      const sub = await raised(() => reader.readTexts(['README.md', 'sub']));
+      expect(sub.refusal).toBe('not-read-here');
+      expect(namesAll(sub, reader.repository, reader.commit, 'sub')).toBe(true);
+      Object.defineProperty(reader.requireEntry('src/a.ts'), 'bytes', { value: 1 });
+      const changed = await raised(() => reader.readTexts(['README.md', 'src/a.ts']));
+      expect(changed.refusal).toBe('changed-bytes');
+      expect(namesAll(changed, reader.repository, reader.commit, 'src/a.ts')).toBe(true);
+      const id = reader.requireEntry('README.md').id;
+      await rm(join(f.root, '.git', 'objects', id.slice(0, 2), id.slice(2)));
+      const unreadable = await raised(() => reader.readTexts(['src/nested/b.go', 'README.md']));
+      expect(unreadable.refusal).toBe('object-unreadable');
+      expect(namesAll(unreadable, reader.repository, reader.commit, 'README.md')).toBe(true);
+    } finally { await f.dispose(); }
+  });
+});

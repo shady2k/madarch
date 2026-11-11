@@ -194,18 +194,24 @@ interface GitAnswer {
 }
 
 /** Runs one read-only git command in the checkout; nothing here writes, so a caller cannot mutate what it reads. */
-function git(root: string, args: readonly string[]): Promise<GitAnswer> {
+function git(root: string, args: readonly string[], input?: string): Promise<GitAnswer> {
   return new Promise((resolve) => {
-    execFile('git', ['-C', root, ...args], { encoding: 'buffer', maxBuffer: 1024 * 1024 * 1024 }, (error, stdout, stderr) => {
+    let inputFailure: string | undefined;
+    const child = execFile('git', ['-C', root, ...args], { encoding: 'buffer', maxBuffer: 1024 * 1024 * 1024 }, (error, stdout, stderr) => {
       const out = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''), 'utf8');
       const err = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : String(stderr ?? '');
       resolve({
-        ok: error === null,
+        ok: error === null && inputFailure === undefined,
         stdout: out,
         stderr: err.trim(),
         ...(error === null || error.message === '' ? {} : { failure: error.message }),
+        ...(inputFailure === undefined ? {} : { failure: inputFailure }),
       });
     });
+    if (input !== undefined) {
+      child.stdin?.on('error', (error: Error) => { inputFailure = error.message; });
+      child.stdin?.end(input);
+    }
   });
 }
 
@@ -233,8 +239,8 @@ export interface SnapshotSourceRef {
  * One repository bound to one commit: its tree, listed in code point order of
  * the paths, and its files' bytes. Open it once per repository and commit
  * (`SnapshotReader.open`) and read as many entries as needed; the tree is read
- * when the reader opens, so a lookup costs nothing and a byte read costs one
- * `git cat-file`.
+ * when the reader opens, so a lookup costs nothing. A single byte read costs
+ * one `git cat-file`; `readTexts` reads several files in one batch call.
  */
 export class SnapshotReader {
   private readonly pin: RepositoryPin;
@@ -433,6 +439,57 @@ export class SnapshotReader {
   /** The bytes of one file as text, decoded as UTF-8: what a manifest, a document or a source file is read as. */
   async readText(path: string): Promise<string> {
     return Buffer.from(await this.read(path)).toString('utf8');
+  }
+
+  /** Reads several files in one bounded git call, returning text in the caller's order. */
+  async readTexts(paths: readonly string[]): Promise<readonly string[]> {
+    const entries = paths.map((path) => this.requireEntry(path));
+    for (const entry of entries) {
+      if (entry.form === 'commit') {
+        throw new SnapshotError({
+          repository: this.pin.id, commit: this.resolvedCommit, path: entry.path, refusal: 'not-read-here',
+          detail: `${JSON.stringify(entry.path)} holds the commit ${entry.id} of another repository: this reader answers this repository's bytes`,
+        });
+      }
+    }
+    if (entries.length === 0) return [];
+    const answered = await git(this.pin.root, ['cat-file', '--batch'], entries.map((entry) => entry.id + '\n').join(''));
+    const texts: string[] = [];
+    let offset = 0;
+    for (const entry of entries) {
+      const unreadable = (detail: string): SnapshotError => new SnapshotError({
+        repository: this.pin.id, commit: this.resolvedCommit, path: entry.path, refusal: 'object-unreadable',
+        detail: `the bytes of ${JSON.stringify(entry.path)} (blob ${entry.id}) could not be read from ${JSON.stringify(this.pin.root)}: ${detail}`,
+      });
+      if (!answered.ok) throw unreadable(why(answered));
+      const end = answered.stdout.indexOf(10, offset);
+      const header = end < 0 ? '' : answered.stdout.toString('utf8', offset, end);
+      const match = /^([0-9a-f]{40}) blob (\d+)$/u.exec(header);
+      const size = match === null ? NaN : Number(match[2]);
+      if (match?.[1] !== entry.id || !Number.isSafeInteger(size)) {
+        throw unreadable(`git answered an invalid batch header ${JSON.stringify(header)}`);
+      }
+      const start = end + 1;
+      const next = start + size;
+      if (next >= answered.stdout.length || answered.stdout[next] !== 10) {
+        throw unreadable('git answered an incomplete blob or no batch terminator');
+      }
+      if (entry.bytes !== undefined && size !== entry.bytes) {
+        throw new SnapshotError({
+          repository: this.pin.id, commit: this.resolvedCommit, path: entry.path, refusal: 'changed-bytes',
+          detail: `the tree states ${entry.bytes} bytes for ${JSON.stringify(entry.path)} and git answered ${size}: the bytes of a commit do not change`,
+        });
+      }
+      texts.push(answered.stdout.toString('utf8', start, next));
+      offset = next + 1;
+    }
+    if (offset !== answered.stdout.length) {
+      throw new SnapshotError({
+        repository: this.pin.id, commit: this.resolvedCommit, path: entries[entries.length - 1]!.path,
+        refusal: 'object-unreadable', detail: 'git answered extra bytes after the requested batch',
+      });
+    }
+    return texts;
   }
 
   /** The entry at the path, refused where the tree holds none: the read path's own lookup. */
