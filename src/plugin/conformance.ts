@@ -12,6 +12,8 @@ import { join } from 'node:path';
 import { PluginHost, type GraphAnswerer, type HostLimits, type UnitOutcome } from './host.js';
 import type { PluginContractDeclaration, PluginUnitRequest } from './protocol.js';
 import { byCodePoint } from '../model/order.js';
+import { readPluginManifest } from './closure.js';
+import type { PluginAgentOptions } from './agent.js';
 
 /** One line of the kit's report, and whether it passed. */
 export interface ConformanceLine {
@@ -43,6 +45,8 @@ export interface ConformanceOptions {
    * way. A caller that validates against real vertices passes its own.
    */
   readonly graph?: GraphAnswerer;
+  /** Host-owned agent configuration; catalogue plugins get a deterministic protocol probe when absent. */
+  readonly agent?: PluginAgentOptions;
 }
 
 /** The kit's graph: no file vertex, and no value of one. */
@@ -74,6 +78,31 @@ export function describeOutcome(outcome: UnitOutcome): ConformanceLine {
   return { ok: false, text: `unit ${outcome.unitId}: not extracted, ${outcome.cause.code}: ${outcome.cause.message}${outcome.stderr.file === '' ? '' : ` (log ${outcome.stderr.file})`}` };
 }
 
+/** A catalogue has no fixed kind: the kit supplies one bounded output and an in-process agent protocol peer. */
+function catalogueAgent(): PluginAgentOptions {
+  const outputs: PluginContractDeclaration = { vertices: [{ kind: 'conformance', key: ['id'], fields: [] }], edges: [] };
+  return {
+    adapter: { id: 'conformance', command: 'conformance' }, outputs,
+    connect: async (spec) => {
+      let end!: () => void;
+      const closed = new Promise<void>((resolve) => { end = resolve; });
+      return {
+        spec, executable: 'conformance', closed,
+        initialize: async () => ({ protocolVersion: 1, agentCapabilities: {}, authMethods: [] }),
+        stderr: () => '', close: async () => { end(); },
+        newSession: async () => ({
+          sessionId: 'conformance', modes: null, configOptions: [], models: null, model: null,
+          setConfigOption: async () => { throw new Error('the conformance agent offers no configuration options'); },
+          setModel: async () => { throw new Error('the conformance agent offers no models'); },
+          prompt: async () => ({ text: JSON.stringify({ vertices: [], edges: [], end: { state: 'complete' } }), stopReason: 'end_turn', updates: [] }),
+          cancel: async () => {}, running: () => false,
+          usage: () => ({ reported: false, turns: 1, reports: 0 }),
+        }),
+      };
+    },
+  };
+}
+
 /**
  * Runs the kit: the introduction, one unit per probe (or one built from the
  * declaration), a pause past the heartbeat deadline, and a stop. The session
@@ -81,7 +110,12 @@ export function describeOutcome(outcome: UnitOutcome): ConformanceLine {
  */
 export async function checkConformance(options: ConformanceOptions): Promise<ConformanceReport> {
   const lines: ConformanceLine[] = [];
+  const agent = options.agent ?? (readPluginManifest(options.pluginFolder).agent?.catalogue === true ? catalogueAgent() : undefined);
   const host = new PluginHost({
+    ...(agent === undefined ? {} : { agent: { ...agent, onSession: (report) => {
+      agent.onSession?.(report);
+      lines.push({ ok: true, text: `agent: unit ${report.unitId}, session ${report.sessionId}, ${String(report.usage.turns)} turns` });
+    } } }),
     pluginFolder: options.pluginFolder,
     repository: options.repository ?? options.pluginFolder,
     workRoot: join(options.workRoot, 'conformance'),

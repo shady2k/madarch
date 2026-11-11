@@ -60,6 +60,12 @@ describe('the starter set a draft copies', () => {
         cwd: join(import.meta.dir, '..'), env: { ...env, MADARCH_PLUGIN_SANDBOX: 'off' }, encoding: 'utf8', timeout: 120_000,
       });
       expect(output).toContain('check: conforms');
+      if (closure.manifest.agent?.catalogue === true) {
+        expect(output).toContain('unit conformance-1: extracted');
+        expect(output).toContain('agent: unit conformance-1, session conformance, 1 turns');
+        expect(output).toContain('pause: the session stayed paused past the heartbeat deadline and resumed');
+        expect(output).toContain('stop: the plugin exited when asked');
+      }
     }
     expect(existsSync(join(folder, 'plugins/db-schema/package.json'))).toBe(true);
     expect(existsSync(join(folder, 'plugins/db-schema/bun.lock'))).toBe(true);
