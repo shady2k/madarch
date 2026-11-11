@@ -482,6 +482,17 @@ describe('the closure and its trust', () => {
   }, 90_000);
 });
 
+test('conformance returns an introduction refusal for a malformed manifest', async () => {
+  const folder = scratch('madarch-plugin-malformed-');
+  writeFileSync(join(folder, 'plugin.json'), '{');
+  const report = await checkConformance({ pluginFolder: folder, workRoot: scratch() });
+  expect(report.ok).toBe(false);
+  expect(report.lines).toHaveLength(1);
+  expect(report.lines[0]!.ok).toBe(false);
+  expect(report.lines[0]!.text).toContain('introduction:');
+  expect(report.lines[0]!.text).toContain(join(folder, 'plugin.json'));
+});
+
 describe('the answer against the declaration', () => {
   hostTest('a result of an undeclared kind is refused with the place named', async () => {
     const { outcome } = await behaviour('undeclared');

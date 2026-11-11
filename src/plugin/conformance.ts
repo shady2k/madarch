@@ -110,25 +110,25 @@ function catalogueAgent(): PluginAgentOptions {
  */
 export async function checkConformance(options: ConformanceOptions): Promise<ConformanceReport> {
   const lines: ConformanceLine[] = [];
-  const agent = options.agent ?? (readPluginManifest(options.pluginFolder).agent?.catalogue === true ? catalogueAgent() : undefined);
-  const host = new PluginHost({
-    ...(agent === undefined ? {} : { agent: { ...agent, onSession: (report) => {
-      agent.onSession?.(report);
-      lines.push({ ok: true, text: `agent: unit ${report.unitId}, session ${report.sessionId}, ${String(report.usage.turns)} turns` });
-    } } }),
-    pluginFolder: options.pluginFolder,
-    repository: options.repository ?? options.pluginFolder,
-    workRoot: join(options.workRoot, 'conformance'),
-    trust: 'validation',
-    ...(options.limits === undefined ? {} : { limits: options.limits }),
-    ...(options.env === undefined ? {} : { env: options.env }),
-    ...(options.cgroupParent === undefined ? {} : { cgroupParent: options.cgroupParent }),
-    ...(options.platform === undefined ? {} : { platform: options.platform }),
-    ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }),
-    graph: options.graph ?? EMPTY_GRAPH,
-  });
   let session;
   try {
+    const agent = options.agent ?? (readPluginManifest(options.pluginFolder).agent?.catalogue === true ? catalogueAgent() : undefined);
+    const host = new PluginHost({
+      ...(agent === undefined ? {} : { agent: { ...agent, onSession: (report) => {
+        agent.onSession?.(report);
+        lines.push({ ok: true, text: `agent: unit ${report.unitId}, session ${report.sessionId}, ${String(report.usage.turns)} turns` });
+      } } }),
+      pluginFolder: options.pluginFolder,
+      repository: options.repository ?? options.pluginFolder,
+      workRoot: join(options.workRoot, 'conformance'),
+      trust: 'validation',
+      ...(options.limits === undefined ? {} : { limits: options.limits }),
+      ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.cgroupParent === undefined ? {} : { cgroupParent: options.cgroupParent }),
+      ...(options.platform === undefined ? {} : { platform: options.platform }),
+      ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }),
+      graph: options.graph ?? EMPTY_GRAPH,
+    });
     session = await host.open();
   } catch (error) {
     const failed = error as Error & { code?: string; file?: string; line?: number };
