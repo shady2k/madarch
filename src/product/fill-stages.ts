@@ -98,6 +98,7 @@ import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
 import { raise } from '../model/raise.js';
 import { validateProductManifests, publishValidatedManifests } from '../graph/manifest-publication.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
 import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type FirstFillRead } from '../knowledge/workflows.js';
 
 /**
@@ -253,7 +254,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const kinds = contract.vertex.length === 0 && contract.edge.length === 0 ? false : { vertex: contract.vertex.map((kind) => kind.name), edge: contract.edge.map((kind) => kind.name) };
   const metadata = read.product ? validateProductManifests(folder, files, pins().find((one) => one.id === productRepositoryId(identity))?.commit) : undefined;
   if (metadata !== undefined && !metadata.ok) throw new Error(metadata.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
-  if (options.prepareContract !== undefined) await options.prepareContract(contract);
+  if (options.prepareContract !== undefined) await options.prepareContract(withManifestContract(contract));
   await createRecordSchema(options.database, contract);
   if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value);
   const records = options.records ?? {

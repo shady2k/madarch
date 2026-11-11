@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createRecordSchema } from '../src/graph/records.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
@@ -30,7 +31,7 @@ function fixture(): string {
 
 test('publishes complete metadata and declaration evidence without repository content or fill', async () => {
   const folder = fixture();
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
     await createRecordSchema(owner, EMPTY_CONTRACT);
     const read = validateProductManifests(folder);
@@ -55,7 +56,7 @@ test('publishes complete metadata and declaration evidence without repository co
 
 test('reports all invalid declarations with full paths and retains the last valid publication on refresh', async () => {
   const folder = fixture();
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   const reports: string[] = [];
   const watch = createManifestWatch([], async (value) => { await publishValidatedManifests(owner, value); }, (line) => reports.push(line));
   try {
@@ -83,7 +84,7 @@ test('reports all invalid declarations with full paths and retains the last vali
 
 test('filesystem watcher publishes a valid edit and refuses invalid edits without losing metadata', async () => {
   const folder = fixture();
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   const reports: string[] = [];
   let publications = 0;
   let resolvePublished: (() => void) | undefined;
