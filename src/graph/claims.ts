@@ -13,7 +13,7 @@
  */
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, VertexDraft, VertexRemovalDraft } from './contract.js';
-import { publishGraphDrafts, type EdgeDraft } from './write.js';
+import { publishGraphDrafts, type EdgeDraft, type JournalRead } from './write.js';
 
 /** One unit's draft set, as the orchestrator holds it: a write's kind and its value. */
 export interface DraftWriteLike {
@@ -34,7 +34,7 @@ export async function publishGraphWrites(executor: SqlExecutor, contract: GraphC
   const removals = writes.filter((write) => write.kind === 'vertex-removal').map((write) => write.value as VertexRemovalDraft);
   // A plugin's turn states its entry's author and the requests it made (under the debug setting) as its own draft; a
   // publication without one is named by its first vertex's producer.
-  const journal = writes.find((write) => write.kind === 'journal')?.value as { author: string; reads?: readonly { method: string; size: number }[] } | undefined;
+  const journal = writes.find((write) => write.kind === 'journal')?.value as { author: string; reads?: readonly JournalRead[] } | undefined;
   if (vertices.length === 0 && edges.length === 0 && removals.length === 0 && (journal?.reads ?? []).length === 0) return 0;
   return await publishGraphDrafts(executor, contract, { vertices, edges, removals }, 1, {
     ...(journal === undefined ? {} : { author: journal.author }),

@@ -18,8 +18,9 @@ describe('a schema made at once from several connections', () => {
       const failed = answers.filter((answer): answer is PromiseRejectedResult => answer.status === 'rejected');
       expect(failed.map((answer) => (answer.reason as Error).message)).toEqual([]);
       const stamps = await owner.run(async (tx) => await tx.query<{ name: string; stamp: string }>('SELECT name, stamp FROM madarch_meta.schema_stamp ORDER BY name'));
-      // The schema's stamp, and the mark a fresh store carries: it needs a fill.
-      expect(stamps.rows.map((row) => row.name)).toEqual(['graph-reset', 'one-graph']);
+      // The schema's stamp, the revision of its rows' meaning, and the mark a fresh store carries: it needs a fill.
+      expect(stamps.rows.map((row) => row.name)).toEqual(['graph-reset', 'one-graph', 'one-graph-revision']);
+      expect(stamps.rows.find((row) => row.name === 'one-graph-revision')?.stamp).toBe('2');
       const tables = await owner.run(async (tx) => await tx.query<{ table_name: string }>(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('node', 'edge', 'entity') ORDER BY table_name",
       ));

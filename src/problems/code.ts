@@ -75,8 +75,19 @@ export async function readCodeSnapshot(graph: GraphReader): Promise<CodeSnapshot
     if (found.total > found.rows.length) notes.push(`the code section reads the first ${found.rows.length} of ${found.total} ${name} edges: the rest are not judged`);
     return found.rows;
   };
+  // The files are read as the two facts the code rules ask of them — their path and their line count — and no opinion
+  // or evidence of every file is loaded to judge them (madarch-64o5.2, the page budget).
+  const readFiles = async (): Promise<GraphEntity[]> => {
+    const found = await graph.fileFacts('', LIMIT);
+    if (found.total > found.rows.length) notes.push(`the code section reads the first ${found.rows.length} of ${found.total} code.file facts: the rest are not judged`);
+    return found.rows.map((row) => ({
+      key: row.key, kind: 'code.file', label: row.path,
+      properties: { path: row.path, repository: row.repository, ...(row.lines === null ? {} : { lines: row.lines }) },
+      nodeIds: [row.node], scope: row.scope,
+    }));
+  };
   const [files, symbols, cycles, routes, operations, dependencies, packages, envVars, envDefinitions, inputs, builds, sinks, debts, flows, serves, defines, usesDependency] = await Promise.all([
-    read('code.file'), read('code.symbol'), read('code.cycle'), read('code.route'), read('code.operation'),
+    readFiles(), read('code.symbol'), read('code.cycle'), read('code.route'), read('code.operation'),
     read('code.dependency'), read('code.package'), read('code.env-var'), read('code.env-definition'),
     read('code.input'), read('code.sql-build'), read('code.sql-sink'), read('code.debt'),
     relation('code.flows-into'), relation('code.serves'), relation('code.defines'), relation('code.uses-dependency'),

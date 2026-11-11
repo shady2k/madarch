@@ -9,7 +9,7 @@ import { expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 import { treemapBlock } from '../src/knowledge/diagrams.js';
-import { GraphReader, type GraphEntity } from '../src/knowledge/graph-read.js';
+import { GraphReader, type FileFactRow, type GraphEntity } from '../src/knowledge/graph-read.js';
 import type { Block } from '../src/knowledge/model.js';
 import { byCodePoint } from '../src/model/order.js';
 import { Resolver } from '../src/knowledge/resolve.js';
@@ -34,6 +34,28 @@ class FixtureReader extends GraphReader {
     // The real read answers the keys in code point order, and `limit` cuts that order.
     const rows = this.entities.filter((entity) => entity.kind === kind && entity.key.startsWith(prefix)).sort((a, b) => byCodePoint(a.key, b.key));
     return { rows: rows.slice(0, limit), total: rows.length };
+  }
+  override async fileFacts(prefix: string, limit: number): Promise<{ total: number; rows: readonly FileFactRow[] }> {
+    this.prefixes.push(`code.file code.file:${prefix}`);
+    // The real read answers a file's path, its repository's node and the lines its opinions agree on, and `limit` cuts
+    // the key order.
+    const rows = this.entities.filter((entity) => entity.kind === 'code.file' && entity.key.startsWith(`code.file:${prefix}`)).sort((a, b) => byCodePoint(a.key, b.key));
+    return {
+      total: rows.length,
+      rows: rows.slice(0, limit).map((entity) => ({
+        key: entity.key,
+        node: entity.nodeIds[0] ?? '',
+        path: String(entity.properties['path'] ?? ''),
+        repository: 'catalog',
+        scope: entity.scope,
+        lines: typeof entity.properties['lines'] === 'number' ? entity.properties['lines'] : null,
+        generated: entity.properties['generated'],
+      })),
+    };
+  }
+  override async inDegreesOfNodes(relation: string, nodes: readonly { readonly id: string; readonly key: string }[]): Promise<Map<string, number>> {
+    this.relations.push(relation);
+    return new Map<string, number>(nodes.map((one): [string, number] => [one.key, this.touched.get(one.key) ?? 0]));
   }
   override async inDegrees(relation: string, keys: readonly string[]): Promise<Map<string, number>> {
     this.relations.push(relation);
