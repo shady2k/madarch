@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createDatabaseOwner, leaseStoreCluster, clusterDatabases, renameClusterDatabase, type DatabaseOwner } from './database-owner.js';
 import { prepareStore } from './prepare-store.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
 import type { PreparationRequest } from '../product/store-preparation.js';
 const ADDRESS = 'MADARCH_STORE_OWNER_URL';
 const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
@@ -38,7 +39,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
       } finally { await lease.close(); }
       return;
     }
-    await prepareStore(await ownerOf(body.store, body.database), { ...(body.database === undefined ? {} : { historyOnly: true }), ...(body.contract === undefined ? {} : { contract: body.contract }) });
+    await prepareStore(await ownerOf(body.store, body.database), { ...(body.database === undefined ? {} : { historyOnly: true }), ...(body.contract === undefined ? {} : { contract: withManifestContract(body.contract) }) });
   };
   const token = randomUUID();
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {

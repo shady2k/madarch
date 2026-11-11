@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { readProgress } from '../fill/orchestrator-store.js';
 import { runFill } from '../fill/run.js';
+import { requestStorePreparation } from '../product/store-preparation.js';
 import type { FillProgress } from '../obs/progress.js';
 import { GraphReader } from '../knowledge/graph-read.js';
 import { fillFolderIdentity, productRepositoryId } from '../product/identity.js';
@@ -147,6 +148,7 @@ async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, fol
   const result = await runFill({
     product: repository,
     database: owner,
+    prepareContract: async (contract) => { await requestStorePreparation(storeDatabasePath(folder), contract); },
     // The run's id names the commit it reads and the run itself. A start at a commit this store
     // filled before is a second run — the store has moved to another commit since, and this start
     // fills it back — so the id carries a fresh token: an id made from the commit alone named the
