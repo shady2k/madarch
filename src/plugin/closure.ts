@@ -45,6 +45,12 @@ export const PluginManifest = Type.Object(
       { additionalProperties: false },
     ),
     description: Type.Optional(Type.String({ minLength: 1 })),
+    agent: Type.Optional(Type.Object({
+      prompt: Type.String({ minLength: 1 }),
+      catalogue: Type.Optional(Type.Boolean()),
+      roots: Type.Array(Type.String({ minLength: 1 })),
+      writeRoots: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    }, { additionalProperties: false, description: 'Agent instructions and virtual repository/path roots; no adapter or credentials.' })),
   },
   { additionalProperties: false, description: 'A plugin folder\'s own description: its name, version, entry and interpreter pin.' },
 );

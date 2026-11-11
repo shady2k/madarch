@@ -15,7 +15,7 @@ import { unified } from 'unified';
 import { i18n, setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
-import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
+import { CataloguePage, DocumentsPage, EntityPage, KindPage, StatementPage, filterSources } from './pages.js';
 import { resetPreferences, resetTabs } from '../../test/reset.js';
 import { Root as AppRoot } from './root.js';
 import { addressOfStatement, wikiRouteOf } from './routes.js';
@@ -90,6 +90,20 @@ function tree(text: string, showGrounds: boolean): MNode {
   remarkStatements({ showGrounds })(root);
   return root;
 }
+
+test('an empty agent kind explains how to start its fill instead of saying there is no stage', async () => {
+  (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/entities')
+    ? new Response(JSON.stringify({ kind: 'domain', rows: [], total: 0, next: null, agentFill: 'unconfigured', agentUsage: { model: 'fixture-model', tokens: 42 } }))
+    : new Response('{}', { status: 404 });
+  const container = into(createElement(KindPage, { kind: 'domain', version: 0 }));
+  await until(() => container.querySelector('[data-testid="kind-empty"]') !== null, 'agent fill guidance');
+  const note = container.querySelector('[data-testid="kind-empty"]')!;
+  expect(note.textContent).toContain('Choose an agent');
+  expect(note.querySelector('a')?.getAttribute('href')).toBe('/dependencies');
+  expect(note.textContent).not.toContain('No fill stage');
+  expect(container.querySelector('[data-testid="kind-agent-usage"]')?.textContent).toContain('fixture-model');
+  expect(container.querySelector('[data-testid="kind-agent-usage"]')?.textContent).toContain('42');
+});
 
 describe('the statements of a page', () => {
   test('a paragraph is cut at the full stops the engine\'s reader cuts at, the footnote after the full stop in its sentence, the blank between two sentences outside both', () => {

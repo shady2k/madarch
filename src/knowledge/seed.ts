@@ -769,13 +769,13 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
   }
   // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3);
   // a plugin no chosen kind uses is not declared, and a product that is only a tracker holds none (decision 0034).
-  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? chosen.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)));
   if (plugins.length > 0) {
     lines.push(
       "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
       "# files of its closure. The lock beside the manifest records the exact version and the closure hash.",
       "plugins:",
-      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
+      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [${pluginUsesCatalogue(plugin) ? '' : 'code.file'}], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
     );
   }
   return `${lines.join('\n')}\n`;
@@ -860,6 +860,14 @@ function pluginLockText(plugins: readonly BundledPlugin[]): string {
   return `${lines.join('\n')}\n`;
 }
 
+/** Whether the bundled plugin fills the catalogue rather than a fixed set of output kinds. */
+function pluginUsesCatalogue(plugin: BundledPlugin): boolean {
+  const held = plugin.files.find((file) => file.path === 'plugin.json')?.content;
+  if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no plugin.json text`);
+  const manifest = JSON.parse(held) as { agent?: { catalogue?: boolean } };
+  return manifest.agent?.catalogue === true;
+}
+
 /** The output kinds a bundled plugin's own contract declares. */
 function pluginOutputsOf(plugin: BundledPlugin): string[] {
   const held = plugin.files.find((file) => file.path === 'contract.json')?.content;
@@ -906,7 +914,7 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
   const kinds = template.kinds === 'all' ? undefined : starterKindNames(template);
   const chosen = kinds === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kinds.includes(kind.name));
   const names = new Set(chosen.map((kind) => kind.name));
-  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? chosen.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)));
   const templates = templatesUsedBy(chosen.flatMap((kind) => (kind.template === undefined ? [] : [kind.template])));
   // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
   const workflows = chosen.some((kind) => kind.source === 'graph');

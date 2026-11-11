@@ -12,7 +12,7 @@
  * code.
  */
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { ACP_ADAPTERS, acpAdapterBinFolder, acpAgentFolder, acpInstallOffer, acpLaunchOf, acpLoginState, type AcpAdapterCatalogueEntry } from '../fill/acp-probe.js';
 import { installAcpAdapter } from '../fill/acp-install.js';
 import { resolveExecutable } from '../fill/acp.js';
@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os';
 import type { UnitAgent } from '../writer/units.js';
 import type { Journal } from '../writer/journal.js';
 import type { AgentOffer, WriterBounds } from './model.js';
+import type { PluginAgentOptions } from '../plugin/agent.js';
 
 /** The ids of the agents the wiki offers. */
 export const WRITER_AGENTS: readonly string[] = ['claude-code', 'codex', 'opencode', 'omp', 'prime-agent'];
@@ -102,6 +103,49 @@ export async function installAdapter(id: string, env: DraftEnv): Promise<{ ok: t
 }
 
 
+
+/** The product's host settings, shared by the page and the pressed fill. */
+export function readAgentSettings(file: string): Record<string, unknown> {
+  let text: string;
+  try { text = readFileSync(file, 'utf8'); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw new Error(`${file}:1: the product settings cannot be read: ${(error as Error).message}`);
+  }
+  let body: unknown;
+  try { body = JSON.parse(text); } catch (error) { throw new Error(`${file}:1: the product settings are not JSON: ${(error as Error).message}`); }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new Error(`${file}:1: the product settings are a JSON object with agent, roles and the writer's bounds`);
+  return body as Record<string, unknown>;
+}
+
+/** Resolves saved writing-role options only when a fill is pressed. No saved agent means no agent turns. */
+export function configuredPluginAgent(storeFolder: string, env: DraftEnv): PluginAgentOptions | undefined {
+  const file = path.join(storeFolder, 'writer.json');
+  const body = readAgentSettings(file);
+  const roles = body['roles'];
+  const role = roles !== null && typeof roles === 'object' && !Array.isArray(roles) ? (roles as Record<string, unknown>)['writing'] : undefined;
+  const selected = body['agent'] === undefined ? role : body;
+  if (selected === undefined) return undefined;
+  if (selected === null || typeof selected !== 'object' || Array.isArray(selected)) throw new Error(`${file}:1: writing is not an agent/model choice`);
+  const pair = selected as Record<string, unknown>;
+  if (typeof pair['agent'] !== 'string') throw new Error(`${file}:1: writing has no agent id`);
+  for (const key of ['model', 'reasoning']) if (pair[key] !== undefined && typeof pair[key] !== 'string') throw new Error(`${file}:1: writing.${key} is not a string`);
+  return pluginAgentOptions(pair['agent'], env, path.join(storeFolder, 'agent-runs'), { ...(typeof pair['model'] === 'string' ? { model: pair['model'] } : {}), ...(typeof pair['reasoning'] === 'string' ? { reasoning: pair['reasoning'] } : {}) });
+}
+
+/** Resolves the selected adapter for one pressed fill; constructing options starts no process. */
+export function pluginAgentOptions(id: string, env: DraftEnv, workFolder: string, preferences: AgentPreferences = {}, repositories: Readonly<Record<string, string>> = {}): PluginAgentOptions {
+  const entry = adapterOf(id);
+  if (entry === undefined) throw new Error(`src/knowledge/agents.ts:1: ${import.meta.dir}/agents.ts: unknown agent ${JSON.stringify(id)}`);
+  const launch = launchOf(entry, env);
+  const command = launch === undefined ? undefined : resolveExecutable(launch.binary, searchPathOf(entry, env));
+  if (launch === undefined || command === undefined) throw new Error(`src/knowledge/agents.ts:1: ${import.meta.dir}/agents.ts: ${entry.label} has no installed ACP adapter; install it in the wiki's agent settings before filling`);
+  mkdirSync(workFolder, { recursive: true });
+  const prepared = acpLaunchOf(entry, env, workFolder, { ...process.env, ...env, PATH: searchPathOf(entry, env) }, launch.args);
+  return {
+    adapter: { id, command, args: prepared.args }, environment: prepared.env, cwd: workFolder, repositories, preferences,
+    connect: connectAcpAgent,
+  };
+}
 
 /** The production factory: the one graph has no writer stage yet, so no ACP unit agent is started. */
 export function makeUnitAgent(_id: string, _env: DraftEnv, _progress?: (line: string) => void, _preferences?: AgentPreferences, _journal?: Journal): (UnitAgent & { close(): Promise<void> }) | { error: string } {

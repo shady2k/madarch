@@ -15,6 +15,7 @@ import { useTabTitle } from './tabs.js';
 import { getRun } from './api.js';
 import { addressOfDocument, WIKI_RUN } from './routes.js';
 import type { FileBlockData, FilePageBlock, FillRunView, FolderBlockData, FolderFileData, RepositoryBlockData, Resolution } from './types.js';
+import { RunAgentUsage } from './usage.js';
 
 /** A number of bytes as a reader reads it. */
 export function bytesText(bytes: number): string {
@@ -376,6 +377,7 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
         </tbody>
       </table>
       </div>
+      <RunAgentUsage usage={run.agentUsage} />
       <h2 className="mb-2 mt-0">{t('knowledge.run.names')}</h2>
       <ol className="m-0 list-none p-0 text-small" data-testid="run-names">
         {run.slowest.map((name) => (

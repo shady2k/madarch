@@ -20,6 +20,12 @@ import glossaryMain from '../../plugins/glossary/main.ts' with { type: 'text' };
 import glossaryContract from '../../plugins/glossary/contract.json' with { type: 'text' };
 import glossaryManifest from '../../plugins/glossary/plugin.json' with { type: 'text' };
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
+import agentFillMain from '../../plugins/agent-fill/main.ts' with { type: 'text' };
+import agentFillContract from '../../plugins/agent-fill/contract.json' with { type: 'text' };
+import agentFillManifest from '../../plugins/agent-fill/plugin.json' with { type: 'text' };
+// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
+import agentFillPrompt from '../../plugins/agent-fill/prompt.md' with { type: 'text' };
+// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaMain from '../../plugins/db-schema/main.ts' with { type: 'text' };
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaAmbient from '../../plugins/db-schema/ambient.d.ts' with { type: 'text' };
@@ -63,6 +69,17 @@ export interface BundledPlugin {
 
 /** The plugins this build carries, in code point order of their ids. */
 export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
+  {
+    id: 'agent-fill',
+    folder: 'plugins/agent-fill',
+    version: '1.0.0',
+    files: [
+      { path: 'contract.json', content: agentFillContract as unknown as string },
+      { path: 'main.ts', content: agentFillMain as string },
+      { path: 'plugin.json', content: agentFillManifest as unknown as string },
+      { path: 'prompt.md', content: agentFillPrompt as string },
+    ],
+  },
   {
     id: 'db-schema',
     folder: 'plugins/db-schema',

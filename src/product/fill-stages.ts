@@ -76,6 +76,7 @@ import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
 import type { DeclaredKinds } from '../graph/records.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
+import type { PluginAgentOptions } from '../plugin/agent.js';
 import { publishGraphWrites } from '../graph/claims.js';
 import { KINDS_FILE, readKindsFrom } from '../knowledge/kinds.js';
 import { snapshotFiles } from '../knowledge/product-files.js';
@@ -89,6 +90,9 @@ import { stageSettled } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
+import { readFillSelection } from '../adapters/fill-selection.js';
+import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
+import { AgentRunBudget } from '../fill/agent-meter.js';
 import { MANIFEST_FILE, type ProductIdentity } from './manifest.js';
 import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
@@ -124,6 +128,13 @@ export interface StagesFillOptions {
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
   /** The plugin closures this fill trusts beside the release's. */
   readonly releaseHashes?: readonly string[];
+  /** The supervised ACP adapter available to this run's agent plugin turns. */
+  readonly pluginAgent?: PluginAgentOptions;
+  /**
+   * The run's id, which a run's trace and its metered agent spend are named by (madarch-stm0.4). Left out, the run has
+   * no id yet and no spend of its own to record: a caller that drives the stages without `runFill` names none.
+   */
+  readonly runId?: string;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -187,7 +198,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const { files, kindsRead, lockRead } = await withSpan('fill.product-files', { 'madarch.product': identity.name }, async () => {
     const own = await snapshots.open(productRepositoryId(identity));
     const files = await snapshotFiles(own);
-    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
+    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json'))]);
     return {
       files,
       kindsRead: readKindsFrom(files, folder),
@@ -196,6 +207,28 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     };
   });
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
+  // The bounds this run's agent parts are held to (madarch-stm0.4, decision 0035, item 22): the catalogue's token cap,
+  // which the person's press declared, bounds the whole run; each plugin's own `bounds:` in the manifest bounds one run of
+  // that plugin. Both are declarations the store and the manifest hold, never numbers this module picks, and the run's
+  // trace states them, so a reader sees what a run may spend before it spends it.
+  const selection = await withSpan('fill.selection', { 'madarch.product': identity.name }, async () => await readFillSelection(options.database, identity.id));
+  const budget = selection.tokenCap === null ? undefined : new AgentRunBudget({ tokens: selection.tokenCap });
+  const declaredBounds = [...(kindsRead.present ? kindsRead.manifest.plugins?.values() ?? [] : [])].filter((plugin) => plugin.bounds !== undefined).sort((left, right) => byCodePoint(left.id, right.id));
+  if (options.runId !== undefined) {
+    await withSpan('agent.bounds', {
+      'agent.run': options.runId,
+      ...(selection.tokenCap === null ? {} : { 'agent.run.tokens': selection.tokenCap }),
+      ...Object.fromEntries(declaredBounds.flatMap((plugin) => [
+        ...(plugin.bounds?.tokens === undefined ? [] : [[`agent.plugin.${plugin.id}.tokens`, plugin.bounds.tokens] as const]),
+        ...(plugin.bounds?.cost === undefined ? [] : [[`agent.plugin.${plugin.id}.cost`, plugin.bounds.cost.amount] as const, [`agent.plugin.${plugin.id}.currency`, plugin.bounds.cost.currency] as const]),
+      ])),
+    }, async () => undefined);
+  }
+  const agentUsage = options.runId === undefined ? undefined : {
+    run: options.runId,
+    ...(budget === undefined ? {} : { budget }),
+    save: async (rows: readonly AgentUsageRecord[]) => await recordAgentUsage(options.database, rows),
+  };
   // A folder that is no product — a bare checkout `madarch mcp` serves — reads the code kinds the engine's own
   // starter set binds; a product with a manifest takes only the capabilities its kinds bind (decision 0034, item 14).
   const contract = kindsRead.present ? graphContractOf(kindsRead.manifest) : GIT_CONTRACT;
@@ -217,7 +250,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
