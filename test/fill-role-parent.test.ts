@@ -160,9 +160,16 @@ async function awaitGone(child: number, within: number): Promise<Gone> {
       if (!gone.child || !gone.postgres) {
         const rows = processes();
         const pids = new Set(rows.filter((row) => row.command.includes(work) || row.pid === child).flatMap((row) => [row.pid, row.ppid]));
-        const tree = spawnSync('ps', ['-p', [...pids].join(','), '-o', 'pid=,ppid=,stat=,command='], { encoding: 'utf8' });
+        for (const row of rows) if (pids.has(row.ppid)) pids.add(row.pid);
+        const tree = spawnSync('ps', ['-p', [...pids].join(','), '-o', 'pid=,ppid=,stat=,wchan=,command='], { encoding: 'utf8' });
         console.log(`shutdown process states after ${String(gone.waitedMs)} ms:
 ${tree.stdout ?? tree.stderr}`);
+        for (const store of storeFolders()) {
+          const log = join(store, 'graph', 'postgres.log');
+          try { console.log(`${log}:
+${readFileSync(log, 'utf8').split('\n').slice(-30).join('\n')}`); }
+          catch (error) { console.log(`${log}: ${String(error)}`); }
+        }
       }
       return gone;
     }
