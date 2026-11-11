@@ -9,7 +9,7 @@
 import { byCodePoint } from '../src/model/order.js';
 import { questionAddress } from '../src/knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../src/knowledge/resolve.js';
-import type { Question } from './loop-entities-fixture.js';
+import type { Question } from '../src/loop/entities.js';
 import { ruleSpecs } from '../src/problems/rules.js';
 import type { ProblemDraft, ProblemNote, ProblemLink, ProblemSettings, ProblemSeverity, RuleSpec } from '../src/problems/types.js';
 

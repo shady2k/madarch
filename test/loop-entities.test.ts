@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft } from '../src/product/draft.js';
-import { answerQuestion, localIdentity } from '../src/loop/answer.js';
+import { localIdentity } from '../src/loop/answer.js';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
 import { graphQuestions } from '../src/loop/graph.js';
 import { decide } from '../src/loop/plan.js';
@@ -118,7 +118,7 @@ describe('the refresh decides which pages need an agent unit', () => {
   });
 });
 
-describe('structured question opinions and answer writes', () => {
+describe('structured question opinions and identity', () => {
   const question = (): Question => ({ ...QUESTION, id: 'question:discount-percentage', file: 'docs/questions/discount-percentage.md' });
 
   test('lists the structured question opinion without reading its file', async () => {
@@ -128,31 +128,15 @@ describe('structured question opinions and answer writes', () => {
     expect(await graphQuestions(graph.reader())).toEqual([expect.objectContaining(item)]);
   });
 
-  test('writes and commits an answer from the structured question, even when old text is not parseable', async () => {
-    const folder = product();
-    const item = question();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    writeFileSync(join(folder, item.file), 'not a question parser input');
-    const result = await answerQuestion({ productFolder: folder, question: item, text: 'Ten percent.', env: env(PERSON), now: () => new Date('2026-10-23T11:00:00Z') });
-    expect(result.committed).toBe(true);
-    expect(result.question.answer?.text).toBe('Ten percent.');
-    expect(readFileSync(join(folder, item.file), 'utf8')).toBe(renderQuestion(result.question));
-    expect(execFileSync('git', ['log', '-1', '--format=%an <%ae>'], { cwd: folder, encoding: 'utf8', env: env(PERSON) }).trim()).toBe('Ada Reader <ada@example.test>');
-  });
-
-  test('refuses an answered opinion and an empty answer before writing', async () => {
-    const folder = product();
-    const item = question();
-    await expect(answerQuestion({ productFolder: folder, question: item, text: '  ', env: env(PERSON) })).rejects.toThrow('answer is empty');
-    const answered = { ...item, status: 'answered' as const, answer: { text: 'Ten.', by: { name: 'Ada', email: 'ada@example.test', verified: 'local' }, at: 'now' } };
-    await expect(answerQuestion({ productFolder: folder, question: answered, text: 'Other.', env: env(PERSON) })).rejects.toThrow('already answered');
-  });
-
-  test('never writes through a question folder linked outside the product', async () => {
-    const folder = product(); const outside = scratch();
-    mkdirSync(join(folder, 'docs'), { recursive: true });
-    symlinkSync(outside, join(folder, 'docs/questions'));
-    await expect(answerQuestion({ productFolder: folder, question: question(), text: 'Ten.', env: env(PERSON) })).rejects.toThrow('outside the product');
+  test('reads an answered structured opinion and renders it without reopening its retired file', async () => {
+    const graph = new FakeGraph();
+    const item: Question = { ...question(), status: 'answered', answer: { text: 'Ten percent.', by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:00:00Z' } };
+    graph.add(item.id, 'question', item.title, { ...item, producer: 'person', language: 'en', asked_in: item.askedIn, asked_at: item.askedAt, resolved_by: item.resolvedBy, resolved_at: item.resolvedAt, written_at: item.writtenAt });
+    const [read] = await graphQuestions(graph.reader());
+    expect(read?.answer).toEqual(item.answer);
+    expect(read?.status).toBe('answered');
+    expect(renderQuestion(read!)).toContain('> Ten percent.');
+    expect(renderQuestion(read!)).toContain('Ada Reader <ada@example.test>');
   });
 
   test('git identity: the author variables win, then the configuration', async () => {

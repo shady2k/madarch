@@ -11,3 +11,39 @@
  * written before content hashes, or a content hash and its collision suffix.
  */
 export const QUESTION_SLUG = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)*|[0-9a-f]{12}(?:-[0-9]+)?)$/;
+
+import { canonicalJsonDigest } from '../model/canonical.js';
+import { byCodePoint } from '../model/order.js';
+
+/** A question-file footnote names one side: its claim and the keys it stands on. */
+export function questionFootnoteId(claim: string, grounds: readonly string[]): string {
+  return shortDigest({ claim: normalize(claim), grounds: keys(grounds) });
+}
+
+
+
+/** The first 12 hex characters of the canonical content's SHA-256. */
+function shortDigest(value: unknown): string {
+  return canonicalJsonDigest(value).slice(0, 12);
+}
+
+/** Text is compared without its insignificant wrapping: NFC, one space between words, no ends. */
+function normalize(text: string): string {
+  let out = '';
+  let separated = false;
+  for (const character of text.normalize('NFC')) {
+    if (character.trim() === '') {
+      if (out !== '') separated = true;
+      continue;
+    }
+    if (separated) out += ' ';
+    out += character;
+    separated = false;
+  }
+  return out;
+}
+
+/** Keys are a set in code-point order, so the order the caller sent them in never changes an id. */
+function keys(values: readonly string[]): string[] {
+  return [...new Set(values.map(normalize))].sort(byCodePoint);
+}
