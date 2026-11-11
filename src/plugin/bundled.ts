@@ -28,16 +28,12 @@ import dbSchemaManifest from '../../plugins/db-schema/plugin.json' with { type: 
 import dbSchemaPostgresWasm from '../../plugins/db-schema/node_modules/libpg-query/wasm/libpg-query.wasm' with { type: 'file' };
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaPostgresGlue from '../../plugins/db-schema/node_modules/libpg-query/wasm/libpg-query.js' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaPostgresIndex from '../../plugins/db-schema/node_modules/libpg-query/wasm/index.js' with { type: 'text' };
 import dbSchemaPostgresPackage from '../../plugins/db-schema/node_modules/libpg-query/package.json' with { type: 'text' };
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaPostgresLicense from '../../plugins/db-schema/node_modules/libpg-query/LICENSE' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaTypesIndex from '../../plugins/db-schema/node_modules/@pgsql/types/index.js' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaTypesValues from '../../plugins/db-schema/node_modules/@pgsql/types/types.js' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaTypesEnums from '../../plugins/db-schema/node_modules/@pgsql/types/enums.js' with { type: 'text' };
 import dbSchemaTypesPackage from '../../plugins/db-schema/node_modules/@pgsql/types/package.json' with { type: 'text' };
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
