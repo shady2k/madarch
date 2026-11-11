@@ -982,10 +982,10 @@ export class GraphReader {
     for (const kind of [GIT_KINDS.directory, GIT_KINDS.file]) {
       if (!this.holds(kind)) continue;
       const membership = this.holds(GIT_KINDS.contains) ? ` AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}` : '';
-      parts.push(`SELECT '${kind}', count(*)::text FROM ${ofKind(kind, 'n')} WHERE NOT n.removed AND n.context_id = 1${membership}`);
+      parts.push(`SELECT '${kind}' AS kind, count(*)::text AS n FROM ${ofKind(kind, 'n')} WHERE NOT n.removed AND n.context_id = 1${membership}`);
     }
-    if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' JOIN node c ON c.id = e.to_node AND c.context_id = 1 AND NOT c.removed WHERE e.context_id = 1`);
-    if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}', count(*)::text FROM ${ofKind(GIT_KINDS.signature, 's')} WHERE NOT s.removed AND s.context_id = 1 AND EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id AND e.context_id = 1)`);
+    if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}' AS kind, count(*)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' JOIN node c ON c.id = e.to_node AND c.context_id = 1 AND NOT c.removed WHERE e.context_id = 1`);
+    if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}' AS kind, count(*)::text AS n FROM ${ofKind(GIT_KINDS.signature, 's')} WHERE NOT s.removed AND s.context_id = 1 AND EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id AND e.context_id = 1)`);
     for (const decl of this.generated?.values() ?? []) parts.push(`SELECT ${quoteLiteral(decl.kind)} AS kind, count(DISTINCT n.id)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
     if (parts.length === 0) return [];
     return await this.run(async (tx) => {
