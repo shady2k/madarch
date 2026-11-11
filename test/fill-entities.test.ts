@@ -130,7 +130,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Also filling doc.term, which depends on code.file.');
     expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, doc.term.');
-    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual([]);
+    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/db-schema:code.database']);
   }, 600_000);
 
   test('a vertex fill rewrites exactly the entity it names and nothing else', async () => {
