@@ -4,7 +4,11 @@ import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { keepsProductEntry, startServer as startClientServer, type ServerOptions, type StartedServer } from '../src/server/http.js';
-import { seedStarterSet } from '../src/knowledge/seed.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { ensureVertex, publishOpinion } from '../src/graph/write.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
@@ -35,8 +39,18 @@ function product(home: string, folder: string, id: string): void {
   const path = join(home, folder); mkdirSync(join(path, 'docs'), { recursive: true });
   writeFileSync(join(path, 'workspace.yaml'), `schemaVersion: 1\nid: ${id}\nname: ${folder}\n`);
   writeFileSync(join(path, 'docs', 'vision.md'), `# ${folder} vision\n`);
-  // A hand-made product holds its own copy of the starter set, as `madarch new` leaves it.
-  seedStarterSet(path);
+  mkdirSync(join(path, 'madarch'));
+  writeFileSync(join(path, 'madarch', 'kinds.yaml'), `kinds:
+  document:
+    source: graph
+    key: [title]
+    fields:
+      - { name: title, type: text }
+      - { name: path, type: text }
+      - { name: markdown, type: text }
+      - { name: anchors, type: json }
+      - { name: links, type: json }
+`);
   // A product folder is its own Git checkout; the files producer reads it into the graph.
   gitCommit(path);
 }
@@ -48,17 +62,20 @@ function gitCommit(folder: string): void {
   git(['add', '-A']); git(['commit', '--quiet', '-m', 'the product']);
 }
 
-/** Presses the product's fill and waits: the documents are the graph's now (decision 0035, item 9). */
-async function fillProduct(server: StartedServer, folder: string): Promise<void> {
-  const pressed = await fetch(`${server.url}/products/${folder}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  expect(pressed.status).toBe(202);
-  for (let attempt = 0; attempt < 600; attempt++) {
-    const status = await (await fetch(`${server.url}/products/${folder}/api/status`)).json() as { fill: { state: string; message?: string } };
-    if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
-    if (status.fill.state !== 'running') return;
-    await Bun.sleep(100);
-  }
-  throw new Error('the fill never ended');
+/** Publish the document producer's structured result; wiki requests never parse the file beside it. */
+async function publishDocument(home: string, folder: string, markdown: string): Promise<void> {
+  const product = join(home, folder);
+  const read = readKinds(product);
+  if (!read.present) throw new Error(`${product}/madarch/kinds.yaml:1: fixture manifest missing`);
+  const contract = graphContractOf(read.manifest);
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
+  try {
+    await owner.transaction('write', async (tx) => {
+      const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: `${folder} vision` } });
+      await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1',
+        values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } });
+    });
+  } finally { await owner.close(); }
 }
 function appDist(rootFolder: string): string {
   const app = join(rootFolder, 'app'); mkdirSync(app, { recursive: true });
@@ -131,7 +148,7 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   const manifest = join(home, 'alpha', 'workspace.yaml');
   const whole = new Date(Math.floor(statSync(manifest).mtimeMs));
   utimesSync(manifest, whole, whole);
-  server = await startServer({ fillProcess: true, productHome: home, appFolder: appDist(root), port: 0 });
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
   // The name the home lists for a product is the one its kept entry was opened with (the products list is read from the entries).
   const nameOf = async (): Promise<string> => {
     const response = await fetch(`${server!.url}/api/products`);
@@ -148,10 +165,8 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   writeFileSync(manifest, 'schemaVersion: 1\nid: alpha-id\nname: Alpha renamed\n');
   await Bun.sleep(5_200);
   expect(await nameOf()).toBe('Alpha renamed');
-  // And a page is still read at every ask through the kept entry: a saved document is served at once.
-  writeFileSync(join(home, 'alpha', 'docs', 'vision.md'), '# alpha vision\n\nThe saved body.\n');
-  gitCommit(join(home, 'alpha'));
-  await fillProduct(server, 'alpha');
+  // A newly published document opinion is served through the kept entry without a fill or a file parser.
+  await publishDocument(home, 'alpha', '# alpha vision\n\nThe saved body.\n');
   const page = await fetch(`${server.url}/products/alpha/api/document?path=docs/vision.md`);
   expect(page.status).toBe(200);
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
@@ -161,7 +176,7 @@ quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34d
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id'); product(home, 'beta', 'beta-id');
-  server = await startServer({ fillProcess: true, productHome: home, appFolder: appDist(root), port: 0 });
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
   const index = await fetch(server.url, { redirect: 'manual' });
   expect(index.status).toBe(302);
   const first = await fetch(`${server.url}/products/alpha/api/product`);
@@ -174,7 +189,7 @@ quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34d
   expect(await nestedPage.text()).toContain('/products/alpha/assets/');
   expect((await fetch(`${server.url}/products/alpha/assets/app.js`)).status).toBe(200);
   // The wiki's documents are listed product-relative: the app adds its mount base itself.
-  await fillProduct(server, 'alpha');
+  await publishDocument(home, 'alpha', '# alpha vision\n');
   const documents = await (await fetch(`${server.url}/products/alpha/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
   expect(documents.documents).toContainEqual({ repo: null, path: 'docs/vision.md', title: 'alpha vision' });
 });
