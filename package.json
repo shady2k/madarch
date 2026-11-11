@@ -4,11 +4,12 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "tsc --noEmit && bun run check:architecture && bun run check:catalog && bun run check:workflows",
+    "check": "tsc --noEmit && bun run check:architecture && bun run check:ui && bun run check:catalog && bun run check:workflows",
     "check:architecture": "bun scripts/check-architecture.ts",
+    "check:ui": "bun scripts/check-ui-architecture.ts",
     "check:catalog": "bun scripts/check-catalog.ts",
     "check:workflows": "bun scripts/check-workflows.ts",
-    "check:architecture-base": "bun scripts/check-architecture.ts --base-guard",
+    "check:architecture-base": "bun scripts/check-architecture.ts --base-guard && bun scripts/check-ui-architecture.ts --base-guard",
     "test": "bun test test/",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
     "wiki:shots": "bun scripts/wiki-shots.ts",
@@ -51,7 +52,8 @@
     "likec4": "1.59.4",
     "mermaid": "12.0.0",
     "puppeteer": "24.43.1",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript-api": "npm:typescript@5.9.3"
   },
   "trustedDependencies": [
     "puppeteer"
