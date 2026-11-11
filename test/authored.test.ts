@@ -18,7 +18,7 @@ const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/kinds.yaml
   }],
 ]) };
 const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader <reader@example.invalid>', action, 'note', args));
-beforeAll(async () => { owner = await createTestDatabaseOwner(); await createOneGraphSchema(owner, graphContractOf(manifest)); });
+beforeAll(async () => { owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest) }); await createOneGraphSchema(owner, graphContractOf(manifest)); });
 afterAll(async () => { await owner.close(); });
 
 test('random authored identities preserve opinions, exact words and withdrawal history', async () => {
