@@ -95,10 +95,10 @@ afterAll(async () => {
 describe('a manifest declares one code kind and not the other', () => {
   test('code.file without code.repository fills: files are published, no repository table stands', async () => {
     const product = join(home, 'files-only');
-    await fillInProcess(product, home);
+    const filled = await fillInProcess(product, home);
     await publishPageTemplate(product, 'templates/file.liquid');
     const status = await (await fetch(`${server!.url}/products/files-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
-    expect(status.filled, JSON.stringify({ status, errors })).toBe(true);
+    expect(status.filled, JSON.stringify({ filled, status, errors })).toBe(true);
     expect(status.kinds.find((kind) => kind.kind === 'code.file')?.count).toBeGreaterThan(0);
     expect(status.kinds.some((kind) => kind.kind === 'code.repository')).toBe(false);
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));

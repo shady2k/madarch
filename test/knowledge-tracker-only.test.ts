@@ -95,7 +95,7 @@ describe('a product that is only a tracker', () => {
     try {
       // Startup publishes the validated declarations; no entity exists before the fill or explicit authorship.
       const before = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
-      expect(before.status).toBe(200);
+      expect(before.status, JSON.stringify({ body: await before.clone().text(), errors })).toBe(200);
       const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
       expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
