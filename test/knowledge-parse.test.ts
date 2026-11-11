@@ -11,6 +11,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
+import { byCodePoint } from '../src/model/order.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
 
@@ -104,24 +106,15 @@ describe('the starter set madarch new seeds', () => {
     // The starter set of both changes: the document task page and the history task page are two templates of one name
     // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
     // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml',
-      ...[
-        'ambient.d.ts', 'contract.json', 'main.ts',
-        'node_modules/@babel/parser/LICENSE', 'node_modules/@babel/parser/lib/index.js', 'node_modules/@babel/parser/package.json',
-        'node_modules/@pgsql/types/LICENSE', 'node_modules/@pgsql/types/enums.js', 'node_modules/@pgsql/types/index.js',
-        'node_modules/@pgsql/types/package.json', 'node_modules/@pgsql/types/types.js',
-        'node_modules/libpg-query/LICENSE', 'node_modules/libpg-query/package.json',
-        'node_modules/libpg-query/wasm/index.js', 'node_modules/libpg-query/wasm/libpg-query.js', 'node_modules/libpg-query/wasm/libpg-query.wasm',
-        'plugin.json',
-      ].map((path) => `plugins/db-schema/${path}`),
-      'plugins/glossary/contract.json', 'plugins/glossary/main.ts', 'plugins/glossary/plugin.json', 'plugins/glossary/usages.ts',
+    expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml',
+      ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`)),
       'templates/entity.liquid',
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
       'templates/partials/relations.liquid', 'templates/partials/history.liquid',
       ...[
         'product', 'domain', 'dismissal', 'guide', 'service', 'package', 'module', 'file', 'repository', 'directory', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
-        'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task',
-      ].map((name) => `templates/${name}.liquid`)]);
+        'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task', 'test-quarantine',
+      ].map((name) => `templates/${name}.liquid`)].sort(byCodePoint));
     for (const file of STARTER_FILES) {
       if (file.bytes !== undefined) expect(readFileSync(join(draft.folder, file.path))).toEqual(Buffer.from(file.bytes));
       else expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
