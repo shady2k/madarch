@@ -9,11 +9,7 @@ import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLi
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
-import { listProducts } from '../src/product/list.js';
-import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
-import { dirname } from 'node:path';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 
 let endOwner: () => void;
 let ownerDone: Promise<void>;
@@ -24,15 +20,8 @@ beforeEach(async () => {
   ownerDone = withStorePreparationOwner(async () => { entered(); await ending; });
   await ready;
 });
-async function activateProduct(folder: string, home: string): Promise<void> {
-  await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), await readPinnedGraphContract(folder));
-}
 async function startServer(options: ServerOptions): Promise<StartedServer> {
-  if (options.productHome !== undefined) {
-    const listed = listProducts({ home: options.productHome });
-    if (listed.outcome === 'listed') for (const product of listed.products) await activateProduct(product.folder, options.productHome);
-  } else if (options.productFolder !== undefined) await activateProduct(options.productFolder, dirname(options.productFolder));
-  return await startClientServer(options);
+  return await startClientServer({ fillProcess: false, ...options });
 }
 
 let root: string | undefined;
@@ -142,7 +131,7 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   const manifest = join(home, 'alpha', 'workspace.yaml');
   const whole = new Date(Math.floor(statSync(manifest).mtimeMs));
   utimesSync(manifest, whole, whole);
-  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  server = await startServer({ fillProcess: true, productHome: home, appFolder: appDist(root), port: 0 });
   // The name the home lists for a product is the one its kept entry was opened with (the products list is read from the entries).
   const nameOf = async (): Promise<string> => {
     const response = await fetch(`${server!.url}/api/products`);
@@ -172,7 +161,7 @@ quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34d
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id'); product(home, 'beta', 'beta-id');
-  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  server = await startServer({ fillProcess: true, productHome: home, appFolder: appDist(root), port: 0 });
   const index = await fetch(server.url, { redirect: 'manual' });
   expect(index.status).toBe(302);
   const first = await fetch(`${server.url}/products/alpha/api/product`);
@@ -249,7 +238,6 @@ test('products-home mode serves a product created after the server started', asy
   expect((await fetch(`${server.url}/products/late/api/product`)).status).toBe(404);
   await Bun.sleep(10);
   product(home, 'late', 'late-id');
-  await activateProduct(join(home, 'late'), home);
   const late = await fetch(`${server.url}/products/late/api/product`);
   expect((await late.json() as { id: string }).id).toBe('late-id');
   const listed = await fetch(`${server.url}/api/products`);
