@@ -5,7 +5,6 @@ import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { prepareGraphSchema } from './schemas/graph.js';
 import { fillStateSchema } from './schemas/fill-state.js';
 import { orchestratorSchema } from './schemas/orchestrator.js';
-import { fillSelectionSchema } from './schemas/fill-selection.js';
 import { agentUsageSchema } from './schemas/agent-usage.js';
 import { historySchema } from './schemas/history.js';
 import { prepareQueueSchema } from './schemas/queue.js';
@@ -16,7 +15,7 @@ export interface StoreSchema {
   readonly name: string;
   prepare(owner: DatabaseOwner): Promise<void>;
 }
-const MODULE_SCHEMAS: readonly StoreSchema[] = [fillSelectionSchema, fillStateSchema, orchestratorSchema, agentUsageSchema];
+const MODULE_SCHEMAS: readonly StoreSchema[] = [fillStateSchema, orchestratorSchema, agentUsageSchema];
 export interface PrepareStoreOptions {
   readonly contract?: GraphContract;
   readonly historyOnly?: boolean;

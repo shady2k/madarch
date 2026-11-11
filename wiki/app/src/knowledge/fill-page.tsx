@@ -6,11 +6,10 @@
  * state, a link to the page it wrote and to its journal where one exists. Paths, call
  * counts and the plan stand under «Подробности для инженера»: they are the engineer's.
  */
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
-import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { KLink } from './blocks.js';
 import { FailureNote } from './errors.js';
@@ -18,7 +17,8 @@ import { fillShare, fillWords } from './fill-words.js';
 import { PlanList } from './loop.js';
 import { addressOfEntity, addressOfJournal } from './routes.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
-import { startFill, UNIT_STATE_KEY, unitName } from './writer.js';
+import { UNIT_STATE_KEY, unitName } from './writer.js';
+import { FillSetup } from './fill-setup.js';
 import { useTabTitle } from './tabs.js';
 import type { WikiStatus, WriterUnit } from './types.js';
 
@@ -75,8 +75,6 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
   useTabTitle(t('knowledge.fillPage.title'));
-  const [retrying, setRetrying] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
   const writer = status.writer;
   const fill = status.fill;
   const units = writer.units;
@@ -94,20 +92,13 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
   // «Записано 12 из 18». Until the writer counts the pages, the count stands alone.
   const total = writer.total;
   const share = total === undefined || total === 0 ? 0 : Math.min(1, written / total);
-  const retry = (): void => {
-    setRetrying(true);
-    setRefused(null);
-    startFill(writer.agent?.id).then(
-      () => { setRetrying(false); refresh(); },
-      (failure: unknown) => { setRetrying(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
   return (
     <section data-testid="fill-page" data-state={writer.state === 'idle' ? fill.state : writer.state}>
       <header className="mb-6">
         <h1 data-testid="fill-title">{t('knowledge.fillPage.title')}</h1>
         {facts.length > 0 && <p className="mb-0 text-small text-muted" data-testid="fill-facts">{facts.join(' · ')}</p>}
       </header>
+      <FillSetup refresh={refresh} disabled={fill.state === 'running' || writer.state === 'running' || runIsPaused(status)} />
       {/* The run a person holds or ended (madarch-m38l.17): where it stands, that its pages stay, and the two controls. */}
       {runIsPaused(status) && (
         <Card className="mb-8" data-testid="fill-run" data-state="paused">
@@ -167,8 +158,6 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
           <AlertTitle>{writer.agent === null ? t('knowledge.fillFailedTitle') : t('knowledge.writer.failedTitle', { agent: writer.agent.label })}</AlertTitle>
           <AlertDescription>
             {writer.message !== undefined && <div data-testid="fill-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>}
-            <p className="mb-0 mt-3"><Button variant="default" size="default" disabled={retrying} onClick={retry} data-testid="fill-retry">{t('knowledge.writer.retry')}</Button></p>
-            {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
           </AlertDescription>
         </Alert>
       )}

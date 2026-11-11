@@ -18,10 +18,9 @@
  * This module renders those files from structured graph records. It resolves nothing against the
  * graph and runs no git: `answer.ts` writes and commits, `plan.ts` decides.
  */
-import { parse as parseYaml } from 'yaml';
-import { splitFrontMatter } from '../knowledge/markdown.js';
-import { readWrittenAt, type WrittenAt } from '../knowledge/index/page.js';
-import { groundLinks } from '../writer/sentences.js';
+import { stringify as stringifyYaml } from 'yaml';
+import type { WrittenAt } from '../knowledge/index/page.js';
+import { questionFootnoteId } from './ids.js';
 
 export const QUESTIONS_FOLDER = 'docs/questions';
 export const CORRECTIONS_FOLDER = 'docs/corrections';
@@ -31,13 +30,8 @@ export const CORRECTION_KIND = 'correction';
 export const QUESTION_TYPES = ['contradiction', 'ambiguous-term', 'undocumented', 'gap'] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
-
-/** A problem in a loop file: where it is and what it is. */
-export class LoopFileError extends Error {
-  constructor(readonly file: string, readonly line: number, message: string) {
-    super(`${file}:${line}: ${message}`);
-  }
-}
+export const MAX_ANSWER = 8000;
+export const MAX_REASON = 4000;
 
 export interface Author {
   readonly name: string;
@@ -103,6 +97,8 @@ export interface Correction {
   readonly resolvedAt: string | null;
 }
 
+export const questionPath = (slug: string): string => `${QUESTIONS_FOLDER}/${slug}.md`;
+export const correctionPath = (slug: string): string => `${CORRECTIONS_FOLDER}/${slug}.md`;
 
 /**
  * Where a statement is: the page id and the statement's name (a footnote name, possibly `name~2`). Only the pages the
@@ -117,180 +113,76 @@ export function parseStatementRef(ref: string): { page: string; statement: strin
   return { page, statement: ref.slice(hash + 1) };
 }
 
-const unquote = (lines: readonly string[]): string => lines.map((line) => line.replace(/^>\s?/, '')).join('\n').trim();
+const quote = (text: string): string => text.split('\n').map((line) => (line === '' ? '>' : `> ${line}`)).join('\n');
 
-/** The footnote name a side was read with; kept so an old file's names survive a re-render. */
-const KEPT_FOOTNOTE = Symbol('kept question footnote');
-
-type SideWithFootnote = Side & { readonly [KEPT_FOOTNOTE]?: string };
-
-// ---- reading ---------------------------------------------------------------------------------
-
-interface Parsed {
-  readonly record: Record<string, unknown>;
-  readonly body: string;
-  readonly bodyLine: number;
+/** A sentence for the page: one line, with a full stop at its end. */
+function sentence(text: string): string {
+  const one = text.replace(/\s+/g, ' ').trim();
+  return /[.!?…]$/.test(one) ? one : `${one}.`;
 }
 
-function parseFile(file: string, text: string): Parsed {
-  const { front, body, bodyLine } = splitFrontMatter(text.replace(/\r\n/g, '\n'));
-  if (front === null) throw new LoopFileError(file, 1, 'the file has no front matter: it starts with --- , its fields, ---');
-  let raw: unknown;
-  try {
-    raw = parseYaml(front);
-  } catch (error) {
-    throw new LoopFileError(file, 2, `the front matter is no YAML: ${(error as Error).message.split('\n')[0]}`);
-  }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new LoopFileError(file, 2, 'the front matter is a mapping');
-  return { record: raw as Record<string, unknown>, body, bodyLine };
+function frontMatterText(record: Record<string, unknown>): string {
+  return stringifyYaml(record, { lineWidth: 0 }).trimEnd();
 }
 
-function text(file: string, record: Record<string, unknown>, key: string, required: boolean): string | null {
-  const value = record[key];
-  if (value === undefined || value === null) {
-    if (required) throw new LoopFileError(file, 2, `the front matter lacks "${key}"`);
-    return null;
-  }
-  if (typeof value !== 'string' && !(value instanceof Date)) throw new LoopFileError(file, 2, `"${key}" is a text`);
-  const out = value instanceof Date ? value.toISOString() : value.trim();
-  if (out === '' && required) throw new LoopFileError(file, 2, `"${key}" is a non-empty text`);
-  return out === '' ? null : out;
+const authorRecord = (author: Author): Record<string, string> => ({ name: author.name, email: author.email, verified: author.verified });
+
+/** The names of the footnotes of a question's sides: a content hash, unique within the file; an old file keeps its names. */
+function footnoteNames(sides: readonly Side[]): string[] {
+  const taken = new Set<string>();
+  return sides.map((side) => {
+    const base = questionFootnoteId(side.claim, side.grounds);
+    let name = base;
+    for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}`;
+    taken.add(name);
+    return name;
+  });
 }
 
-function list(file: string, record: Record<string, unknown>, key: string): string[] {
-  const value = record[key];
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.trim() === '')) throw new LoopFileError(file, 2, `"${key}" is a list of non-empty texts`);
-  return (value as string[]).map((entry) => entry.trim());
-}
-
-function author(file: string, record: Record<string, unknown>, key: string): Author {
-  const value = record[key];
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new LoopFileError(file, 2, `"${key}" is { name, email, verified }`);
-  const body = value as Record<string, unknown>;
-  const field = (name: string): string => {
-    const entry = body[name];
-    if (typeof entry !== 'string' || entry.trim() === '') throw new LoopFileError(file, 2, `"${key}.${name}" is a non-empty text`);
-    return entry.trim();
+/** The file of a question, canonical: the same question is the same bytes. */
+export function renderQuestion(question: Omit<Question, 'file' | 'id'>): string {
+  const front: Record<string, unknown> = {
+    id: `${QUESTION_KIND}:${question.slug}`,
+    kind: QUESTION_KIND,
+    title: question.title,
+    type: question.type,
+    status: question.status,
+    about: [...question.about],
+    ...(question.askedIn === null ? {} : { 'asked-in': question.askedIn }),
+    ...(question.askedAt === null ? {} : { 'asked-at': question.askedAt }),
+    producer: 'agent',
+    ...(question.answer === null ? {} : { 'answered-by': authorRecord(question.answer.by), 'answered-at': question.answer.at }),
+    ...(question.resolvedBy.length === 0 ? {} : { 'resolved-by': [...question.resolvedBy], 'resolved-at': question.resolvedAt }),
+    ...(question.writtenAt.length === 0 ? {} : { 'written-at': question.writtenAt.map((entry) => ({ ...entry })) }),
   };
-  return { name: field('name'), email: field('email'), verified: field('verified') };
-}
-
-/** The lines of each `## Heading` section of a body, with the line the section's text starts at. */
-function sections(body: string, bodyLine: number): Map<string, { lines: string[]; line: number }> {
-  const out = new Map<string, { lines: string[]; line: number }>();
-  let current: { lines: string[]; line: number } | undefined;
-  for (const [index, raw] of body.split('\n').entries()) {
-    const heading = /^##\s+(.+?)\s*$/.exec(raw);
-    if (heading !== null) {
-      current = { lines: [], line: bodyLine + index + 1 };
-      out.set(heading[1]!, current);
-    } else if (current !== undefined) current.lines.push(raw);
+  const names = footnoteNames(question.sides);
+  const words = QUESTION_HEADINGS[question.language ?? 'en'];
+  const lines = [
+    '---', frontMatterText(front), '---', '',
+    `## ${words.question}`, '', question.question.trim(), '',
+    `## ${words.why}`, '', question.why.trim(), '',
+    `## ${words.sources}`, '',
+    ...question.sides.map((side, index) => `- ${sentence(side.claim)}[^${names[index]}]`), '',
+    ...question.sides.map((side, index) => `[^${names[index]}]: ${side.grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '') || ground}](madarch:${ground})`).join(', ')}`),
+  ];
+  if (question.answer !== null) {
+    lines.push('', `## ${words.answer}`, '', quote(question.answer.text.trim()), '', `${words.answeredBy} ${question.answer.by.name} <${question.answer.by.email}> at ${question.answer.at} (${question.answer.by.verified}).`);
   }
-  return out;
+  return `${lines.join('\n')}\n`;
 }
 
-const paragraph = (lines: readonly string[]): string => lines.join('\n').trim();
-
-export function parseQuestion(file: string, source: string): Question {
-  const { record, body, bodyLine } = parseFile(file, source);
-  const slug = file.replace(/^.*\//, '').replace(/\.md$/, '');
-  const id = text(file, record, 'id', true)!;
-  if (id !== `${QUESTION_KIND}:${slug}`) throw new LoopFileError(file, 2, `"id" is "${QUESTION_KIND}:${slug}" for this file name, got ${JSON.stringify(id)}`);
-  if (record['kind'] !== QUESTION_KIND) throw new LoopFileError(file, 2, `"kind" is "${QUESTION_KIND}", got ${JSON.stringify(record['kind'])}`);
-  const type = text(file, record, 'type', true)!;
-  if (!(QUESTION_TYPES as readonly string[]).includes(type)) throw new LoopFileError(file, 2, `"type" is one of ${QUESTION_TYPES.join(', ')}, got ${JSON.stringify(type)}`);
-  const status = text(file, record, 'status', true)!;
-  if (status !== 'open' && status !== 'answered') throw new LoopFileError(file, 2, `"status" is open or answered, got ${JSON.stringify(status)}`);
-  const found = sections(body, bodyLine);
-  // The headings are in the wiki's language; a file is read in the language its headings are in.
-  const language: QuestionLanguage = found.has(QUESTION_HEADINGS.ru.sources) && !found.has(QUESTION_HEADINGS.en.sources) ? 'ru' : 'en';
-  const words = QUESTION_HEADINGS[language];
-  const section = (name: string): { lines: string[]; line: number } => {
-    const held = found.get(name);
-    if (held === undefined) throw new LoopFileError(file, bodyLine, `the file has no "## ${name}" section`);
-    return held;
+export function renderCorrection(correction: Omit<Correction, 'file' | 'id'>): string {
+  const front: Record<string, unknown> = {
+    id: `${CORRECTION_KIND}:${correction.slug}`,
+    kind: CORRECTION_KIND,
+    title: correction.title,
+    status: correction.status,
+    about: [correction.about],
+    statement: correction.statement,
+    producer: 'person',
+    'corrected-by': authorRecord(correction.by),
+    'corrected-at': correction.at,
+    ...(correction.resolvedBy.length === 0 ? {} : { 'resolved-by': [...correction.resolvedBy], 'resolved-at': correction.resolvedAt }),
   };
-  const sourceSection = section(words.sources);
-  const footnotes = new Map<string, string[]>();
-  for (const raw of body.split('\n')) {
-    const definition = /^\[\^([\p{L}\p{N}_-]+)\]:[ \t]*(.*)$/u.exec(raw.trim());
-    if (definition !== null) footnotes.set(definition[1]!, groundLinks(definition[2]!).map((link) => link.target).filter((target) => target.startsWith('madarch:')).map((target) => target.slice('madarch:'.length)));
-  }
-  // The sides are the bullets of their own section, word for word: the answer below is never read as a source.
-  const sides: Side[] = [];
-  for (const line of sourceSection.lines) {
-    const bullet = /^-\s+(.*?)\[\^([\p{L}\p{N}_-]+)\]\s*$/u.exec(line.trim());
-    if (bullet === null) continue;
-    const side: SideWithFootnote = { claim: bullet[1]!.trim(), grounds: footnotes.get(bullet[2]!) ?? [] };
-    Object.defineProperty(side, KEPT_FOOTNOTE, { value: bullet[2]!, enumerable: false });
-    sides.push(side);
-  }
-  if (sides.length === 0) throw new LoopFileError(file, sourceSection.line, `the section "${words.sources}" holds no grounded statement: each side is a bullet, a sentence ending in a footnote that lists its grounds`);
-  const answered = status === 'answered';
-  let answer: Question['answer'] = null;
-  if (answered) {
-    const part = found.get(words.answer);
-    if (part === undefined) throw new LoopFileError(file, bodyLine, `the status is answered but the file has no "## ${words.answer}" section`);
-    const quoted = unquote(part.lines.filter((line) => line.startsWith('>')));
-    if (quoted === '') throw new LoopFileError(file, part.line, `the "## ${words.answer}" section holds no quoted answer`);
-    const at = text(file, record, 'answered-at', true)!;
-    answer = { text: quoted, by: author(file, record, 'answered-by'), at };
-  } else if (found.has(words.answer)) throw new LoopFileError(file, found.get(words.answer)!.line, `the file has an "## ${words.answer}" section but its status is open`);
-  const resolvedBy = list(file, record, 'resolved-by');
-  return {
-    language,
-    slug,
-    id,
-    file,
-    title: text(file, record, 'title', true)!,
-    type: type as QuestionType,
-    status,
-    about: list(file, record, 'about'),
-    askedIn: text(file, record, 'asked-in', false),
-    askedAt: text(file, record, 'asked-at', false),
-    question: paragraph(section(words.question).lines),
-    why: paragraph(section(words.why).lines),
-    sides,
-    answer,
-    resolvedBy,
-    resolvedAt: text(file, record, 'resolved-at', false),
-    writtenAt: readWrittenAt(record['written-at'], file),
-  };
+  return `${['---', frontMatterText(front), '---', '', '## Correction', '', quote(correction.reason.trim())].join('\n')}\n`;
 }
-
-export function parseCorrection(file: string, source: string): Correction {
-  const { record, body, bodyLine } = parseFile(file, source);
-  const slug = file.replace(/^.*\//, '').replace(/\.md$/, '');
-  const id = text(file, record, 'id', true)!;
-  if (id !== `${CORRECTION_KIND}:${slug}`) throw new LoopFileError(file, 2, `"id" is "${CORRECTION_KIND}:${slug}" for this file name, got ${JSON.stringify(id)}`);
-  if (record['kind'] !== CORRECTION_KIND) throw new LoopFileError(file, 2, `"kind" is "${CORRECTION_KIND}", got ${JSON.stringify(record['kind'])}`);
-  const status = text(file, record, 'status', true)!;
-  if (status !== 'open' && status !== 'applied') throw new LoopFileError(file, 2, `"status" is open or applied, got ${JSON.stringify(status)}`);
-  const about = list(file, record, 'about');
-  if (about.length !== 1 || parseStatementRef(about[0]!) === undefined) throw new LoopFileError(file, 2, '"about" is a list of one statement, written <page id>#<statement name>');
-  const part = sections(body, bodyLine).get('Correction');
-  if (part === undefined) throw new LoopFileError(file, bodyLine, 'the file has no "## Correction" section');
-  const reason = unquote(part.lines.filter((line) => line.startsWith('>')));
-  if (reason === '') throw new LoopFileError(file, part.line, 'the "## Correction" section holds no quoted reason');
-  return {
-    slug,
-    id,
-    file,
-    title: text(file, record, 'title', true)!,
-    status,
-    about: about[0]!,
-    statement: text(file, record, 'statement', true)!,
-    reason,
-    by: author(file, record, 'corrected-by'),
-    at: text(file, record, 'corrected-at', true)!,
-    resolvedBy: list(file, record, 'resolved-by'),
-    resolvedAt: text(file, record, 'resolved-at', false),
-  };
-}
-
-/** The result type kept by legacy readers while their endpoints report retirement. */
-export interface Read<T> { readonly items: T[]; readonly problems: LoopFileError[]; }
-function retired(): never { throw new Error('Markdown authored entity reading is retired; use the authored entity service'); }
-export const readQuestions = (_folder: string): Read<Question> => retired();
-export const readCorrections = (_folder: string): Read<Correction> => retired();

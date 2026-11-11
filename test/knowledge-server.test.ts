@@ -202,6 +202,14 @@ describe('an empty product', () => {
 });
 
 describe('the products and the app', () => {
+  test('the removed dependencies page is a 404 without a redirect', async () => {
+    for (const path of ['/dependencies', '/dependencies/', '/products/tiny/dependencies', '/products/tiny/dependencies/']) {
+      const answer = await fetch(`${server.url}${path}`, { redirect: 'manual' });
+      expect(answer.status).toBe(404);
+      expect(answer.headers.get('location')).toBeNull();
+    }
+  });
+
   test('the selector is offered the home\'s products at the root and each product alone under its prefix', async () => {
     const all = await get('/api/products');
     expect(all.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'nogit', 'tiny', 'unconnected']);

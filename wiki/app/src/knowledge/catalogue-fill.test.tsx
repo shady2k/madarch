@@ -1,19 +1,12 @@
-/**
- * The catalogue page's selective fill (madarch-stm0.6): a checkbox per section and per entity, the dependencies checked
- * with the entity that needs them and marked "needed by …", Check all and Uncheck all, each entity's state, and the panel
- * pinned to the page with its counts, agent, cap, estimate and Fill selected — which asks the engine for exactly that set.
- * Nothing here starts an agent: the press names no agent.
- */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
-import { CataloguePage, addedByDependency, estimateOf } from './pages.js';
-import { panelSections } from './fill-panel.js';
-import { fillWithOf } from './producers.js';
+import { CataloguePage } from './pages.js';
 import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
-import type { CatalogView, FillSelectionView } from './types.js';
+import type { CatalogView } from './types.js';
+import { frontTab } from './tabs.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -53,165 +46,206 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 
 const CATALOG: CatalogView = {
   product: { name: 'shop', id: 'p1' }, language: 'en',
-  groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }, { group: 'requirements', labels: { en: 'Requirements', ru: 'Требования' } }],
+  groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }, { group: 'requirements', labels: { en: 'Requirements', ru: 'Требования' } }, { group: 'vocabulary', parent: 'requirements', labels: { en: 'Vocabulary', ru: 'Словарь' } }],
   kinds: [
-    { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], state: 'filled', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'File', many: 'Files' } } },
-    { kind: 'doc.term', area: 'requirements', subgroup: '', count: 3, page: true, filled: true, plugins: ['glossary'], dependsOn: ['code.file'], state: 'partial', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Term', many: 'Terms' } } },
+    { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], state: 'filled', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } }, descriptions: { en: 'Source files', ru: 'Исходные файлы' } },
+    { kind: 'doc.term', area: 'requirements', subgroup: 'vocabulary', count: 3, page: true, filled: true, plugins: ['glossary'], dependsOn: ['code.file'], state: 'partial', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Term', many: 'Terms' } } },
     { kind: 'doc.use-case', area: 'requirements', subgroup: '', count: 0, page: true, filled: false, state: 'never', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Use case', many: 'Use cases' } } },
   ],
   findings: [],
 };
 
-const EMPTY: FillSelectionView = { selected: [], agent: null, tokenCap: null, savedAt: '' };
-
-/** The stub of the four requests the page makes, with what the page wrote and pressed. */
-function stub(calls: { url: string; method: string; body: unknown }[], selection: FillSelectionView = EMPTY): void {
+/** Browsing reads only the catalogue. Every request is recorded, including unexpected writes. */
+function stub(calls: { url: string; method: string }[], catalog: CatalogView = CATALOG): void {
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-    const method = init?.method ?? 'GET';
-    const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
-    if (method !== 'GET') calls.push({ url, method, body });
-    if (url.includes('/api/catalog')) return json(CATALOG);
-    if (url.includes('/api/fill-selection')) return json({ selection: method === 'GET' ? selection : { ...(body as object), savedAt: '2026-11-10 20:00:00+00' } });
-    if (url.includes('/api/fill-selected')) return json({ fill: { state: 'running' }, selection: { ...(body as object), savedAt: 'x' }, order: ['code.file', 'doc.term'] }, 202);
-    if (url.includes('/api/agents')) return json({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', install: null }], chosen: null });
+    calls.push({ url, method: init?.method ?? 'GET' });
+    if (url.includes('/api/catalog')) return json(catalog);
     return json({ message: 'not here' }, 404);
   };
 }
 
-describe('the catalogue page\'s selective fill', () => {
-  test('every entity has its state and a checkbox, and a checked entity brings its dependencies with it', async () => {
-    const calls: { url: string; method: string; body: unknown }[] = [];
-    stub(calls);
+describe('the catalogue as a browse-only view', () => {
+  test('description cells cite named standards and offer compact source lists', async () => {
+    const sources = ['https://c4model.com/abstractions', 'https://arc42.org/overview'];
+    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'code.file' ? { ...kind, sources } : kind) });
     const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue');
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '3 selected', 'every entity checked by default');
-    // Each row says how much of it stands.
-    expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('partial');
-    expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.textContent).toBe('Partial');
-    expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.textContent).toBe('Never filled');
-    // A product whose selection was never written starts with every entity checked (the owner, 2026-11-10).
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('3 selected');
-    // The catalogue entry is an entity, an instance is a record (the owner, 2026-11-10), and no raw key reached the page.
-    expect(page.querySelector('[data-testid="catalogue-total"]')!.textContent).toBe('3 entities, 15 records');
-    expect(page.querySelector('thead')!.textContent).toContain('Entity');
-    expect(page.querySelector('[data-testid="catalogue-intro"]')?.textContent ?? page.querySelector('header p')!.textContent).toContain('Every entity');
-    expect(localeKeyIn(renderedText(page))).toBeUndefined();
-    expect(page.querySelector('[data-testid="catalogue-added-count"]')).toBeNull();
-    // Nothing checked is the person's first thought; then checking the term kind checks its file kind too.
-    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
-    (page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).click();
-    await until(() => (page.querySelector('[data-testid="catalogue-check-code.file"]') as HTMLInputElement).checked, 'the dependency checked');
-    const fileBox = page.querySelector('[data-testid="catalogue-check-code.file"]') as HTMLInputElement;
-    // The dependency is checked by the term kind and cannot be unchecked while it stands checked.
-    expect(fileBox.disabled).toBe(true);
-    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-needed-by"]')!.textContent).toBe('needed by Terms');
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('1 selected');
-    expect(page.querySelector('[data-testid="catalogue-added-count"]')!.textContent).toContain('1 added');
-    // No producer declares a per-unit figure, so the cost is said to be unknown rather than guessed.
-    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.getAttribute('data-known')).toBe('false');
-    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.textContent).toContain('Cost unknown');
-    // A check is a thought, not a decision: nothing is written until Save (or the press).
-    expect(calls.filter((call) => call.url.includes('/api/fill-selection'))).toEqual([]);
-    (page.querySelector('[data-testid="catalogue-save"]') as HTMLButtonElement).click();
-    await until(() => calls.some((call) => call.url.includes('/api/fill-selection')), 'the selection saved');
-    expect(calls.find((call) => call.url.includes('/api/fill-selection'))!.body).toEqual({ selected: ['doc.term'], agent: null, tokenCap: null });
+    await until(() => page.querySelector('[data-kind="code.file"] [data-testid="kind-sources"]') !== null, 'source citations');
+    const row = page.querySelector('[data-kind="code.file"]')!;
+    const citation = row.querySelector('[data-testid="kind-sources"]')!;
+    expect(citation.closest('td')!.textContent).toContain('Source files');
+    expect([...citation.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['C4 model', sources[0]!], ['arc42', sources[1]!],
+    ]);
+    expect(citation.querySelector('button')!.getAttribute('aria-label')).toBe('Standards and practices');
+    expect(page.querySelectorAll('[data-testid="kind-sources"]')).toHaveLength(1);
+    expect(page.querySelector('a[href^="/src?"]')).toBeNull();
   });
 
-  test('a section checkbox takes the section\'s entities, Check all takes every one, and Uncheck all takes none', async () => {
-    const calls: { url: string; method: string; body: unknown }[] = [];
-    stub(calls);
-    const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="catalogue-check-section-requirements"]') !== null, 'the sections');
-    // Start from nothing, so the section's own press is what checks its entities.
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '3 selected', 'every entity checked by default');
-    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
-    (page.querySelector('[data-testid="catalogue-check-section-requirements"]') as HTMLInputElement).click();
-    await until(() => (page.querySelector('[data-testid="catalogue-check-doc.use-case"]') as HTMLInputElement).checked, 'the section checked');
-    expect((page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).checked).toBe(true);
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('2 selected');
-    // The section with no plugin entities adds nothing of another section, and its own dependency is added.
-    expect(page.querySelector('[data-testid="catalogue-added-count"]')!.textContent).toContain('1 added');
-    (page.querySelector('[data-testid="catalogue-check-all"]') as HTMLButtonElement).click();
-    await until(() => (page.querySelector('[data-testid="catalogue-check-code.file"]') as HTMLInputElement).checked, 'every entity checked');
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('3 selected');
-    expect(page.querySelector('[data-testid="catalogue-added-count"]')).toBeNull();
-    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
-    expect((page.querySelector('[data-testid="catalogue-fill"]') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  test('Fill selected asks the engine for the checked kinds and says the order it runs them in', async () => {
-    const calls: { url: string; method: string; body: unknown }[] = [];
-    stub(calls);
-    const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue');
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '3 selected', 'every entity checked by default');
-    (page.querySelector('[data-testid="catalogue-uncheck-all"]') as HTMLButtonElement).click();
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === '0 selected', 'nothing selected');
-    (page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).click();
-    await until(() => (page.querySelector('[data-testid="catalogue-fill"]') as HTMLButtonElement).disabled === false, 'the fill button');
-    (page.querySelector('[data-testid="catalogue-fill"]') as HTMLButtonElement).click();
-    await until(() => page.querySelector('[data-testid="catalogue-fill-note"]') !== null, 'the press');
-    const pressed = calls.find((call) => call.url.includes('/api/fill-selected'))!;
-    expect(pressed.body).toEqual({ selected: ['doc.term'], agent: null, tokenCap: null });
-    expect(page.querySelector('[data-testid="catalogue-fill-note"]')!.textContent).toBe('The fill started, in this order: code.file, doc.term');
-  });
-
-  test('a selection the store kept is the page\'s own, in both languages', async () => {
-    const calls: { url: string; method: string; body: unknown }[] = [];
-    stub(calls, { selected: ['doc.use-case'], agent: 'claude-code', tokenCap: 5000, savedAt: '2026-11-10 20:00:00+00' });
-    const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="catalogue-check-doc.use-case"]') !== null, 'the catalogue');
-    await until(() => (page.querySelector('[data-testid="catalogue-check-doc.use-case"]') as HTMLInputElement).checked, 'the saved selection');
-    expect((page.querySelector('[data-testid="catalogue-agent"]') as HTMLSelectElement).value).toBe('claude-code');
-    expect((page.querySelector('[data-testid="catalogue-token-cap"]') as HTMLInputElement).value).toBe('5000');
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('1 selected');
-    expect(page.querySelector('[data-testid="catalogue-estimate"]')!.textContent).toContain('Cost unknown');
-    await setWikiLanguage('ru');
-    const russian = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => russian.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue in Russian');
-    expect(russian.querySelector('[data-testid="catalogue-check-all"]')!.textContent).toBe('Отметить все');
-    expect(russian.querySelector('[data-testid="catalogue-fill"]')!.textContent).toBe('Заполнить выбранное');
-    await until(() => russian.querySelector('[data-testid="catalogue-selected-count"]')!.textContent === 'Отмечено: 1', 'the stored selection in Russian');
-    // The column says who fills each kind: its plugin, or the agent (the owner, 2026-11-10).
-    expect(russian.querySelector('[data-kind="doc.term"] [data-testid="catalogue-stage"]')!.textContent).toContain('Свой плагин: glossary');
-    expect(russian.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-stage"]')!.textContent).toContain('агент');
-  });
-
-  test('a selection the person saved as empty stays empty: the default checks every entity only before the first write', async () => {
+  test('contents lists every section and kind and jumps to the selected section', async () => {
     await setWikiLanguage('en');
-    const calls: { url: string; method: string; body: unknown }[] = [];
-    stub(calls, { selected: [], agent: null, tokenCap: null, savedAt: '2026-11-10 20:00:00+00' });
+    stub([]);
     const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="catalogue-check-doc.term"]') !== null, 'the catalogue');
-    await until(() => page.querySelector('[data-testid="catalogue-selected-count"]') !== null, 'the panel');
-    expect(page.querySelector('[data-testid="catalogue-selected-count"]')!.textContent).toBe('0 selected');
-    expect((page.querySelector('[data-testid="catalogue-check-doc.term"]') as HTMLInputElement).checked).toBe(false);
+    await until(() => page.querySelector('[data-testid="catalogue-contents"]') !== null, 'catalogue contents');
+    const contents = page.querySelector('[data-testid="catalogue-contents"]')!;
+    const links = [...contents.querySelectorAll<HTMLAnchorElement>('a')];
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Code', '#catalogue-section-code'],
+      ['Files', '#catalogue-kind-code.file'],
+      ['Requirements', '#catalogue-section-requirements'],
+      ['Use cases', '#catalogue-kind-doc.use-case'],
+      ['Vocabulary', '#catalogue-section-vocabulary'],
+      ['Terms', '#catalogue-kind-doc.term'],
+    ]);
+    const requirements = contents.querySelector('a[href="#catalogue-section-requirements"]')!;
+    expect(requirements.parentElement!.querySelector('a[href="#catalogue-section-vocabulary"]')).not.toBeNull();
+    expect(contents.querySelector('[data-kind]')).toBeNull();
+    const section = page.querySelector<HTMLElement>('#catalogue-section-requirements')!;
+    const scroll = spyOn(section, 'scrollIntoView');
+    try {
+      (requirements as HTMLAnchorElement).click();
+      await until(() => scroll.mock.calls.length > 0, 'section scroll');
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    } finally {
+      scroll.mockRestore();
+    }
   });
 
-  test('the panel counts the product our own producers as own: plugins and the built-in passes, not only plugins', () => {
-    const kinds = [
-      { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], producer: 'extract' as const, state: 'filled' as const, estimate: { volume: 12, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
-      { kind: 'code.commit', area: 'code', subgroup: '', count: 72, page: true, filled: true, producer: 'history' as const, state: 'filled' as const, estimate: { volume: 72, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
-      { kind: 'doc.term', area: 'code', subgroup: '', count: 3, page: true, filled: true, plugins: ['glossary'], state: 'partial' as const, estimate: { volume: 3, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
-      { kind: 'doc.faq', area: 'code', subgroup: '', count: 0, page: true, filled: false, state: 'never' as const, estimate: { volume: 0, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
-      { kind: 'doc.note', area: 'code', subgroup: '', count: 1, page: true, filled: false, producer: 'person' as const, state: 'partial' as const, estimate: { volume: 1, unit: 'vertices' as const, tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
-    ];
-    expect(kinds.map(fillWithOf)).toEqual(['own', 'own', 'own', 'agent', 'person']);
-    const sections = panelSections({ product: { name: 'shop', id: 'p' }, language: 'en', groups: [], kinds, findings: [] }, 'en');
-    expect(sections).toHaveLength(1);
-    expect([sections[0]!.own, sections[0]!.agent, sections[0]!.person]).toEqual([3, 1, 1]);
-    expect(sections[0]!.count).toBe(88);
+  test('contents switches from Graph to Table before scrolling to a section', async () => {
+    await setWikiLanguage('en');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-contents"]') !== null, 'catalogue contents');
+    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
+    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph view');
+    const scrolled: Element[] = [];
+    const scroll = spyOn(window.HTMLElement.prototype, 'scrollIntoView').mockImplementation(function (this: HTMLElement) {
+      scrolled.push(this);
+    });
+    try {
+      page.querySelector<HTMLAnchorElement>('[data-testid="catalogue-contents"] a[href="#catalogue-section-vocabulary"]')!.click();
+      await until(() => scrolled.length > 0, 'section scroll after switching views');
+      const section = page.querySelector('[role="tabpanel"][data-state="active"] #catalogue-section-vocabulary');
+      expect(section).not.toBeNull();
+      expect(scrolled).toEqual([section!]);
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+      expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]')).toBeNull();
+    } finally {
+      scroll.mockRestore();
+    }
   });
 
-  test('the dependency closure and the estimate are a function of the kinds alone', () => {
-    const kinds = CATALOG.kinds;
-    const checked = new Set(['doc.term', 'doc.use-case']);
-    const added = addedByDependency(kinds, checked);
-    expect([...added.entries()]).toEqual([['code.file', 'doc.term']]);
-    // No producer declares a per-unit figure, so the cost is unknown and the volume is what the graph measures.
-    expect(estimateOf(kinds, checked, added)).toEqual({ tokens: null, seconds: null, volume: 24, unknown: 3 });
+  test('Table and Graph show the same kinds and navigation links under a shared filter', async () => {
+    await setWikiLanguage('en');
+    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'doc.use-case' ? { ...kind, page: false } : kind) });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'table kinds');
+    const kinds = [...page.querySelectorAll('[data-kind]')].map((row) => row.getAttribute('data-kind')).sort();
+    const kindLinks = (): (string | null)[] => [...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')]
+      .map((row) => row.querySelector('a')?.getAttribute('href') ?? null).sort();
+    expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
+    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
+    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph kinds');
+    expect([...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')].map((row) => row.getAttribute('data-kind')).sort()).toEqual(kinds);
+    expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
+    const address = window.location.href;
+    const input = page.querySelector('input[type="search"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+    input.focus();
+    setter.call(input, 'Source files');
+    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 's' }));
+    await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered graph');
+    expect(kindLinks()).toEqual(['/kind/code.file']);
+    const filteredContents = [...page.querySelectorAll<HTMLAnchorElement>('[data-testid="catalogue-contents"] a')];
+    expect(filteredContents.map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code', '#catalogue-kind-code.file']);
+    const tableTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Table')!;
+    tableTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table');
+    expect(page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')).toHaveLength(1);
+    expect(kindLinks()).toEqual(['/kind/code.file']);
+    expect(window.location.href).toBe(address);
+  });
+
+  test('clicking an ordinary row cell opens the kind detail page', async () => {
+    await setWikiLanguage('en');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="code.file"]') !== null, 'table kinds');
+    const originalAddress = window.location.href;
+    try {
+      page.querySelector<HTMLTableCellElement>('[data-kind="code.file"] td:nth-child(2)')!.click();
+      await until(() => window.location.pathname === '/kind/code.file', 'kind detail navigation');
+      expect(frontTab().address).toBe('/kind/code.file');
+    } finally {
+      window.history.replaceState({}, '', originalAddress);
+      window.dispatchEvent(new Event('popstate'));
+    }
+  });
+
+  test('shows kinds by section, their meaning, record links, producers and states without fill controls', async () => {
+    await setWikiLanguage('en');
+    const calls: { url: string; method: string }[] = [];
+    stub(calls);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'the catalogue');
+    expect(page.querySelectorAll('[data-kind]')).toHaveLength(3);
+    expect(page.querySelector('[data-kind="code.file"]')!.textContent).toContain('Source files');
+    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"] a')!.textContent).toBe('12');
+    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"] a')!.getAttribute('href')).toContain('code.file');
+    expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-stage"]')!.textContent).toContain('glossary');
+    expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('partial');
+    expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('never');
+    expect(page.querySelector('[data-subgroup="vocabulary"] [data-kind="doc.term"]')).not.toBeNull();
+    expect(page.querySelectorAll('th')).toHaveLength(15);
+    expect(page.querySelector('select, [role="checkbox"], [data-testid="fill-setup-run"], [data-testid="catalogue-panel"], [data-testid="catalogue-waiting"], [data-testid="catalogue-no-translation"]')).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe('GET');
+    expect(calls[0]!.url).toContain('/api/catalog');
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
+  });
+
+  test('counts kinds separately from records, including subgroup records', async () => {
+    await setWikiLanguage('en');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-total"]') !== null, 'the totals');
+    expect(page.querySelector('[data-testid="catalogue-total"]')!.textContent).toBe('3 kinds, 15 records');
+    expect(page.querySelector('[data-group="requirements"] [data-testid="catalogue-group-total"]')!.textContent).toBe('2 kinds, 3 records');
+    expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-count"]')!.textContent).toBe('0');
+    expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-count"] a')).toBeNull();
+  });
+
+  test('uses the reader language without warnings or exposing missing locale keys', async () => {
+    await setWikiLanguage('ru');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="code.file"]') !== null, 'the Russian catalogue');
+    expect(page.querySelector('[data-kind="code.file"]')!.textContent).toContain('Файлы');
+    expect(page.querySelector('[data-kind="code.file"]')!.textContent).toContain('Исходные файлы');
+    expect(page.querySelector('[data-group="requirements"] h2')!.textContent).toContain('Требования');
+    expect(page.querySelector('[data-kind="doc.use-case"]')!.textContent).toContain('doc.use-case');
+    expect(page.querySelector('[data-testid="catalogue-no-translation"], [role="alert"]')).toBeNull();
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
+  });
+
+  test('a failed fill turn is shown as failed rather than only partial', async () => {
+    await setWikiLanguage('en');
+    stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, state: 'partial', turn: 'failed' }] });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-state"]') !== null, 'the failed kind');
+    expect(page.querySelector('[data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('failed');
+    expect(page.querySelector('[data-testid="catalogue-state"]')!.textContent).toBe('Failed');
+  });
+
+  test('keeps kinds without pages and kinds in unknown sections visible', async () => {
+    await setWikiLanguage('en');
+    stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, kind: 'note', area: 'unknown', subgroup: '', page: false, count: 4 }] });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="note"]') !== null, 'the other section');
+    expect(page.querySelectorAll('[data-testid="catalogue-group"]')).toHaveLength(1);
+    expect(page.querySelector('[data-kind="note"] a')!.getAttribute('href')).toBe('/kind/note');
+    expect(page.querySelector('[data-testid="catalogue-total"]')!.textContent).toBe('1 kind, 4 records');
   });
 });

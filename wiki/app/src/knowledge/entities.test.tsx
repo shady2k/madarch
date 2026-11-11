@@ -530,11 +530,11 @@ describe('the catalogue', () => {
     findings: [],
   };
 
-  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link when it has a page, in the reader\'s language', async () => {
+  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link to its details, in the reader\'s language', async () => {
     answer(full);
     const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
-    expect(container.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('3 entities, 187 records');
+    expect(container.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('3 kinds, 187 records');
     const groups = [...container.querySelectorAll('[data-testid=catalogue-group]')].map((section) => section.getAttribute('data-group'));
     expect(groups).toEqual(['code', 'history']);
     const row = container.querySelector('[data-kind="code.file"]')!;
@@ -547,11 +547,11 @@ describe('the catalogue', () => {
     expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('code extraction');
     expect(row.querySelector('[data-testid=catalogue-stage]')!.getAttribute('data-stage')).toBe('own');
     expect(container.querySelector('[data-kind="code.commit"] [data-testid=catalogue-stage]')!.textContent).toBe('the history stage');
-    // A kind nothing fills yet stays in the list with zero, and no link is offered to a page it does not have.
+    // Empty catalogue-only kinds also have declaration details.
     const empty = container.querySelector('[data-kind="domain"]')!;
     expect(empty.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
     expect(empty.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('agent');
-    expect(empty.querySelector('a')).toBeNull();
+    expect(empty.querySelector('a')!.getAttribute('href')).toBe('/kind/domain');
     expect(empty.getAttribute('data-filled')).toBe('false');
   });
 
@@ -561,7 +561,7 @@ describe('the catalogue', () => {
     try {
       const container = into(createElement(CataloguePage, { version: 0 }));
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
-      expect(container.querySelector('h1')!.textContent).toBe('Каталог сущностей');
+      expect(container.querySelector('h1')!.textContent).toBe('Каталог видов');
       expect(container.querySelector('[data-kind="code.file"]')!.textContent).toContain('Файл репозитория кода.');
       expect(container.querySelector('[data-kind="code.file"] [data-testid=catalogue-stage]')!.textContent).toBe('извлечение из кода');
       expect(container.querySelector('[data-group=history] h2')!.textContent).toContain('История');
@@ -570,16 +570,16 @@ describe('the catalogue', () => {
     }
   });
 
-  test('a kind with no translation is marked and never shown by an English name', async () => {
+  test('a kind with no translation uses its key without warnings', async () => {
     answer({ ...full, kinds: [kind({ kind: 'domain', labels: { en: { one: 'Domain', many: 'Domains' } }, descriptions: { en: 'A part of the business.' }, count: 0 })] });
     await setWikiLanguage('ru');
     try {
       const container = into(createElement(CataloguePage, { version: 0 }));
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
       const row = container.querySelector('[data-kind="domain"]')!;
-      expect(row.querySelector('[data-testid=catalogue-kind-name]')!.textContent).toBe('domain');
-      expect(row.querySelector('[data-testid=catalogue-no-translation]')!.textContent).toBe('нет перевода');
-      expect(row.querySelector('[data-testid=catalogue-no-description]')!.textContent).toBe('нет перевода');
+      expect(row.querySelector('a')!.textContent).toBe('domain');
+      expect(row.querySelector('[data-testid=catalogue-no-translation]')).toBeNull();
+      expect(row.querySelector('[data-testid=catalogue-no-description]')).toBeNull();
       expect(row.textContent).not.toContain('Domains');
       expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
     } finally {
@@ -600,7 +600,7 @@ describe('the catalogue', () => {
     answer(one);
     const english = into(createElement(CataloguePage, { version: 0 }));
     await until(() => english.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
-    expect(english.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 entity, 1 record');
+    expect(english.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 kind, 1 record');
     rendered?.unmount();
     document.body.innerHTML = '';
     await setWikiLanguage('ru');
@@ -608,7 +608,7 @@ describe('the catalogue', () => {
       answer(one);
       const russian = into(createElement(CataloguePage, { version: 0 }));
       await until(() => russian.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
-      expect(russian.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 сущность, 1 запись');
+      expect(russian.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 вид, 1 запись');
     } finally {
       await setWikiLanguage('en');
     }
@@ -900,7 +900,7 @@ describe('every route names its tab', () => {
     { address: '/run', selector: '[data-testid=run-error]', expected: 'The run' },
     { address: '/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },
     { address: '/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
-    { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },
+    { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Kind catalogue' },
     { address: '/glossary', selector: '[data-testid=glossary-page]', expected: 'Glossary' },
     { address: '/questions', selector: '[data-testid=questions-error]', expected: 'Questions' },
     { address: '/questions/missing', selector: '[data-testid=question-error]', expected: 'There is no such question' },

@@ -6,7 +6,7 @@ import { commitAuthoredImport } from '../adapters/authored-import.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 import { authoredEntity } from '../graph/authored.js';
-import { insideFolder, type Finding, type KindDecl, type KindsManifest } from './kinds.js';
+import { insideFolder, type Finding, type KindDecl, type KindsManifest } from '../product/manifest/kinds.js';
 import { readMarkdownEntity } from './markdown.js';
 
 const MIGRATION = 'authored-markdown-v1';

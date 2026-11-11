@@ -224,6 +224,10 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
+  sources?: readonly string[];
+  fields?: readonly { name: string; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
+  relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
+  pluginFolders?: readonly string[];
   kind: string;
   /** Derived by the app from the catalogue groups when the answer leaves it out. */
   area?: string;
@@ -252,9 +256,6 @@ export type CatalogKindView = {
 /** One kind's estimate (madarch-stm0.6): a measured volume times a per-unit figure, or unknown. */
 export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
 
-/** The catalogue's fill selection as the store keeps it (madarch-stm0.6). */
-export type FillSelectionView = { selected: string[]; agent: string | null; tokenCap: number | null; savedAt: string };
-
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {
   product: { name: string; id: string };
@@ -277,6 +278,8 @@ export type KindSummary = {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** Whether this kind has a page; false for members and catalogue-only kinds. */
+  page?: boolean;
   statements?: number;
   single: boolean;
   group?: string;

@@ -58,13 +58,11 @@ export const questionAddress = (slug: string): string => `/questions/${encodeURI
 
 /** The two families a page file answers in: `/e/<id>.md|.json` and `/kind/<kind>.md|.json`. */
 export const PAGE_FILE_BASE = '/e/';
-/** The dependency graph of the catalogue's entities (madarch-stm0.6). */
-export const DEPENDENCIES_ADDRESS = '/dependencies';
 export const KIND_FILE_BASE = '/kind/';
 
 /** The reader's paths, one address each; the families below are matched by prefix. */
 const WIKI_PAGE_PATHS: readonly string[] = [
-  HOME_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, DEPENDENCIES_ADDRESS, GLOSSARY_ADDRESS, QUESTIONS_ADDRESS,
+  HOME_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, GLOSSARY_ADDRESS, QUESTIONS_ADDRESS,
   PROBLEMS_ADDRESS, SETTINGS_ADDRESS, FILL_ADDRESS, TASKS_ADDRESS, RUN_ADDRESS,
   '/authored', '/task', '/journal', '/statement', '/doc', '/folder', '/file', '/commit', '/src',
 ];
@@ -103,7 +101,6 @@ export const API = {
   run: '/api/run',
   products: '/api/products',
   fill: '/api/fill',
-  fillSelection: '/api/fill-selection',
   fillSelected: '/api/fill-selected',
   pause: '/api/pause',
   stop: '/api/stop',

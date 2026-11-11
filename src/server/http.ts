@@ -677,8 +677,6 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.run, handle: (request: Request) => dependencies.knowledge!.run(request) },
         { method: 'GET', path: API.products, handle: (request: Request) => dependencies.knowledge!.products(request) },
         { method: 'POST', path: API.fill, handle: (request: Request) => dependencies.knowledge!.fill(request) },
-        { method: 'GET', path: API.fillSelection, handle: (request: Request) => dependencies.knowledge!.fillSelection(request) },
-        { method: 'POST', path: API.fillSelection, handle: (request: Request) => dependencies.knowledge!.fillSelection(request) },
         { method: 'POST', path: API.fillSelected, handle: (request: Request) => dependencies.knowledge!.fillSelected(request) },
         { method: 'POST', path: API.pause, handle: (request: Request) => dependencies.knowledge!.pause(request) },
         { method: 'POST', path: API.stop, handle: (request: Request) => dependencies.knowledge!.stop(request) },

@@ -1,7 +1,7 @@
 /** Working-tree manifest changes publish a new validated catalogue, never a fill. */
 import { watch, type FSWatcher } from 'node:fs';
-import { KINDS_FILE } from '../knowledge/kinds.js';
-import { WORKFLOWS_FILE } from '../knowledge/workflows.js';
+import { KINDS_FILE } from '../product/manifest/kinds.js';
+import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { validateProductManifests, type ValidatedManifests } from '../graph/manifest-publication.js';
 
 /** Invalid edits leave the previous graph transaction untouched. Each product serializes its publications. */

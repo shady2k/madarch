@@ -9,7 +9,7 @@ import { AuthoredPage } from './authored.js';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -19,19 +19,18 @@ import { Badge } from '@/components/ui/badge.js';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
-import { getProducts, startFill } from './api.js';
+import { getProducts } from './api.js';
+import { Card, CardContent } from '@/components/ui/card.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, NewHome, SourcePage, StatementPage, Overview } from './pages.js';
-import { DependencyPage } from './dependency-page.js';
-import { FillSidePanel } from './fill-panel.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -173,7 +172,7 @@ interface NavGroup {
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !inLoop(kind));
-  const shown = status.kinds.filter((kind) => !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.origins.includes('person') || kind.count > 0 || pending(kind.kind) > 0));
+  const shown = status.kinds.filter((kind) => kind.page !== false && !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.origins.includes('person') || kind.count > 0 || pending(kind.kind) > 0));
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, short: group.short as Record<string, string> | undefined, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
@@ -261,11 +260,11 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         </a>
         <a href={appPath(WIKI_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
+          <span className="min-w-0 flex-1">{t('navigation.catalogue')}</span>
         </a>
-        <a href={appPath(WIKI_DEPENDENCIES)} className={link(route.name === 'dependencies')} aria-current={route.name === 'dependencies' ? 'page' : undefined} data-testid="nav-dependencies" {...pick(WIKI_DEPENDENCIES)}>
-          <Share2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.dependencies.title')}</span>
+        <a href={appPath(WIKI_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
+          <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('knowledge.glossary.title')}</span>
         </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
@@ -357,17 +356,11 @@ function pagesOf(status: WikiStatus): number {
 }
 
 /**
- * The fill's state in the toolbar and the wiki's one fill control (madarch-stm0.6): the badge carries the status dot
- * and opens the panel from the right, where the sections, the agent and the cap are chosen and the fill is pressed. The
- * badge has no second Sync button beside it; while a run works it says how far it is, and after it says Sync. The dot's
- * tooltip holds the last fill's date and page count. Choosing the pages' language starts the run
- * that writes them in it.
+ * The fill status and current run controls. Starting a fill belongs to /fill;
+ * the toolbar menu only links there.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
-  const [starting, setStarting] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-  const [pagesLanguage, setPagesLanguage] = useState<string | null>(null);
   // The badge's panel is a plain dialog in the toolbar, not a menu with a portal of its own: a badge is a button, and
   // what it opens is reached by the keyboard (madarch-m38l.23) — Tab from the badge opens it and moves into it, Escape
   // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
@@ -376,8 +369,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const wrap = useRef<HTMLDivElement | null>(null);
   const focusPanel = useRef(false);
   const [open, setOpen] = useState(false);
-  /** The side panel's node: it stands at the window's right edge, so the badge measures nothing for it. */
-  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-side-panel"]');
+  /** The menu opened by the status badge. */
+  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-menu"]');
   const openPanel = (): void => {
     setOpen(true);
     focusPanel.current = true;
@@ -434,22 +427,10 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   }
   else if (status.filled) label = t('knowledge.sync');
   // A product with a repository and no fill yet offers Fill in the top bar (the owner, 2026-11-10): the press opens the
-  // panel over the page, where the person chooses the sections and the agent and reads the estimate before pressing. A
+  // setup page, where the person chooses the sections and the agent and reads the estimate before pressing. A
   // product with no repository has nothing to fill and says so on its home page instead.
   else if (status.repositories.length > 0) { label = t('knowledge.fillButton'); solid = true; }
   else return null;
-  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
-  // The pages' language is the one request in the popover, and it is the fill: the run that writes them in that language.
-  const start = (chosen: 'ru' | 'en'): void => {
-    if (busy) return;
-    setPagesLanguage(chosen);
-    setStarting(true);
-    setRefused(null);
-    startFill(status.chosenAgent?.id ?? null, chosen !== status.language ? chosen : undefined).then(
-      () => { setStarting(false); refresh(); },
-      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
   // Below a phone's width the badge is its state's mark and the count on one line; its name and the popover keep the
   // whole sentence. A held or ended run has its figures in its sentence, so its count stands only where the words go.
   const compact = authoring && writer.units.length > 0;
@@ -458,7 +439,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     <div
       // No box of its own: the badge stays the toolbar's flex item it always was, so the one row keeps its width at a
       // phone's width, and the panel is placed against the window rather than against this wrapper.
-      className="contents"
+      className="relative"
       ref={wrap}
       onKeyDown={(event) => {
         // Escape gives the badge back its focus, wherever in the panel it was pressed.
@@ -473,7 +454,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         setOpen(false);
       }}
     >
-      <button
+      <Button
         ref={chip}
         type="button"
         className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`}
@@ -505,15 +486,11 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
                   : <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{narrow}</span></>}
           </span>
         </Badge>
-      </button>
+      </Button>
       {open && (
-        <FillSidePanel
-          status={status}
-          refresh={refresh}
-          onClose={() => setOpen(false)}
-          id="fill-menu-panel"
-          extra={<div className="mt-3 grid gap-2 border-t border-line pt-3" data-testid="fill-menu-extra">            <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
-            <div className="language-menu-separator" role="separator" />
+        <Card id="fill-menu-panel" role="dialog" aria-label={t('knowledge.fillMenuTitle')} data-testid="fill-menu" className="absolute right-0 top-full z-40 mt-2 max-h-[70vh] w-[min(24rem,90vw)] overflow-y-auto shadow-[var(--shadow-high)]">
+          <CardContent className="grid gap-2 p-3">
+            <KLink href={WIKI_FILL} testId="fill-menu-choose" className="rounded-[var(--radius-control)] px-2 py-2 text-small text-ink hover:bg-[var(--surface-hover)]">{t('knowledge.fillChoose')}</KLink>
             {(authoring || filling) && (
               // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
               // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
@@ -538,24 +515,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
             {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
             {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
             {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
-            <div className="px-2 pb-2">
-              {status.chosenAgent !== null && (
-                <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
-                  <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
-                  <div className="flex flex-wrap gap-2">
-                    {(['ru', 'en'] as const).map((code) => (
-                        <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
-                          <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
-                          <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
-                        </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
-            </div>
-</div>}
-        />
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -564,7 +525,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'dependencies' ? t('knowledge.dependencies.title') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -711,6 +672,7 @@ export function KnowledgeApp(): ReactElement {
   const route = useMemo<WikiRoute>(() => routeOfAddress(frontAddress), [frontAddress]);
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const content = useRef<HTMLDivElement>(null);
   const { status, error, version, refresh } = useWikiStatus();
   const settings = useSettings();
   const { glossary } = useGlossary(version);
@@ -731,7 +693,7 @@ export function KnowledgeApp(): ReactElement {
   }, [status?.product.name, t]);
   // A page opened by a link starts at its top; a source page scrolls to its line itself.
   useEffect(() => {
-    if (route.name !== 'source' && route.name !== 'doc') window.scrollTo?.(0, 0);
+    if (route.name !== 'source' && route.name !== 'doc') content.current?.scrollTo?.(0, 0);
   }, [route]);
 
   if (error !== null && status === null) {
@@ -739,15 +701,15 @@ export function KnowledgeApp(): ReactElement {
   }
   if (status === null) {
     return (
-      <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="wiki-loading">
+      <div className="shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="wiki-loading">
         <aside className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col gap-3 border-r border-line bg-chrome px-[14px] py-[18px] wide:px-[18px] md:flex" aria-hidden="true">
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-9 w-full" />
           {[70, 55, 62, 48].map((width, index) => <Skeleton key={index} className="h-5" style={{ width: `${width}%` }} />)}
         </aside>
-        <div className="shell-main flex min-w-0 flex-1 flex-col">
+        <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="shell-toolbar min-h-[58px] border-b border-line" />
-          <div className="shell-scroll min-w-0 flex-1"><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
+          <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
         </div>
       </div>
     );
@@ -792,7 +754,6 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
-  else if (route.name === 'dependencies') view = <DependencyPage version={version} status={status} />;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;
@@ -803,20 +764,19 @@ export function KnowledgeApp(): ReactElement {
       <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
       <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
-      <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
-        {/* The menu's ground spans the page, not one window: the column stretches to the shell's height, and only the
-            list inside it stays in view (sticky, one window tall) as the reader scrolls (madarch-u3vw.6). */}
+      <div className="shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
+        {/* Navigation and page content have separate scroll areas within the viewport. */}
         <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 border-r border-line bg-chrome md:flex" aria-label={t('navigation.aria')}>
-          <div className="sticky top-0 flex h-dvh w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
+          <div className="flex min-h-0 h-full w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
         </aside>
-        <div className="shell-main flex min-w-0 flex-1 flex-col">
+        <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
-          <div className="shell-fixed sticky top-0 z-30" data-testid="shell-fixed">
+          <div className="shell-fixed z-30 shrink-0" data-testid="shell-fixed">
             <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
             <TabBar />
           </div>
-          <div className="shell-row flex flex-1">
-            <div className="shell-scroll min-w-0 flex-1">
+          <div className="shell-row flex min-h-0 flex-1 overflow-hidden">
+            <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}>
               <div className="shell-document w-full">
                 <main data-testid="knowledge-main">
                   {contentPage && status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : contentPage && status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (

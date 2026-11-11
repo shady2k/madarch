@@ -34,7 +34,7 @@
  */
 import type { AcpPromptResult, AcpUpdate, AcpUsageReport } from './acp.js';
 import type { AgentUsageAmount, AgentUsageRecord } from '../adapters/agent-usage.js';
-import type { PluginBounds } from '../knowledge/kinds.js';
+import type { PluginBounds } from '../product/manifest/kinds.js';
 import { byCodePoint } from '../model/order.js';
 import { withSpanSync } from '../obs/trace.js';
 

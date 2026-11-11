@@ -81,6 +81,34 @@ function estimateOf(count: number, generated: boolean | undefined, measured: num
   };
 }
 
+/** Relations come from endpoint declarations, kind key patterns and catalogue constraints, never observed guesses. */
+function relationsOf(ctx: RenderContext, kind: string): NonNullable<CatalogKindView['relations']> {
+  const rows: { direction: 'out' | 'in'; name: string; kind?: string }[] = [];
+  const add = (direction: 'out' | 'in', name: string, peer?: string): void => {
+    if (!rows.some((row) => row.direction === direction && row.name === name && row.kind === peer)) {
+      rows.push({ direction, name, ...(peer === undefined ? {} : { kind: peer }) });
+    }
+  };
+  for (const edge of ctx.manifest.edges?.values() ?? []) {
+    if (edge.from.includes(kind)) for (const peer of edge.to) add('out', edge.name, peer);
+    if (edge.to.includes(kind)) for (const peer of edge.from) add('in', edge.name, peer);
+  }
+  for (const decl of ctx.manifest.kinds.values()) {
+    for (const relation of decl.relations) {
+      const prefix = relation.to.slice(0, relation.to.indexOf(':'));
+      const peer = relation.to.includes(':') && (ctx.manifest.kinds.has(prefix) || ctx.manifest.catalog?.kinds.has(prefix)) ? prefix : undefined;
+      if (decl.name === kind) add('out', relation.type, peer);
+      if (peer === kind) add('in', relation.type, decl.name);
+    }
+  }
+  const entry = ctx.manifest.catalog?.kinds.get(kind);
+  for (const direction of ['out', 'in'] as const) {
+    const constraints = (direction === 'out' ? entry?.relationsOut : entry?.relationsIn) ?? [];
+    for (const name of constraints) if (!rows.some((row) => row.direction === direction && row.name === name)) add(direction, name);
+  }
+  return rows;
+}
+
 /**
  * Every kind the manifest declares, as the catalogue page lists it, in the manifest's order.
  */
@@ -96,12 +124,19 @@ export async function catalogKinds(ctx: RenderContext, turns: {
   const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
     const producer = producerOf(decl, entry, extractorMark);
     const plugins = pluginsOf(decl);
+    const pluginFolders = [...new Set(plugins.flatMap((id) => {
+      const path = ctx.manifest.plugins?.get(id)?.path;
+      return path === undefined ? [] : [path];
+    }))].sort(byCodePoint);
     const count = numbers.count(kind, decl?.source);
     const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
     const turn = turns.turnOf?.(kind);
     const estimate = estimateOf(count, turns.generatedOf?.(kind), count);
     return {
       kind, subgroup,
+      ...(decl?.fields === undefined ? {} : { fields: decl.fields }),
+      relations: relationsOf(ctx, kind),
+      ...(entry === undefined ? {} : { sources: [...entry.sources] }),
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),
       ...(words.descriptions === undefined || Object.keys(words.descriptions).length === 0 ? {} : { descriptions: { ...words.descriptions } }),
       count,
@@ -110,6 +145,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       ...(producer === undefined ? {} : { producer }),
       filled: producer !== undefined && producer !== 'person',
       ...(plugins.length === 0 ? {} : { plugins }),
+      ...(pluginFolders.length === 0 ? {} : { pluginFolders }),
       ...(dependsOn.length === 0 ? {} : { dependsOn }),
       ...(turn === undefined ? {} : { turn }),
       state: stateOf(count, turn),

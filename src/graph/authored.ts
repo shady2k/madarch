@@ -3,7 +3,7 @@ import type { OuterTransaction } from '../adapters/database-owner.js';
 import type { FieldContract, KeyValueDraft } from '../graph/contract.js';
 import { ensureVertex, journalFor, publishOpinion, removeEntity, writeJournal } from '../graph/write.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
-import type { KindsManifest } from '../knowledge/kinds.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
 

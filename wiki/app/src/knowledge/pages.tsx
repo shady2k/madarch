@@ -1,5 +1,10 @@
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
+import { KindGraph } from './kind-graph.js';
+import { KindDetails } from './kind-details.js';
+import { KindSources } from './kind-sources.js';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
+import { TableOfContents } from '@/components/ui/table-of-contents.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -15,14 +20,14 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getViews, getAgents, getCatalog, getDocument, getDocuments, getEntities, getFillSelection, getPage, getSource, getStatement, correctStatement, fillSelected, saveFillSelection, startFill } from './api.js';
-import { syncFrontTabAddress, useTabTitle } from './tabs.js';
+import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement } from './api.js';
+import { linkHandlers, syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
-import { AgentChoice, useAgentChoice, WriterLine } from './writer.js';
+import { WriterLine } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
-import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_PROBLEMS } from './routes.js';
+import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DOCS, WIKI_FILL, WIKI_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillWithOf } from './producers.js';
 import { areaOf } from './catalog-area.js';
@@ -33,7 +38,7 @@ import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
 import { DiagramsView } from './diagrams/views.js';
 import { KindUsage } from './usage.js';
-import type { AgentOffer, CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, FillSelectionView, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -192,17 +197,18 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
       <header className="mb-6">
         <div className="mb-2 flex items-center gap-2"><Badge>{kindName(kind, 'one')}</Badge></div>
         <h1>{kindName(kind, 'many')}</h1>
-        <div className="flex items-center gap-3">
-          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="kind-filter" />
-          {listing !== null && <span className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</span>}
-        </div>
       </header>
-      {listing?.agentUsage !== undefined && <p className="text-small text-muted" data-testid="kind-agent-usage">{t('knowledge.kindAgentModel', { model: listing.agentUsage.model ?? t('knowledge.kindNotReported') })} · {listing.agentUsage.tokens === undefined ? t('knowledge.kindTokensNotReported') : t('knowledge.kindAgentTokens', { count: listing.agentUsage.tokens })}</p>}
-      <KindMap kind={kind} version={version} />
       <KindUsage kind={kind} version={version} />
+      <KindDetails kind={kind} version={version} />
+      <KindMap kind={kind} version={version} />
+      <h2>{t('knowledge.kindDetails.records')}</h2>
+      <div className="flex items-center gap-3">
+        <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="kind-filter" />
+        {listing !== null && <span className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</span>}
+      </div>
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
-      {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{listing.agentFill === 'unconfigured' ? <>{t('knowledge.kindWaitingForAgent')} <KLink href={WIKI_DEPENDENCIES}>{t('knowledge.kindStartAgentFill')}</KLink></> : listing.agentFill === 'ready' ? <>{t('knowledge.kindWaitingForFill')} <KLink href={WIKI_DEPENDENCIES}>{t('knowledge.kindStartAgentFill')}</KLink></> : summary?.source === 'document' ? t('knowledge.noStageYet') : t('knowledge.nothingOfKind')}</p>}
+      {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{listing.agentFill === 'unconfigured' ? <>{t('knowledge.kindWaitingForAgent')} <KLink href={WIKI_FILL}>{t('knowledge.kindStartAgentFill')}</KLink></> : listing.agentFill === 'ready' ? <>{t('knowledge.kindWaitingForFill')} <KLink href={WIKI_FILL}>{t('knowledge.kindStartAgentFill')}</KLink></> : summary?.source === 'document' ? t('knowledge.noStageYet') : t('knowledge.nothingOfKind')}</p>}
       {rows.length > 0 && operations && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
       {rows.length > 0 && !operations && (
         <Table>
@@ -284,34 +290,15 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
 export function FillCard({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   return (
     <>
-      <FillPart status={status} refresh={refresh} />
+      <FillPart status={status} />
       <WriterLine status={status} refresh={refresh} />
     </>
   );
 }
 
-function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
   const { t } = useTranslation();
-  const [refused, setRefused] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const choice = useAgentChoice(status);
   const fill = status.fill;
-  const agentLabel = choice.agents?.find((agent) => agent.id === choice.pick)?.label ?? status.chosenAgent?.label;
-  // One press is the whole consent: the pick is saved (its adapter installed on this yes), then the fill starts and flows into the agent.
-  const start = (): void => {
-    setStarting(true);
-    setRefused(null);
-    choice.commit().then(() => startFill(choice.pick, choice.pick === null ? undefined : choice.language)).then(
-      () => {
-        setStarting(false);
-        refresh();
-      },
-      (failure: unknown) => {
-        setStarting(false);
-        setRefused(message(failure));
-      },
-    );
-  };
   if (fill.state === 'running') {
     // The bar is the run's own trace (madarch-8bdc.2.5, item 2): the units it planned and the units it
     // published, as the trace states them, and the last thing it did. A run that has written no unit yet
@@ -356,8 +343,7 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
           {fill.error !== undefined && fill.error.file === undefined && fill.error.path !== undefined && (
             <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-path">{t('knowledge.repository.errorPath', { path: fill.error.path })}</p>
           )}
-          <p className="mt-2"><Button variant="default" size="default" onClick={start} disabled={starting}>{t('knowledge.fillRetry')}</Button></p>
-          {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
+          <p className="mt-2"><KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillRetry')}</KLink></p>
         </AlertDescription>
       </Alert>
     );
@@ -370,14 +356,13 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
           <CardDescription>{t('knowledge.incomplete')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button variant="default" size="default" onClick={start} disabled={starting} data-testid="fill-start">{t('knowledge.fillContinue')}</Button>
-          {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
+          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillContinue')}</KLink>
         </CardContent>
       </Card>
     );
   }
   if (status.filled) {
-    // The code is read. With no pages yet and no agent stage under way, the agent is offered: the same single press, the fill resuming as a no-op.
+    // The code is read. With no pages yet, point the reader to the fill choices.
     const offered = (status.home === null || (status.kinds.find((kind) => kind.kind === 'domain')?.count ?? 0) === 0) && status.writer.state === 'idle';
     if (!offered) return null;
     return (
@@ -387,10 +372,7 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
           <CardDescription>{t('knowledge.writer.offerDescription')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <AgentChoice status={status} choice={choice} />
-          <Button variant="default" size="default" onClick={start} disabled={starting || choice.pick === null} data-testid="fill-start">{agentLabel === undefined ? t('knowledge.writer.offerButton', { agent: '…' }) : t('knowledge.writer.offerButton', { agent: agentLabel })}</Button>
-          {choice.pick === null && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.offerNeedsAgent')}</p>}
-          {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
+          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
         </CardContent>
       </Card>
     );
@@ -407,14 +389,10 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
       </CardHeader>
       <CardContent>
         {connected ? (
-          <>
-            <AgentChoice status={status} choice={choice} />
-            <Button variant="default" size="default" onClick={start} disabled={starting} data-testid="fill-start">{choice.pick === null ? t('knowledge.fillStart') : t('knowledge.writer.startWith', { agent: agentLabel ?? '…' })}</Button>
-          </>
+          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
         ) : (
           <pre className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></pre>
         )}
-        {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
       </CardContent>
     </Card>
   );
@@ -422,7 +400,7 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
 
 /**
  * The product's front when no page is the home: an introduction for a newcomer in the interface language, and the fill's
- * card with the agent choice and its one press. The words are the engine's own and say nothing about this product.
+ * card linking to the fill choices. The words are the engine's own and say nothing about this product.
  */
 export function Overview({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
@@ -620,113 +598,35 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
   );
 }
 
-/**
- * The entity catalogue: every kind the product's manifest declares, read from the catalogue's own request
- * (madarch-8bdc.2.5), under its area and subgroup — its name and description in the reader's language, the entities that
- * stand of it (zero when nothing filled it yet), and whether a stage fills it today. A kind the product declares but no
- * stage fills stays in the list: the catalogue is the product's full potential, and nothing is hidden by its count.
- */
-/** The kinds a set of checked kinds needs, transitively: for each kind added, the checked kind that needs it. */
-export function addedByDependency(kinds: readonly CatalogKindView[], checked: ReadonlySet<string>): Map<string, string> {
-  const byKind = new Map(kinds.map((kind) => [kind.kind, kind] as const));
-  const added = new Map<string, string>();
-  const visit = (from: string, kind: string): void => {
-    for (const dependency of byKind.get(kind)?.dependsOn ?? []) {
-      if (checked.has(dependency) || added.has(dependency)) continue;
-      added.set(dependency, from);
-      visit(from, dependency);
-    }
-  };
-  for (const kind of [...checked].sort()) if (byKind.has(kind)) visit(kind, kind);
-  return added;
-}
-
-/**
- * What the panel says one press costs: the selected kinds' measured volume times the per-unit figure their producers
- * declare. A figure no producer declares is unknown, and the sum is unknown with it — never a guess (madarch-stm0.6).
- */
-export function estimateOf(kinds: readonly CatalogKindView[], checked: ReadonlySet<string>, added: ReadonlyMap<string, string>): { tokens: number | null; seconds: number | null; volume: number; unknown: number } {
-  const chosen = new Set([...checked, ...added.keys()]);
-  const held = kinds.filter((kind) => chosen.has(kind.kind));
-  let tokens = 0;
-  let seconds = 0;
-  let unknown = 0;
-  let volume = 0;
-  for (const kind of held) {
-    volume += kind.estimate?.volume ?? 0;
-    if (kind.estimate === undefined || kind.estimate.tokens === null || kind.estimate.seconds === null) unknown += 1;
-    else { tokens += kind.estimate.tokens; seconds += kind.estimate.seconds; }
-  }
-  return { tokens: unknown > 0 ? null : tokens, seconds: unknown > 0 ? null : seconds, volume, unknown };
-}
-
 /** Every kind of one catalogue section, its subgroups included. */
 function sectionKinds(section: { kinds: CatalogKindView[]; subgroups: { kinds: CatalogKindView[] }[] }): CatalogKindView[] {
   return [...section.kinds, ...section.subgroups.flatMap((subgroup) => subgroup.kinds)];
 }
 
-/**
- * The catalogue page: every entity the product's manifest declares, with whether it is filled, partial or never filled,
- * and a checkbox per section and per entity that says "fill now" (madarch-stm0.6). A checked entity's dependencies are
- * checked with it, marked "needed by …", and cannot be unchecked while a dependant is checked; the panel pinned to the
- * bottom of the viewport shows what is selected, what the dependencies added, the agent, the token cap, the estimate and
- * the Fill button. The last selection is the product's own state in the store, written when the person presses Fill
- * selected or Save: a checkbox is a thought, not a decision.
- */
+/** The manifest's kinds, grouped by section, with their meaning, records, producer and state. */
 export function CataloguePage({ version }: { version: number }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   useTabTitle(t('knowledge.catalogue'));
   const { data, error } = useRead<CatalogView>('catalogue', version, getCatalog);
-  const selection = useRead<{ selection: FillSelectionView }>('fill-selection', version, (signal) => getFillSelection(signal));
-  const [agents, setAgents] = useState<AgentOffer[] | null>(null);
-  const [checked, setChecked] = useState<Set<string> | null>(null);
-  const [agent, setAgent] = useState<string | null>(null);
-  const [cap, setCap] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  const saved = selection.data?.selection;
+  const [filter, setFilter] = useState('');
+  const [view, setView] = useState('table');
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
   useEffect(() => {
-    const controller = new AbortController();
-    getAgents(controller.signal).then((answer) => setAgents(answer.agents), () => setAgents([]));
-    return () => controller.abort();
-  }, []);
-  // The selection the store holds, or — for a product nobody chose for yet — the entities their own plugins fill and
-  // what those need: a first press then runs the plugins and no agent (the owner's design of 2026-11-10).
-  const kinds = data?.kinds;
-  useEffect(() => {
-    if (kinds === undefined || saved === undefined) return;
-    // Every entity is checked by default (the owner, 2026-11-10: "why would anything be unchecked? we have an agent
-    // plugin for every entity"): a product whose selection was never written starts with the whole catalogue checked, and
-    // the panel says how many of them wait for an agent. A selection the person saved is theirs, an empty one included.
-    setChecked((held) => held ?? (saved.savedAt === '' ? new Set(kinds.map((kind) => kind.kind)) : new Set(saved.selected)));
-    setAgent((held) => held ?? saved.agent);
-    setCap((held) => (held === '' ? (saved.tokenCap === null ? '' : String(saved.tokenCap)) : held));
-  }, [kinds, saved]);
-  const chosen = checked ?? new Set<string>();
-  const added = kinds === undefined ? new Map<string, string>() : addedByDependency(kinds, chosen);
-  /** The selection as the panel has it, for the two writes there are: the press, and Save. */
-  const selectionValue = (): { selected: string[]; agent: string | null; tokenCap: number | null } => {
-    const value = cap.trim() === '' ? null : Number(cap);
-    return { selected: [...chosen].sort(), agent, tokenCap: value !== null && Number.isInteger(value) && value > 0 ? value : null };
-  };
-  // The selection is the product's state, and it is written when the person presses Fill selected (the press stores it
-  // before the run starts) or Save: a checkbox is a thought, not a decision (the owner, 2026-11-10).
-  const save = (): void => {
-    setBusy(true);
-    setFailure(null);
-    setNote(null);
-    saveFillSelection(selectionValue()).then(
-      () => { setBusy(false); setNote(t('knowledge.catalogueSaved')); },
-      (failure: unknown) => { setBusy(false); setFailure(message(failure)); },
-    );
-  };
+    if (jumpTo === null || view !== 'table') return;
+    // Radix mounts the newly selected panel after the view change.
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(jumpTo)?.scrollIntoView?.({ block: 'start' });
+      setJumpTo(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [jumpTo, view]);
   if (error !== null && data === null) {
     return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   }
   if (data === null) return <PageSkeleton testId="catalogue-loading" />;
-  const all = data.kinds;
+  const query = filter.trim().toLocaleLowerCase(language);
+  const all = data.kinds.filter((kind) => [kind.kind, kind.labels?.[language]?.many, kind.labels?.[language]?.one, kind.descriptions?.[language]].some((text) => text?.toLocaleLowerCase(language).includes(query)));
   const known = new Set(data.groups.map((group) => group.group));
   const top = data.groups.filter((group) => group.parent === undefined || !known.has(group.parent));
   const children = data.groups.filter((group) => group.parent !== undefined && known.has(group.parent));
@@ -735,7 +635,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const ofSubgroup = (subgroup: string): CatalogKindView[] => all.filter((kind) => kind.subgroup === subgroup);
   const placed = new Set([...top.map((group) => group.group), ...children.map((group) => group.group)]);
   const other = all.filter((kind) => !placed.has(areaOf(data.groups, kind)) && !placed.has(kind.subgroup));
-  const sections: { key: string; name: string; kinds: CatalogKindView[]; subgroups: { key: string; name: string; kinds: CatalogKindView[] }[] }[] = [
+  const sections = [
     ...top.map((group) => ({
       key: group.group,
       name: label(group),
@@ -743,13 +643,18 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
       subgroups: children.filter((child) => child.parent === group.group).map((child) => ({ key: child.group, name: label(child), kinds: ofSubgroup(child.group) })),
     })),
     ...(other.length === 0 ? [] : [{ key: '\0other', name: t('knowledge.groupOther'), kinds: other, subgroups: [] }]),
-  ].filter((section) => section.kinds.length > 0 || section.subgroups.length > 0);
-  const entities = all.reduce((sum, kind) => sum + kind.count, 0);
-  /** The kind's name in the reader's language; a language the declaration leaves out is marked, never filled with English. */
+  ].filter((section) => sectionKinds(section).length > 0);
+  const records = all.reduce((sum, kind) => sum + kind.count, 0);
   const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
-  const translated = (kind: CatalogKindView): boolean => kind.labels?.[language] !== undefined;
-  // Who fills a kind, in the manifest's own words: the plugins its fields bind, the built-in pass that reads it, the
-  // person who wrote it, or the general agent plugin (madarch-stm0.6, the owner 2026-11-10).
+  const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
+  const kindId = (kind: string): string => `catalogue-kind-${encodeURIComponent(kind)}`;
+  const kindContents = (kinds: CatalogKindView[]) => kinds.map((kind) => ({ id: kindId(kind.kind), label: nameOf(kind) }));
+  const contents = sections.map((section) => ({
+    id: sectionId(section.key), label: section.name,
+    children: [...kindContents(section.kinds), ...section.subgroups.map((subgroup) => ({
+      id: sectionId(subgroup.key), label: subgroup.name, children: kindContents(subgroup.kinds),
+    }))],
+  }));
   const producerWords = (kind: CatalogKindView): string => {
     if ((kind.plugins ?? []).length > 0) return t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') });
     if (kind.producer === 'extract') return t('knowledge.catalogueStage.extract');
@@ -758,35 +663,12 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
     if (fillWithOf(kind) === 'person') return t('knowledge.catalogueByPerson');
     return t('knowledge.catalogueByAgent');
   };
-  const stateWords = (kind: CatalogKindView): string => t(`knowledge.catalogueState.${kind.state}`);
-  /** Whether a kind may be unchecked: only when no checked kind needs it. */
-  const needed = (kind: string): string | undefined => added.get(kind);
-  const setMany = (next: Iterable<string>, remove: boolean): void => {
-    setChecked((held) => {
-      const made = new Set(held ?? []);
-      for (const kind of next) { if (remove) made.delete(kind); else made.add(kind); }
-      return made;
-    });
-    setFailure(null);
-  };
-  const toggle = (kind: CatalogKindView): void => {
-    const isChecked = chosen.has(kind.kind);
-    if (isChecked && needed(kind.kind) !== undefined) return;
-    setMany([kind.kind], isChecked);
-  };
-  const sectionState = (section: { kinds: CatalogKindView[]; subgroups: { kinds: CatalogKindView[] }[] }): 'all' | 'some' | 'none' => {
-    const held = sectionKinds(section);
-    const on = held.filter((kind) => chosen.has(kind.kind)).length;
-    return on === 0 ? 'none' : on === held.length ? 'all' : 'some';
-  };
-  const badge = (kind: CatalogKindView): ReactElement => (
-    <Badge key="state" variant={kind.state === 'never' ? 'outline' : 'solid'} data-testid="catalogue-state" data-state={kind.state}>{stateWords(kind)}</Badge>
-  );
+  const stateOf = (kind: CatalogKindView): string => kind.turn === 'failed' || kind.turn === 'blocked' || kind.turn === 'cancelled' ? 'failed' : kind.state;
+  const totals = (kinds: CatalogKindView[]): ReactElement => <>{t('knowledge.catalogueKinds', { count: kinds.length })}, {t('knowledge.catalogueEntities', { count: kinds.reduce((sum, kind) => sum + kind.count, 0) })}</>;
   const table = (rows: CatalogKindView[]): ReactElement => (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-8"><span className="sr-only">{t('knowledge.catalogueFillNow')}</span></TableHead>
           <TableHead>{t('knowledge.catalogueColKind')}</TableHead>
           <TableHead>{t('knowledge.catalogueColAbout')}</TableHead>
           <TableHead>{t('knowledge.catalogueColCount')}</TableHead>
@@ -795,125 +677,67 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((kind) => {
-          const dependencyOf = needed(kind.kind);
-          const on = chosen.has(kind.kind);
-          return (
-            <TableRow key={kind.kind} data-kind={kind.kind} data-filled={String(kind.filled)} data-checked={on ? 'true' : 'false'} data-needed={dependencyOf === undefined ? 'false' : 'true'}>
-              <TableCell className="align-top">
-                <input
-                  type="checkbox"
-                  data-testid={`catalogue-check-${kind.kind}`}
-                  aria-label={t('knowledge.catalogueFillNow')}
-                  checked={on || dependencyOf !== undefined}
-                  disabled={dependencyOf !== undefined}
-                  onChange={() => toggle(kind)}
-                />
-                {dependencyOf !== undefined && <span className="block text-small text-muted" data-testid="catalogue-needed-by">{t('knowledge.catalogueNeededBy', { kind: nameOf(all.find((entry) => entry.kind === dependencyOf) ?? kind) })}</span>}
-              </TableCell>
-              <TableCell className="whitespace-nowrap align-top">
-                {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}
-                {!translated(kind) && <span className="ml-2 text-small text-muted" data-testid="catalogue-no-translation">{t('knowledge.catalogueNoTranslation')}</span>}
-              </TableCell>
-              <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted" data-testid="catalogue-no-description">{t('knowledge.catalogueNoTranslation')}</span>}</TableCell>
-              <TableCell className="align-top" data-testid="catalogue-count">{kind.count}{kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}</TableCell>
-              <TableCell className="align-top" data-testid="catalogue-stage" data-stage={fillWithOf(kind)}>
-                {producerWords(kind)}
-                {on && agent === null && fillWithOf(kind) === 'agent' && <span className="block text-small text-muted" data-testid="catalogue-waiting">{t('knowledge.catalogueWaitingForAgent')}</span>}
-              </TableCell>
-              <TableCell className="align-top" data-testid="catalogue-states">{badge(kind)}</TableCell>
-            </TableRow>
-          );
-        })}
+        {rows.map((kind) => (
+          <TableRow key={kind.kind} id={kindId(kind.kind)} data-kind={kind.kind} data-filled={String(kind.filled)} className="cursor-pointer" onClick={(event) => {
+            if ((event.target as Element).closest('a, button')) return;
+            linkHandlers(addressOfKind(kind.kind)).onClick(event);
+          }}>
+            <TableCell className="whitespace-nowrap align-top">
+              <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink>
+            </TableCell>
+            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} compact /></TableCell>
+            <TableCell className="align-top" data-testid="catalogue-count">
+              {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)}>{kind.count}</KLink> : kind.count}
+              {kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}
+            </TableCell>
+            <TableCell className="align-top" data-testid="catalogue-stage" data-stage={fillWithOf(kind)}>{producerWords(kind)}</TableCell>
+            <TableCell className="align-top" data-testid="catalogue-states">
+              <Badge variant={stateOf(kind) === 'never' ? 'outline' : 'solid'} data-testid="catalogue-state" data-state={stateOf(kind)}>{t(`knowledge.catalogueState.${stateOf(kind)}`)}</Badge>
+            </TableCell>
+          </TableRow>
+        ))}
       </TableBody>
     </Table>
   );
-  const rows = (rows: CatalogKindView[]): ReactElement => rows.length > 0 ? table(rows) : <p className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</p>;
-  const fill = (): void => {
-    setBusy(true);
-    setFailure(null);
-    setNote(null);
-    fillSelected(selectionValue()).then(
-      (answer) => { setBusy(false); setNote(t('knowledge.catalogueFillStarted', { order: answer.order.join(', ') })); },
-      (failure: unknown) => { setBusy(false); setFailure(message(failure)); },
-    );
-  };
-  const agentChosen = agents?.find((entry) => entry.id === agent);
-  const cost = estimateOf(all, chosen, added);
-  // How many selected entities no own producer fills and therefore wait for an agent (the owner, 2026-11-10).
-  const waiting = all.filter((kind) => (chosen.has(kind.kind) || added.has(kind.kind)) && fillWithOf(kind) === 'agent').length;
   return (
-    <section data-testid="catalogue-page" className="pb-40">
+    <section data-testid="catalogue-page">
       <header className="mb-6">
         <h1>{t('knowledge.catalogue')}</h1>
-        <p className="mb-1">{t('knowledge.catalogueIntro')}</p>
-        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: entities })}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="catalogue-checks">
-          <Button variant="default" size="default" data-testid="catalogue-check-all" onClick={() => setMany(all.map((kind) => kind.kind), false)}>{t('knowledge.catalogueCheckAll')}</Button>
-          <Button variant="default" size="default" data-testid="catalogue-uncheck-all" onClick={() => { setChecked(new Set()); setFailure(null); }}>{t('knowledge.catalogueUncheckAll')}</Button>
-          <KLink href={WIKI_DEPENDENCIES} testId="catalogue-dependencies">{t('knowledge.dependencies.title')}</KLink>
-        </div>
+        <p className="mb-1" data-testid="catalogue-intro">{t('knowledge.catalogueIntro')}</p>
+        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</p>
       </header>
-      {sections.map((section) => {
-        const total = sectionKinds(section).reduce((sum, kind) => sum + kind.count, 0);
-        const state = sectionState(section);
-        return (
-          <section key={section.key} className="mb-8" data-testid="catalogue-group" data-group={section.key}>
-            <h2 className="flex items-baseline gap-3">
-              <input
-                type="checkbox"
-                data-testid={`catalogue-check-section-${section.key}`}
-                aria-label={t('knowledge.catalogueFillSection', { section: section.name })}
-                checked={state === 'all'}
-                ref={(input) => { if (input !== null) input.indeterminate = state === 'some'; }}
-                onChange={() => setMany(sectionKinds(section).map((kind) => kind.kind), state === 'all')}
-              />
-              {section.name}<span className="text-small font-normal text-muted">{total}</span>
-            </h2>
-            {section.kinds.length > 0 && table(section.kinds)}
-            {section.subgroups.map((subgroup) => (
-              <section key={subgroup.key} className="mb-5" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
-                <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{subgroup.kinds.reduce((sum, kind) => sum + kind.count, 0)}</span></h3>
-                {rows(subgroup.kinds)}
-              </section>
-            ))}
-          </section>
-        );
-      })}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-[var(--surface-menu)] px-4 py-3 shadow-[var(--shadow-high)]" data-testid="catalogue-panel">
-        <div className="mx-auto flex max-w-[80rem] flex-wrap items-center gap-x-3 gap-y-2 sm:items-end sm:gap-x-6">
-          <p className="m-0 text-small" data-testid="catalogue-selection">
-            <b data-testid="catalogue-selected-count">{t('knowledge.catalogueSelected', { count: chosen.size })}</b>
-            {added.size > 0 && <span className="text-muted" data-testid="catalogue-added-count"> · {t('knowledge.catalogueAdded', { count: added.size })}</span>}
-          </p>
-          <p className="m-0 hidden text-small text-muted sm:block" data-testid="catalogue-estimate" data-known={cost.tokens === null ? 'false' : 'true'}>
-            {cost.tokens === null
-              ? t('knowledge.catalogueEstimateUnknown', { count: cost.unknown })
-              : t('knowledge.catalogueEstimate', { tokens: cost.tokens, seconds: Math.round(cost.seconds ?? 0) })}
-          </p>
-          <label className="grid gap-1 text-small" htmlFor="catalogue-agent">
-            <span className="text-secondary">{t('knowledge.catalogueAgent')}</span>
-            <select id="catalogue-agent" data-testid="catalogue-agent" className="w-56 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" value={agent ?? ''} onChange={(event) => setAgent(event.target.value === '' ? null : event.target.value)}>
-              <option value="">{t('knowledge.catalogueAgentNone')}</option>
-              {(agents ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1 text-small" htmlFor="catalogue-cap">
-            <span className="text-secondary">{t('knowledge.catalogueTokenCap')}</span>
-            <input id="catalogue-cap" data-testid="catalogue-token-cap" className="w-36 rounded-[var(--radius-control)] border border-line bg-page px-2 py-1 text-body text-ink" inputMode="numeric" placeholder={t('knowledge.catalogueTokenCapNone')} value={cap} onChange={(event) => setCap(event.target.value.replace(/[^0-9]/gu, ''))} />
-          </label>
-          <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" data-testid="catalogue-fill" disabled={busy || chosen.size === 0} onClick={fill}>{busy ? t('knowledge.catalogueFilling') : t('knowledge.catalogueFillSelected')}</Button>
-          <Button variant="default" size="default" data-testid="catalogue-save" disabled={busy} onClick={save}>{t('knowledge.catalogueSave')}</Button>
-          {agent === null && waiting > 0 && <p className="m-0 hidden text-small text-muted sm:block" data-testid="catalogue-agent-note">{t('knowledge.catalogueAgentNote', { count: waiting })}</p>}
-          {agentChosen !== undefined && <p className="m-0 text-small text-muted" data-testid="catalogue-agent-chosen">{t('knowledge.catalogueAgentChosen', { agent: agentChosen.label })}</p>}
-          {note !== null && <p className="m-0 text-small" data-testid="catalogue-fill-note">{note}</p>}
-          {failure !== null && <p className="m-0 text-small" role="alert" data-testid="catalogue-fill-error">{failure}</p>}
-        </div>
+      <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_200px]">
+      <div className="min-w-0">
+      <Tabs value={view} onValueChange={setView}>
+        <TabsList aria-label={t('knowledge.catalogueViews.label')}>
+          <TabsTrigger value="table">{t('knowledge.catalogueViews.table')}</TabsTrigger>
+          <TabsTrigger value="graph">{t('knowledge.catalogueViews.graph')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="table">
+      {sections.map((section) => (
+        <section key={section.key} id={sectionId(section.key)} className="mb-8 scroll-mt-4" data-testid="catalogue-group" data-group={section.key}>
+          <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</span></h2>
+          {section.kinds.length > 0 && table(section.kinds)}
+          {section.subgroups.map((subgroup) => (
+            <section key={subgroup.key} id={sectionId(subgroup.key)} className="mb-5 scroll-mt-4" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
+              <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{totals(subgroup.kinds)}</span></h3>
+              {subgroup.kinds.length > 0 ? table(subgroup.kinds) : <p className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</p>}
+            </section>
+          ))}
+        </section>
+      ))}
+        </TabsContent>
+        <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
+      </Tabs>
+      </div>
+      <aside className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-10rem)] md:overflow-y-auto" data-testid="catalogue-contents">
+        <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
+      </aside>
       </div>
     </section>
   );
 }
-
 /** A ground that is a thing of the system: its name and kind, what the kind is, what the code says of it, what it is connected to, and its page. */
 function EntityCard({ excerpt }: { excerpt: Extract<Excerpt, { type: 'entity' }> }): ReactElement {
   const { t, i18n } = useTranslation();

@@ -40,12 +40,13 @@ async function until(holds: () => boolean | undefined, what: string): Promise<vo
   }
   throw new Error(`never came to ${what}; the tree holds: ${document.body.innerHTML.slice(0, 2500)}`);
 }
-afterEach(() => {
+afterEach(async () => {
   rendered?.unmount();
   rendered = undefined;
   document.body.innerHTML = '';
   delete (globalThis as { fetch?: unknown }).fetch;
   window.history.replaceState({}, '', '/');
+  await setWikiLanguage('en');
 });
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
@@ -68,6 +69,16 @@ const nestedGroups = [
 ];
 
 describe('the groups of the manifest', () => {
+  test('catalogue-only and member kinds count in status without becoming navigation rows', () => {
+    const state = status({ groups: [{ group: 'code', labels: { en: 'Code' } }], kinds: [
+      kind({ kind: 'code.file', group: 'code', count: 2, page: true }),
+      kind({ kind: 'code.member', group: 'code', count: 3, page: false }),
+    ] });
+    const groups = navGroups(state, () => 0);
+    expect(groups[0]!.total).toBe(5);
+    expect(groups[0]!.kinds.map((row) => row.kind)).toEqual(['code.file']);
+  });
+
   test('a sub-area is a group of its own with a parent, and the navigation nests it under that parent with one total', () => {
     const state = {
       groups: nestedGroups,
@@ -167,7 +178,8 @@ describe('the menu', () => {
     expect(askedPage).toBe(false);
   });
 
-  test('the catalogue stands beside Home as a place of the product, «Waiting for you» under it counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
+  for (const language of ['en', 'ru'] as const) test(`the sidebar top block is Home, Catalogue, Glossary in ${language}, then waiting and the footer`, async () => {
+    await setWikiLanguage(language);
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
       if (url.endsWith('/api/status')) return json(status({
         home: 'product:shop', filled: true,
@@ -186,12 +198,18 @@ describe('the menu', () => {
     const home = app.querySelector('[data-testid=nav-home]')!;
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     const catalogue = app.querySelector('[data-testid=nav-catalogue]')!;
-    const dependencies = app.querySelector('[data-testid=nav-dependencies]')!;
-    // The catalogue and the dependency graph wait for nobody: they are places of the product beside Home, not rows of
-    // the waiting group.
+    expect(app.querySelector('[data-testid=nav-dependencies]')).toBeNull();
     expect(home.nextElementSibling).toBe(catalogue);
-    expect(catalogue.nextElementSibling).toBe(dependencies);
-    expect(dependencies.nextElementSibling).toBe(waiting);
+    const glossary = app.querySelector('[data-testid=nav-glossary]')!;
+    expect(catalogue.nextElementSibling).toBe(glossary);
+    expect(glossary.nextElementSibling).toBe(waiting);
+    const topLinks = [];
+    for (let node = home; node !== waiting; node = node.nextElementSibling!) topLinks.push(node);
+    expect(topLinks.map((node) => node.textContent)).toEqual(language === 'ru'
+      ? ['Главная', 'Каталог сущностей', 'Глоссарий']
+      : ['Home', 'Entity catalogue', 'Glossary']);
+    expect(topLinks.map((node) => node.getAttribute('href'))).toEqual(['/', '/catalogue', '/glossary']);
+    expect(glossary.querySelector('svg')).not.toBeNull();
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')).toBeNull();
@@ -234,8 +252,8 @@ describe('the menu', () => {
     expect(row.getAttribute('href')).toBe('/glossary');
     expect(row.textContent).toContain('Terms');
     expect(row.querySelector('[data-testid=nav-count]')!.textContent).toBe('7');
-    // The engine draws no place of its own for the glossary: no hardcoded row remains.
-    expect(app.querySelector('[data-testid=nav-glossary]')).toBeNull();
+    // The top-level glossary shortcut coexists with the manifest's kind listing.
+    expect(app.querySelector('[data-testid=nav-glossary]')!.getAttribute('href')).toBe('/glossary');
   });
 
   test('the group the manifest opens by itself is expanded; a group without the field is closed, whatever its name', async () => {

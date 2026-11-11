@@ -1,6 +1,5 @@
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { createFillSelectionSchema, readFillSelection } from '../src/adapters/fill-selection.js';
 import { createFillStateSchema, readChain } from '../src/fill/state-store.js';
 import { createOrchestratorSchema, readRunControl } from '../src/fill/orchestrator-store.js';
 /** Explicit preparation precedes every connect-only graph role (madarch-8bdc.10). */
@@ -96,8 +95,8 @@ describe('explicit store preparation and connect-only clients', () => {
               expect(await readRunControl(client, 'fixture')).toBeNull();
               break;
             case 5:
-              await createFillSelectionSchema(client);
-              await readFillSelection(client, 'fixture');
+              await createFillStateSchema(client);
+              expect(await readChain(client, 'fixture')).toBeNull();
               break;
             default: {
               const queue = await createPgBossQueue({ owner: client, supervise: false });

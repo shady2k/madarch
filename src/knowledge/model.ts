@@ -8,7 +8,7 @@ type GuidePageData = Record<string, unknown>;
  * app holds no knowledge of any kind and draws only these shapes.
  */
 import type { RefreshPlan } from '../loop/plan.js';
-import type { Finding } from '../product/manifest/kinds.js';
+import type { FieldDecl, Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
@@ -472,6 +472,12 @@ export interface CatalogKindView {
   labels?: Record<string, { one: string; many: string }>;
   /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
   descriptions?: Record<string, string>;
+  /** The typed contract, exactly as the product declares it. */
+  fields?: readonly FieldDecl[];
+  /** Both directions of declared relations; a catalogue constraint may leave the other kind unspecified. */
+  relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
+  /** The standards or documents the kind declaration cites. */
+  sources?: readonly string[];
   count: number;
   /** The statements the pages of this kind make, when the index holds any. */
   statements?: number;
@@ -489,6 +495,8 @@ export interface CatalogKindView {
   filled: boolean;
   /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */
   plugins?: readonly string[];
+  /** The folders of field-bound plugins that the manifest resolves, deduplicated in code point order. */
+  pluginFolders?: readonly string[];
   /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
   dependsOn?: readonly string[];
   /**
@@ -524,14 +532,6 @@ export interface KindEstimate {
   readonly tokens: number | null;
   /** The time of the kind's volume, or `null` when the figure or the volume is unknown. */
   readonly seconds: number | null;
-}
-
-/** The catalogue's fill selection as the store keeps it (madarch-stm0.6): what is checked, the agent and the cap. */
-export interface FillSelectionView {
-  readonly selected: readonly string[];
-  readonly agent: string | null;
-  readonly tokenCap: number | null;
-  readonly savedAt: string;
 }
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
@@ -573,6 +573,8 @@ export interface KindSummary {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** Whether this kind has a page; false for members and catalogue-only kinds. */
+  page?: boolean;
   /** The form the kind's listing page takes, from the manifest (`listing:`); absent for the plain table of names and places. */
   listing?: 'operations' | 'glossary';
   /** Where the kind stands in the navigation, from the manifest (`nav:`); absent for a kind page among the pages by kind. */

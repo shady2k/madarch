@@ -87,9 +87,8 @@ import { stageSettled } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
-import { readFillSelection } from '../adapters/fill-selection.js';
 import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
-import { AgentRunBudget } from '../fill/agent-meter.js';
+import type { AgentRunBudget } from '../fill/agent-meter.js';
 import type { ProductIdentity } from './manifest.js';
 import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
@@ -136,6 +135,8 @@ export interface StagesFillOptions {
    * no id yet and no spend of its own to record: a caller that drives the stages without `runFill` names none.
    */
   readonly runId?: string;
+  /** The budget explicitly supplied for this run, never a saved catalogue selection. */
+  readonly budget?: AgentRunBudget;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -212,17 +213,12 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     return readFillManifests(own, folder);
   });
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
-  // The bounds this run's agent parts are held to (madarch-stm0.4, decision 0035, item 22): the catalogue's token cap,
-  // which the person's press declared, bounds the whole run; each plugin's own `bounds:` in the manifest bounds one run of
-  // that plugin. Both are declarations the store and the manifest hold, never numbers this module picks, and the run's
-  // trace states them, so a reader sees what a run may spend before it spends it.
-  const selection = await withSpan('fill.selection', { 'madarch.product': identity.name }, async () => await readFillSelection(options.database, identity.id));
-  const budget = selection.tokenCap === null ? undefined : new AgentRunBudget({ tokens: selection.tokenCap });
+  // Each plugin declares its own bounds; a caller may supply a budget for this run.
+  const budget = options.budget;
   const declaredBounds = [...(kindsRead.present ? kindsRead.manifest.plugins?.values() ?? [] : [])].filter((plugin) => plugin.bounds !== undefined).sort((left, right) => byCodePoint(left.id, right.id));
   if (options.runId !== undefined) {
     await withSpan('agent.bounds', {
       'agent.run': options.runId,
-      ...(selection.tokenCap === null ? {} : { 'agent.run.tokens': selection.tokenCap }),
       ...Object.fromEntries(declaredBounds.flatMap((plugin) => [
         ...(plugin.bounds?.tokens === undefined ? [] : [[`agent.plugin.${plugin.id}.tokens`, plugin.bounds.tokens] as const]),
         ...(plugin.bounds?.cost === undefined ? [] : [[`agent.plugin.${plugin.id}.cost`, plugin.bounds.cost.amount] as const, [`agent.plugin.${plugin.id}.currency`, plugin.bounds.cost.currency] as const]),

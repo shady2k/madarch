@@ -7,9 +7,9 @@ import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
 import { publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { KINDS_FILE, readKindsFrom, type Finding, type KindsManifest } from '../knowledge/kinds.js';
-import { workingTreeFiles, type ProductFileRead } from '../knowledge/product-files.js';
-import { readWorkflowsFrom, WORKFLOWS_FILE } from '../knowledge/workflows.js';
+import { KINDS_FILE, readKindsFrom, type Finding, type KindsManifest } from '../product/manifest/kinds.js';
+import { workingTreeFiles, type ProductFileRead } from '../plugin/product-files.js';
+import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { parsePluginLock, PLUGINS_LOCK_FILE } from '../plugin/lock.js';
 import { parsePluginManifest, ClosureRefusal } from '../plugin/closure.js';
 
