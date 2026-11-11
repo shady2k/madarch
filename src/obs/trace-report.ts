@@ -357,11 +357,7 @@ const STEP_NAMES = 5;
  * ran, and its slowest names are ranked by the time each took of its own. The
  * numbers are the spans' own: nothing here reads a store or a second record.
  */
-export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
-  return stepReportsFrom(spans, indexSpans(spans));
-}
-
-function stepReportsFrom(spans: readonly TraceSpan[], index: SpanIndex): StepReport[] {
+export function stepReportsOf(spans: readonly TraceSpan[], index: SpanIndex = indexSpans(spans)): StepReport[] {
   const { byId, childMs } = index;
   const namedStep = (span: TraceSpan): string | undefined => {
     const named = span.attributes['madarch.step'] ?? span.attributes['madarch.stage'];
@@ -457,7 +453,7 @@ export function readTraceRun(options: { readonly store: string; readonly runId?:
     file: chosen.file,
     runId: chosen.runId,
     report: withSpanSync('trace.report', {}, () => traceReportFrom(spans, chosen.file, index)),
-    steps: withSpanSync('trace.steps', {}, () => stepReportsFrom(spans, index)),
+    steps: withSpanSync('trace.steps', {}, () => stepReportsOf(spans, index)),
     startedAtMs: startedAt,
     endedAtMs: endedAt,
   };

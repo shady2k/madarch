@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { readTraceReport, readTraceRun, readTraceSpans, stepReportsOf, traceReportOf, type StepReport } from '../src/obs/trace-report.js';
+import { readTraceReport, readTraceRun, readTraceSpans, stepReportsOf, traceReportOf, type StepReport, type TraceSpan } from '../src/obs/trace-report.js';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../src/obs/trace.js';
 import { main } from '../src/product/cli.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
