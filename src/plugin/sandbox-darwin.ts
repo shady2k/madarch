@@ -106,7 +106,7 @@ export async function startDarwinSandbox(spec: DarwinSandboxSpec): Promise<Sandb
     }
   };
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => {
-    child.on('exit', (code, signal) => done({ code, signal }));
+    child.on('close', (code, signal) => done({ code, signal }));
   });
   return {
     pid: child.pid ?? -1,

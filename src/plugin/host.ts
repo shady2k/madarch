@@ -13,7 +13,7 @@
  * extracted with its cause, never dropped silently, and every iteration and
  * every decision of the host leaves a span and a log line.
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
@@ -348,6 +348,14 @@ export class PluginHost {
       declared = await this.awaitIntroduction();
     } catch (error) {
       await this.close();
+      const cause = error as UnitCause;
+      if (cause.code === 'plugin-exited' && this.sandbox !== undefined) {
+        const stderr = this.sandbox.stderr();
+        const text = readFileSync(stderr.file, 'utf8');
+        throw { ...cause, message: `${cause.message}
+Plugin stderr (${stderr.file}${stderr.truncated ? '; truncated to the log tail' : ''}):
+${text === '' ? '(empty)' : text}` };
+      }
       throw error;
     }
     this.declared = declared;
