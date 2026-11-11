@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, RefreshCwIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -22,13 +22,15 @@ import { getProducts, startFill } from './api.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { DependencyPage } from './dependency-page.js';
+import { FillSidePanel } from './fill-panel.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfEntity, addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -262,6 +264,10 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
         </a>
+        <a href={appPath(WIKI_DEPENDENCIES)} className={link(route.name === 'dependencies')} aria-current={route.name === 'dependencies' ? 'page' : undefined} data-testid="nav-dependencies" {...pick(WIKI_DEPENDENCIES)}>
+          <Share2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('knowledge.dependencies.title')}</span>
+        </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
           {waitingLink('nav-questions', WIKI_QUESTIONS, HelpCircleIcon, t('loop.questionsTitle'), questionsOpen, route.name === 'questions' || route.name === 'question')}
@@ -354,11 +360,11 @@ function pagesOf(status: WikiStatus): number {
 }
 
 /**
- * The fill's state in the toolbar: while it runs, how far it is; after it, a quiet line saying when it ended and how many
- * pages the wiki holds. The badge opens the one popover of the run (madarch-m38l.23): the whole sentence, what is being
- * written now, the way to the fill page, and the language the pages are written in. The popover carries no refresh of
- * its own: the top bar's «Синхронизировать» is the wiki's one refresh (madarch-u3vw.2), and choosing the pages' language
- * is the one request left here — it starts the run that writes them in it.
+ * The fill's state in the toolbar and the wiki's one fill control (madarch-stm0.6): the badge carries the status dot
+ * and opens the panel from the right, where the sections, the agent and the cap are chosen and the fill is pressed. The
+ * badge has no second Sync button beside it; while a run works it says how far it is, and after it, when it ended and how
+ * many pages the wiki holds. Choosing the pages' language stays the one request of the badge itself — it starts the run
+ * that writes them in it.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
@@ -370,30 +376,12 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
   // that do not fit scroll inside it instead of reaching past the bottom of the window.
   const chip = useRef<HTMLButtonElement | null>(null);
-  const panel = useRef<HTMLDivElement | null>(null);
   const wrap = useRef<HTMLDivElement | null>(null);
   const focusPanel = useRef(false);
   const [open, setOpen] = useState(false);
-  // Where the panel stands, measured off the badge when it opens: beside the badge and never past the window's edge, and
-  // never taller than the window leaves on that side, so a short window gets a short panel whose words scroll.
-  const [place, setPlace] = useState<{ top: number | null; bottom: number | null; right: number; maxHeight: number }>({ top: null, bottom: null, right: 8, maxHeight: 320 });
+  /** The side panel's node: it stands at the window's right edge, so the badge measures nothing for it. */
+  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-side-panel"]');
   const openPanel = (): void => {
-    const rect = chip.current?.getBoundingClientRect();
-    if (rect !== undefined) {
-      const below = window.innerHeight - rect.bottom - 12;
-      const over = rect.top - 12;
-      const up = below < 160 && over > below;
-      // The panel is as wide as the window leaves it (`min(26rem, 92vw)`), and it stands inside the window even when
-      // the badge sits in the middle of the bar: its right edge never reaches past the window's, nor its left past the
-      // margin. Above a phone's width the badge is the bar's last control and the two rights are the same one.
-      const width = Math.min(26 * 16, window.innerWidth * 0.92);
-      setPlace({
-        top: up ? null : rect.bottom + 7,
-        bottom: up ? window.innerHeight - rect.top + 7 : null,
-        right: Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - 8 - width)),
-        maxHeight: Math.max(0, Math.min(320, up ? over : below)),
-      });
-    }
     setOpen(true);
     focusPanel.current = true;
   };
@@ -401,7 +389,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   useEffect(() => {
     if (!open || !focusPanel.current) return;
     focusPanel.current = false;
-    panel.current?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
+    panelNode()?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
   }, [open]);
   // A press anywhere else closes it, and so does tabbing out of it.
   useEffect(() => {
@@ -409,7 +397,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     const outside = (event: Event): void => {
       const target = event.target as Node | null;
       if (target === null) return;
-      if (panel.current?.contains(target) === true || chip.current?.contains(target) === true) return;
+      if (panelNode()?.contains(target) === true || chip.current?.contains(target) === true) return;
       setOpen(false);
     };
     document.addEventListener('pointerdown', outside, true);
@@ -450,21 +438,20 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   }
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    // Until an agent has written a page, the badge names what the fill did read — the repository's
-    // files and commits, from the same store the pages read — rather than "0 pages", which reads as
-    // if the fill found nothing (madarch-8bdc.2.5, item 3 of the view's rework).
-    const counts = status.repository?.counts;
-    if (pages > 0 || counts === undefined) {
-      label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
-    } else {
-      label = when === null
-        ? t('knowledge.repository.fillRead', { files: counts.files, commits: counts.commits })
-        : t('knowledge.repository.fillReadAt', { date: when, files: counts.files, commits: counts.commits });
-      // The badge keeps its count on a phone, as every other form of it does: the same numbers without the date.
-      narrow = t('knowledge.repository.fillReadNarrow', { files: counts.files, commits: counts.commits });
-    }
+    // The header says one word and one dot (the owner, 2026-11-10: "Заполнено · Файлов: 1882 · Коммитов: 2520" takes too
+    // much room): the button is Sync, and what the last run read — the commit, the files, the commits — is the dot's
+    // tooltip, where a reader asks for it.
+    label = pages > 0
+      ? (when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages }))
+      : t('knowledge.sync');
+    narrow = null;
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
-  } else return null;
+  }
+  // A product with a repository and no fill yet offers Fill in the top bar (the owner, 2026-11-10): the press opens the
+  // panel over the page, where the person chooses the sections and the agent and reads the estimate before pressing. A
+  // product with no repository has nothing to fill and says so on its home page instead.
+  else if (status.repositories.length > 0) { label = t('knowledge.fillButton'); solid = true; }
+  else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
   // The pages' language is the one request in the popover, and it is the fill: the run that writes them in that language.
   const start = (chosen: 'ru' | 'en'): void => {
@@ -519,7 +506,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         }}
       >
         <Badge variant={solid ? 'solid' : 'outline'}>
-          {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
+          <FillDot status={status} />
           {paused && <PauseIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3.5" data-testid="fill-chip-pause" />}
           {stopped && <SquareIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3" data-testid="fill-chip-stop" />}
           <span className="fill-chip-label">
@@ -534,141 +521,64 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         </Badge>
       </button>
       {open && (
-        <div
-          ref={panel}
+        <FillSidePanel
+          status={status}
+          refresh={refresh}
+          onClose={() => setOpen(false)}
           id="fill-menu-panel"
-          role="dialog"
-          aria-label={t('knowledge.fillMenuTitle')}
-          data-testid="fill-menu"
-          data-state="open"
-          style={{ position: 'fixed', top: place.top ?? undefined, bottom: place.bottom ?? undefined, right: place.right, maxHeight: place.maxHeight }}
-          className="language-menu fill-menu w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden overscroll-contain break-words"
-        >
-          <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
-          <div className="language-menu-separator" role="separator" />
-          {(authoring || filling) && (
-            // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
-            // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
-            // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
-            <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
-              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-              {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
-              <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
-              <RunControls status={status} refresh={refresh} where="menu" />
-            </div>
-          )}
-          {paused && (
-            // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
-            // up again or end it (madarch-m38l.17).
-            <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
-              <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-              <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
-              <RunControls status={status} refresh={refresh} where="menu" />
-            </div>
-          )}
-          {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
-          {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
-          {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
-          {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
-          <div className="px-2 pb-2">
-            {status.chosenAgent !== null && (
-              <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
-                <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
-                <div className="flex flex-wrap gap-2">
-                  {(['ru', 'en'] as const).map((code) => (
-                    <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
-                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
-                      <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
-                    </label>
-                  ))}
-                </div>
+          extra={<div className="mt-3 grid gap-2 border-t border-line pt-3" data-testid="fill-menu-extra">            <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
+            <div className="language-menu-separator" role="separator" />
+            {(authoring || filling) && (
+              // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
+              // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
+              // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
+              <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
+                <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+                {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
+                <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+                <RunControls status={status} refresh={refresh} where="menu" />
               </div>
             )}
-            {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
-          </div>
-        </div>
+            {paused && (
+              // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
+              // up again or end it (madarch-m38l.17).
+              <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
+                <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
+                <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+                <RunControls status={status} refresh={refresh} where="menu" />
+              </div>
+            )}
+            {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
+            {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
+            {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
+            {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
+            <div className="px-2 pb-2">
+              {status.chosenAgent !== null && (
+                <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
+                  <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(['ru', 'en'] as const).map((code) => (
+                        <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
+                          <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
+                          <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
+                        </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
+            </div>
+</div>}
+        />
       )}
     </div>
-  );
-}
-
-/**
- * «Синхронизировать» in the top bar (madarch-u3vw2): the wiki's one refresh, the fill, pressed without opening the fill
- * menu. When the run it started ends, the pages it changed open by themselves, each one a link to its page; a run that
- * changed no page says so in one line, and one that failed says why. The button is spent while a run is under way.
- */
-function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
-  const { t } = useTranslation();
-  const [starting, setStarting] = useState(false);
-  const [pressed, setPressed] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-  const fill = status.fill;
-  const writer = status.writer;
-  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
-  // The press remembers the run that was on record when it was made: the first end that is not that run is this one.
-  const ended = (fill.state === 'done' || fill.state === 'failed') && !busy && pressed !== null && (fill.finishedAt ?? '') !== pressed;
-  useEffect(() => {
-    if (!ended) return;
-    setPressed(null);
-    setOpen(true);
-  }, [ended]);
-  if (status.own === true || status.manifest !== 'ok' || !status.filled || status.repositories.length === 0) return null;
-  const press = (): void => {
-    setStarting(true);
-    setRefused(null);
-    setOpen(false);
-    const before = fill.finishedAt ?? '';
-    startFill(status.chosenAgent?.id ?? null).then(
-      () => { setStarting(false); setPressed(before); refresh(); },
-      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
-  const changed = fill.changed;
-  return (
-    <span className="sync-control relative flex items-center">
-      {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
-      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={t('knowledge.syncHint')} data-testid="sync">
-        <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />
-        <span className="sync-words">{busy ? t('knowledge.syncRunning') : t('knowledge.sync')}</span>
-      </Button>
-      {open && (
-        <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] wiki-modal-layer w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-small font-medium text-ink">{t('knowledge.syncResult')}</span>
-            <button type="button" className="cursor-pointer rounded p-1 text-muted hover:text-ink" aria-label={t('knowledge.syncClose')} data-testid="sync-close" onClick={() => setOpen(false)}>
-              <XIcon aria-hidden="true" className="size-4" />
-            </button>
-          </div>
-          {fill.state === 'failed' ? (
-            <div className="text-small" data-testid="sync-failed"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>
-          ) : writer.state === 'failed' ? (
-            <div className="text-small" data-testid="sync-writer-failed"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>
-          ) : changed === undefined ? (
-            <p className="m-0 text-small text-muted" data-testid="sync-unknown">{t('knowledge.syncUnknown')}</p>
-          ) : changed.length === 0 ? (
-            <p className="m-0 text-small" data-testid="sync-nothing">{t('knowledge.syncNothing')}</p>
-          ) : (
-            <>
-              <p className="mb-1 mt-0 text-small text-muted" data-testid="sync-count">{t('knowledge.syncChanged', { count: changed.length })}</p>
-              <ul className="m-0 max-h-[50vh] list-none overflow-auto p-0 text-small" data-testid="sync-changed">
-                {changed.map((page) => (
-                  <li key={page.id} className="py-0.5"><KLink href={addressOfEntity(page.id)} className="text-ink hover:underline">{page.title}</KLink></li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-      {refused !== null && <p className="absolute right-0 top-[calc(100%+8px)] wiki-modal-layer m-0 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-2 text-small shadow-lg" role="alert" data-testid="sync-refused">{refused}</p>}
-    </span>
   );
 }
 
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'dependencies' ? t('knowledge.dependencies.title') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -683,13 +593,69 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
           </KLink>
         )}
         {menu}
-        <SyncButton status={status} refresh={refresh} />
         {status.own !== true && <FillMenu status={status} refresh={refresh} />}
         <RoleMenu />
         <HelpLink products={products} current={current} />
         <LanguageMenu />
       </span>
     </header>
+  );
+}
+
+/** The fill's state as the header's dot tells it (madarch-stm0.6, the owner 2026-11-10). */
+export type FillDotState = 'up-to-date' | 'stale' | 'running' | 'failed';
+
+/**
+ * Which of the four states a product's fill stands in: a run under way, a run that failed, the graph short of what the
+ * checkouts hold (some files or commits are not read), or up to date. The app reads only the status: the engine keeps no
+ * second copy of this answer.
+ */
+export function fillDotState(status: WikiStatus): FillDotState {
+  if (status.fill.state === 'running' || status.writer.state === 'running' || status.writer.state === 'waiting') return 'running';
+  if (status.fill.state === 'failed' || status.writer.state === 'failed') return 'failed';
+  if (status.incomplete || status.repositories.some((repository) => !repository.filled)) return 'stale';
+  return 'up-to-date';
+}
+
+/**
+ * The dot's words: the commit the graph describes and the counts the run published, in the reader's language. A state
+ * without a commit says so rather than naming an empty one.
+ */
+export function fillDotTitle(status: WikiStatus, t: (key: string, args?: Record<string, string | number>) => string): string {
+  const commit = status.repository?.asIsCommit ?? null;
+  const short = commit === null ? null : commit.slice(0, 7);
+  const counts = status.fill.counts ?? status.repository?.counts;
+  const figures = { files: counts?.files ?? 0, commits: counts?.commits ?? 0 };
+  const state = fillDotState(status);
+  if (state === 'running') return short === null ? t('knowledge.fillDot.runningNoCommit', figures) : t('knowledge.fillDot.running', { ...figures, commit: ` at ${short}` });
+  if (state === 'failed') return t('knowledge.fillDot.failed');
+  if (state === 'stale') return short === null ? t('knowledge.fillDot.staleNoCommit', figures) : t('knowledge.fillDot.stale', { ...figures, commit: short });
+  return short === null ? t('knowledge.fillDot.upToDateNoCommit', figures) : t('knowledge.fillDot.upToDate', { ...figures, commit: short });
+}
+
+/**
+ * The one dot on the Fill/Sync button: a filled dot when the graph stands up to date, a hollow one when it is stale, a
+ * pulsing one while a run works and a barred one when a run failed. The state is told by its shape and its word, never by
+ * hue (the design tokens are the graphite pair), and its title says the commit and the counts.
+ */
+export function FillDot({ status }: { status: WikiStatus }): ReactElement {
+  const { t } = useTranslation();
+  const state = fillDotState(status);
+  const words = fillDotTitle(status, t);
+  return (
+    <span
+      className="fill-dot mr-1.5 inline-block size-2 shrink-0 rounded-full align-middle"
+      data-testid="fill-dot"
+      data-state={state}
+      title={words}
+      aria-label={words}
+      role="img"
+    >
+      {state === 'up-to-date' && <span aria-hidden="true" className="block size-full rounded-full bg-current" />}
+      {state === 'stale' && <span aria-hidden="true" className="block size-full rounded-full border border-current" />}
+      {state === 'running' && <span aria-hidden="true" className="block size-full animate-pulse rounded-full bg-current motion-reduce:animate-none" />}
+      {state === 'failed' && <span aria-hidden="true" className="block size-full rounded-full border border-current" />}
+    </span>
   );
 }
 
@@ -831,6 +797,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
+  else if (route.name === 'dependencies') view = <DependencyPage version={version} status={status} />;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;

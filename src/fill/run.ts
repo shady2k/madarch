@@ -34,6 +34,11 @@ export interface RunFillOptions {
   readonly steps?: readonly string[];
   /** The repository paths this fill covers, as prefixes; the whole tree when it is left out. */
   readonly paths?: readonly string[];
+  /**
+   * The kinds this fill was asked for (madarch-stm0.6, decision 0035 items 11 and 31), in the dependency order to run
+   * them in, and with a vertex the one entity it rewrites. Left out, the fill takes every kind as a whole fill does.
+   */
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
   /** The content language the press named, when it named one: recorded on the run's root span, never a statement. */
@@ -152,7 +157,7 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options) });
+  const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
   // Reading the pins is what names a checkout with no commit: the answer says what the run did for
   // it once the run has settled, and a run of this product still reads every other repository.

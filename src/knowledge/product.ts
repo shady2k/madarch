@@ -40,7 +40,7 @@ import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillSelectionView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -91,6 +91,9 @@ import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../p
 import { WikiReadError } from './read-error.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
+import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
+import { readUnitStates } from '../fill/state-store.js';
+import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -765,7 +768,7 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[] } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -870,11 +873,11 @@ export class KnowledgeProduct {
     // 1.9 s for it on two cores, one of them busy).
     await this.open().catch(() => undefined);
     this.notify();
-    const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }) };
+    const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-    this.running = (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId)).finally(() => {
+    this.running = (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId, press)).finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
@@ -887,7 +890,7 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
@@ -898,6 +901,7 @@ export class KnowledgeProduct {
         storeFolder,
         runId,
         database: owner,
+        ...(asked.targets === undefined ? {} : { targets: asked.targets }),
         onPublish: () => { void this.published(undefined).catch(() => undefined); },
       });
       try {
@@ -938,7 +942,7 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string }): Promise<void> {
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
     void product;
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
@@ -949,7 +953,7 @@ export class KnowledgeProduct {
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
-      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }) });
+      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
       // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
       // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
       // answered — the reason it did not finish, the repositories it could not read — is written there too.
@@ -1909,20 +1913,74 @@ export class KnowledgeProduct {
     const context = await this.context();
     if ('absent' in context) return { ...common, language: 'en', groups: [], kinds: [], findings: [] };
     let ctx = context.ctx;
+    let generated: ReadonlyMap<string, unknown> | undefined;
     try {
       const owner = await this.open();
       const kinds = graphKindsOf(context.manifest);
+      generated = kinds.generated;
       ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
     }
+    // The state of each kind's newest turn: what the catalogue says is filled, partial, or never filled (madarch-stm0.6).
+    const turns = await this.fillUnitStates();
     return {
       ...common,
       language: context.manifest.language ?? 'en',
       groups: groupViews(context.manifest),
-      kinds: await catalogKinds(ctx),
+      kinds: await catalogKinds(ctx, {
+        turnOf: (kind) => turns.get(kind),
+        // A kind whose table stands is measured by the graph; one with no table has no measured volume (madarch-stm0.6).
+        generatedOf: (kind) => generated !== undefined && generated.has(kind),
+      }),
       findings: context.manifest.catalog === undefined ? [] : [...context.manifest.catalog.findings],
     };
+  }
+
+  /**
+   * The state of each kind's plugin turn, by kind, as the store holds it: the newest generation of the unit
+   * `plugin-turns/<plugin>:<kind>`. A vertex fill's unit (`<plugin>:<kind>@<entity id>`) is not the kind's turn and is
+   * left out, and a store with no fill tables answers no turn at all.
+   */
+  private async fillUnitStates(): Promise<Map<string, string>> {
+    const states = new Map<string, string>();
+    let owner;
+    try {
+      owner = await this.open();
+    } catch {
+      return states;
+    }
+    let units: Map<string, string>;
+    try {
+      units = await readUnitStates(owner);
+    } catch {
+      // A store a fill never wrote has no unit tables yet: every kind is judged by what the graph holds alone.
+      return states;
+    }
+    for (const [unitId, state] of units) {
+      const slash = unitId.indexOf('/');
+      if (slash < 0 || unitId.slice(0, slash) !== PLUGIN_TURN_STAGE_ID) continue;
+      const rest = unitId.slice(slash + 1);
+      if (rest.includes('@')) continue;
+      const colon = rest.indexOf(':');
+      if (colon < 0) continue;
+      states.set(rest.slice(colon + 1), state);
+    }
+    return states;
+  }
+
+  /** The catalogue's fill selection as the store keeps it (madarch-stm0.6): checked kinds, the agent and the cap. */
+  async fillSelection(): Promise<FillSelectionView> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    return await readFillSelection(await this.open(), product.id);
+  }
+
+  /** Writes the selection the catalogue page made; the checked kinds are the given ones, in code point order. */
+  async saveFillSelection(selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null }): Promise<FillSelectionView> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    return await writeFillSelection(await this.open(), product.id, selection);
   }
 
   /**

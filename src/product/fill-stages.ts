@@ -112,6 +112,12 @@ export interface StagesFillOptions {
   readonly database: FillDatabase;
   /** What this step's two passes publish through; the store over this owner when it is left out. */
   readonly records?: import('../fill/steps.js').RecordPassWiring;
+  /**
+   * The kinds this run was asked for (madarch-stm0.6, decision 0035 items 11 and 31): their plugin turns only, in this
+   * dependency order, and with a vertex the one entity it rewrites. Left out, the run fills every kind the manifest binds
+   * a plugin to, as a whole fill does.
+   */
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -189,7 +195,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);

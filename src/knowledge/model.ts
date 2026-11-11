@@ -396,8 +396,8 @@ export type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'per
 /** One kind of the entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
 export interface CatalogKindView {
   kind: string;
-  /** The area the kind's subgroup belongs to. */
-  area: string;
+  /** The area the kind's subgroup belongs to, derived by the app from `groups` when absent. */
+  area?: string;
   subgroup: string;
   /** The kind's name per interface language; a missing language is left out and its finding names the declaration. */
   labels?: Record<string, { one: string; many: string }>;
@@ -410,8 +410,59 @@ export interface CatalogKindView {
   page: boolean;
   /** What produces the kind today, from its declaration; absent when nothing does. */
   producer?: KindProducer;
+  /**
+   * Who fills the kind (madarch-stm0.6): `own` when a producer the product itself runs does it — a plugin its fields
+   * bind, or the built-in code, documents or history pass — `person` when a page is written by a person, and `agent`
+   * for everything else, which the general agent plugin fills.
+   */
+  fillWith?: 'own' | 'agent' | 'person';
   /** Whether a stage of the fill produces the kind today: `producer` is not a person and exists. */
   filled: boolean;
+  /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */
+  plugins?: readonly string[];
+  /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
+  dependsOn?: readonly string[];
+  /**
+   * The newest generation of the kind's plugin turn, as the store's state machine names it (`planned`, `running`,
+   * `published`, `failed`, ...), absent when the kind's turn never ran (madarch-stm0.6, the dependency graph). The page
+   * reads it beside `state`, which is what the reader calls the outcome.
+   */
+  turn?: string;
+  /** How much of the kind stands: filled, partial (a turn of it failed or never finished), or never filled at all. */
+  state: 'filled' | 'partial' | 'never';
+  /**
+   * What one fill of this kind would cost, as the producer declares it and the graph measures it (madarch-stm0.6).
+   * Absent when no producer declares a per-unit figure: the page says "unknown" and the row carries no empty object.
+   */
+  estimate?: KindEstimate;
+}
+
+/**
+ * One kind's cost estimate (madarch-stm0.6): the volume the graph measures for the kind, and the per-unit figure its
+ * producer declares. A figure no producer declares is `null`, and so is the cost: the catalogue says "unknown" rather
+ * than a guess. Nothing here is a fact of the graph; it is what the panel shows before a press.
+ */
+export interface KindEstimate {
+  /** The volume the graph measures: the vertices the kind holds. `null` when no table of the kind stands yet. */
+  readonly volume: number | null;
+  /** What the volume counts: the vertices of the kind. */
+  readonly unit: 'vertices';
+  /** The tokens one unit costs, as the producer declares it; `null` when no producer declares one. */
+  readonly tokensPerUnit: number | null;
+  /** The seconds one unit takes, as the producer declares it; `null` when no producer declares one. */
+  readonly secondsPerUnit: number | null;
+  /** The cost of the kind's volume, or `null` when the figure or the volume is unknown. */
+  readonly tokens: number | null;
+  /** The time of the kind's volume, or `null` when the figure or the volume is unknown. */
+  readonly seconds: number | null;
+}
+
+/** The catalogue's fill selection as the store keeps it (madarch-stm0.6): what is checked, the agent and the cap. */
+export interface FillSelectionView {
+  readonly selected: readonly string[];
+  readonly agent: string | null;
+  readonly tokenCap: number | null;
+  readonly savedAt: string;
 }
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */

@@ -190,7 +190,8 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
   kind: string;
-  area: string;
+  /** Derived by the app from the catalogue groups when the answer leaves it out. */
+  area?: string;
   subgroup: string;
   labels?: Record<string, { one: string; many: string }>;
   descriptions?: Record<string, string>;
@@ -198,8 +199,26 @@ export type CatalogKindView = {
   statements?: number;
   page: boolean;
   producer?: KindProducer;
+  /** Who fills the kind: its own producer (plugin or built-in pass), a person, or the general agent plugin. */
+  fillWith?: 'own' | 'agent' | 'person';
   filled: boolean;
+  /** The plugins the manifest binds this kind's fields to: the fillers that need no model. */
+  plugins?: string[];
+  /** The kinds this one's declaration says must finish first. */
+  dependsOn?: string[];
+  /** The newest generation of the kind's fill turn (`planned`, `running`, `published`, `failed`, ...); absent when it never ran. */
+  turn?: string;
+  /** How much of the kind stands: filled, partial (a turn failed or did not finish), or never filled. */
+  state: 'filled' | 'partial' | 'never';
+  /** What one fill of this kind would cost, when a producer declares a figure; absent means unknown. */
+  estimate?: KindEstimate;
 };
+
+/** One kind's estimate (madarch-stm0.6): a measured volume times a per-unit figure, or unknown. */
+export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
+
+/** The catalogue's fill selection as the store keeps it (madarch-stm0.6). */
+export type FillSelectionView = { selected: string[]; agent: string | null; tokenCap: number | null; savedAt: string };
 
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {

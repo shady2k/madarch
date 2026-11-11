@@ -144,7 +144,7 @@ describe('an empty product', () => {
     expect(empty.labels).toEqual({ en: { one: 'Domain repository', many: 'Domain repositories' }, ru: { one: 'Репозиторий предметной области', many: 'Репозитории предметной области' } });
     expect(empty.descriptions.ru).toBe('Интерфейс предметной области, дающий доступ к агрегатам как к коллекции; это не репозиторий системы контроля версий.');
     const filled = catalog.kinds.find((kind) => kind.kind === 'code.service');
-    expect(filled).toMatchObject({ count: 0, filled: true, page: true, producer: 'extract', area: 'code', subgroup: 'code.structure' });
+    expect(filled).toMatchObject({ count: 0, filled: true, page: true, producer: 'extract', subgroup: 'code.structure' });
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(300_000);
   }, 30_000);
 

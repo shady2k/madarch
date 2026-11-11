@@ -118,9 +118,9 @@ describe('the groups of the manifest', () => {
       language: 'en',
       groups: nestedGroups,
       kinds: [
-        { kind: 'code.file', area: 'code', subgroup: 'code.structure', count: 4, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.' } },
-        { kind: 'code.cycle', area: 'code', subgroup: 'code.analysis', count: 1, page: true, producer: 'extract', filled: true, descriptions: { en: 'A ring of imports.' } },
-        { kind: 'code.env-var', area: 'operations', subgroup: 'operations.configuration', count: 3, page: true, producer: 'extract', filled: true, descriptions: { en: 'A setting read from the environment.' } },
+        { kind: 'code.file', area: 'code', subgroup: 'code.structure', count: 4, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.' }, state: 'filled', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+        { kind: 'code.cycle', area: 'code', subgroup: 'code.analysis', count: 1, page: true, producer: 'extract', filled: true, descriptions: { en: 'A ring of imports.' }, state: 'filled', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+        { kind: 'code.env-var', area: 'operations', subgroup: 'operations.configuration', count: 3, page: true, producer: 'extract', filled: true, descriptions: { en: 'A setting read from the environment.' }, state: 'filled', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
       ],
       findings: [],
     };
@@ -186,9 +186,12 @@ describe('the menu', () => {
     const home = app.querySelector('[data-testid=nav-home]')!;
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     const catalogue = app.querySelector('[data-testid=nav-catalogue]')!;
-    // The catalogue waits for nobody: it is a place of the product beside Home, not one of the waiting group's rows.
+    const dependencies = app.querySelector('[data-testid=nav-dependencies]')!;
+    // The catalogue and the dependency graph wait for nobody: they are places of the product beside Home, not rows of
+    // the waiting group.
     expect(home.nextElementSibling).toBe(catalogue);
-    expect(catalogue.nextElementSibling).toBe(waiting);
+    expect(catalogue.nextElementSibling).toBe(dependencies);
+    expect(dependencies.nextElementSibling).toBe(waiting);
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();

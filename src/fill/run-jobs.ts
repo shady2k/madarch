@@ -25,6 +25,11 @@ export interface FillRunJob {
   readonly language?: string;
   /** The task the press named, when it named one. */
   readonly task?: string;
+  /**
+   * The kinds the press asked for (madarch-stm0.6): the catalogue's selection and the kinds its dependencies add, in the
+   * dependency order to run them in, and with a vertex the one entity it rewrites. Absent, the run fills every kind.
+   */
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
 }
 
 /**
