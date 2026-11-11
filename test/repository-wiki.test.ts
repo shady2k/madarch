@@ -40,9 +40,19 @@ function product(name: string, write: (repository: string) => void): { folder: s
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
+  nativeWorkflow(folder);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
   return { folder, repository };
+}
+
+/** Repository views need the native tree and history, not external plugin sandboxes. */
+function nativeWorkflow(folder: string): void {
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
 }
 
 /** One page of a product, as the app reads it. */
@@ -128,9 +138,8 @@ git(folder,'commit','-qm','the nested file moves');
       expect(typeof run['wallMs']).toBe('number');
       expect((run['wallMs'] as number)).toBeGreaterThan(0);
       const runSteps = run['steps'] as FillStepView[];
-      // The tree, the history, and the plugin turn, which plans one unit per kind whose documents the tree
-      // published (decision 0035, items 6 and 15).
-      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns', 'repository-history', 'repository-tree', 'whole-graph-turns']);
+      // Every stage the fixture workflow enables reports its own measured work.
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['repository-history', 'repository-tree']);
       for (const step of runSteps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);
@@ -278,6 +287,7 @@ git(folder,'commit','-qm','the nested file moves');
     git(committed, 'add', '-A');
     git(committed, 'commit', '-qm', 'the committed repository');
     const folder = makeProduct(home, 'half', committed, 'committed-code');
+    nativeWorkflow(folder);
     // The manifest declares the empty checkout beside the committed one.
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, `${readFileSync(manifest, 'utf8').replace(/(\n\s+- name: committed-code[\s\S]*)$/u, '$1  - name: empty-code\n    url: file:///empty-code\n')}`);
