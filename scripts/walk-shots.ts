@@ -125,12 +125,13 @@ try {
         const { visit, width, index } = jobs[next++]!;
         const page = await context.newPage();
         const errors: string[] = [];
+        let collecting = true;
         const pending = new Set<HTTPRequest>();
         page.on('console', (message) => { if (message.type() === 'error') errors.push(`console: ${message.text()}`); });
         page.on('pageerror', (error) => errors.push(`page: ${error instanceof Error ? error.message : String(error)}`));
         page.on('request', (request) => { if (!['eventsource', 'websocket'].includes(request.resourceType())) pending.add(request); });
         page.on('requestfinished', (request) => pending.delete(request));
-        page.on('requestfailed', (request) => { pending.delete(request); errors.push(`request: ${request.url()} ${request.failure()?.errorText}`); });
+        page.on('requestfailed', (request) => { pending.delete(request); if (collecting) errors.push(`request: ${request.url()} ${request.failure()?.errorText}`); });
         page.on('response', (response) => { if (response.status() >= 400) errors.push(`HTTP ${response.status()}: ${response.url()}`); });
         await page.setViewport({ width, height: 900 });
         const began = Date.now();
@@ -157,7 +158,7 @@ try {
         shots.push({ name: visit.name, url: visit.url, width, file, settleMs, errors });
         console.log(`${visit.name} ${width}: ${settleMs}ms, ${errors.length} errors`);
         // Closing deliberately aborts SSE/background requests; those are not visit failures.
-        page.removeAllListeners();
+        collecting = false;
         await page.close();
       }
     } finally { await context.close(); }
