@@ -103,6 +103,7 @@ export interface GraphEdgeAddress {
 
 /** One reference the writer recorded and no vertex holds: a key reference, or an edge end. */
 export interface GraphUnresolvedReference {
+  readonly id: string;
   readonly referrer?: GraphAddress;
   readonly edge?: GraphEdgeAddress;
   readonly field: string;

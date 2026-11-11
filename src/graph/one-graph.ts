@@ -164,10 +164,21 @@ const SCHEMA: readonly string[] = [
     target_key jsonb NOT NULL,
     producer text NOT NULL CHECK (producer <> ''),
     against_node bigint REFERENCES node (id),
+    edge_discriminator text,
     context_id bigint NOT NULL DEFAULT 1,
     at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE NULLS NOT DISTINCT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id)
+    UNIQUE NULLS NOT DISTINCT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
   )`,
+  // A store made before the discriminator: the column is added, the old identity is replaced, and the rows keep their
+  // place. The discriminator tells two dangling edges of one kind and one target apart.
+  `ALTER TABLE unresolved_reference ADD COLUMN IF NOT EXISTS edge_discriminator text`,
+  `UPDATE unresolved_reference SET edge_discriminator = '' WHERE edge_entity IS NOT NULL AND edge_discriminator IS NULL`,
+  `DO $$ DECLARE held text; BEGIN
+     SELECT conname INTO held FROM pg_constraint WHERE conrelid = 'unresolved_reference'::regclass AND contype = 'u';
+     IF held IS NOT NULL THEN EXECUTE 'ALTER TABLE unresolved_reference DROP CONSTRAINT ' || quote_ident(held); END IF;
+   END $$`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS unresolved_reference_identity ON unresolved_reference
+     (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) NULLS NOT DISTINCT`,
 ];
 
 

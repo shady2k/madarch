@@ -162,7 +162,8 @@ export async function planWholeGraphTurns(wiring: PluginTurnWiring): Promise<Plu
   if (whole.length === 0) return [];
   if (wiring.wholeGraphReady !== undefined && !(await wiring.wholeGraphReady())) return [];
   const digest = await wholeGraphDigest(wiring);
-  return whole.map((one) => ({ id: pluginTurnUnitId(one.plugin.id, `whole-graph@${digest}`), plugin: one.plugin, lock: one.lock, pattern: '', wholeGraph: true }));
+  // A single-vertex fill and a whole fill are two cache identities: the target is part of the unit's id.
+  return whole.map((one) => ({ id: pluginTurnUnitId(one.plugin.id, `whole-graph@${digest}`, wiring.targets?.vertex), plugin: one.plugin, lock: one.lock, pattern: '', wholeGraph: true }));
 }
 
 /** The digest of everything a whole-graph plugin reads: the three consistency reads, as the graph stands now. */

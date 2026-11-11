@@ -32,14 +32,14 @@ function unresolvedFindings(references: readonly GraphUnresolvedReference[]): Fi
     ? {
         rule: 'missing-reference',
         subject: `${reference.referrer?.kind ?? 'vertex'}:${reference.referrer?.label ?? '?'}`,
-        target: `${reference.target.kind}:${reference.target.label}`,
+        target: `${reference.target.kind}:${reference.target.label}:${reference.id}`,
         cause: `its key field "${reference.field}" names ${reference.target.kind} ${reference.target.label}, and no vertex holds that key`,
         severity: 'major',
       }
     : {
         rule: 'dangling-reference',
         subject: `${reference.edge.kind}:${reference.referrer?.label ?? '?'}`,
-        target: `${reference.target.kind}:${reference.target.label}`,
+        target: `${reference.target.kind}:${reference.target.label}:${reference.id}`,
         cause: `the ${reference.field} end of ${reference.edge.kind} names ${reference.target.kind} ${reference.target.label}, and no vertex holds that key`,
         severity: 'major',
       });
@@ -99,6 +99,13 @@ await definePlugin({
         { name: 'id', type: 'text', meaning: "The opinion's identity.", example: 'one', required: true },
         { name: 'first', type: 'text', meaning: 'A field that must carry evidence.', example: 'a', required: false, evidence: true },
         { name: 'second', type: 'text', meaning: 'A second field that must carry evidence.', example: 'b', required: false, evidence: true },
+      ],
+    }, {
+      kind: 'probe.keyed',
+      key: ['id', 'title'],
+      fields: [
+        { name: 'id', type: 'text', meaning: 'The first key field.', example: 'one', required: true, evidence: true },
+        { name: 'title', type: 'text', meaning: 'The second key field.', example: 't', required: true, evidence: true },
       ],
     }],
     edges: [],

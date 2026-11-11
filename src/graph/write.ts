@@ -627,16 +627,18 @@ export interface UnresolvedReference {
   readonly producer: string;
   /** The other end of the edge, when that end stands. */
   readonly against?: string | null;
+  /** What tells two edges of one kind and one target apart, for an edge end. */
+  readonly discriminator?: string;
   readonly contextId: number;
 }
 
 /** Records one unresolved reference; the same one stated twice — by one producer — stands once. */
 async function recordUnresolved(executor: SqlExecutor, reference: UnresolvedReference): Promise<void> {
   await executor.query(
-    `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id)
-     VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8::bigint)
-     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id) DO NOTHING`,
-    [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, String(reference.contextId)],
+    `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
+     VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8, $9::bigint)
+     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`,
+    [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, reference.discriminator ?? null, String(reference.contextId)],
   );
 }
 
@@ -750,7 +752,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
         await recordUnresolved(executor, {
           referrer: other ?? null, edgeEntity: draft.kind, field, targetEntity: ref.kind,
           targetKey: canonicalKeyOf(contract, target, ref.key, `the ${field} of ${JSON.stringify(draft.kind)}`),
-          producer: `${draft.producer}@${draft.producerVersion}`, against: null, contextId,
+          producer: `${draft.producer}@${draft.producerVersion}`, against: null, discriminator: draft.discriminator ?? '', contextId,
         });
       }
       continue;
@@ -760,8 +762,9 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
     if (await publishEdgeOpinion(executor, contract, draft.kind, edge.id, draft, contextId, journal)) written += 1;
     await executor.query(
       `DELETE FROM unresolved_reference WHERE edge_entity = $1 AND producer = $2 AND context_id = $3::bigint
-         AND (referrer_node = $4::bigint OR referrer_node = $5::bigint OR referrer_node IS NULL)`,
-      [draft.kind, `${draft.producer}@${draft.producerVersion}`, String(contextId), fromNode, toNode],
+         AND (referrer_node = $4::bigint OR referrer_node = $5::bigint OR referrer_node IS NULL)
+         AND edge_discriminator = $6`,
+      [draft.kind, `${draft.producer}@${draft.producerVersion}`, String(contextId), fromNode, toNode, draft.discriminator ?? ''],
     );
   }
   for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);

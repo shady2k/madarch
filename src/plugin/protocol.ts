@@ -293,6 +293,7 @@ export const PluginGraphEdgeAddress = Type.Object(
  */
 export const PluginGraphUnresolvedReference = Type.Object(
   {
+    id: Type.String({ minLength: 1, description: 'The row\'s own id: two dangling edges of one kind and one target are told apart by it.' }),
     referrer: Type.Optional(PluginGraphAddress),
     edge: Type.Optional(PluginGraphEdgeAddress),
     field: Type.String({ minLength: 1, description: 'The key field or the edge end (`from` or `to`) that names the missing entity.' }),

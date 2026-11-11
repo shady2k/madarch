@@ -84,6 +84,31 @@
             "evidence": true
           }
         ]
+      },
+      {
+        "kind": "probe.keyed",
+        "key": [
+          "id",
+          "title"
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": "text",
+            "meaning": "The first key field.",
+            "example": "one",
+            "required": true,
+            "evidence": true
+          },
+          {
+            "name": "title",
+            "type": "text",
+            "meaning": "The second key field.",
+            "example": "t",
+            "required": true,
+            "evidence": true
+          }
+        ]
       }
     ],
     "edges": []

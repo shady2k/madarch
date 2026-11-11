@@ -355,7 +355,7 @@ describe('the sandbox refuses a way out', () => {
   hostTest('the consistency reads are answered when the contract declares them', async () => {
     const folder = join(FIXTURES, 'plugin-graph');
     const address = (kind: string, key: Record<string, string>, label: string) => ({ kind, key, label });
-    const reference = { referrer: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'repository', target: address('code.repository', { name: 'missing' }, 'missing'), producer: 'git-tree@1' };
+    const reference = { id: 'row-1', referrer: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'repository', target: address('code.repository', { name: 'missing' }, 'missing'), producer: 'git-tree@1' };
     const end = { edge: { kind: 'code.contains' }, from: address('code.directory', { path: 'src' }, 'src'), to: address('code.file', { path: 'a.ts' }, 'a.ts'), removed: ['to' as const] };
     const opinion = { entity: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'language', producer: 'linguist@9.5.0', opinion: '7' };
     const session = await open(folder, {
