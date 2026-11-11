@@ -892,6 +892,23 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         ],
       };
     }
+    case 'filePage': {
+      const data = block.data;
+      return {
+        title: data.path,
+        type: 'properties',
+        properties: [
+          { name: 'language', label: 'Language', value: data.language ?? '—' },
+          { name: 'lines', label: 'Lines', value: data.lines === null ? '—' : String(data.lines) },
+          { name: 'bytes', label: 'Bytes', value: String(data.bytes ?? 0) },
+          { name: 'created', label: 'Created', value: data.created === null ? '—' : `${data.created.date} ${data.created.author} ${data.created.commit}` },
+          { name: 'modified', label: 'Modified', value: data.modified === null ? '—' : `${data.modified.date} ${data.modified.author} ${data.modified.commit}` },
+          { name: 'authors', label: 'Authors', value: data.authors.join(', ') || '—' },
+          { name: 'commits', label: 'Commits', value: String(block.commits) },
+          { name: 'cochange', label: 'Co-change', value: block.cochange.map((row) => `${row.path} ${row.both}`).join(', ') || '—' },
+        ],
+      };
+    }
     case 'problem':
       return {
         title: block.block,

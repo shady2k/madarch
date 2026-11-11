@@ -1041,7 +1041,20 @@
     "pageProblems": "Problems on this page: {{count}}",
     "findingsWhere": "Open the problems",
     "findingsCount": "Findings: {{count}}",
-    "noStageYet": "No fill stage writes this kind yet."
+    "noStageYet": "No fill stage writes this kind yet.",
+    "filePage": {
+      "overview": "Overview",
+      "history": "History",
+      "cochange": "Co-change",
+      "rendered": "Rendered",
+      "source": "Source",
+      "softWrap": "Soft wrap",
+      "sourcesPage": "Open in Sources",
+      "noSource": "The graph holds no text of this file.",
+      "noHistory": "No commit touched this file.",
+      "noCochange": "No other file changed with it in two or more commits.",
+      "share": "{{both}} of {{total}} commits · {{share}}%"
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

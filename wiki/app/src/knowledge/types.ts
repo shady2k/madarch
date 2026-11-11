@@ -172,6 +172,7 @@ type BlockShape =
   | { type: 'repository'; title: string; data: RepositoryBlockData; run?: { finishedAt: string; wallMs: number }; unread?: { repository: string; path: string; reason: string }[] }
   | { type: 'folder'; title: string; data: FolderBlockData }
   | { type: 'file'; title: string; data: FileBlockData }
+  | FilePageBlock
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
@@ -486,6 +487,21 @@ export type FileBlockData = FolderFileData & {
   modified: { date: string; offsetMin: number; commit: string; author: string; href: string } | null;
   commitCount: number;
   authors: string[];
+};
+
+/** One commit in a file page's History tab. */
+export type FileHistoryEntry = { hash: string; href: string | null; when: string; who?: string; subject: string; added: number | null; removed: number | null; change: 'added' | 'modified' | 'deleted' | 'renamed' | null };
+/** One file changed with this one in the same commits. */
+export type FileCochangeEntry = { path: string; href: string | null; both: number; share: number };
+/** The file page: its facts, its text, its History and Co-change. */
+export type FilePageBlock = {
+  type: 'filePage';
+  data: FileBlockData;
+  source?: { text: string; language: string; href: string; web?: { host: string; url: string } };
+  markdown: boolean;
+  history: FileHistoryEntry[];
+  cochange: FileCochangeEntry[];
+  commits: number;
 };
 
 /** One folder's block: its own subfolders and one page of its files, each with its graph address. */

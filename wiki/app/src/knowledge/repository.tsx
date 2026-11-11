@@ -4,16 +4,17 @@
  * and commit pages are gone — so every link they draw is the entity address the server put in the block, and the app
  * composes no id. The run page stays here as the one operational page of this file.
  */
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
-import { KLink } from './blocks.js';
+import { CodeLines, KLink, KMarkdown } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { getRun } from './api.js';
-import { WIKI_RUN } from './routes.js';
-import type { FileBlockData, FillRunView, FolderBlockData, FolderFileData, RepositoryBlockData } from './types.js';
+import { addressOfDocument, WIKI_RUN } from './routes.js';
+import type { FileBlockData, FilePageBlock, FillRunView, FolderBlockData, FolderFileData, RepositoryBlockData, Resolution } from './types.js';
 
 /** A number of bytes as a reader reads it. */
 export function bytesText(bytes: number): string {
@@ -181,6 +182,40 @@ export function FolderBlock({ data }: { data: FolderBlockData }): React.ReactEle
 }
 
 /** One file's facts as a block: every fact the graph holds of it, its dates and its authors. */
+/** The file page's text: Markdown rendered by the wiki's own renderer, or the source at the page's full width. */
+export function FilePageView({ block, resolutions }: { block: FilePageBlock; resolutions: Record<string, Resolution> }): React.ReactElement {
+  const { t } = useTranslation();
+  const [view, setView] = useState<'rendered' | 'source'>('rendered');
+  const [wrap, setWrap] = useState(false);
+  const sourcePanel = block.source === undefined ? <p className="text-small text-muted" data-testid="file-no-text">{t('knowledge.filePage.noSource')}</p> : (
+    <>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-wrap" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>{t('knowledge.filePage.softWrap')}</button>
+      </div>
+      <div className="file-source overflow-x-auto" data-testid="file-source">
+        <CodeLines text={block.source.text} language={block.source.language} firstLine={1} wrap={wrap} />
+      </div>
+    </>
+  );
+  const markdown = block.source !== undefined && block.markdown;
+  return (
+    <article data-testid="file-page" className="file-page">
+      <section data-testid="file-overview">
+        {markdown && (
+          <div className="mb-3 flex max-w-[var(--measure)] flex-wrap items-center gap-2">
+            <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-rendered" aria-pressed={view === 'rendered'} onClick={() => setView('rendered')}>{t('knowledge.filePage.rendered')}</button>
+            <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-source" aria-pressed={view === 'source'} onClick={() => setView('source')}>{t('knowledge.filePage.source')}</button>
+            <KLink href={addressOfDocument(block.data.repository, block.data.path)} testId="file-sources-page">{t('knowledge.filePage.sourcesPage')}</KLink>
+          </div>
+        )}
+        {markdown && view === 'rendered' && block.source !== undefined
+          ? <div className="max-w-[var(--measure)]"><KMarkdown text={block.source.text} resolutions={resolutions} /></div>
+          : sourcePanel}
+      </section>
+    </article>
+  );
+}
+
 export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactElement {
   const { t } = useTranslation();
   const facts: [string, React.ReactNode][] = [

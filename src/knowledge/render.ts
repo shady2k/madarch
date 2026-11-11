@@ -23,6 +23,7 @@ import { withSpan } from '../obs/trace.js';
 import type { GraphEntity } from './graph-read.js';
 import { linkedFromBlock } from './linked-from.js';
 import { overviewAbout, overviewData, overviewHow, overviewReading, overviewStatus, overviewTerms } from './overview.js';
+import { filePageBlock } from './file-page.js';
 import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -294,6 +295,7 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'overview-terms': return await overviewTerms(ctx, params, lang);
     case 'overview-status': return await overviewStatus(ctx, params, lang);
     case 'overview-reading': return overviewReading(ctx, params, lang);
+    case 'file-page': return await filePageBlock(ctx, subject, file, line);
     default: return { type: 'problem', block: name, file, line, message: `"${name}" is not a block of the library` };
   }
 }
