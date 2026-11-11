@@ -1,0 +1,24 @@
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { setWikiLanguage } from '../i18n.js';
+import { wikiRouteOf } from './routes.js';
+import { KitPage } from './kit-page.js';
+let root: Root | undefined;
+beforeAll(() => { GlobalRegistrator.register({ url: 'http://localhost/kit' }); (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; });
+afterEach(async () => { await act(async () => { root?.unmount(); }); root = undefined; document.body.innerHTML = ''; });
+afterAll(() => GlobalRegistrator.unregister());
+for (const language of ['en', 'ru'] as const) test(`kit renders the review set in ${language}`, async () => {
+  await setWikiLanguage(language);
+  const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => { root!.render(createElement(KitPage)); });
+  const headings = [...container.querySelectorAll('h2')].map(node => node.textContent);
+  for (const name of ['Button', 'Input / Textarea', 'Badge', 'Toggle', 'Alert', 'Card', 'Table', 'Skeleton', 'Tabs', 'Dialog', 'Sheet', 'Popover', 'DropdownMenu', 'Tooltip', 'Breadcrumb', 'Progress', 'RadioGroup', 'Switch']) expect(headings).toContain(name);
+  expect(container.querySelector('h1')?.textContent).toBe('UI kit');
+  expect(container.querySelectorAll('[aria-invalid="true"]').length).toBeGreaterThan(2);
+  expect(container.querySelectorAll('button:disabled').length).toBeGreaterThan(3);
+  expect(container.textContent).not.toContain('kit.');
+  expect(container.textContent).toContain(language === 'ru' ? 'Нужно согласование владельца' : 'Owner approval required');
+});
+test('kit is a first-class route', () => { expect(wikiRouteOf('/kit')).toEqual({ name: 'kit' }); expect(wikiRouteOf('/kit/')).toEqual({ name: 'kit' }); });

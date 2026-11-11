@@ -42,6 +42,7 @@ import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { SettingsPage } from './settings.js';
+import { KitPage } from './kit-page.js';
 import { SearchBox } from './search.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
@@ -784,6 +785,7 @@ export function KnowledgeApp(): ReactElement {
       : status.repository !== undefined && status.repository.asIsCommit !== null
         ? <EntityPage key={status.repository.id} id={status.repository.id} after={null} version={version} />
         : <Overview status={status} refresh={refresh} />;
+  else if (route.name === 'kit') view = <KitPage />;
   else if (route.name === 'entity') view = <EntityPage key={`${route.id}\0${route.after ?? ''}`} id={route.id} after={route.after} version={version} />;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
   else if (route.name === 'questions') view = <QuestionsPage version={version} />;

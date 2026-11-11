@@ -1491,5 +1491,36 @@
       "repositories": "The writer reads one code repository and this product has a different number of them.",
       "note": "The run left notes."
     }
+  },
+  "kit": {
+    "title": "UI kit",
+    "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
+    "approvalTitle": "Owner approval required",
+    "approval": "Reuse this set first. A new component may enter the kit only after the owner approves it. Catalogue controls Checkbox and Select are being added separately.",
+    "default": "Default",
+    "ghost": "Ghost",
+    "disabled": "Disabled",
+    "action": "Continue",
+    "name": "Name",
+    "description": "Description",
+    "error": "Error",
+    "required": "Enter a value before continuing.",
+    "sample": "Example",
+    "outline": "Outline",
+    "selected": "Selected",
+    "notice": "Notice",
+    "content": "Content",
+    "loading": "Loading",
+    "tabs": "Example tabs",
+    "overlayHint": "Open the example to review focus management, Escape and close controls.",
+    "open": "Open example",
+    "close": "Close",
+    "hint": "Show hint",
+    "breadcrumb": "Breadcrumb",
+    "home": "Home",
+    "empty": "Empty",
+    "complete": "Complete",
+    "indeterminate": "Indeterminate",
+    "typography": "Page structure and typography"
   }
 }
