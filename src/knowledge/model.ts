@@ -257,6 +257,41 @@ export interface OverviewBlockShape {
   absent?: { message: string; href: string; label: string };
 }
 
+/** One commit in a file page's History tab: what `git log --follow --no-merges` states of the file. */
+export interface FileHistoryEntry {
+  hash: string;
+  href: string | null;
+  when: string;
+  who?: string;
+  subject: string;
+  added: number | null;
+  removed: number | null;
+  change: 'added' | 'modified' | 'deleted' | 'renamed' | null;
+}
+
+/** One file changed with this one in the same commits: how often and what share of this file's commits. */
+export interface FileCochangeEntry {
+  path: string;
+  href: string | null;
+  both: number;
+  share: number;
+}
+
+/** The file page (madarch-j9ao.2.1): the file's facts, its text, its History and Co-change, all read from the graph. */
+export interface FilePageBlockShape {
+  type: 'filePage';
+  data: GraphFileFacts;
+  /** The file's text, read from the graph's files producer; absent for a binary file or a path the store no longer holds. */
+  source?: { text: string; language: string; href: string; web?: { host: string; url: string } };
+  /** A Markdown file opens rendered; every other file shows its source. */
+  markdown: boolean;
+  history: FileHistoryEntry[];
+  cochange: FileCochangeEntry[];
+  cochangeTotal: number;
+  /** The number of commits in History: the denominator of a Co-change share. */
+  commits: number;
+}
+
 type BlockShape =
   | { type: 'guide'; data: GuidePageData }
   | { type: 'markdown'; markdown: string }
@@ -282,6 +317,7 @@ type BlockShape =
   | { type: 'repository'; title: string; data: GraphRepositoryFacts; run?: { finishedAt: string; wallMs: number }; unread?: readonly { repository: string; path: string; reason: string }[] }
   | { type: 'folder'; title: string; data: GraphFolderFacts }
   | { type: 'file'; title: string; data: GraphFileFacts }
+  | FilePageBlockShape
   | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 

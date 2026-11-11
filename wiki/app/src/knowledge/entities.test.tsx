@@ -775,6 +775,74 @@ describe('the statement view', () => {
 });
 
 
+describe('the file page', () => {
+  const file = {
+    repository: 'madarch', path: 'docs/x.md', id: 'code.file:madarch/docs/x.md', href: '/e/code.file%3Amadarch%2Fdocs%2Fx.md',
+    mode: '100644', blob: 'b'.repeat(40), bytes: 1234, lines: 42, form: 'text' as const, language: 'markdown', candidates: ['Markdown'],
+    created: { date: '2026-01-02T10:00:00+00:00', offsetMin: 0, commit: 'abc1234', author: 'Ada', href: '/e/code.commit%3Aabc1234' },
+    modified: { date: '2026-01-03T10:00:00+00:00', offsetMin: 0, commit: 'def5678', author: 'Bob', href: '/e/code.commit%3Adef5678' },
+    commitCount: 2, authors: ['Ada', 'Bob'],
+  };
+  const page = (cochange: { path: string; href: string | null; both: number; share: number }[]) => ({
+    id: 'code.file:madarch/docs/x.md', kind: 'code.file', title: 'docs/x.md',
+    trail: [
+      { id: 'home', kind: 'product', label: 'madarch', href: '/' },
+      { id: 'code.repository:madarch', kind: 'code.repository', label: 'madarch', href: '/e/code.repository%3Amadarch' },
+      { id: 'code.directory:madarch/docs', kind: 'code.directory', label: 'docs', href: '/e/code.directory%3Amadarch%2Fdocs' },
+      { id: 'code.file:madarch/docs/x.md', kind: 'code.file', label: 'docs/x.md', href: '/e/code.file%3Amadarch%2Fdocs%2Fx.md' },
+    ],
+    resolutions: {}, findings: [], notes: [],
+    blocks: [{ type: 'filePage', data: file, markdown: true, source: { text: '# Heading\n\nText with **bold**.', language: 'markdown', href: '/src?repo=madarch&path=docs%2Fx.md' }, history: [{ hash: 'abc1234', href: '/e/code.commit%3Aabc1234', when: '2026-01-02', who: 'Ada', subject: 'Add x', added: 5, removed: 2, change: 'modified' }], cochange, cochangeTotal: cochange.length === 0 ? 0 : 7, commits: 2 }],
+  });
+
+  test('the trail ends in the file name, unlinked, and the page has the reference header and tabs', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/page')
+      ? new Response(JSON.stringify(page([{ path: 'docs/y.md', href: '/e/code.file%3Amadarch%2Fdocs%2Fy.md', both: 1, share: 0.5 }])), { status: 200 })
+      : new Response('{}', { status: 404 });
+    const container = into(createElement(EntityPage, { id: 'code.file:madarch/docs/x.md', version: 0 }));
+    await until(() => container.querySelector('[data-testid=file-page]') !== null, 'the file page');
+    const trail = container.querySelector('[data-testid=trail]')!;
+    expect([...trail.querySelectorAll('[data-testid=trail-current]')].map((one) => one.textContent)).toEqual(['docs/x.md']);
+    expect(trail.querySelector('[data-testid=trail-current]')!.getAttribute('aria-current')).toBe('page');
+    expect(trail.querySelector('[data-testid=trail-current] a')).toBeNull();
+    expect(trail.textContent).toContain('madarch');
+    expect(trail.textContent).toContain('docs');
+    expect(container.querySelector('[data-testid=file-header-language]')!.textContent).toBe('markdown');
+    expect(container.querySelector('[data-testid=file-header-lines]')!.textContent).toBe('42');
+    expect(container.querySelector('[data-testid=file-header-size]')!.textContent).toBe('1.2 kB');
+    expect(container.querySelector('[data-testid=file-header-authors]')!.textContent).toBe('Ada, Bob');
+    // The Markdown view is the wiki's own renderer: the heading is an element, not a line of source.
+    expect(container.querySelector('[data-testid=file-overview] h1')!.textContent).toBe('Heading');
+    expect(container.querySelector('[data-testid=file-sources-page]')!.getAttribute('href')).toBe('/doc?repo=madarch&path=docs%2Fx.md');
+    (container.querySelector('[data-testid=file-view-source]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=file-source]') !== null, 'the source view');
+    expect(container.querySelector('[data-testid=source-code]')!.getAttribute('data-wrap')).toBe('false');
+    (container.querySelector('[data-testid=file-wrap]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=source-code]')!.getAttribute('data-wrap') === 'true', 'soft wrap');
+    (container.querySelector('[data-testid=file-tab-history]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=file-history-row]') !== null, 'the history');
+    expect(container.querySelector('[data-testid=file-history-row]')!.textContent).toContain('Add x');
+    (container.querySelector('[data-testid=file-tab-cochange]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=file-cochange-row]') !== null, 'the co-change');
+    expect(container.querySelector('[data-testid=file-cochange-row]')!.textContent).toContain('docs/y.md');
+    expect(container.querySelector('[data-testid=file-cochange-row]')!.textContent).toContain('50%');
+    expect(container.querySelector('[data-testid=file-cochange]')!.textContent).toContain('Showing 1 of 7');
+  });
+
+  test('a file with one commit shows one history row and says its co-change is empty', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/page')
+      ? new Response(JSON.stringify(page([])), { status: 200 })
+      : new Response('{}', { status: 404 });
+    const container = into(createElement(EntityPage, { id: 'code.file:madarch/docs/x.md', version: 1 }));
+    await until(() => container.querySelector('[data-testid=file-page]') !== null, 'the file page');
+    (container.querySelector('[data-testid=file-tab-cochange]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=file-cochange-empty]') !== null, 'the empty co-change');
+    (container.querySelector('[data-testid=file-tab-history]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=file-history-row]') !== null, 'the one history row');
+    expect(container.querySelectorAll('[data-testid=file-history-row]')).toHaveLength(1);
+  });
+});
+
 describe('the sources', () => {
   test('each source shows its title with the path small under it; the filter matches either', async () => {
     const listing: DocumentListing = { documents: [{ repo: null, path: 'docs/vision.md', title: 'The vision' }, { repo: null, path: 'notes/ideas.md', title: 'ideas' }], truncated: [] };

@@ -23,6 +23,12 @@ for (const language of ['en', 'ru'] as const) test(`unfilled date and bounded la
   root.render(createElement(HistoryBar, { history }));
   for (let tries = 0; tries < 100 && container.querySelector('[data-testid="history-landmarks"]') === null; tries++) await new Promise((resolve) => setTimeout(resolve, 10));
   expect(container.querySelector('[data-coverage="unfilled"]')).not.toBeNull();
+  const date = container.querySelector<HTMLInputElement>('[data-testid="history-date"]')!;
+  expect(date.type).toBe('text');
+  expect(date.placeholder).toBe(language === 'en' ? 'YYYY-MM-DD' : 'ГГГГ-ММ-ДД');
+  expect(date.value).toBe('2026-02-02');
+  expect(date.getAttribute('aria-invalid')).toBe('false');
+  expect(container.querySelector('a[href*="at=2026-02-02"]')).not.toBeNull();
   const text = container.textContent!;
   expect(text).toContain('64'); expect(text).toContain('67'); expect(text).toContain('refs/tags/side');
   expect(text).toContain(language === 'en' ? 'No current code is substituted.' : 'Текущий код не подставляется.');
