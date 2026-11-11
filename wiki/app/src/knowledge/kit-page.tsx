@@ -12,7 +12,6 @@ import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet.js';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip.js';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table.js';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogPreview } from '@/components/ui/dialog.js';
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb.js';
 import { Progress } from '@/components/ui/progress.js';
@@ -60,9 +59,6 @@ export function KitPage() {
       </KitSection>
       <KitSection title="Skeleton" description={state('loading')}>
         <Skeleton className="h-6 w-40" /><Skeleton className="h-10 w-64" />
-      </KitSection>
-      <KitSection title="Tabs">
-        <Tabs defaultValue="one"><TabsList aria-label={state('tabs')}><TabsTrigger value="one">{state('selected')}</TabsTrigger><TabsTrigger value="two">{state('default')}</TabsTrigger><TabsTrigger value="three" disabled>{state('disabled')}</TabsTrigger></TabsList><TabsContent value="one">{state('content')}</TabsContent><TabsContent value="two">{state('sample')}</TabsContent></Tabs>
       </KitSection>
       <KitSection title="Dialog" description={state('overlayHint')}>
         <KitState label={state('open')}><DialogPreview title={state('notice')} description={state('description')}><Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert><Button size="default" disabled>{state('disabled')}</Button></DialogPreview></KitState>

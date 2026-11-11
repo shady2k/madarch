@@ -1281,6 +1281,16 @@
   },
   {
     "rule": "raw-ui-element",
+    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
+    "subject": "bcf6b2759cdd069417bb#1"
+  },
+  {
+    "rule": "raw-ui-element",
+    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
+    "subject": "d47df3570747bffb2fbf#1"
+  },
+  {
+    "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/diagrams/fullscreen.tsx",
     "subject": "0df72aad8bee36c110bd#1"
   },

@@ -12,7 +12,6 @@
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MermaidDiagram } from '../diagram.js';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 
 /** The part of the Markdown parser's node that says what a `<pre>` holds. */
 export interface FenceNode {
@@ -65,21 +64,20 @@ export function MermaidFence({ source, line, path }: { source: string; line: num
   const place = placeOf(path, line, t);
   return (
     <section className="fence-diagram" data-fence="mermaid" data-fence-line={line ?? undefined} data-testid="mermaid-fence">
-      <Tabs value={view} onValueChange={(value) => setView(value as 'diagram' | 'source')}>
-        <div className="fence-bar">
-          <span className="dg-spacer" />
-          <TabsList aria-label={t('knowledge.documentDiagram.switch')}>
-            <TabsTrigger value="diagram" data-testid="fence-diagram-tab">{t('knowledge.documentDiagram.diagram')}</TabsTrigger>
-            <TabsTrigger value="source" data-testid="fence-source-tab">{t('knowledge.documentDiagram.source')}</TabsTrigger>
-          </TabsList>
+      <div className="fence-bar">
+        <span className="dg-spacer" />
+        <div role="tablist" aria-label={t('knowledge.documentDiagram.switch')} className="dg-group">
+          <button type="button" role="tab" aria-selected={view === 'diagram'} className="dg-chip" data-state={view === 'diagram' ? 'on' : 'off'} data-testid="fence-diagram-tab" onClick={() => setView('diagram')}>
+            {t('knowledge.documentDiagram.diagram')}
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'source'} className="dg-chip" data-state={view === 'source' ? 'on' : 'off'} data-testid="fence-source-tab" onClick={() => setView('source')}>
+            {t('knowledge.documentDiagram.source')}
+          </button>
         </div>
-        <TabsContent value="diagram">
-          <MermaidDiagram source={source} {...(place === undefined ? {} : { place })} />
-        </TabsContent>
-        <TabsContent value="source">
-          <pre className="fence-source" data-testid="fence-source"><code>{source}</code></pre>
-        </TabsContent>
-      </Tabs>
+      </div>
+      {view === 'diagram'
+        ? <MermaidDiagram source={source} {...(place === undefined ? {} : { place })} />
+        : <pre className="fence-source" data-testid="fence-source"><code>{source}</code></pre>}
     </section>
   );
 }
