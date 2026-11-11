@@ -130,8 +130,8 @@ export interface EntityRefDraft {
   readonly key: Readonly<Record<string, KeyValueDraft>>;
 }
 
-/** One key field's value: a text or a number, or the entity a reference field names. */
-export type KeyValueDraft = string | number | EntityRefDraft;
+/** One key field's value: text, a number, a boolean, or the entity a reference field names. */
+export type KeyValueDraft = string | number | boolean | EntityRefDraft;
 
 /**
  * One vertex a producer publishes: its kind, its natural key, the field values it states, the evidence those values
