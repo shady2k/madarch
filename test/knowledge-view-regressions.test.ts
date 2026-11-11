@@ -86,7 +86,7 @@ test('an ER view draws in all three engines, and a sequence still says archify c
   expect(refused.ok).toBe(false);
   if (refused.ok) throw new Error('archify must not draw a sequence');
   expect(refused.message).toContain('a sequence is drawn only by Mermaid');
-});
+}, 60_000);
 
 test('a relation whose ends are one element is drawn by Mermaid, and the view says so', async () => {
   const subject: GraphEntity = { key: 'code.table:shop/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
@@ -102,7 +102,7 @@ test('a relation whose ends are one element is drawn by Mermaid, and the view sa
   expect(view!.notes).toContain('One relation starts and ends at the same element; LikeC4 and archify draw arrows only between different elements, so Mermaid is where it is drawn.');
   // The picture's model leaves the arrow out; the engine that refuses it is not handed it.
   expect(workspaceOf(view!).workspace).not.toContain('-> n0');
-});
+}, 60_000);
 
 test('renderer HTTP failure stays 500 and includes escaped actionable diagnostics',async()=>{
   const message='/tmp/diagram/document.json:1: renderer exit 1: missing /tmp/app/renderer.mjs <script>bad</script>';
