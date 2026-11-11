@@ -482,7 +482,7 @@ export type RunEvent =
   | { readonly type: 'complete'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'complete-partial'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'block'; readonly at: number; readonly starvationPath: string }
-  | { readonly type: 'fail'; readonly at: number; readonly cause: 'budget-exhausted'; readonly detail: string }
+  | { readonly type: 'fail'; readonly at: number; readonly cause: 'budget-exhausted' | 'initialization-failed'; readonly detail: string }
   | { readonly type: 'pause'; readonly at: number }
   | { readonly type: 'drain'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'resume'; readonly at: number }
@@ -494,6 +494,10 @@ const nothingInFlight = (evidence: RunEvidence): boolean => evidence.inFlight ==
 
 /** Every run guard, named and pure. */
 const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
+  'initialization-failure-named': {
+    describe: 'initialization failed before planning, with its reason named',
+    check: (_context, event) => event.type === 'fail' && event.cause === 'initialization-failed' && named(event.detail),
+  },
   'configuration-resolved': {
     describe: 'the run snapshot names the resolved configuration it plans with',
     check: (_context, event) => event.type === 'plan' && named(event.configuration),
@@ -624,6 +628,7 @@ const runTransition = (
  */
 const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions'] = [
   runTransition('created', 'plan', 'planning', { guards: ['configuration-resolved'], actions: ['snapshot-configuration', 'emit-progress'] }),
+  runTransition('created', 'fail', 'failed', { label: 'initialization-failed', guards: ['initialization-failure-named'], actions: ['record-failure', 'emit-progress'] }),
   runTransition('planning', 'start', 'running', { guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] }),
   runTransition('planning', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
   runTransition('planning', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),

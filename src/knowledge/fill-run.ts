@@ -24,7 +24,7 @@ import { configuredPluginAgent } from './agents.js';
 import type { DraftEnv } from '../product/home.js';
 import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
-import { readChain, readRun } from '../fill/state-store.js';
+import { advanceRun, createRun, readChain, readRun } from '../fill/state-store.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readProduct } from '../product/manifest.js';
 
@@ -212,6 +212,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   const owner = options.database;
   await owner.ready;
   let service: FillOrchestratorService | undefined;
+  let recordEnd = true;
   /** When a reader was last told the run published, and the least time between two notices. */
   let lastNotice: number | undefined;
   const noticeEveryMs = options.snapshotMs ?? DEFAULT_PUBLISH_MS;
@@ -286,7 +287,17 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
         };
       } catch (error) {
-        return { ok: false, state: 'failed', message: error instanceof Error ? error.message : String(error), units: 0 };
+        const message = error instanceof Error ? error.message : String(error);
+        if (await readRun(owner, options.runId) === null) {
+          const identity = readProduct(options.productFolder);
+          await createRun(owner, { runId: options.runId, product: identity.ok ? identity.product.name : basename(options.productFolder), at: Date.now() });
+          const failed = await advanceRun(owner, { runId: options.runId, event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
+          if (!failed.ok) throw new Error(failed.refusal.reason);
+        } else if (service === undefined) {
+          // Initialization of a repeated request must not replace the existing run's end.
+          recordEnd = false;
+        }
+        return { ok: false, state: 'failed', message, units: 0 };
       }
     };
 
@@ -299,19 +310,17 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
      * row said `succeeded` while `knowledge_fill` held no row, and the pins landed 10 ms later).
      */
     const done = (async (): Promise<KnowledgeFillResult> => {
-      const answer = await fillTheStore();
       try {
-        await writeFillEnd(owner, {
+        const answer = await fillTheStore();
+        if (recordEnd) await writeFillEnd(owner, {
           runId: options.runId, state: answer.state,
           ...(answer.message === undefined ? {} : { message: answer.message }),
           ...(answer.unread === undefined ? {} : { unread: answer.unread }),
         });
-      } catch {
-        // The run's answer stands whatever happened to the record of its end: a store that cannot take this row is one
-        // whose pages already answer what the run wrote.
+        return answer;
+      } finally {
+        await close();
       }
-      await close();
-      return answer;
     })();
     return {
       runId: options.runId,

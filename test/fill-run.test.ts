@@ -17,6 +17,7 @@ import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { readFillEnd } from '../src/fill/orchestrator-store.js';
+import { readRun } from '../src/fill/state-store.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { fillSteps } from '../src/fill/steps.js';
 
@@ -168,6 +169,9 @@ describe('the end of a run another process reads', () => {
       expect(end?.state).toBe('failed');
       expect(end?.message).toBe(answer.message);
       expect(end?.message).toContain('no-manifest');
+      const failed = await readRun(reader, 'no-manifest');
+      expect(failed?.state).toBe('failed');
+      expect(failed?.product).toBe('no-manifest');
     } finally {
       await reader.close();
       await writer.close();
