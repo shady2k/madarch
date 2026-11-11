@@ -13,7 +13,8 @@ import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { recordAgentUsage, type AgentUsageRecord } from '../src/adapters/agent-usage.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 
@@ -46,7 +47,7 @@ afterAll(() => {
 });
 
 async function server(): Promise<StartedServer> {
-  return await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  return await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }
 
 async function call(started: StartedServer, path: string): Promise<{ status: number; body: any }> {
