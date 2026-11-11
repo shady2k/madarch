@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { readProgress } from '../fill/orchestrator-store.js';
 import { runFill } from '../fill/run.js';
+import { readPinnedGraphContract } from '../product/fill-stages.js';
 import { requestStorePreparation } from '../product/store-preparation.js';
 import type { FillProgress } from '../obs/progress.js';
 import { GraphReader } from '../knowledge/graph-read.js';
@@ -208,6 +209,7 @@ export async function openRepositoryGraph(options: {
   const commit = headCommit(repository);
   let owner: DatabaseOwner | undefined;
   try {
+    await requestStorePreparation(databasePath, await readPinnedGraphContract(repository));
     owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
     const openedOwner = owner;
     const started = performance.now();

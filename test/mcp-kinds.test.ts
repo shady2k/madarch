@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createRecordSchema } from '../src/graph/index.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 import { publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { callRecordTool, isRecordTool } from '../src/mcp/records.js';
@@ -12,7 +14,7 @@ import { makeProduct } from './knowledge-fixture.js';
 import { RepositorySession } from '../src/mcp/session.js';
 
 test('MCP kinds reads published declarations without a repository fill or checkout', async () => {
-  const owner = await createTestDatabaseOwner({ btreeGist: true });
+  const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
     await createRecordSchema(owner, EMPTY_CONTRACT);
     const manifest = fixtureManifest({ zebra: { dependsOn: ['alpha'] }, alpha: {} });
@@ -36,7 +38,7 @@ test('MCP kinds reads published declarations without a repository fill or checko
 });
 
 
-test('a product MCP session publishes kinds without filling repository content', async () => {
+test('a product MCP session publishes kinds without filling repository content', async () => await withStorePreparationOwner(async () => {
   const home = mkdtempSync(join(tmpdir(), 'madarch-mcp-kinds-'));
   let session: RepositorySession | undefined;
   try {
@@ -64,4 +66,4 @@ test('a product MCP session publishes kinds without filling repository content',
     await session?.close();
     rmSync(home, { recursive: true, force: true });
   }
-}, 60_000);
+}), 60_000);

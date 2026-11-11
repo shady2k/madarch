@@ -9,6 +9,7 @@ import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/databas
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { createRecordSchema } from '../src/graph/records.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { testStoreServer } from './test-database.js';
 
@@ -70,7 +71,7 @@ describe('explicit store preparation and connect-only clients', () => {
       const cluster = await testStoreServer();
       const owner = await createDatabaseOwner({ cluster, database });
       try {
-        await prepareStore(owner, { contract: GIT_CONTRACT });
+        await prepareStore(owner, { contract: withManifestContract(GIT_CONTRACT) });
         const stamps = await owner.run(async (tx) => await tx.query('SELECT * FROM madarch_meta.schema_stamp ORDER BY name'));
         const statements: string[] = [];
         const answers = await Promise.allSettled(Array.from({ length: 8 }, async (_, role) => {
@@ -78,7 +79,7 @@ describe('explicit store preparation and connect-only clients', () => {
           const client = observed(connection, statements);
           try {
           switch (role) {
-            case 0: await createOneGraphSchema(client, GIT_CONTRACT); break;
+            case 0: await createOneGraphSchema(client, withManifestContract(GIT_CONTRACT)); break;
             case 1: await createRecordSchema(client, GIT_CONTRACT); break;
             case 2: {
               const history = createHistoryStore({ owner: client, clock: { now: () => 1 } });
