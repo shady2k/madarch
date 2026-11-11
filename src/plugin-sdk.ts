@@ -164,6 +164,8 @@ export interface ExtractContext {
   progress(done: number, total?: number, note?: string): void;
   /** The graph the plugin asked the host for; a query of a plugin that declared no `graph` right is refused. */
   readonly graph: GraphReads;
+  /** Runs the manifest's agent part through the host; adapters and credentials stay with the host. */
+  agent(task?: unknown): Promise<UnitResult>;
 }
 
 /** One field of a declared kind (decision 0035, item 18): its type, meaning, an example and whether it is required. */
@@ -330,6 +332,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       try {
         const result = await definition.extract(unit, {
           signal: controller.signal,
+          agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
           graph: {

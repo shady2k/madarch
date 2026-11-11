@@ -13,15 +13,16 @@
  * extracted with its cause, never dropped silently, and every iteration and
  * every decision of the host leaves a span and a log line.
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { PluginAgentBridge, type PluginAgentOptions, type PluginAgentReport } from './agent.js';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
-import { closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginGraphFilesRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
+import { graphReadsOf, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -200,6 +201,8 @@ export interface PluginHostOptions {
   readonly repository: string;
   /** The graph a plugin that declared the `graph` right reads through its queries; absent, every query is refused. */
   readonly graph?: GraphAnswerer;
+  /** Host-owned ACP adapter, environment, confined connector and optional catalogue outputs. */
+  readonly agent?: PluginAgentOptions;
   /** The host's own scratch root for this run: snapshots, logs and the seccomp filter. */
   readonly workRoot: string;
   /** Whether the closure runs as production (a release closure only) or as validation (the conformance kit). */
@@ -224,6 +227,7 @@ export interface PluginSession {
   readonly unitsAtOnce: number;
   readonly workFolder: string;
   runUnit(unit: PluginUnitRequest): Promise<UnitOutcome>;
+  agentReports(): ReadonlyMap<string, PluginAgentReport>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   /** Asks the plugin to finish and exit; `cancelled` when the grace period ran out and the tree was killed. */
@@ -262,6 +266,10 @@ export class PluginHost {
   private readonly limits: HostLimits;
   private readonly settings: HostSettings;
   private sandbox: SandboxProcess | undefined;
+  private agentBridge: PluginAgentBridge | undefined;
+  private agentPart: Closure['manifest']['agent'];
+  private agentPrompt: string | undefined;
+  private readonly reports = new Map<string, PluginAgentReport>();
   private snapshot: { folder: string; hash: string } | undefined;
   private declared: PluginIntroduce | undefined;
   /** The rights the closure's own contract declares, read before the plugin starts. */
@@ -307,6 +315,7 @@ export class PluginHost {
     if (trust !== undefined) throw trust;
     // The rights are the contract's, read before the process starts: the sandbox binds a repository only for a plugin
     // whose contract declared the filesystem right (decision 0035, item 9).
+    this.agentPart = closure.manifest.agent;
     this.contractRights = pluginRightsOf(closure);
     this.contractReads = pluginReadsOf(closure);
     const snapshot = await withSpan('plugin.snapshot', { 'madarch.plugin.hash': closure.hash }, async () => {
@@ -315,6 +324,12 @@ export class PluginHost {
       return copy;
     });
     this.snapshot = snapshot;
+    if (this.agentPart !== undefined) {
+      const prompt = this.agentPart.prompt;
+      if (prompt.startsWith('/') || prompt.split('/').some((part) => part === '..' || part === '.' || part === '') || prompt.includes('\\')) throw new ClosureRefusal('agent-prompt', `${WHERE}:1: agent.prompt must name a file inside the closure`, join(this.options.pluginFolder, 'plugin.json'));
+      try { this.agentPrompt = readFileSync(join(snapshot.folder, prompt), 'utf8'); }
+      catch (error) { throw new ClosureRefusal('agent-prompt', `${WHERE}:1: cannot read agent prompt ${join(snapshot.folder, prompt)}: ${(error as Error).message}`, join(this.options.pluginFolder, 'plugin.json')); }
+    }
     const platform = this.options.platform ?? `${process.platform}-${process.arch}`;
     // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
     // the files producer alone reads the source tree (decision 0035, item 9).
@@ -360,6 +375,7 @@ export class PluginHost {
       unitsAtOnce,
       workFolder,
       runUnit: async (unit) => await this.runUnit(unit),
+      agentReports: () => new Map(this.reports),
       pause: async () => await this.pause(),
       resume: async () => await this.resume(),
       stop: async () => await this.stop(),
@@ -411,6 +427,11 @@ export class PluginHost {
         const slot = log?.begin('introduce');
         const taken = this.takeIntroduction(value.id, value.params);
         log?.settle(slot, taken ? 'answered' : 'refused', 0, taken ? undefined : 'introduce-refused');
+        return;
+      }
+      if (value.method === 'agent.run') {
+        const slot = log?.begin(value.method);
+        void this.answerAgent(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
       if (value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.unresolved' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
@@ -534,6 +555,26 @@ export class PluginHost {
     }
   }
 
+  /** Agent requests belong to an active unit and only the manifest's agent part can grant them. */
+  private async answerAgent(id: number | string, params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
+    if (!Value.Check(PluginAgentRunRequest, params) || !this.inFlight.has(params.unitId) || this.agentBridge === undefined) {
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: agent.run needs an active unit, a manifest agent part, host adapter and graph`, { cause: 'agent-denied' }));
+      return { outcome: 'refused', size: 0, cause: 'agent-denied' };
+    }
+    try {
+      const result = await this.agentBridge.run(params.unitId, params.task);
+      const size = Buffer.byteLength(JSON.stringify(result));
+      const held = this.inFlight.get(params.unitId);
+      if (held === undefined) return { outcome: 'failed', size: 0, cause: 'unit-ended' };
+      this.countBytes(held, size);
+      this.write(successText(id, result));
+      return { outcome: 'answered', size };
+    } catch (error) {
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: agent.run failed: ${(error as Error).message}`, { cause: 'agent-failed' }));
+      return { outcome: 'failed', size: 0, cause: 'agent-failed' };
+    }
+  }
+
   /** A read the host's answerer has no way to answer: refused by name, never answered with an empty list. */
   private graphUnavailable(id: number | string, method: GraphMethod): { outcome: 'refused'; size: number; cause: string } {
     this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the host was given no answer for ${JSON.stringify(method)}, so the query is refused`, { cause: 'graph-denied' }));
@@ -577,7 +618,15 @@ export class PluginHost {
       this.fail(cause);
       return false;
     }
+    const agentOutputs = this.options.agent?.outputs;
+    if (this.agentPart?.catalogue === true && agentOutputs !== undefined) declared.outputs = agentOutputs;
     this.declared = declared;
+    if (this.agentPart !== undefined && this.options.agent !== undefined && this.options.graph !== undefined) {
+      this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onSession: (report) => {
+        this.reports.set(report.unitId, report);
+        this.options.agent?.onSession?.(report);
+      } }, this.options.graph, declared.outputs);
+    }
     this.write(successText(id, { protocol: PROTOCOL_VERSION, units: 1 }));
     this.handshake = undefined;
     greeting.resolve();
@@ -641,6 +690,7 @@ export class PluginHost {
     }
     this.pending.clear();
     this.sandbox?.kill();
+    void this.agentBridge?.close();
     this.handshake?.reject(cause);
     this.handshake = undefined;
   }
@@ -757,6 +807,7 @@ export class PluginHost {
     await withSpan('plugin.pause', { 'madarch.plugin.hash': this.closureHash }, async () => {
       this.paused = true;
       this.sandbox?.freeze();
+      this.agentBridge?.pause();
       this.write(requestText(0, 'pause'));
       log.info('plugin paused', {});
     });
@@ -770,6 +821,7 @@ export class PluginHost {
       for (const held of this.inFlight.values()) held.lastSign = Date.now();
       this.write(requestText(0, 'resume'));
       this.sandbox?.thaw();
+      this.agentBridge?.resume();
       log.info('plugin resumed', {});
     });
   }
@@ -778,12 +830,13 @@ export class PluginHost {
   async stop(): Promise<{ readonly state: 'exited' | 'cancelled' }> {
     if (this.failure !== undefined) return { state: 'cancelled' };
     return await withSpan('plugin.stop', { 'madarch.plugin.grace_ms': this.limits.stopGraceMs }, async () => {
+      await this.agentBridge?.close();
       this.write(requestText(0, 'stop'));
       const grace = await Promise.race([
         (this.sandbox?.exited ?? Promise.resolve({ code: 0, signal: null })).then(() => true),
         Bun.sleep(this.limits.stopGraceMs).then(() => false),
       ]);
-      if (grace) return { state: 'exited' };
+      if (grace) { await this.agentBridge?.close(); return { state: 'exited' }; }
       log.warn('the plugin ignored stop', { grace_ms: this.limits.stopGraceMs });
       await this.cancel();
       if (this.failure === undefined) this.failure = new SessionFailure({ code: 'stop-ignored', message: `${WHERE}:1: the plugin did not exit within the ${String(this.limits.stopGraceMs)} ms grace a stop gets, and its tree was cancelled` });
@@ -799,6 +852,7 @@ export class PluginHost {
       if (this.timer !== undefined) { clearInterval(this.timer); this.timer = undefined; }
       this.write(notificationText('cancel'));
       this.sandbox?.kill();
+      await this.agentBridge?.close();
       log.info('plugin cancelled', {});
     });
   }
@@ -815,6 +869,7 @@ export class PluginHost {
     }
     this.pending.clear();
     this.unitByRequest.clear();
+    await this.agentBridge?.close();
     if (this.sandbox !== undefined) {
       this.sandbox.kill();
       await Promise.race([this.sandbox.exited, Bun.sleep(2_000)]);

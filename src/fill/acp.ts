@@ -13,10 +13,10 @@
  *
  * Three things stay this module's own rather than the library's:
  *
- * - The unit's agent reads code only through the MCP server madarch passes it,
- *   so the client advertises no file system capacities and no terminal: an
- *   agent that calls `fs/read_text_file` anyway receives an error naming the
- *   method, and every permission request is answered `cancelled`.
+ * - By default the unit's agent reads code only through its MCP server, so
+ *   the client advertises no file system capacities and no terminal. A host
+ *   can opt into file callbacks and owns their authorization; without them
+ *   file calls fail. Every permission request is answered `cancelled`.
  * - A session's token accounting is the agent's own report, kept as reported
  *   and never invented. The protocol's published v1 schema, read on 2026-10-18,
  *   has no `usage` on the `session/prompt` response at all; the library's
@@ -59,6 +59,8 @@ type AcpUpdateKind = 'message' | 'thought' | 'tool-call' | 'tool-call-update' | 
 
 /** One `session/update`, normalized; the protocol's own object is kept as received. */
 export interface AcpUpdate {
+  /** The session that sent this update; present on updates received from the connection. */
+  sessionId?: string;
   /** Which kind of update this is, as madarch names the kinds. */
   kind: AcpUpdateKind;
   /** The protocol's own `sessionUpdate` tag, unchanged. */
@@ -230,8 +232,19 @@ export interface AcpRefusal {
   message: string;
 }
 
+/** A host-supervised ACP process. Its owner supplies confinement and stops its whole tree. */
+export interface AcpTransport {
+  readonly input: WritableStream<Uint8Array>;
+  readonly output: ReadableStream<Uint8Array>;
+  stderr(): string;
+  readonly exited: Promise<void>;
+  close(): Promise<void>;
+}
+
 /** Options for connecting to one agent. */
 export interface ConnectAcpOptions {
+  /** Use a host-supervised transport instead of spawning. The agent command names its executable for diagnostics. */
+  transport?: AcpTransport;
   /** The folder the agent runs in; made absolute before it is sent. */
   cwd: string;
   /** Environment values for the child. */
@@ -244,6 +257,11 @@ export interface ConnectAcpOptions {
   sessionTimeoutMs?: number;
   /** Receives every update of every session, for progress; a session's own handler runs as well. */
   onUpdate?: (update: AcpUpdate) => void;
+  /** Optional host file operations. Without a handler its capability stays off and calls are refused. The host owns path and session authorization. */
+  files?: {
+    readTextFile?: (params: acp.ReadTextFileRequest) => Promise<acp.ReadTextFileResponse>;
+    writeTextFile?: (params: acp.WriteTextFileRequest) => Promise<acp.WriteTextFileResponse | void>;
+  };
   /** Told of every request of the agent that madarch refuses: a file or terminal request, a permission request. */
   onRefused?: (refusal: AcpRefusal) => void;
 }
@@ -389,7 +407,7 @@ function readUsage(value: unknown): AcpUsageReport | undefined {
 export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOptions): Promise<AcpConnection> {
   const cwd = resolve(options.cwd);
   const searchPath = options.env?.PATH ?? process.env.PATH ?? '';
-  const executable = resolveExecutable(spec.command, searchPath);
+  const executable = options.transport === undefined ? resolveExecutable(spec.command, searchPath) : resolve(spec.command);
   if (executable === undefined) {
     throw new AcpError(`src/fill/acp.ts:connectAcpAgent: the agent ${spec.id} cannot be started: no program named ${JSON.stringify(spec.command)} is executable on this machine (PATH ${JSON.stringify(searchPath)})`);
   }
@@ -402,14 +420,14 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   }
   // Detached puts the agent in its own process group, so closing ends the
   // helpers it started as well as itself.
-  const child: ChildProcess = spawn(executable, [...(spec.args ?? [])], { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: options.exactEnv ? options.env : { ...process.env, ...options.env } });
-  if (child.stdin === null || child.stdout === null) {
+  const child: ChildProcess | undefined = options.transport === undefined ? spawn(executable, [...(spec.args ?? [])], { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: options.exactEnv ? options.env : { ...process.env, ...options.env } }) : undefined;
+  if (child !== undefined && (child.stdin === null || child.stdout === null)) {
     child.kill('SIGKILL');
     throw new AcpError(`src/fill/acp.ts:connectAcpAgent: the agent ${spec.id} (${executable}) started without the pipes ACP needs`);
   }
   let stderrText = '';
-  child.stderr?.setEncoding('utf8');
-  child.stderr?.on('data', (chunk: string) => { stderrText = (stderrText + chunk).slice(-STDERR_LIMIT); });
+  child?.stderr?.setEncoding('utf8');
+  child?.stderr?.on('data', (chunk: string) => { stderrText = (stderrText + chunk).slice(-STDERR_LIMIT); });
 
   /**
    * How the child ended. `exit` rather than `close` decides it: a grandchild
@@ -420,11 +438,12 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   let ended = false;
   /** Why the system refused to start the program at all, when it did (a bad interpreter, say). */
   let startFailure: string | undefined;
-  const finished = new Promise<void>((settle) => {
-    child.once('error', (error: Error) => { startFailure = error.message; ended = true; settle(); });
-    child.once('exit', () => { ended = true; settle(); });
+  const finished = options.transport?.exited.then(() => { ended = true; }) ?? new Promise<void>((settle) => {
+    child!.once('error', (error: Error) => { startFailure = error.message; ended = true; settle(); });
+    child!.once('exit', () => { ended = true; settle(); });
   });
   const signalGroup = (signal: NodeJS.Signals): void => {
+    if (child === undefined) return;
     try {
       if (child.pid !== undefined) process.kill(-child.pid, signal);
     } catch {
@@ -458,7 +477,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   const app = acp.client({ name: 'madarch' })
     .onNotification(acp.methods.client.session.update, (context) => {
       const notification = context.params;
-      const update = normalizeUpdate(notification.update);
+      const update = { ...normalizeUpdate(notification.update), sessionId: notification.sessionId };
       const session = sessions.get(notification.sessionId);
       if (session !== undefined) {
         session.updates.push(update);
@@ -468,19 +487,34 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       }
       options.onUpdate?.(update);
     })
-    // An agent's own file tools are off (decision 0026): it reads and writes
-    // only through the unit's MCP server, so a permission request, a raw
-    // file call and a terminal call are all refused here, and told to the caller.
+    // The fill's default is still MCP-only. A host may explicitly provide file
+    // operations; permission and terminal requests remain refused.
     .onRequest(acp.methods.client.session.requestPermission, (context) => {
       refused('session/request_permission', context.params, 'every permission request is answered cancelled: the agent works only through the session\'s MCP server');
       return { outcome: { outcome: 'cancelled' as const } };
     })
-    .onRequest(acp.methods.client.fs.readTextFile, (context) => {
+    .onRequest(acp.methods.client.fs.readTextFile, async (context) => {
+      if (options.files?.readTextFile !== undefined) {
+        try { return await options.files.readTextFile(context.params); }
+        catch (error) {
+          const failure = await wrapped(error, 'fs/read_text_file');
+          refused('fs/read_text_file', context.params, failure.message);
+          throw failure;
+        }
+      }
       const message = 'the agent called fs/read_text_file, which madarch does not offer: code is read through the session\'s MCP server';
       refused('fs/read_text_file', context.params, message);
       throw new Error(message);
     })
-    .onRequest(acp.methods.client.fs.writeTextFile, (context) => {
+    .onRequest(acp.methods.client.fs.writeTextFile, async (context) => {
+      if (options.files?.writeTextFile !== undefined) {
+        try { return await options.files.writeTextFile(context.params) ?? {}; }
+        catch (error) {
+          const failure = await wrapped(error, 'fs/write_text_file');
+          refused('fs/write_text_file', context.params, failure.message);
+          throw failure;
+        }
+      }
       const message = 'the agent called fs/write_text_file, which madarch does not offer: writes go through the session\'s MCP server';
       refused('fs/write_text_file', context.params, message);
       throw new Error(message);
@@ -492,8 +526,8 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
     .onRequest(acp.methods.client.terminal.kill, (context) => refuseTerminal('terminal/kill', context.params));
 
   const stream = acp.ndJsonStream(
-    Writable.toWeb(child.stdin) as unknown as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
+    options.transport?.input ?? Writable.toWeb(child!.stdin!) as unknown as WritableStream<Uint8Array>,
+    options.transport?.output ?? Readable.toWeb(child!.stdout!) as unknown as ReadableStream<Uint8Array>,
   );
   const client = app.connect(stream);
   void client.closed.then(() => settleClosed());
@@ -529,17 +563,17 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
     if (error instanceof AcpError) return error;
     // How the child ended is part of the evidence, and it may still be
     // settling when the request rejects — a program that cannot exec, say.
-    if (child.exitCode === null && child.signalCode === null && startFailure === undefined) {
+    if (!ended && startFailure === undefined) {
       await Promise.race([finished, new Promise<void>((settle) => { const timer = setTimeout(settle, 100); timer.unref?.(); })]);
     }
     const detail = error instanceof Error ? error.message : String(error);
     const code = error instanceof acp.RequestError ? ` (protocol error ${error.code}${error.code === AUTHENTICATION_REQUIRED ? ': the agent requires authentication' : ''})` : '';
-    const end = child.signalCode !== null
+    const end = child?.signalCode != null
       ? `; the process was ended by ${child.signalCode}`
-      : child.exitCode !== null
+      : child?.exitCode != null
         ? `; the process exited with ${String(child.exitCode)}`
         : startFailure === undefined ? '' : `; the process could not start: ${startFailure}`;
-    const text = stderrText.trim();
+    const text = (options.transport?.stderr() ?? stderrText).trim();
     const tail = text === '' ? '' : `; its standard error ended with: ${text}`;
     return new AcpError(`src/fill/acp.ts:${method}: the agent ${spec.id} (${executable}) in ${cwd} failed: ${detail}${code}${end}${tail}`);
   }
@@ -547,19 +581,20 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   let initialized: AcpInitializeResult | undefined;
   /** Set by `close()`: a turn in flight then ends as cancelled, since it was madarch that ended it. */
   let closing = false;
+  let transportClose: Promise<void> | undefined;
 
   const connection: AcpConnection = {
     spec,
     executable,
     closed: closedPromise,
-    stderr: () => stderrText,
+    stderr: () => options.transport?.stderr() ?? stderrText,
     async initialize() {
       if (initialized !== undefined) return initialized;
       let answer: acp.InitializeResponse;
       try {
         answer = await request<acp.InitializeResponse>(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+          clientCapabilities: { fs: { readTextFile: options.files?.readTextFile !== undefined, writeTextFile: options.files?.writeTextFile !== undefined }, terminal: false },
           clientInfo: { name: 'madarch', title: 'madarch', version: runningVersion() },
         }, timeoutMs);
       } catch (error) {
@@ -731,6 +766,12 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       closing = true;
       sessions.clear();
       try { client.close(); } catch { /* already closed */ }
+      if (options.transport !== undefined) {
+        transportClose ??= options.transport.close();
+        await transportClose;
+        settleClosed();
+        return;
+      }
       // The group is signalled whether or not the agent itself ended: an agent
       // that crashed or exited on its own can leave the helpers it started
       // alive, and they hold this connection's pipes. Signalling a group with
@@ -743,9 +784,9 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       if (!ended) await finished;
       // This process's own ends of the pipes are dropped as well, so nothing a
       // helper still holds can keep the event loop alive after close.
-      child.stdin?.destroy();
-      child.stdout?.destroy();
-      child.stderr?.destroy();
+      child?.stdin?.destroy();
+      child?.stdout?.destroy();
+      child?.stderr?.destroy();
       settleClosed();
     },
   };

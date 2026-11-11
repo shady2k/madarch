@@ -138,11 +138,11 @@ function instruction(code: number, jumpTrue: number, jumpFalse: number, k: numbe
 }
 
 /** The names the filter refuses, in code point order: what the operations text and a record state. */
-export function refusedCallNames(platform: string = `${process.platform}-${process.arch}`): string[] {
+export function refusedCallNames(platform: string = `${process.platform}-${process.arch}`, options: { readonly network?: boolean } = {}): string[] {
   const table = REFUSED_CALLS[platform];
   const forks = FORK_CALLS[platform];
   if (table === undefined || forks === undefined) return [];
-  return [...Object.keys(table), 'clone', 'clone3'].sort();
+  return [...Object.keys(table).filter((name) => options.network !== true || (name !== 'socket' && name !== 'connect')), 'clone', 'clone3'].sort();
 }
 
 /**
@@ -153,7 +153,7 @@ export function refusedCallNames(platform: string = `${process.platform}-${proce
  * runs, a `clone` that carries a namespace flag answers EPERM, and everything
  * else is allowed.
  */
-export function seccompFilter(platform: string = `${process.platform}-${process.arch}`): Buffer {
+export function seccompFilter(platform: string = `${process.platform}-${process.arch}`, options: { readonly network?: boolean } = {}): Buffer {
   const arch = AUDIT_ARCH[platform];
   const table = REFUSED_CALLS[platform];
   const forks = FORK_CALLS[platform];
@@ -171,6 +171,7 @@ export function seccompFilter(platform: string = `${process.platform}-${process.
     parts.push(instruction(BPF_RET_K, 0, 0, SECCOMP_RET_ERRNO | ENOSYS));
   }
   for (const name of Object.keys(table).sort()) {
+    if (options.network === true && (name === 'socket' || name === 'connect')) continue;
     parts.push(instruction(BPF_JEQ_K, 0, 1, table[name]!));
     parts.push(instruction(BPF_RET_K, 0, 0, SECCOMP_RET_ERRNO | EPERM));
   }

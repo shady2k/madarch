@@ -380,6 +380,8 @@ export const PluginRpcError = Type.Object(
 const IntroduceRequest = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('introduce'), params: PluginIntroduce }, { additionalProperties: false, description: 'The plugin introduces itself: protocol, name, version, rights, limits and outputs.' });
 const UnitRequestMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('unit'), params: Type.Object({ unit: PluginUnitRequest }, { additionalProperties: false }) }, { additionalProperties: false, description: 'The host hands the plugin one unit.' });
 const ControlRequest = (method: 'pause' | 'resume' | 'stop') => Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal(method), params: Type.Optional(Type.Unknown()) }, { additionalProperties: false, description: `The host asks the plugin to ${method}.` });
+export const PluginAgentRunRequest = Type.Object({ unitId: Type.String({ minLength: 1 }), task: Type.Optional(Type.Unknown()) }, { additionalProperties: false });
+const AgentRunMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('agent.run'), params: PluginAgentRunRequest }, { additionalProperties: false });
 const GraphFilesMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.files'), params: PluginGraphFilesRequest }, { additionalProperties: false, description: 'The plugin asks the host for the file vertices whose path matches a pattern.' });
 const GraphValueMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.value'), params: PluginGraphValueRequest }, { additionalProperties: false, description: 'The plugin asks the host for one field of one vertex.' });
 /**
@@ -414,6 +416,7 @@ export const PluginProtocolMessage = Type.Union(
   [
     IntroduceRequest,
     UnitRequestMessage,
+    AgentRunMessage,
     GraphFilesMessage,
     GraphValueMessage,
     GraphUnresolvedMessage,

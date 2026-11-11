@@ -50,6 +50,12 @@ export interface SandboxSpec {
   readonly runtime: string;
   /** The entry, relative to the closure snapshot. */
   readonly entry: string;
+  /** A host-owned adapter invocation, replacing the plugin entry invocation. */
+  readonly command?: readonly string[];
+  /** Adapter dependencies, read-only at their host paths; never a source repository. */
+  readonly readOnlyMounts?: readonly string[];
+  /** Only an agent runner may reach its provider; ordinary plugins have no network. */
+  readonly network?: boolean;
   readonly limits: CgroupLimits;
   /** Variables the plugin is given; nothing of the host's environment reaches it beside these. */
   readonly environment?: Readonly<Record<string, string>>;
@@ -138,12 +144,14 @@ function bindable(folder: string): boolean {
 export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: string; readonly seccompFile: string; readonly syncFd: number; readonly seccompFd: number; readonly rootUid: number | undefined; readonly runtime?: RuntimeSandbox }): string[] {
   const runtime = options.runtime ?? runtimeSandbox(spec.runtime, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
   const args: string[] = ['--unshare-all', '--clearenv', '--die-with-parent', '--new-session'];
+  if (spec.network === true) args.push('--share-net');
   if (options.rootUid === 0) args.push('--uid', String(SANDBOX_UID), '--gid', String(SANDBOX_UID));
   args.push('--ro-bind', spec.runtime, '/runtime/bun');
   for (const folder of runtime.mounts) if (bindable(folder)) args.push('--ro-bind', folder, folder);
   args.push('--ro-bind', spec.closureFolder, '/plugin');
   if (spec.repository !== undefined) args.push('--ro-bind', spec.repository, '/repo');
   args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp');
+  for (const path of spec.readOnlyMounts ?? []) args.push('--ro-bind', path, path);
   args.push('--remount-ro', '/');
   args.push('--chdir', '/plugin');
   args.push('--setenv', 'PATH', '/runtime', '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--setenv', 'LANG', 'C.UTF-8');
@@ -155,7 +163,7 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   args.push('--sync-fd', String(options.syncFd));
   // A compiled madarch binary runs the plugin itself (`--plugin-entry`), a `bun` runtime runs the entry as its script:
   // both are the Bun inside madarch, and neither needs an interpreter of its own.
-  args.push('/runtime/bun', ...pluginInvocation(spec.runtime, `/plugin/${spec.entry}`));
+  args.push(...(spec.command ?? ['/runtime/bun', ...pluginInvocation(spec.runtime, `/plugin/${spec.entry}`)]));
   return args;
 }
 
@@ -271,8 +279,8 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
   for (const problem of runtime.problems) log.warn(`the sandbox could not resolve a runtime dependency: ${problem}`, { runtime: spec.runtime });
   mkdirSync(spec.workFolder, { recursive: true });
   const seccompFile = join(spec.workFolder, 'seccomp.bpf');
-  writeFileSync(seccompFile, seccompFilter(platform));
-  log.info('sandbox filter installed', { platform, refused: refusedCallNames(platform).join(',') });
+  writeFileSync(seccompFile, seccompFilter(platform, { network: spec.network === true }));
+  log.info('sandbox filter installed', { platform, refused: refusedCallNames(platform, { network: spec.network === true }).join(',') });
   const parent = spec.cgroupParent ?? cgroupParent(spec.env ?? process.env);
   const group = PluginCgroup.create(parent, cgroupName(), spec.limits);
   const stderrFile = join(spec.workFolder, 'stderr.log');
