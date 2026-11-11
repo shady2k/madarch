@@ -11,7 +11,6 @@
         "fields": [
           {
             "name": "name",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The database a code repository's SQL writes to, named after the repository.",
             "example": "madarch",
@@ -19,7 +18,6 @@
           },
           {
             "name": "repository",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The product's repository whose code holds the SQL.",
             "example": "madarch",
@@ -36,7 +34,6 @@
         "fields": [
           {
             "name": "database",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The database the table stands in, by its name.",
             "example": "madarch",
@@ -44,7 +41,6 @@
           },
           {
             "name": "name",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The table's name, schema-qualified when the SQL names a schema other than public.",
             "example": "node",
@@ -52,7 +48,6 @@
           },
           {
             "name": "schema",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The schema the table stands in, when the SQL names one other than public.",
             "example": "graph",
@@ -69,7 +64,6 @@
         "fields": [
           {
             "name": "table",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The table that holds the column, as its database and its name.",
             "example": "madarch/node",
@@ -77,7 +71,6 @@
           },
           {
             "name": "name",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The column's name.",
             "example": "kind_id",
@@ -85,7 +78,6 @@
           },
           {
             "name": "type",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The column's type, as the SQL writes it.",
             "example": "bigint",
@@ -93,7 +85,6 @@
           },
           {
             "name": "nullable",
-            "claim": "authoritative",
             "type": "boolean",
             "meaning": "Whether the column admits null.",
             "example": false,
@@ -101,7 +92,6 @@
           },
           {
             "name": "default",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The column's default value, as the SQL writes it; null when it has none.",
             "example": "gen_random_uuid()",
@@ -109,7 +99,6 @@
           },
           {
             "name": "primary_key",
-            "claim": "authoritative",
             "type": "boolean",
             "meaning": "Whether the column is part of the table's primary key.",
             "example": true,
@@ -117,7 +106,6 @@
           },
           {
             "name": "unique",
-            "claim": "authoritative",
             "type": "boolean",
             "meaning": "Whether the column alone is unique.",
             "example": false,
@@ -125,7 +113,6 @@
           },
           {
             "name": "check",
-            "claim": "authoritative",
             "type": "json",
             "meaning": "The CHECK expressions the column holds, as the SQL writes them.",
             "example": [
@@ -144,7 +131,6 @@
         "fields": [
           {
             "name": "table",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The table the index covers, as its database and its name.",
             "example": "madarch/edge",
@@ -152,7 +138,6 @@
           },
           {
             "name": "name",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The index's name.",
             "example": "edge_once",
@@ -160,7 +145,6 @@
           },
           {
             "name": "unique",
-            "claim": "authoritative",
             "type": "boolean",
             "meaning": "Whether the index is unique.",
             "example": true,
@@ -168,7 +152,6 @@
           },
           {
             "name": "columns",
-            "claim": "authoritative",
             "type": "json",
             "meaning": "The columns the index covers, in order.",
             "example": [
@@ -179,7 +162,6 @@
           },
           {
             "name": "where",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The predicate of a partial index, as the SQL writes it; null when it covers every row.",
             "example": "parent IS NULL",
@@ -206,7 +188,6 @@
         "fields": [
           {
             "name": "column",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The column that holds the key.",
             "example": "kind_id",
@@ -214,7 +195,6 @@
           },
           {
             "name": "target_column",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The column it references.",
             "example": "id",
@@ -222,7 +202,6 @@
           },
           {
             "name": "constraint",
-            "claim": "authoritative",
             "type": "text",
             "meaning": "The name the SQL gives the foreign key, when it names one.",
             "example": "edge_kind_id_fkey",

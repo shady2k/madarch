@@ -74,8 +74,10 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
     // The manifest names a kind the wiki shows (`code.file`); the graph's kind of a git kind is its name without the prefix.
     const graphKinds = (names: readonly string[]): string[] => names.map((name) => GIT_MANIFEST_KINDS[name] ?? name);
     edges.push({
+      // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
+      // the edge exists and who made it, which is what a complete answer is compared with and removed by.
       name: edge.name,
-      ...(fields.length === 0 ? {} : { table: generatedTableName(edge.name, 'edge') }),
+      table: generatedTableName(edge.name, 'edge'),
       from: graphKinds(edge.from),
       to: graphKinds(edge.to),
       repeats: edge.repeats,

@@ -81,6 +81,20 @@ export interface GeneratedKindRead {
   readonly key: readonly string[];
 }
 
+/**
+ * One kind's edge table, as the manifest's `edges:` declarations made it (decision 0035, items 7 and 18): the edge's
+ * own fields, their types, and the kinds its ends name. A kind with no fields keeps its values in no table, and its
+ * relation answers from the edge row alone.
+ */
+export interface GeneratedEdgeRead {
+  readonly kind: string;
+  readonly table?: string;
+  readonly columns: readonly string[];
+  readonly types: Readonly<Record<string, 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json'>>;
+  readonly from: readonly string[];
+  readonly to: readonly string[];
+}
+
 export interface NeighborEdge {
   relation: string;
   direction: 'out' | 'in';
@@ -100,8 +114,8 @@ export interface NeighborGroup {
 
 export interface RelationEdge {
   discriminator?: string;
-  from: { key: string; kind: string; label: string };
-  to: { key: string; kind: string; label: string };
+  from: { key: string; kind: string; label: string; properties?: Record<string, unknown> };
+  to: { key: string; kind: string; label: string; properties?: Record<string, unknown> };
   properties: Record<string, unknown>;
 }
 
@@ -142,10 +156,17 @@ function graphKindOf(wikiKind: string): string | undefined {
   return undefined;
 }
 
-function graphRelationOf(relation: string): { kind: string } | undefined {
+/**
+ * The graph's edge kind one wiki relation names: the git relations the engine holds, and a kind the manifest's own
+ * `edges:` declarations make (decision 0035, items 7 and 18), whose graph name is the manifest's name — `code.foreign-key`
+ * stands in the edge row as it was declared.
+ */
+function graphRelationOf(relation: string, declared?: ReadonlyMap<string, GeneratedEdgeRead>): { kind: string } | undefined {
   const bare = relation.startsWith('code.') ? relation.slice('code.'.length) : relation;
   if (bare === `${GIT_KINDS.contains}` || bare === `${GIT_KINDS.touched}` || bare === `${GIT_KINDS.authored}` || bare === `${GIT_KINDS.parent}`) return { kind: bare };
   if (bare === 'renamed-to' || bare === `${GIT_KINDS.renamedFrom}`) return { kind: `${GIT_KINDS.renamedFrom}` };
+  if (declared?.has(relation) === true) return { kind: relation };
+  if (declared?.has(bare) === true) return { kind: bare };
   return undefined;
 }
 
@@ -536,7 +557,7 @@ function entityOf(row: Raw, sources = true): GraphEntity {
  * context is read, a field they all agree on is its value, and a field they differ on is the list of their values —
  * no producer's opinion is picked, and the newest row is not privileged (the review of stage 1c, finding 4).
  */
-async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: string): Promise<Record<string, unknown>> {
+async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: string, declared?: GeneratedEdgeRead): Promise<Record<string, unknown>> {
   const opinions = async (table: string, columns: readonly string[]): Promise<Record<string, unknown>[]> => {
     const found = await tx.query<Record<string, unknown>>(`SELECT ${columns.map((column) => `o."${column}"`).join(', ')} FROM ${table} o WHERE o."edge_id" = $1::bigint AND o."state" = 'open' AND o."context_id" = 1 ORDER BY o."id"`, [edgeId]);
     return found.rows;
@@ -547,6 +568,13 @@ async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: s
     if (distinct.size === 0) return undefined;
     return distinct.size === 1 ? values[0] : [...distinct.values()];
   };
+  // A kind the manifest's `edges:` declarations made keeps its fields in its own table, whose columns are the fields;
+  // a kind with no fields has no table and answers nothing.
+  if (declared !== undefined) {
+    if (declared.table === undefined || declared.columns.length === 0) return {};
+    const rows = await opinions(declared.table, declared.columns);
+    return Object.fromEntries(declared.columns.map((field) => [field, agreed(rows, field)]));
+  }
   if (graphKind === `${GIT_KINDS.touched}`) {
     const rows = await opinions(GIT_TABLES.touched, ['change', 'added', 'removed']);
     const added = agreed(rows, 'added');
@@ -662,6 +690,8 @@ export class GraphReader {
     private readonly declared?: ReadonlySet<string>,
     /** The kinds the manifest's own field declarations build tables for, by graph kind. */
     private readonly generated?: ReadonlyMap<string, GeneratedKindRead>,
+    /** The edge kinds the manifest's `edges:` declarations build, by graph kind. */
+    private readonly generatedEdges?: ReadonlyMap<string, GeneratedEdgeRead>,
   ) {}
 
   /** One page's repository facts: every block of a page asks for the same repository, and it is read once. */
@@ -671,7 +701,7 @@ export class GraphReader {
   private readonly historyMemo = new Map<string, Promise<HistoryEvidence>>();
 
   at(instant: string, scope: string): GraphReader {
-    return new GraphReader(this.owner, () => instant, BigInt(scope).toString(), this.transaction, this.declared, this.generated);
+    return new GraphReader(this.owner, () => instant, BigInt(scope).toString(), this.transaction, this.declared, this.generated, this.generatedEdges);
   }
 
   /** Whether the product declares the graph kind; a reader without a set answers every kind. */
@@ -922,6 +952,17 @@ export class GraphReader {
       list.push(opinion);
       held.set(String(opinion['node']), list);
     }
+    const repositories = [...new Set([...held.values()].flat().flatMap((opinion) => evidencePlaces(opinion['evidence']).map((one) => one.repository)).filter((name): name is string => typeof name === 'string' && name !== ''))];
+    const repositoryNodes = new Map<string, string>();
+    if (repositories.length > 0) {
+      // A repository's name is its natural key, which the vertex holds (`node.key`), not a column of its opinion table.
+      const found = await tx.query<{ name: string; node: string }>(
+        `SELECT (n.key->>'name') AS name, n.id::text AS node FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = $2
+         WHERE (n.key->>'name') = ANY($1::text[]) AND n.context_id = 1 AND NOT n.removed`,
+        [`{${repositories.join(',')}}`, GIT_KINDS.repository],
+      ).catch((error: unknown) => { if (missingTable(error)) return { rows: [] }; throw error; });
+      for (const row of found.rows) repositoryNodes.set(row.name, row.node);
+    }
     return rows.map((row) => {
       const node = String(row['node_id']);
       const keyObject = (row['key'] ?? {}) as Record<string, unknown>;
@@ -931,6 +972,12 @@ export class GraphReader {
       for (const column of decl.key) properties[column] = valueOfColumn(keyObject[column], decl.types[column] ?? 'text');
       const entityOpinions: GraphEntityOpinion[] = [];
       const evidence: GraphEvidence[] = [];
+      // The evidence of a vertex whose columns state no value: a table whose only column is null still names the file
+      // and the lines it was read at, and its page links there. A field's own places are kept with the field below.
+      const ownPlaces: GraphEvidence[] = [];
+      for (const opinion of held.get(node) ?? []) {
+        ownPlaces.push(...evidencePlaces(opinion['evidence']).map((place) => Object.assign({}, place, { saidBy: String(opinion['said_by']) })));
+      }
       for (const column of decl.columns) {
         const stated: unknown[] = [];
         for (const opinion of held.get(node) ?? []) {
@@ -945,9 +992,23 @@ export class GraphReader {
         if (distinct.size === 1) properties[column] = stated[0];
         else if (distinct.size > 1) properties[column] = [...distinct.values()];
       }
+      if (evidence.length === 0) evidence.push(...ownPlaces);
       properties['recordKey'] = key;
-      const label = keyValues[0] ?? key;
-      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope: '', ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
+      // A generated entity is named by the last value of its key: a table by its name, not by its database, a column by
+      // the column. Its place is where its open opinions were read — the first place its evidence names — so a page's
+      // source block and the links to its code stand on the same rows as its values.
+      const label = keyValues[keyValues.length - 1] ?? key;
+      // The place its opinions were read at: a page's source block and its links to the code stand on it. A plugin's
+      // evidence states lines, not bytes, and a generated entity's span carries no byte offsets.
+      const place = evidence.find((one) => typeof one.path === 'string');
+      if (place?.repository !== undefined && place.repository !== null) properties['repository'] = place.repository;
+      const span: SourceSpan | undefined = place?.path === undefined || place.path === null
+        ? undefined
+        : { path: place.path, lineStart: place.lineStart ?? 1, lineEnd: place.lineEnd ?? place.lineStart ?? 1, byteStart: 0, byteEnd: 0 };
+      // The scope a place is read in is its repository's node: a page's source block and its links resolve the
+      // repository from it, the way every other entity's place does.
+      const scope = place?.repository === undefined || place.repository === null ? '' : repositoryNodes.get(place.repository) ?? '';
+      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
     });
   }
 
@@ -1061,7 +1122,8 @@ export class GraphReader {
     if (ids.length === 0) return new Map();
     const found = await tx.query<Raw>(`${entitySelectSql(scope, 'plain')} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
     // The select answers every vertex with a fallback key for the code kinds it does not know; a manifest-declared kind's
-    // table is what answers its vertices, with the key and label its contract gives them (a term's name, not its node id).
+    // table is what answers its vertices, with the key and label its contract gives them (a term's name, not its node id;
+    // the database page's tables and columns are read the same way, madarch-47vw.3).
     const generated = new Set(this.generated?.keys() ?? []);
     const held = new Map(found.rows.filter((row) => !generated.has(String(row['kind']))).map((row) => [String(row['node_id']), entityOf(row)]));
     const missing = ids.filter((id) => !held.has(id));
@@ -1076,7 +1138,7 @@ export class GraphReader {
   async neighbors(entity: GraphEntity, options: { relations?: readonly string[]; direction?: 'out' | 'in' | 'both'; limit: number }): Promise<NeighborGroup[]> {
     if (this.declared !== undefined && this.declared.size === 0) return [];
     const wanted = (options.relations ?? ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-to'])
-      .map((relation) => ({ relation, graph: graphRelationOf(relation) }))
+      .map((relation) => ({ relation, graph: graphRelationOf(relation, this.generatedEdges) }))
       .filter((one): one is { relation: string; graph: { kind: string } } => one.graph !== undefined);
     if (wanted.length === 0) return [];
     const directions: ('out' | 'in')[] = options.direction === 'out' ? ['out'] : options.direction === 'in' ? ['in'] : ['out', 'in'];
@@ -1209,7 +1271,7 @@ export class GraphReader {
 
   async edgesOf(entity: GraphEntity, relation: string, direction: 'out' | 'in', limit: number): Promise<{ total: number; rows: NeighborEdge[] }> {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
-    const graph = graphRelationOf(relation);
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return { total: 0, rows: [] };
     const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
     return await this.run(async (tx) => {
@@ -1227,7 +1289,7 @@ export class GraphReader {
         const edges = found.rows.filter((row) => row.other === other.nodeIds[0]);
         const first = edges[0];
         if (first === undefined) continue;
-        rows.push({ relation, direction, other, properties: { ...(await edgeProperties(tx, first.id, graph.kind)), discriminator: first.discriminator, sites: edges.length }, position: null });
+        rows.push({ relation, direction, other, properties: { ...(await edgeProperties(tx, first.id, graph.kind, this.generatedEdges?.get(graph.kind))), discriminator: first.discriminator, sites: edges.length }, position: null });
       }
       return { total: ordered.length, rows };
     });
@@ -1235,7 +1297,7 @@ export class GraphReader {
 
   async containers(entity: GraphEntity, relation: string, limit = 8): Promise<GraphEntity[]> {
     if (this.declared !== undefined && this.declared.size === 0) return [];
-    const graph = graphRelationOf(relation);
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return [];
     return await this.run(async (tx) => {
       const chain: GraphEntity[] = [];
@@ -1260,7 +1322,7 @@ export class GraphReader {
 
   async reach(entity: GraphEntity, relation: string, depth: number, limit: number): Promise<{ total: number; rows: { entity: GraphEntity; hops: number }[] }> {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
-    const graph = graphRelationOf(relation);
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; hops: number }>(
@@ -1280,7 +1342,7 @@ export class GraphReader {
   }
 
   async byPrefix(kind: string, prefix: string, limit: number, after?: string): Promise<{ total: number; rows: GraphEntity[] }> {
-    if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
+    if (this.declared !== undefined && this.declared.size === 0 && this.generated === undefined) return { total: 0, rows: [] };
     // A kind the manifest's own field declarations made has its table, not a code kind: the findings kind the Problems
     // page reads is one of these (madarch-stm0.7.1). Its page is read in SQL by the key's own text, so a store of many
     // findings is not loaded whole to answer one page.
@@ -1302,12 +1364,15 @@ export class GraphReader {
         return { total: Number(counted.rows[0]?.n ?? '0'), rows };
       });
     }
-    const graphKind = graphKindOf(kind);
+    // A kind the manifest's declarations made is named by its own name (`code.table`), not the git kinds' prefix-free one.
+    const declaredKind = this.generated?.has(kind) === true ? kind : undefined;
+    const graphKind = declaredKind ?? graphKindOf(kind);
     if (graphKind === undefined || !this.holds(graphKind)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
-      const entities = await this.entitiesOfKinds(tx, [graphKind]);
+      // A kind the manifest's declarations made answers from its own table; the git kinds from theirs.
+      const entities = declaredKind === undefined ? await this.entitiesOfKinds(tx, [graphKind]) : await this.generatedOfKinds(tx, [this.generated!.get(declaredKind)!]);
       const referenceKind = graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`;
-      const head = `code.${graphKind}:`;
+      const head = declaredKind === undefined ? `code.${graphKind}:` : `${graphKind}:`;
       const rest = prefix.startsWith(head) ? prefix.slice(head.length) : '';
       const pathPrefix = referenceKind && rest !== '' && rest.includes('/') ? rest : undefined;
       const matching = entities.filter((entity) => pathPrefix !== undefined
@@ -1356,8 +1421,8 @@ export class GraphReader {
   }
 
   async relationEdges(relation: string, limit: number): Promise<{ total: number; rows: RelationEdge[] }> {
-    if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
-    const graph = graphRelationOf(relation);
+    if (this.declared !== undefined && this.declared.size === 0 && (this.generatedEdges?.size ?? 0) === 0) return { total: 0, rows: [] };
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
       const found = await tx.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
@@ -1371,7 +1436,14 @@ export class GraphReader {
         const from = entities.get(row.from_node);
         const to = entities.get(row.to_node);
         if (from === undefined || to === undefined) continue;
-        rows.push({ discriminator: row.discriminator, from: { key: from.key, kind: from.kind, label: from.label }, to: { key: to.key, kind: to.kind, label: to.label }, properties: await edgeProperties(tx, row.id, graph.kind) });
+        // Both ends carry the values the page reads of them: a foreign key's column names its table there, and a
+        // relation stated between two tables answers with the tables themselves.
+        rows.push({
+          discriminator: row.discriminator,
+          from: { key: from.key, kind: from.kind, label: from.label, properties: from.properties },
+          to: { key: to.key, kind: to.kind, label: to.label, properties: to.properties },
+          properties: await edgeProperties(tx, row.id, graph.kind, this.generatedEdges?.get(graph.kind)),
+        });
       }
       return { total: found.rows.length, rows };
     });
@@ -1385,7 +1457,7 @@ export class GraphReader {
     const counts = new Map<string, number>();
     for (const one of nodes) if (!counts.has(one.key)) counts.set(one.key, 0);
     if (nodes.length === 0) return counts;
-    const graph = graphRelationOf(relation);
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return counts;
     const byNode = new Map(nodes.map((one) => [one.id, one.key]));
     const found = await this.run(async (tx) => await tx.query<{ node: string; n: string }>(
@@ -1404,7 +1476,7 @@ export class GraphReader {
   async inDegreesOf(relation: string, entities: readonly GraphEntity[]): Promise<Map<string, number>> {
     const counts = new Map<string, number>(entities.map((entity) => [entity.key, 0]));
     if (entities.length === 0) return counts;
-    const graph = graphRelationOf(relation);
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return counts;
     const ids = entities.flatMap((entity) => entity.nodeIds);
     return await this.run(async (tx) => {
@@ -1426,7 +1498,7 @@ export class GraphReader {
     if (this.declared !== undefined && this.declared.size === 0) return new Map(keys.map((key) => [key, 0]));
     const counts = new Map<string, number>(keys.map((key) => [key, 0]));
     if (keys.length === 0) return counts;
-    const graph = graphRelationOf(relation);
+    const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return counts;
     const entities = new Map<string, GraphEntity>();
     for (const key of keys) for (const entity of await this.find(key)) entities.set(key, entity);

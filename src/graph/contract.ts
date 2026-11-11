@@ -154,6 +154,31 @@ export interface VertexDraft {
   readonly producerVersion: string;
 }
 
+/**
+ * One edge a producer states: its ends by kind and key, its discriminator and the opinion that it exists. It stands
+ * here, with the other drafts, so a stage may write it without reaching into the store's writer.
+ */
+export interface EdgeDraft {
+  readonly kind: string;
+  readonly from: EntityRefDraft;
+  readonly to: EntityRefDraft;
+  readonly discriminator?: string;
+  readonly values?: Readonly<Record<string, unknown>>;
+  readonly evidence?: readonly EvidenceDraft[];
+  readonly lang?: string;
+  readonly producer: string;
+  readonly producerVersion: string;
+}
+
+/** One edge a producer withdraws: its ends by kind and key, and the discriminator that tells repeats apart. */
+export interface EdgeRemovalDraft {
+  readonly kind: string;
+  readonly from: EntityRefDraft;
+  readonly to: EntityRefDraft;
+  readonly discriminator?: string;
+  readonly producer: string;
+}
+
 /** One entity a producer no longer holds: its opinions are closed and it leaves the reads (a removal of a term). */
 export interface VertexRemovalDraft {
   readonly kind: string;

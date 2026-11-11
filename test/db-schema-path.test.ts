@@ -129,17 +129,17 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       const columns = outcome.result.vertices.filter((vertex) => vertex.kind === 'code.column' && vertex.key['table'] === 'app/child');
       expect(columns.map((column) => column.key['name']).sort()).toEqual(['amount', 'id', 'note', 'parent_id']);
       const note = columns.find((column) => column.key['name'] === 'note');
-      expect(note?.attributes).toMatchObject({ type: 'text', nullable: false, primary_key: false, default: "''" });
+      expect(note?.values).toMatchObject({ type: 'text', nullable: false, primary_key: false, default: "''" });
       const amount = columns.find((column) => column.key['name'] === 'amount');
-      expect(amount?.attributes).toMatchObject({ type: 'integer', default: '0' });
+      expect(amount?.values).toMatchObject({ type: 'integer', default: '0' });
       const id = columns.find((column) => column.key['name'] === 'id');
-      expect(id?.attributes).toMatchObject({ type: 'bigint', primary_key: true, nullable: false });
+      expect(id?.values).toMatchObject({ type: 'bigint', primary_key: true, nullable: false });
 
       const indexes = outcome.result.vertices.filter((vertex) => vertex.kind === 'code.index');
-      expect(indexes.map((index) => [index.key['name'], index.attributes?.['unique'], index.attributes?.['columns']])).toEqual([['child_parent', true, ['parent_id']]]);
+      expect(indexes.map((index) => [index.key['name'], index.values?.['unique'], index.values?.['columns']])).toEqual([['child_parent', true, ['parent_id']]]);
 
       const key = outcome.result.edges.filter((edge) => edge.kind === 'code.foreign-key');
-      expect(key.map((edge) => [edge.from.key, edge.to.key, edge.attributes?.['column']])).toEqual([[{ table: 'app/child', name: 'parent_id' }, { table: 'app/parent', name: 'id' }, 'parent_id']]);
+      expect(key.map((edge) => [edge.from.key, edge.to.key, edge.values?.['column']])).toEqual([[{ table: 'app/child', name: 'parent_id' }, { table: 'app/parent', name: 'id' }, 'parent_id']]);
       // A table is declared in the file that holds its SQL: the edge names the file vertex the host answered for.
       const declared = outcome.result.edges.filter((edge) => edge.kind === 'code.declared-in');
       expect(declared.map((edge) => edge.to.key)).toEqual([{ repository: 'app', path: 'src/schema.ts' }, { repository: 'app', path: 'src/schema.ts' }]);

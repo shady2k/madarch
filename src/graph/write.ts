@@ -28,7 +28,8 @@
 import { randomUUID } from 'node:crypto';
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import { type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
+import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
+export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
 import { FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { keyUid } from './uid.js';
 
@@ -346,10 +347,34 @@ function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefi
 /** One entity a draft's reference names, as the node that holds it, or undefined when no vertex does. */
 async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
   const vertex = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
-  const key = canonicalKeyOf(contract, vertex, ref.key, where);
-  const uid = keyUid(ref.kind, [JSON.stringify(key)]);
+  const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
+  // The uid is the graph kind's: a draft may name the wiki's name of a git kind (`code.file`), and the node was made
+  // under the contract's own (`file`).
+  const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
   const found = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
   return found.rows[0]?.id;
+}
+
+/**
+ * A key value that names a reference, carried as the referenced entity's name, lifted back to `{kind, key}`: the
+ * plugin protocol's key values are strings (a file's key is its repository's name and its path), while the graph
+ * declares a repository as a reference with a key of its own. A value already shaped as a reference, and a field
+ * that names no reference, are left as they stand.
+ */
+function liftedReferences(contract: GraphContract, vertex: VertexContract | undefined, key: Readonly<Record<string, KeyValueDraft>>): Readonly<Record<string, KeyValueDraft>> {
+  if (vertex === undefined) return key;
+  const out: Record<string, KeyValueDraft> = { ...key };
+  for (const field of vertex.key) {
+    const declared = vertex.fields.find((held) => held.name === field);
+    if (declared?.reference === undefined) continue;
+    const value = out[field];
+    if (typeof value !== 'string' || value === '') continue;
+    const target = contract.vertex.find((held) => held.name === declared.reference);
+    const targetKey = target?.key[0];
+    if (targetKey === undefined) continue;
+    out[field] = { kind: declared.reference, key: { [targetKey]: value } };
+  }
+  return out;
 }
 
 /**
@@ -670,24 +695,12 @@ async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract
   }
 }
 
-/** One edge a producer states: its ends by kind and key, its discriminator and the opinion that it exists. */
-export interface EdgeDraft {
-  readonly kind: string;
-  readonly from: EntityRefDraft;
-  readonly to: EntityRefDraft;
-  readonly discriminator?: string;
-  readonly values?: Readonly<Record<string, unknown>>;
-  readonly evidence?: readonly EvidenceDraft[];
-  readonly lang?: string;
-  readonly producer: string;
-  readonly producerVersion: string;
-}
-
 /** The drafts one publication applies, by the kind of write they are. */
 export interface GraphDrafts {
   readonly vertices: readonly VertexDraft[];
   readonly edges?: readonly EdgeDraft[];
   readonly removals: readonly VertexRemovalDraft[];
+  readonly edgeRemovals?: readonly EdgeRemovalDraft[];
 }
 
 /** The producer an entry's author falls back to: the first draft's producer, whichever kind of draft it is. */
@@ -697,7 +710,29 @@ function producerOf(drafts: GraphDrafts): string | undefined {
   const edge = (drafts.edges ?? [])[0];
   if (edge !== undefined) return `${edge.producer}@${edge.producerVersion}`;
   const removal = drafts.removals[0];
-  return removal === undefined ? undefined : removal.producer;
+  if (removal !== undefined) return removal.producer;
+  return drafts.edgeRemovals?.[0]?.producer;
+}
+
+/**
+ * One edge a producer withdraws: its ends are found the way a declaration's are (by uid of the kind and key), the edge
+ * row between them by its discriminator, and the row is removed with its opinions. A removal that names an edge the
+ * store does not hold writes nothing — a rerun of the same answer and an edge never made are the same silence.
+ */
+async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, draft: EdgeRemovalDraft, contextId: number, journal?: Journal): Promise<boolean> {
+  const declared = contract.edge.find((held) => held.name === draft.kind);
+  if (declared === undefined || declared.table === undefined) return false;
+  const from = await referencedNodeOf(executor, contract, draft.from, `the from of the removed edge ${JSON.stringify(draft.kind)}`);
+  const to = await referencedNodeOf(executor, contract, draft.to, `the to of the removed edge ${JSON.stringify(draft.kind)}`);
+  if (from === undefined || to === undefined) return false;
+  const found = await executor.query<{ id: string }>(
+    `SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
+     WHERE e.from_node = $2::bigint AND e.to_node = $3::bigint AND e.discriminator = $4 AND e.context_id = $5::bigint`,
+    [draft.kind, from, to, draft.discriminator ?? '', String(contextId)],
+  );
+  const id = found.rows[0]?.id;
+  if (id === undefined) return false;
+  return await removeEdgeById(executor, contract, draft.kind, id, journal);
 }
 
 /** A declaration's node, and where each vertex's key names its references. */
@@ -727,6 +762,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   for (const record of options.reads ?? []) journal.read(record);
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
   for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
+  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;
   const declared: Declared[] = [];
   for (const draft of drafts.vertices) {
     const made = await ensureVertex(executor, contract, draft, contextId, journal);
@@ -751,7 +787,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
         const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
         await recordUnresolved(executor, {
           referrer: other ?? null, edgeEntity: draft.kind, field, targetEntity: ref.kind,
-          targetKey: canonicalKeyOf(contract, target, ref.key, `the ${field} of ${JSON.stringify(draft.kind)}`),
+          targetKey: canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of ${JSON.stringify(draft.kind)}`),
           producer: `${draft.producer}@${draft.producerVersion}`, against: null, discriminator: draft.discriminator ?? '', contextId,
         });
       }

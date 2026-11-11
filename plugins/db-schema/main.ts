@@ -693,6 +693,8 @@ function answerOf(model: Model): UnitResult {
     for (const table of tables) {
       const tableKey = tableKeyOf(database.name, table.name);
       vertices.push(vertexOf(TABLE_KIND, { database: database.name, name: table.name }, tableValuesOf(database, table), table.place));
+      // The file's key is its repository and its path, as the graph answered it: the writer lifts the repository's name
+      // to the reference the graph declares, so the plugin states the key it was given.
       edges.push({ kind: DECLARED_IN, from: { kind: TABLE_KIND, key: { database: database.name, name: table.name } }, to: { kind: 'code.file', key: { repository: table.place.repository, path: table.place.path } }, evidence: evidenceOf(table.place) });
       const columns = [...table.columns.values()].sort((left, right) => compare(left.name, right.name));
       for (const column of columns) {
@@ -706,7 +708,13 @@ function answerOf(model: Model): UnitResult {
       }
     }
     for (const table of tables) {
+      // One statement may be read twice — the same CREATE TABLE in a source and a fixture merges into one table — and a
+      // repeated reference is one relation: the answer states it once.
+      const stated = new Set<string>();
       for (const reference of table.references) {
+        const identity = JSON.stringify([reference.column, reference.targetTable, reference.target_column, reference.constraint]);
+        if (stated.has(identity)) continue;
+        stated.add(identity);
         const target = database.tables.get(reference.targetTable);
         if (target === undefined) continue;
         edges.push({
@@ -714,7 +722,7 @@ function answerOf(model: Model): UnitResult {
           from: { kind: COLUMN_KIND, key: { table: tableKeyOf(database.name, table.name), name: reference.column } },
           to: { kind: COLUMN_KIND, key: { table: tableKeyOf(database.name, target.name), name: reference.target_column } },
           discriminator: reference.column,
-          attributes: { column: reference.column, target_column: reference.target_column, constraint: reference.constraint },
+          values: { column: reference.column, target_column: reference.target_column, constraint: reference.constraint },
           evidence: evidenceOf(reference.place),
         });
       }
@@ -746,7 +754,7 @@ type Values = Readonly<Record<string, unknown>>;
 
 /** One entity as the plugin answers it: its kind, its key, its values and the place it was read at. */
 function vertexOf(kind: string, key: Readonly<Record<string, string>>, values: Values, place: Place): VertexResult {
-  return { kind, key, attributes: values, evidence: evidenceOf(place) };
+  return { kind, key, values, evidence: evidenceOf(place) };
 }
 
 /** A database's values: the repository whose SQL names it. */
@@ -754,19 +762,19 @@ function databaseValuesOf(database: Database): Values {
   return { repository: database.repository };
 }
 
-/** A table's values: the database it stands in and the schema the SQL names (null for `public`). */
-function tableValuesOf(database: Database, table: Table): Values {
-  return { database: database.name, schema: table.schema };
+/** A table's values: the schema the SQL names (null for `public`). Its database stands in its key, not as a value. */
+function tableValuesOf(_database: Database, table: Table): Values {
+  return { schema: table.schema };
 }
 
-/** A column's values: its type, whether it admits null, its default, its key flags and its checks. */
-function columnValuesOf(tableKey: string, column: Column): Values {
-  return { table: tableKey, type: column.type, nullable: column.nullable, default: column.defaultText, primary_key: column.primary_key, unique: column.unique, check: column.checks };
+/** A column's values: its type, whether it admits null, its default, its key flags and its checks. Its table is its key. */
+function columnValuesOf(_tableKey: string, column: Column): Values {
+  return { type: column.type, nullable: column.nullable, default: column.defaultText, primary_key: column.primary_key, unique: column.unique, check: column.checks };
 }
 
-/** An index's values: whether it is unique, the columns it covers and a partial index's predicate. */
-function indexValuesOf(tableKey: string, index: Index): Values {
-  return { table: tableKey, unique: index.unique, columns: index.columns, where: index.where };
+/** An index's values: whether it is unique, the columns it covers and a partial index's predicate. Its table is its key. */
+function indexValuesOf(_tableKey: string, index: Index): Values {
+  return { unique: index.unique, columns: index.columns, where: index.where };
 }
 
 /** Code point order, as the host orders keys. */
@@ -776,12 +784,12 @@ function compare(left: string, right: string): number {
 
 // ---- the declaration -------------------------------------------------------------------------
 
-/** One field of the declaration: every field this plugin states is authoritative, read from the SQL it parses. */
-type Field = { readonly name: string; readonly claim: 'authoritative' | 'claimed'; readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json'; readonly meaning: string; readonly example: unknown; readonly required: boolean };
+/** One field of the declaration: a field the plugin states of the entities it reads from the SQL it parses. */
+type Field = { readonly name: string; readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json'; readonly meaning: string; readonly example: unknown; readonly required: boolean };
 
 /** One field the plugin states, as its contract and the manifest binding name it. */
 function field(name: string, type: Field['type'], meaning: string, example: unknown, required: boolean): Field {
-  return { name, claim: 'authoritative', type, meaning, example, required };
+  return { name, type, meaning, example, required };
 }
 
 const CONTRACT = {
