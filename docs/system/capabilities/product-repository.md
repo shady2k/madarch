@@ -223,35 +223,12 @@ the lifecycle's milestones and the roles section are the amendment's
 reservations in prose; their shape arrives with the milestone that
 implements them.
 
-The reading (`parseContractText` in `src/product/contract.ts`) refuses in
-values, never thrown: strict YAML, then the schema, then the fields' own
-checks — the contract version gate (a registry that is no mapping at all
-is the schema's refusal; a mapping that carries no `contract`, a
-`contract` that is not a whole number, or a whole number madarch does not
-read, is refused naming what stands), the prefix's shape, the folder under
-`docs/` (no leg climbing out), the stage naming a stage of the list, the
-hint carrying words, a prefix named once, a stage id named once, a status
-named once within its kind, a link field named once within its kind, a
-link field never carrying one of the generic fields madarch reads itself
-(`id`, `kind`, `status`, `links`), and every target naming a kind the
-registry declares — every refusal naming the file, the line the field
-stands on, the field's path from the registry's top (empty for a file
-that does not parse as YAML at all), and the words a reader prints. The generic document fields are read from every Markdown
-under the layout (`parseDocumentFields`), with their own published schema
-(`schema/product-document.schema.json`): `id`, `kind`, `status` and
-`links` read from the document's lines before its first heading after
-line 1 (the identity line itself is not a field), a field
-case-insensitively spelled (`Kind:` read as `kind`), an unknown field
-ignored the way a manifest grows by fields, `links` a comma-separated
-list of ids, and every field but `links` given once (repeated `Links:`
-lines add to one list). The check command
-(`bun run contract:check`, beside `bun run views:check`) walks the
-conformance examples — three example product folders, one without a
-registry, one with it and one the skill set made, read as the layout, the documents' fields and
-the registry naming no refusal — and the registry and document-field
-refusal cases, each carrying the printed words — and exits 0 when every
-case reads the way its words say and 1 naming the file, the line and the
-words of every mismatch; CI runs it.
+The current declaration reader (`src/product/manifest/kinds.ts`) validates the
+product's declared kinds, fields, relations and templates. Refusals name the
+file, line and field. The retired registry and generic Markdown-field readers
+are not part of the runtime. Pages are structured graph opinions, read by
+`src/knowledge/markdown.ts`; the wiki does not infer entities or statements
+from Markdown files beside the checkout.
 
 The wiki that serves the product opens the registry the same way. A
 registry at a version madarch reads, reading whole, serves as a registry:

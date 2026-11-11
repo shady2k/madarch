@@ -74,9 +74,9 @@ read from its manifest, `workspace.yaml`, by the contract's own reader
 behind `src/product/manifest.ts`; the consumer tests hold that reader to the
 contract's manifest cases and example products (`examples/contract/`).
 
-**Served wiki** (`src/product-wiki/`, `wiki/app/`): a product's pages, read
-fresh from the working tree at every ask (`src/product-wiki/pages.ts`) — every
-Markdown file under `docs/` and `README.md` — shown by madarch's own app
+**Served wiki** (`src/knowledge/`, `wiki/app/`): a product's pages, read
+from structured graph opinions (`src/knowledge/markdown.ts`) and rendered
+through the declared kind templates — shown by madarch's own app
 (`wiki/app/`, React built by Vite) and served by the server's product mode:
 started with a product folder it answers the app's built files, the reader's
 pages (`/`, `/e/<id>`, `/kind/<kind>`, `/src`, `/doc?path=…`), the page files
@@ -121,7 +121,7 @@ wiki read those records through the storage layer. The engine's mechanism tables
 are `src/graph/one-graph.ts`, and each kind's attribute table is generated from its
 contract by `src/graph/contract.ts` (decision 0034). A product's intended model is still
 compiled and checked against its TypeBox schema (`src/model/`), and its pages
-are read from the product's working tree (`src/product-wiki/pages.ts`).
+are read from structured graph opinions (`src/knowledge/markdown.ts`), not interpreted from working-tree Markdown.
 
 ## The server
 
