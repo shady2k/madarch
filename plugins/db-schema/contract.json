@@ -52,6 +52,13 @@
             "meaning": "The schema the table stands in, when the SQL names one other than public.",
             "example": "graph",
             "required": false
+          },
+          {
+            "name": "unsupported",
+            "type": "text",
+            "meaning": "Unsupported SQL and ambiguous declarations that prevent a complete table description.",
+            "example": "unsupported expression index",
+            "required": false
           }
         ]
       },

@@ -87,6 +87,8 @@ interface Table {
   readonly columns: Map<string, Column>;
   readonly indexes: Map<string, Index>;
   readonly references: Reference[];
+  readonly notes: string[];
+  declaration?: Place;
   readonly place: Place;
 }
 
@@ -332,6 +334,44 @@ function literalsOf(text: string, path: string, problems: Problem[], place: (lin
     problems.push(place(failure.loc?.line ?? 1));
     return [];
   }
+  const constants = new Map<string, string>();
+  const collect = (node: unknown): void => {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(collect); return; }
+    const held = node as Record<string, unknown>;
+    if (held['type'] === 'VariableDeclaration' && held['kind'] === 'const' && Array.isArray(held['declarations'])) {
+      for (const declaration of held['declarations'] as Record<string, unknown>[]) {
+        const id = declaration['id'] as Record<string, unknown> | undefined;
+        const init = declaration['init'] as Record<string, unknown> | undefined;
+        if (id?.['type'] === 'Identifier' && typeof id['name'] === 'string' && init?.['type'] === 'StringLiteral' && typeof init['value'] === 'string') constants.set(id['name'], init['value']);
+      }
+    }
+    if (held['type'] === 'ExportNamedDeclaration') collect(held['declaration']);
+  };
+  // Only top-level string constants are candidates. Shadowed names are removed below; no function is evaluated.
+  const program = (ast as { program?: { body?: unknown[] } }).program;
+  for (const statement of program?.body ?? []) collect(statement);
+  const bindings = new Map<string, number>();
+  const countBindings = (node: unknown): void => {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(countBindings); return; }
+    const held = node as Record<string, unknown>;
+    const add = (binding: unknown): void => {
+      if (binding === null || typeof binding !== 'object') return;
+      const value = binding as Record<string, unknown>;
+      if (value['type'] === 'Identifier' && typeof value['name'] === 'string') bindings.set(value['name'], (bindings.get(value['name']) ?? 0) + 1);
+      else for (const child of Object.values(value)) {
+        if (Array.isArray(child)) child.forEach(add);
+        else if (child !== null && typeof child === 'object') add(child);
+      }
+    };
+    if (held['type'] === 'VariableDeclarator') add(held['id']);
+    if (Array.isArray(held['params'])) held['params'].forEach(add);
+    if (held['type'] === 'CatchClause') add(held['param']);
+    for (const [key, value] of Object.entries(held)) if (key !== 'loc') countBindings(value);
+  };
+  countBindings(ast);
+  for (const name of constants.keys()) if (bindings.get(name) !== 1) constants.delete(name);
   const found: Literal[] = [];
   const starts = lineStartsOf(text);
   const walk = (node: unknown): void => {
@@ -353,7 +393,10 @@ function literalsOf(text: string, path: string, problems: Problem[], place: (lin
         let written = '';
         let allRead = true;
         for (const [at, element] of (quasis as unknown[]).entries()) {
-          if (at > 0) written += PLACEHOLDER;
+          if (at > 0) {
+            const expression = Array.isArray(expressions) ? expressions[at - 1] as Record<string, unknown> : undefined;
+            written += expression?.['type'] === 'Identifier' && typeof expression['name'] === 'string' ? constants.get(expression['name']) ?? PLACEHOLDER : PLACEHOLDER;
+          }
           const quasi = element !== null && typeof element === 'object' ? (element as Record<string, unknown>) : undefined;
           const value = quasi?.['value'];
           const held = value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
@@ -384,8 +427,8 @@ function tableNameOf(relation: PgNode | undefined): string | undefined {
   const name = relation['relname'];
   if (typeof name !== 'string' || name === '') return undefined;
   const schema = relation['schemaname'];
-  // A schema the statement composes at run time names no schema the SQL states; the table's own name still stands.
-  return typeof schema === 'string' && schema !== '' && schema !== 'public' && !schema.includes(PLACEHOLDER) ? `${schema}.${name}` : name;
+  // Preserve qualification; unresolved schema placeholders are rejected by the caller.
+  return typeof schema === 'string' && schema !== '' && schema !== 'public' ? `${schema}.${name}` : name;
 }
 
 /** The columns a `PRIMARY KEY` or `UNIQUE` constraint names, from a table-level or column-level constraint. */
@@ -439,11 +482,16 @@ function readColumn(table: Table, definition: PgNode, placeAt: (offset: number) 
 }
 
 /** One table-level constraint: a primary key, a unique key, a foreign key or a check, added to the table. */
-function readTableConstraint(table: Table, constraint: PgNode, placeAt: (offset: number) => Place, problems: Problem[], where: (offset: number) => Problem): void {
+function readTableConstraint(table: Table, constraint: PgNode, placeAt: (offset: number) => Place): void {
   const type = constraint['contype'];
   if (type === 'CONSTR_PRIMARY' || type === 'CONSTR_UNIQUE') {
     const constraintPlace = placeAt(typeof constraint['location'] === 'number' ? (constraint['location'] as number) : 0);
-    for (const name of keyColumnsOf(constraint)) {
+    const keys = keyColumnsOf(constraint);
+    if (type === 'CONSTR_UNIQUE' && keys.length > 1) {
+      table.notes.push(`unsupported composite UNIQUE (${keys.join(', ')}); members are not individually unique`);
+      return;
+    }
+    for (const name of keys) {
       const column = columnOf(table, name, constraintPlace);
       if (type === 'CONSTR_PRIMARY') { column.primary_key = true; column.nullable = false; }
       else column.unique = true;
@@ -462,11 +510,12 @@ function readTableConstraint(table: Table, constraint: PgNode, placeAt: (offset:
     }
     return;
   }
-  if (type === 'CONSTR_CHECK' && table.columns.size > 0) {
+  if (type === 'CONSTR_CHECK') {
     const text = expressionTextOf(constraint['raw_expr']);
     const onlyColumn = table.columns.size === 1 ? [...table.columns.values()][0] : undefined;
-    if (text === undefined) problems.push(where(typeof constraint['location'] === 'number' ? (constraint['location'] as number) : 0));
+    if (text === undefined) table.notes.push('unsupported table CHECK expression');
     else if (onlyColumn !== undefined) onlyColumn.checks.push(text);
+    else table.notes.push(`unsupported table CHECK: ${text}`);
   }
 }
 
@@ -480,13 +529,21 @@ function readIndex(database: Database, statement: PgNode, place: Place, problems
     return;
   }
   const table = tableOf(database, tableName, place);
+  if (typeof statement['accessMethod'] === 'string' && statement['accessMethod'] !== 'btree') {
+    table.notes.push(`unsupported access method ${statement['accessMethod']} on index ${name}`);
+    return;
+  }
   const columns: string[] = [];
   const params = Array.isArray(statement['indexParams']) ? (statement['indexParams'] as unknown[]) : [];
   for (const element of params) {
     const parameter = only(element, 'IndexElem');
     const column = parameter === undefined ? undefined : parameter['name'];
     if (typeof column !== 'string' || column === '') {
-      problems.push(where(typeof parameter?.['location'] === 'number' ? (parameter['location'] as number) : 0));
+      table.notes.push(`unsupported expression index ${name}`);
+      return;
+    }
+    if (parameter !== undefined && (Array.isArray(parameter['opclass']) && parameter['opclass'].length > 0)) {
+      table.notes.push(`unsupported operator class on index ${name}: ${stringsOf(parameter['opclass']).join('.')}`);
       return;
     }
     columns.push(column);
@@ -501,7 +558,7 @@ function tableOf(database: Database, name: string, place: Place): Table {
   const held = database.tables.get(name);
   if (held !== undefined) return held;
   const dot = name.indexOf('.');
-  const made: Table = { database: database.name, name, schema: dot < 0 ? null : name.slice(0, dot), columns: new Map(), indexes: new Map(), references: [], place };
+  const made: Table = { database: database.name, name, schema: dot < 0 ? null : name.slice(0, dot), columns: new Map(), indexes: new Map(), references: [], notes: [], place };
   database.tables.set(name, made);
   return made;
 }
@@ -532,12 +589,20 @@ function readStatement(database: Database, statement: PgNode, place: Place, line
       if (name === undefined) problems.push(where(0));
       return;
     }
+    const existing = database.tables.get(name);
+    if (existing?.declaration !== undefined) {
+      const message = `unsupported duplicate table declaration ${name}: ${database.repository}/${existing.declaration.path}:${existing.declaration.lineStart} and ${place.repository}/${place.path}:${place.lineStart}; definitions were not merged`;
+      existing.notes.push(message);
+      problems.push({ repository: place.repository, path: place.path, line: place.lineStart, message });
+      return;
+    }
     const table = tableOf(database, name, place);
+    table.declaration = place;
     for (const element of Array.isArray(create['tableElts']) ? (create['tableElts'] as unknown[]) : []) {
       const column = only(element, 'ColumnDef');
       if (column !== undefined) { readColumn(table, column, placeAt, problems, where); continue; }
       const constraint = only(element, 'Constraint');
-      if (constraint !== undefined) readTableConstraint(table, constraint, placeAt, problems, where);
+      if (constraint !== undefined) readTableConstraint(table, constraint, placeAt);
     }
     return;
   }
@@ -563,7 +628,7 @@ function readStatement(database: Database, statement: PgNode, place: Place, line
       }
       if (subtype === 'AT_AddConstraint') {
         const constraint = only(command['def'], 'Constraint');
-        if (constraint !== undefined) readTableConstraint(table, constraint, placeAt, problems, where);
+        if (constraint !== undefined) readTableConstraint(table, constraint, placeAt);
         continue;
       }
       problems.push(where(typeof command['location'] === 'number' ? (command['location'] as number) : 0));
@@ -619,7 +684,7 @@ function composedName(statement: PgNode): boolean {
     const relation = only(held, 'relation');
     if (relation !== undefined) {
       const name = relation['relname'];
-      if (typeof name === 'string' && name.includes(PLACEHOLDER)) return true;
+      if (typeof name === 'string' && name.includes(PLACEHOLDER) || typeof relation['schemaname'] === 'string' && (relation['schemaname'] as string).includes(PLACEHOLDER)) return true;
     }
     const indexName = held['idxname'];
     if (typeof indexName === 'string' && indexName.includes(PLACEHOLDER)) return true;
@@ -651,7 +716,7 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   const inputs = (unit.inputs ?? {}) as { patterns?: unknown };
   const patterns = Array.isArray(inputs.patterns) && inputs.patterns.length > 0 && inputs.patterns.every((one) => typeof one === 'string' && one !== '')
     ? (inputs.patterns as string[])
-    : ['**/*.ts', '**/*.tsx'];
+    : [];
   const model: Model = { databases: new Map(), problems: [] };
   const files: { repository: string; path: string; content: string }[] = [];
   for (const pattern of patterns) {
@@ -662,6 +727,9 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
       if (typeof content === 'string' && content !== '') files.push({ repository, path, content });
     }
   }
+  const uniqueFiles = [...new Map(files.map((file) => [JSON.stringify([file.repository, file.path]), file])).values()]
+    .sort((left, right) => compare(left.repository, right.repository) || compare(left.path, right.path));
+  files.splice(0, files.length, ...uniqueFiles);
   await loadPostgres();
   context.progress(0, files.length, 'read the file vertices');
   for (const [at, file] of files.entries()) {
@@ -708,8 +776,7 @@ function answerOf(model: Model): UnitResult {
       }
     }
     for (const table of tables) {
-      // One statement may be read twice — the same CREATE TABLE in a source and a fixture merges into one table — and a
-      // repeated reference is one relation: the answer states it once.
+      // Repeated references from ALTER statements describe one relation.
       const stated = new Set<string>();
       for (const reference of table.references) {
         const identity = JSON.stringify([reference.column, reference.targetTable, reference.target_column, reference.constraint]);
@@ -764,7 +831,7 @@ function databaseValuesOf(database: Database): Values {
 
 /** A table's values: the schema the SQL names (null for `public`). Its database stands in its key, not as a value. */
 function tableValuesOf(_database: Database, table: Table): Values {
-  return { schema: table.schema };
+  return { schema: table.schema, unsupported: table.notes.join("\n") || null };
 }
 
 /** A column's values: its type, whether it admits null, its default, its key flags and its checks. Its table is its key. */
@@ -809,6 +876,7 @@ const CONTRACT = {
         field('database', 'text', 'The database the table stands in, by its name.', 'madarch', true),
         field('name', 'text', 'The table\'s name, schema-qualified when the SQL names a schema other than public.', 'node', true),
         field('schema', 'text', 'The schema the table stands in, when the SQL names one other than public.', 'graph', false),
+        field('unsupported', 'text', 'Unsupported SQL and ambiguous declarations that prevent a complete table description.', 'unsupported expression index', false),
       ],
     },
     {

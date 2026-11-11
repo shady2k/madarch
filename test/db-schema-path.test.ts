@@ -43,6 +43,7 @@ const SOURCE = [
   "  note text NOT NULL DEFAULT ''",
   ');',
   'CREATE UNIQUE INDEX child_parent ON child (parent_id);',
+  'CREATE INDEX child_expression ON child ((lower(note)));',
   '`;',
   "export const ALTER = 'ALTER TABLE child ADD COLUMN amount integer DEFAULT 0';",
   'export const composed = (table: string): string => `CREATE TABLE IF NOT EXISTS ${table} (id bigint)`;',
@@ -151,6 +152,57 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
   }, 120_000);
 });
 
+describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit parser limits', () => {
+  test('only declared files are read, duplicates are not merged, and unsupported constraints are table values', async () => {
+    const sources: Record<string, string> = {
+      'src/a.ts': "const META = 'madarch_meta'; export const sql = `CREATE TABLE ${META}.schema_stamp (id bigint PRIMARY KEY); CREATE TABLE sample (a text, b text, UNIQUE (a,b), CHECK (a <> b)); CREATE INDEX expression_idx ON sample ((lower(a))); CREATE INDEX opclass_idx ON sample (a text_pattern_ops); CREATE INDEX method_idx ON sample USING hash (a);`;",
+      'src/b.ts': 'export const sql = `CREATE TABLE sample (fixture_only boolean)`;',
+      'test/fixture.ts': 'export const sql = `CREATE TABLE unwanted (id bigint)`;',
+    };
+    const requested: string[] = [];
+    const closure = closureOf(join(PLUGINS, 'plugins', 'db-schema'));
+    const work = mkdtempSync(join(tmpdir(), 'madarch-schema-scope-'));
+    const host = new PluginHost({
+      pluginFolder: join(PLUGINS, 'plugins', 'db-schema'), closure, repository: work, workRoot: join(work, 'host'),
+      trust: 'production', releaseHashes: [closure.hash],
+      ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
+      graph: {
+        files: async (pattern) => {
+          requested.push(pattern);
+          return Object.keys(sources).filter((path) => pattern === 'src/*.ts' ? path.startsWith('src/') : true)
+            .map((path) => ({ kind: 'code.file', key: { repository: 'app', path } }));
+        },
+        value: async (_kind, key) => sources[String(key['path'])] ?? null,
+      },
+    });
+    const session = await host.open();
+    try {
+      const result = await session.runUnit({ unitId: 'scope', kind: 'code.table', key: {}, inputs: { patterns: ['src/*.ts', 'src/*.ts'] } });
+      if (result.state !== 'extracted') throw new Error(JSON.stringify(result));
+      const tables = result.result.vertices.filter((v) => v.kind === 'code.table');
+      expect(tables.map((v) => v.key['name']).sort()).toEqual(['madarch_meta.schema_stamp', 'sample']);
+      const sample = tables.find((v) => v.key['name'] === 'sample');
+      expect(sample?.values?.['unsupported']).toContain('composite UNIQUE');
+      expect(sample?.values?.['unsupported']).toContain('table CHECK');
+      expect(sample?.values?.['unsupported']).toContain('expression index');
+      expect(sample?.values?.['unsupported']).toContain('operator class');
+      expect(sample?.values?.['unsupported']).toContain('access method hash');
+      expect(sample?.values?.['unsupported']).toContain('src/a.ts:');
+      expect(sample?.values?.['unsupported']).toContain('src/b.ts:');
+      const columns = result.result.vertices.filter((v) => v.kind === 'code.column' && v.key['table'] === 'app/sample');
+      expect(columns.map((v) => v.key['name']).sort()).toEqual(['a', 'b']);
+      expect(columns.every((v) => v.values?.['unique'] === false)).toBe(true);
+      expect(result.result.end.state).toBe('partial');
+      expect(requested.every((pattern) => pattern === 'src/*.ts')).toBe(true);
+      requested.length = 0;
+      const empty = await session.runUnit({ unitId: 'empty', kind: 'code.table', key: {}, inputs: { patterns: [] } });
+      if (empty.state !== 'extracted') throw new Error(JSON.stringify(empty));
+      expect(empty.result.vertices).toEqual([]);
+      expect(requested).toEqual([]);
+    } finally { await session.close(); rmSync(work, { recursive: true, force: true }); }
+  }, 120_000);
+});
+
 describe.skipIf(sandboxProblem !== undefined)('a product database, filled from its code through the plugin', () => {
   let work: string;
   let folder: string;
@@ -210,6 +262,8 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     expect(source?.location.path).toBe('src/schema.ts');
     expect(source?.location.lineStart).toBe(CHILD_LINE);
     expect(page.page.findings).toEqual([]);
+    const details = page.page.blocks.find((block) => block.type === 'properties');
+    expect(JSON.stringify(details)).toContain('unsupported expression index child_expression');
   }, 300_000);
 
   test('the variable table the SQL composes is no table of the wiki, and the plugin said so rather than inventing one', async () => {

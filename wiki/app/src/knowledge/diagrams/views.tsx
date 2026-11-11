@@ -280,12 +280,12 @@ function ZoomBox({ children, titleFloor }: { children: ReactElement; titleFloor?
         const leaves = [...element.querySelectorAll('text, foreignObject p')];
         return { ...local(element), font: Math.min(...(leaves.length ? leaves : [element]).map(leaf => parseFloat(getComputedStyle(leaf).fontSize))), node: local(node as Element) };
       });
-      const edgeLabels = [...svg.querySelectorAll<SVGGraphicsElement>('g.edgeLabel, text.messageText, text.transition, .relationshipLabel')].map((node) => {
+      const labels = [...svg.querySelectorAll<SVGGraphicsElement>('text, foreignObject p')].map((node) => {
         const r = node.getBoundingClientRect(), inverse = svg.getScreenCTM()!.inverse();
         const a = new DOMPoint(r.left, r.top).matrixTransform(inverse), b = new DOMPoint(r.right, r.bottom).matrixTransform(inverse);
         return { x:a.x, y:a.y, width:b.x-a.x, height:b.y-a.y, font:parseFloat(getComputedStyle(node).fontSize) };
       });
-      const fitted = firstView({ x, y, width, height }, titles, root.clientWidth, full ? Math.max(320, innerHeight - 230) : Math.max(320, root.clientHeight || 520), full, edgeLabels, titleFloor);
+      const fitted = firstView({ x, y, width, height }, titles, root.clientWidth, full ? Math.max(320, innerHeight - 230) : Math.max(320, root.clientHeight || 520), full, labels, titleFloor);
       svg.style.setProperty('max-width', 'none');
       svg.style.width = `${width * fitted.zoom * scale}px`;
       svg.style.height = `${height * fitted.zoom * scale}px`;
