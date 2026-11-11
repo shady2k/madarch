@@ -82,7 +82,7 @@ export class RepositorySession {
       // Validate before touching the live graph, including uncommitted manifest edits.
       const validated = validateProductManifests(this.absolute);
       if (!validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
-      await publishValidatedManifests(this.graph.owner, validated.value);
+      if (validated.value !== undefined) await publishValidatedManifests(this.graph.owner, validated.value);
     } else if (revision.commit !== this.revision.commit) {
       this.log(`madarch mcp: HEAD moved to ${revision.commit.slice(0, 12)}; refreshing the repository graph`);
       await this.graph.close();

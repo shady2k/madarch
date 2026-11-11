@@ -255,7 +255,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   if (metadata !== undefined && !metadata.ok) throw new Error(metadata.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
   if (options.prepareContract !== undefined) await options.prepareContract(contract);
   await createRecordSchema(options.database, contract);
-  if (metadata?.ok) await publishValidatedManifests(options.database, metadata.value);
+  if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value);
   const records = options.records ?? {
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
     publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),

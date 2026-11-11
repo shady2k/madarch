@@ -36,6 +36,7 @@ test('publishes complete metadata and declaration evidence without repository co
     const read = validateProductManifests(folder);
     expect(read.ok).toBe(true);
     if (!read.ok) throw new Error(JSON.stringify(read.findings));
+    if (read.value === undefined) throw new Error('fixture manifest was absent');
     expect(await publishValidatedManifests(owner, read.value)).toBeGreaterThan(0);
     const manifest = await owner.run((tx) => readPublishedManifest(tx));
     expect([...manifest!.kinds.keys()]).toEqual(['term']);
@@ -124,6 +125,17 @@ test('malformed kinds still reports workflow and lock diagnostics, and no commit
   expect(noCommit.ok).toBe(false);
   if (noCommit.ok) throw new Error('no commit accepted');
   expect(noCommit.findings[0]!.file).toBe(join(fresh, '.git', 'HEAD'));
+});
+
+test('an absent kinds manifest is valid without publishing a catalogue, but invalid declarations still refuse', () => {
+  const folder = fixture();
+  rmSync(join(folder, 'madarch', 'kinds.yaml'));
+  expect(validateProductManifests(folder)).toEqual({ ok: true, value: undefined });
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows: [');
+  const invalid = validateProductManifests(folder);
+  expect(invalid.ok).toBe(false);
+  if (invalid.ok) throw new Error('invalid workflow accepted without kinds');
+  expect(invalid.findings.some((one) => one.file === join(folder, 'madarch', 'workflows.yaml'))).toBe(true);
 });
 
 test('named plugin manifests use the existing plugin validator for missing and malformed files', () => {

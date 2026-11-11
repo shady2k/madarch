@@ -211,7 +211,7 @@ export async function openRepositoryGraph(options: {
     const started = performance.now();
     let fill = readFillOutcome(folder);
     let filled = false;
-    if (validated?.ok === true) {
+    if (validated?.ok === true && validated.value !== undefined) {
       await createRecordSchema(openedOwner, graphContractOf(validated.value.manifest));
       await publishValidatedManifests(openedOwner, validated.value);
     }

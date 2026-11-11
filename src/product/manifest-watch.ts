@@ -18,7 +18,7 @@ export function createManifestWatch(folders: readonly string[], publish: (value:
         for (const finding of read.findings) report(`${finding.file}:${finding.line}: ${finding.message}`);
         return;
       }
-      await publish(read.value);
+      if (read.value !== undefined) await publish(read.value);
     }).catch((error: unknown) => report(`${folder}:1: the manifest catalogue could not be published: ${String(error)}`));
     pending.set(folder, work);
     await work;

@@ -18,7 +18,7 @@ export interface ValidatedManifests {
   readonly manifest: KindsManifest;
   readonly vertices: readonly VertexDraft[];
 }
-export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests } | { readonly ok: false; readonly findings: readonly Finding[] };
+export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[] };
 
 /** JSON stores maps explicitly; declarations have maps nested in catalogues and workflow stage locations. */
 function encode(value: unknown): unknown {
@@ -61,7 +61,7 @@ export function validateProductManifests(productFolder: string, files: ProductFi
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));
   if (findings.length > 0) return { ok: false, findings };
-  if (!read.present) return { ok: false, findings: [{ file: read.file, line: 1, message: 'the product holds no kinds manifest' }] };
+  if (!read.present) return { ok: true, value: undefined };
   const manifest = read.manifest;
   const vertices: VertexDraft[] = [];
   const head = commit === undefined ? headCommitOf(folder) : { commit };

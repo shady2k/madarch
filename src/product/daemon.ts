@@ -854,7 +854,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     if (ownInstall?.ok && !folders.includes(ownInstall.folder)) folders.push(ownInstall.folder);
     for (const folder of folders) {
       const read = validateProductManifests(folder);
-      if (read.ok) validated.push(read.value);
+      if (read.ok) { if (read.value !== undefined) validated.push(read.value); }
       else findings.push(...read.findings);
     }
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
