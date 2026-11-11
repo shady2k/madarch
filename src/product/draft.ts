@@ -19,7 +19,6 @@ import { join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
 import { productsHome, type DraftEnv } from './home.js';
-import { seedStarterSet, starterPageKindNames } from '../knowledge/seed.js';
 import { DEFAULT_STARTER_TEMPLATE, starterTemplateIds, starterTemplateOf, type StarterTemplate } from '../knowledge/starter-templates.js';
 export type { DraftEnv };
 
@@ -258,6 +257,7 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     return { outcome: 'failed', message: `the draft could not be created in ${products}: ${(error as Error).message}` };
   }
 
+  const { seedStarterSet, starterPageKindNames } = require('../knowledge/seed.js') as typeof import('../knowledge/seed.js');
   const id = randomUUID();
   try {
     for (const folderName of FOLDERS) mkdirSync(join(folder, folderName));

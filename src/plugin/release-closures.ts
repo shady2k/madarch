@@ -10,6 +10,10 @@
  * those texts (`src/plugin/bundled.ts`), so a plugin folder swapped on disk never
  * changes what the binary trusts.
  */
-import { bundledClosureHashes } from './bundled.js';
+let hashes: readonly string[] | undefined;
 
-export const RELEASE_CLOSURE_HASHES: readonly string[] = bundledClosureHashes();
+/** Load plugin bytes only when verifying a closure, never while an API or fill process starts. */
+export function releaseClosureHashes(): readonly string[] {
+  const { bundledClosureHashes } = require('./bundled.js') as typeof import('./bundled.js');
+  return hashes ??= bundledClosureHashes();
+}

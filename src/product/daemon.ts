@@ -16,7 +16,7 @@ import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSyn
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { productsHome, type DraftEnv } from './draft.js';
+import { productsHome, type DraftEnv } from './home.js';
 import { listProducts } from './list.js';
 import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';

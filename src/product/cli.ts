@@ -45,7 +45,7 @@ import {
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
 import { runFill } from '../fill/run.js';
-import { productsHome, type DraftEnv } from './draft.js';
+import { productsHome, type DraftEnv } from './home.js';
 import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
 import { readKinds } from './manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';

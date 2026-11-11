@@ -13,7 +13,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, s
 import { dirname, join, relative, sep } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { closureHashOf, ClosureRefusal, type Closure, type ClosureFile } from './closure.js';
-import { RELEASE_CLOSURE_HASHES } from './release-closures.js';
+import { releaseClosureHashes } from './release-closures.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
@@ -92,7 +92,7 @@ export async function snapshotClosure(closure: Closure, parent: string, name?: s
 }
 
 /** Whether a closure is one a release carries, by its hash. */
-export function isReleaseClosure(hash: string, releaseHashes: readonly string[] = RELEASE_CLOSURE_HASHES): boolean {
+export function isReleaseClosure(hash: string, releaseHashes: readonly string[] = releaseClosureHashes()): boolean {
   return releaseHashes.includes(hash);
 }
 
@@ -100,7 +100,7 @@ export function isReleaseClosure(hash: string, releaseHashes: readonly string[] 
 export type ClosureTrust = 'production' | 'validation';
 
 /** The refusal of a closure nothing may run yet, or undefined when it may run. */
-export function closureTrustProblem(closure: Closure, trust: ClosureTrust, file: string, releaseHashes: readonly string[] = RELEASE_CLOSURE_HASHES): ClosureRefusal | undefined {
+export function closureTrustProblem(closure: Closure, trust: ClosureTrust, file: string, releaseHashes: readonly string[] = releaseClosureHashes()): ClosureRefusal | undefined {
   if (trust === 'validation' || isReleaseClosure(closure.hash, releaseHashes)) return undefined;
   return new ClosureRefusal('needs-approval', `${file}:1: the plugin closure ${closure.hash} is not one a madarch release carries: it needs approval. Until a person approves this hash the plugin runs only as validation (madarch plugin check), publishing nothing`, file);
 }
