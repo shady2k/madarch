@@ -36,7 +36,7 @@ import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
 import type { SqlTransactionKind } from '../sql-driver.js';
-import { clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
+import { clusterEndpoint, clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
 
@@ -515,7 +515,7 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
       const held = await clusterQuery(cluster, CLUSTER_ADMIN_DATABASE, 'SELECT 1 AS held FROM pg_database WHERE datname = $1', [database]);
       if (held.length !== 1) throw new Error(`src/adapters/database-owner.ts:1: store "${options.store ?? cluster.socketDir}" has no prepared database "${database}"; run madarch start for this store before connecting`);
     } else await ensureDatabase(cluster, database);
-    const inner = await createPostgresDatabaseOwner({ host: cluster.socketDir, port: cluster.port, database, user: cluster.user, max: 8 });
+    const inner = await createPostgresDatabaseOwner({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), database, user: cluster.user, max: 8 });
     await inner.ready;
     return new ServerStoreOwner(inner, release, options.store);
   } catch (error) {

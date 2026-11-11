@@ -10,6 +10,8 @@ on:
       - 'scripts/build-binary.ts'
       - 'scripts/clean-homebrew-walk.sh'
       - 'src/product/daemon.ts'
+      - 'src/adapters/postgres-*.ts'
+      - 'src/adapters/database-owner.ts'
       - 'Formula/**'
       - 'scripts/publish-homebrew-tap.sh'
       - '.github/workflows/release.yml'
@@ -177,6 +179,7 @@ jobs:
 
   windows-x64:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -197,7 +200,8 @@ jobs:
           $env:MADARCH_INSTALL_PREFIX = Join-Path $env:RUNNER_TEMP 'madarch-install'
           & ./scripts/install.ps1 v0.0.1
           & (Join-Path $env:MADARCH_INSTALL_PREFIX 'madarch.exe') version
-      - name: npx new then serve on Windows x64
+      - name: npx new, plugin-free Fill to completion, then serve on Windows x64
+        timeout-minutes: 12
         shell: pwsh
         env:
           GIT_AUTHOR_NAME: Madarch Clean Walk
