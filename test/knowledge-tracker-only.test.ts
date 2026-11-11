@@ -1,7 +1,9 @@
+import { authoredEntity } from '../src/graph/authored.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
- * A product that is only a tracker (decision 0034, item 14): its manifest declares two Markdown kinds
+ * A product that is only a tracker (decision 0034, item 14): its manifest declares two person-authored kinds
  * and binds no capability. It opens, fills and serves its wiki, and its store holds the mechanism
  * tables and the fill's, and no repository, file, commit, signature, blob or path table.
  */
@@ -31,19 +33,23 @@ const MANIFEST = `groups:
 kinds:
   idea:
     template: templates/item.liquid
-    source: markdown
-    folder: docs/ideas
+    source: graph
+    origin: person
+    fields:
+      - { name: title, type: text, producers: [person] }
     group: tracker
-    title: label
+    title: title
     labels:
       en: { one: Idea, many: Ideas }
       ru: { one: Идея, many: Идеи }
   task:
     template: templates/item.liquid
-    source: markdown
-    folder: docs/tasks
+    source: graph
+    origin: person
+    fields:
+      - { name: title, type: text, producers: [person] }
     group: tracker
-    title: label
+    title: title
     labels:
       en: { one: Task, many: Tasks }
       ru: { one: Задача, many: Задачи }
@@ -63,7 +69,7 @@ beforeAll(() => {
   mkdirSync(join(product, 'docs', 'tasks'), { recursive: true });
   writeFileSync(join(product, 'madarch', 'kinds.yaml'), MANIFEST);
   writeFileSync(join(product, 'templates', 'entity.liquid'), '{% block lead %}{% endblock %}\n{% block details %}{% endblock %}\n{% block parts %}{% endblock %}\n');
-  writeFileSync(join(product, 'templates', 'item.liquid'), '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.label }}{% endblock %}\n{% block details %}{% properties title="Details" %}{% endblock %}\n');
+  writeFileSync(join(product, 'templates', 'item.liquid'), '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.title }}{% endblock %}\n{% block details %}{% properties title="Details" %}{% endblock %}\n');
   writeFileSync(join(product, 'docs', 'ideas', 'one.md'), '---\nid: idea:one\nkind: idea\ntitle: One idea\n---\n\nAn idea.\n');
   writeFileSync(join(product, 'docs', 'tasks', 'one.md'), '---\nid: task:one\nkind: task\ntitle: One task\n---\n\nA task.\n');
   git(product, 'add', '-A');
@@ -79,16 +85,15 @@ describe('a product that is only a tracker', () => {
     const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     let owner: DatabaseOwner | undefined;
     try {
-      // The manifest stands in the repository and no fill has read it: the second state, `not-filled`, and the graph
-      // holds no kind. Nothing is written until the fill is pressed.
+      // Startup publishes the validated declarations; no entity exists before the fill or explicit authorship.
       const before = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
       expect(before.status).toBe(200);
       const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
-      expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, kinds: [], fill: { state: 'idle' } });
+      expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
+      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:one')}&full=1`, { headers: { accept: 'application/json' } });
       expect(unopened.status).toBe(404);
-      expect(String(((await unopened.json()) as { message?: string }).message)).toContain('madarch/kinds.yaml');
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
       owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
@@ -100,7 +105,19 @@ describe('a product that is only a tracker', () => {
       // The fill runs the product repository's files as mechanism state (madarch-hsqs stage C): one tree unit, and no
       // capability stage, because the manifest binds no code kind.
       expect(filled.units.map((unit) => unit.stageId)).toEqual(['repository-tree']);
-      // The kinds are the graph's, read after the fill that stored the manifest and the entities.
+      const unimported = await (await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } })).json() as { kinds: { kind: string; count: number }[] };
+      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
+      const manifest = readKinds(product);
+      if (!manifest.present) throw new Error('the tracker manifest is absent');
+      const made = await owner.transaction('write', async (tx) => {
+        const idea = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
+        const task = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
+        return { idea: idea.entity!, task: task.entity! };
+      });
+      expect(made.idea.values).toEqual({ title: 'One idea' });
+      expect(made.task.values).toEqual({ title: 'One task' });
+      // Explicit authored records, not Markdown file bytes, supply the tracker entities.
+
       const status = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
       expect(status.status).toBe(200);
       const body = (await status.json()) as { kinds?: { kind: string; count: number }[]; filled?: boolean };
@@ -128,7 +145,7 @@ describe('a product that is only a tracker', () => {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 
-      const page = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:one')}&full=1`, { headers: { accept: 'application/json' } });
+      const page = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent(made.idea.id)}&full=1`, { headers: { accept: 'application/json' } });
       expect(page.status).toBe(200);
     } finally {
       await owner?.close();

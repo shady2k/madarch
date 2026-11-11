@@ -27,14 +27,24 @@ let app = '';
 let server: StartedServer | undefined;
 const errors: string[] = [];
 
-/** A draft whose manifest keeps only the code kinds a case names: the rest of the starter manifest stands. */
+/** A native fixture declaring only the named code kinds and references within that set. */
 function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
   const file = join(draft.folder, 'madarch', 'kinds.yaml');
-  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, unknown> };
+  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'depends-on'?: string[] }>; plugins: unknown };
   for (const kind of Object.keys(manifest.kinds)) if (!kinds.includes(kind)) delete manifest.kinds[kind];
+  for (const kind of Object.values(manifest.kinds)) {
+    if (kind['depends-on'] !== undefined) kind['depends-on'] = kind['depends-on'].filter((dependency) => kinds.includes(dependency));
+    if (kind.fields !== undefined) kind.fields = kind.fields.filter((field) => field.reference === undefined || kinds.includes(field.reference));
+  }
+  manifest.plugins = {};
   writeFileSync(file, stringify(manifest));
+  writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   git(draft.folder, 'add', '-A');
   git(draft.folder, 'commit', '-qm', `the manifest declares ${kinds.join(', ')} and no other code kind`);
   return draft.folder;
