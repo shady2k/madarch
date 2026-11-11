@@ -12,6 +12,7 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
   const { t } = useTranslation();
   const [repo, setRepo] = useState(history?.repo ?? navigation?.[0]?.repo ?? '');
   const [date, setDate] = useState(history?.at ?? '');
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
   const codePage = decodeURIComponent(currentAddress().split('?')[0]!).startsWith(`${ENTITY_ADDRESS_PREFIX}code.`);
   if (history === undefined && (!codePage || navigation === undefined || navigation.length === 0)) return null;
   const address = (at: string | null, repository = history?.repo ?? repo): string => {
@@ -30,8 +31,8 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
     </Alert>}
     <div className="mt-2 flex flex-wrap items-end gap-2">
       {history === undefined && <label className="text-small">{t('knowledge.historyRepository')}<select className="ml-2 max-w-full border border-line bg-surface p-1" value={repo} onChange={(event) => setRepo(event.target.value)}>{navigation?.map((one) => <option key={one.repo} value={one.repo}>{one.repo}</option>)}</select></label>}
-      <label className="text-small">{t('knowledge.historyChooseDate')}<Input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(date) ? date : ''} onChange={(event) => setDate(event.target.value)} /></label>
-      {date !== '' && link(address(date), t('knowledge.historyOpenDate'))}
+      <label className="text-small">{t('knowledge.historyChooseDate')}<Input type="text" placeholder={t('knowledge.historyDateFormat')} value={date} onChange={(event) => setDate(event.target.value)} aria-invalid={date !== '' && !validDate} data-testid="history-date" /></label>
+      {validDate && link(address(date), t('knowledge.historyOpenDate'))}
     </div>
     {landmarks !== undefined && <div className="mt-2 text-small" data-testid="history-landmarks">
       <p>{t('knowledge.historyLandmarkCovered', { count: landmarks.covered })}{t('knowledge.historyLandmarkOffered', { count: landmarks.offered })}{t('knowledge.historyLandmarkLimit', { limit: landmarks.limit })}</p>

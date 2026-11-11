@@ -416,14 +416,6 @@
       "notInstalledBundled": "Its adapter is not installed: {{program}} is a program of its own, not a package madarch installs. Install it from its trusted distribution; madarch knows neither its version nor its folder."
     },
     "fillWriting": "The agent is writing",
-    "fillDone_one": "Filled {{date}}, {{count}} page",
-    "fillDone_few": "Filled {{date}}, {{count}} pages",
-    "fillDone_many": "Filled {{date}}, {{count}} pages",
-    "fillDone_other": "Filled {{date}}, {{count}} pages",
-    "fillDoneNoDate_one": "Filled, {{count}} page",
-    "fillDoneNoDate_few": "Filled, {{count}} pages",
-    "fillDoneNoDate_many": "Filled, {{count}} pages",
-    "fillDoneNoDate_other": "Filled, {{count}} pages",
     "fillButton": "Fill",
     "fillMenuTitle": "The fill of this product",
     "refresh": "Refresh",
@@ -934,6 +926,7 @@
     "historyDateTitle": "{{repo}} at {{date}}",
     "historyCurrent": "Return to current code",
     "historyRepository": "Repository",
+    "historyDateFormat": "YYYY-MM-DD",
     "historyChooseDate": "Date (UTC)",
     "historyOpenDate": "Open this date",
     "historyPointUnread": "structure not read",
@@ -994,6 +987,11 @@
       "noSelection": "The selection could not be read: the panel shows every entity, and Save on the catalogue page keeps a choice."
     },
     "fillDot": {
+      "finished": "Last fill: {{date}}",
+      "pages_one": "Pages written: {{count}}",
+      "pages_few": "Pages written: {{count}}",
+      "pages_many": "Pages written: {{count}}",
+      "pages_other": "Pages written: {{count}}",
       "upToDate": "Up to date: the graph describes {{commit}} · Files: {{files}} · Commits: {{commits}}",
       "upToDateNoCommit": "Up to date · Files: {{files}} · Commits: {{commits}}",
       "stale": "Stale: the graph describes {{commit}}, and the checkouts hold more · Files: {{files}} · Commits: {{commits}}",
@@ -1041,7 +1039,21 @@
     "pageProblems": "Problems on this page: {{count}}",
     "findingsWhere": "Open the problems",
     "findingsCount": "Findings: {{count}}",
-    "noStageYet": "No fill stage writes this kind yet."
+    "noStageYet": "No fill stage writes this kind yet.",
+    "filePage": {
+      "cochangeShown": "Showing {{shown}} of {{total}} files changed together at least twice.",
+      "overview": "Overview",
+      "history": "History",
+      "cochange": "Co-change",
+      "rendered": "Rendered",
+      "source": "Source",
+      "softWrap": "Soft wrap",
+      "sourcesPage": "Open in Sources",
+      "noSource": "The graph holds no text of this file.",
+      "noHistory": "No commit touched this file.",
+      "noCochange": "No other file changed with it in two or more commits.",
+      "share": "{{both}} of {{total}} commits · {{share}}%"
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

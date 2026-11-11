@@ -107,11 +107,11 @@ test('the button fills the store and the pages read the graph it published', asy
   expect((rootBlock.data['folders'] as { path: string }[]).map((folder) => folder.path)).toContain('src');
   const file = await json('/products/walk/api/page?id=code.file%3Awalk-code%2Fsrc%2Fslice.ts&full=1');
   expect(file.status).toBe(200);
-  const fileBlock = (file.body['blocks'] as { type: string; data: Record<string, unknown> }[]).find((block) => block.type === 'file')!;
+  const fileBlock = (file.body['blocks'] as { type: string; data: Record<string, unknown> }[]).find((block) => block.type === 'filePage')!;
   expect(fileBlock.data['path']).toBe('src/slice.ts');
   expect(fileBlock.data['created']).not.toBeNull();
-  const history = (file.body['blocks'] as { type: string; sections: { role: string; rows: unknown[] }[] }[]).find((block) => block.type === 'history')!;
-  expect(history.sections.find((section) => section.role === 'commits')!.rows.length).toBe(1);
+  const history = (fileBlock as unknown as { history: unknown[] }).history;
+  expect(history.length).toBe(1);
 }, 240_000);
 
 test('the server still answers a page after the fill queue has been left alone', async () => {

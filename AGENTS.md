@@ -9,6 +9,12 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
 
 ## Lessons
 
+- Plugin sandbox: leave `MADARCH_PLUGIN_SANDBOX` unset for confinement;
+  `MADARCH_PLUGIN_SANDBOX=off` deliberately runs plugins with the host account's
+  filesystem and network access, warns once per process, and still requires
+  closure approval. Every other value is refused. See
+  `docs/system/plugin-sandbox.md`.
+
 - Checks: `bun run check`, `bun test`; `MADARCH_SKIP_PERF=1 bun test` skips the
   performance tests (about 6 s instead of minutes). `bun run check` is `tsc
   --noEmit` and then the architecture check of decision 0033 (item 4,

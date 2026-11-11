@@ -7,15 +7,18 @@
  * credentials, no working tree and no socket; its output leaves only through
  * the protocol.
  *
- * No plugin runs unconfined: where the machine's setup is missing —
+ * By default no plugin runs unconfined: where the machine's setup is missing —
  * the cgroup delegation, unprivileged user namespaces, a platform this build
  * pins no sandbox for — the host refuses with an operations problem naming
  * what to enable (docs/system/plugin-sandbox.md), whatever the plugin's
- * origin.
+ * origin. `MADARCH_PLUGIN_SANDBOX=off` explicitly selects a plain child instead.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ClosureRefusal } from './closure.js';
+import { startDarwinSandbox } from './sandbox-darwin.js';
 import { bwrapForUse } from './bwrap-install.js';
 import { pluginInvocation } from './invocation.js';
 import { runtimeSandbox, type RuntimeSandbox } from './elf-runtime.js';
@@ -154,6 +157,89 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   // both are the Bun inside madarch, and neither needs an interpreter of its own.
   args.push('/runtime/bun', ...pluginInvocation(spec.runtime, `/plugin/${spec.entry}`));
   return args;
+}
+
+/** Whether this process has already warned about explicitly unconfined plugins. */
+let warnedUnconfined = false;
+
+/** The single launch choice for every plugin host; no sandbox failure changes this choice. */
+export async function startPluginProcess(spec: SandboxSpec): Promise<SandboxProcess> {
+  const env = spec.env ?? process.env;
+  const mode = env['MADARCH_PLUGIN_SANDBOX'];
+  if (mode !== undefined && mode !== 'off') {
+    throw new Error(`${fileURLToPath(import.meta.url)}:170: MADARCH_PLUGIN_SANDBOX=${JSON.stringify(mode)} is refused: accepted forms are unset (sandbox on) or off`);
+  }
+  if (mode === 'off') return startUnconfined(spec);
+  const platform = spec.platform ?? sandboxPlatform();
+  const problem = await sandboxSetupProblem({ platform, cgroupParent: spec.cgroupParent, ...(spec.env === undefined ? {} : { env: spec.env }) });
+  if (problem !== undefined) {
+    log.error('the sandbox cannot run here', { problem: problem.code }, problem.message);
+    throw new ClosureRefusal('sandbox-unavailable', problem.message, WHERE);
+  }
+  return platform.startsWith('darwin-') ? await startDarwinSandbox(spec) : await startSandbox(spec);
+}
+
+/** A plain child with the same protocol, closure and runtime, but no isolation or resource bounds. */
+async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
+  if (!warnedUnconfined) {
+    process.stderr.write('Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.\n');
+    warnedUnconfined = true;
+  }
+  mkdirSync(spec.workFolder, { recursive: true });
+  const stderrFile = join(spec.workFolder, 'stderr.log');
+  const stderr = { bytes: 0, kept: Buffer.alloc(0), truncated: false };
+  const hostEnv = spec.env ?? process.env;
+  const env: Record<string, string> = { PATH: dirname(spec.runtime), HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', ...spec.environment };
+  for (const name of ['NIX_LD', 'NIX_LD_LIBRARY_PATH']) {
+    const value = hostEnv[name];
+    if (value !== undefined) env[name] = value;
+  }
+  const child = spawn(spec.runtime, pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry)), {
+    cwd: spec.closureFolder, env, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  await new Promise<void>((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', (error) => reject(new Error(`${fileURLToPath(import.meta.url)}:202: plugin runtime ${spec.runtime} could not start ${join(spec.closureFolder, spec.entry)}: ${error.message}`)));
+  });
+  child.stderr!.on('data', (chunk: Buffer) => {
+    stderr.bytes += chunk.length;
+    const held = Buffer.concat([stderr.kept, chunk]);
+    if (held.length > STDERR_LOG_BYTES) {
+      stderr.kept = held.subarray(held.length - STDERR_LOG_BYTES);
+      stderr.truncated = true;
+    } else stderr.kept = held;
+  });
+  const signal = (name: NodeJS.Signals): void => {
+    if (child.pid === undefined) return;
+    try {
+      if (process.platform === 'win32') child.kill(name);
+      else process.kill(-child.pid, name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+  };
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => {
+    child.on('exit', (code, signal) => done({ code, signal }));
+  });
+  return {
+    pid: child.pid!,
+    write: (text) => { child.stdin!.write(text); },
+    onStdout: (onData, onEnd) => {
+      child.stdout!.on('data', (chunk: Buffer) => onData(chunk));
+      child.stdout!.on('end', () => onEnd());
+      child.on('error', (error) => onEnd(error.message));
+    },
+    freeze: () => signal('SIGSTOP'),
+    thaw: () => signal('SIGCONT'),
+    kill: () => signal('SIGKILL'),
+    counters: () => ({ memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 }),
+    stderr: () => {
+      writeFileSync(stderrFile, stderr.kept);
+      return { file: stderrFile, totalBytes: stderr.bytes, truncated: stderr.truncated };
+    },
+    exited,
+    dispose: async () => undefined,
+  };
 }
 
 /** How many plugin cgroups this process has made: one more is never the name of an earlier one. */
