@@ -68,6 +68,16 @@ const nestedGroups = [
 ];
 
 describe('the groups of the manifest', () => {
+  test('catalogue-only and member kinds count in status without becoming navigation rows', () => {
+    const state = status({ groups: [{ group: 'code', labels: { en: 'Code' } }], kinds: [
+      kind({ kind: 'code.file', group: 'code', count: 2, page: true }),
+      kind({ kind: 'code.member', group: 'code', count: 3, page: false }),
+    ] });
+    const groups = navGroups(state, () => 0);
+    expect(groups[0]!.total).toBe(5);
+    expect(groups[0]!.kinds.map((row) => row.kind)).toEqual(['code.file']);
+  });
+
   test('a sub-area is a group of its own with a parent, and the navigation nests it under that parent with one total', () => {
     const state = {
       groups: nestedGroups,

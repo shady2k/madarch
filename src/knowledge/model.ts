@@ -489,14 +489,6 @@ export interface KindEstimate {
   readonly seconds: number | null;
 }
 
-/** The catalogue's fill selection as the store keeps it (madarch-stm0.6): what is checked, the agent and the cap. */
-export interface FillSelectionView {
-  readonly selected: readonly string[];
-  readonly agent: string | null;
-  readonly tokenCap: number | null;
-  readonly savedAt: string;
-}
-
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
 export interface CatalogView {
   product: { name: string; id: string };
@@ -536,6 +528,8 @@ export interface KindSummary {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** Whether this kind has a page; false for members and catalogue-only kinds. */
+  page?: boolean;
   /** The form the kind's listing page takes, from the manifest (`listing:`); absent for the plain table of names and places. */
   listing?: 'operations' | 'glossary';
   /** Where the kind stands in the navigation, from the manifest (`nav:`); absent for a kind page among the pages by kind. */

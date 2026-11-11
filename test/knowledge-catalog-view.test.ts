@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { catalogKinds } from '../src/knowledge/catalog-view.js';
+import { kindSummaries } from '../src/knowledge/render.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import type { MarkdownEntity } from '../src/knowledge/markdown.js';
@@ -135,6 +136,14 @@ function context(): RenderContext {
 }
 
 describe('the catalogue view lists every declared kind', () => {
+  test('status includes catalogue-only kinds and preserves the catalogue counts and page markers', async () => {
+    const ctx = context();
+    const catalogue = await catalogKinds(ctx);
+    const status = await kindSummaries(ctx);
+    expect(status.map(({ kind, count, page }) => ({ kind, count, page }))).toEqual(catalogue.map(({ kind, count, page }) => ({ kind, count, page })));
+    expect(status.find((kind) => kind.kind === 'empty')).toMatchObject({ count: 0, page: false });
+  });
+
   test('a kind the graph holds is listed with its count and its stage, and a kind no stage fills with zero and no producer', async () => {
     const kinds = await catalogKinds(context());
     expect(kinds.map((kind) => kind.kind)).toEqual(['filled', 'empty', 'written', 'by-person']);

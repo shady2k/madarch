@@ -13,6 +13,7 @@ import { parseKinds } from '../src/knowledge/kinds.js';
 import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
+import { catalogKinds } from '../src/knowledge/catalog-view.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
@@ -149,9 +150,12 @@ const block = <T extends Block['type']>(model: PageModel, type: T, at = 0): Extr
 };
 
 describe('details, members and empty sections', () => {
-  test('a member kind has no catalogue entry, and its old address opens the parent at the member anchor', async () => {
+  test('status counts a member without a page, and its old address opens the parent at the member anchor', async () => {
     const facets = (await kindSummaries(ctx)).find((summary) => summary.kind === 'code.facet');
-    expect(facets).toBeUndefined();
+    expect(facets).toMatchObject({ count: 1, page: false });
+    const summary = await kindSummaries(ctx);
+    const catalogue = await catalogKinds(ctx);
+    expect(summary.map(({ kind, count, page }) => ({ kind, count, page }))).toEqual(catalogue.map(({ kind, count, page }) => ({ kind, count, page })));
     expect(await listEntities(ctx, 'code.facet', { limit: 10 })).toBeUndefined();
     const model = await page(FACET, 'ru');
     expect(model.id).toBe(FILE);

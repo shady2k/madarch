@@ -6,7 +6,6 @@ import { relativeTime } from '../test/relative-time.js';
 import { pluralForm } from '../../../src/knowledge/plural.js';
 import { COUNTED_FIGURES, historyFigureText } from '../../../src/knowledge/history-figures.js';
 import { historyNoteText } from './knowledge/history-note.js';
-import { unitLimitWords } from './knowledge/unit-bounds.js';
 
 function leafKeys(value: unknown, prefix = ''): string[] {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return [prefix];
@@ -40,7 +39,7 @@ const COUNT_MESSAGES: {
   { key: 'knowledge.historyRemoved', ru: ['−1 строка', '−2 строки', '−5 строк', '−0 строк'], en: ['−1 line', '−2 lines', '−5 lines', '−0 lines'] },
   { key: 'knowledge.historyNote.noCounts', ru: ['У 1 файла нет числа строк: двоичный файл или путь, оставшийся от переименования.', 'У 2 файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.', 'У 5 файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.', 'У 0 файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.'], en: ['1 of the files reports no line count: a binary file, or a path a rename left behind.', '2 of the files report no line count: a binary file, or a path a rename left behind.', '5 of the files report no line count: a binary file, or a path a rename left behind.', '0 of the files report no line count: a binary file, or a path a rename left behind.'] },
   { key: 'knowledge.catalogueEntities', ru: ['1 запись', '2 записи', '5 записей', '0 записей'], en: ['1 record', '2 records', '5 records', '0 records'] },
-  { key: 'knowledge.catalogueKinds', ru: ['1 сущность', '2 сущности', '5 сущностей', '0 сущностей'], en: ['1 entity', '2 entities', '5 entities', '0 entities'] },
+  { key: 'knowledge.catalogueKinds', ru: ['1 вид', '2 вида', '5 видов', '0 видов'], en: ['1 kind', '2 kinds', '5 kinds', '0 kinds'] },
   { key: 'knowledge.diagram.depthN', ru: ['1 шаг от этой страницы', '2 шага от этой страницы', '5 шагов от этой страницы', '0 шагов от этой страницы'], en: ['1 hop from this page', '2 hops from this page', '5 hops from this page', '0 hops from this page'] },
   { key: 'knowledge.diagram.heatIsChurn', ru: ['Теплее — файл меняли чаще (до 1 коммита).', 'Теплее — файл меняли чаще (до 2 коммитов).', 'Теплее — файл меняли чаще (до 5 коммитов).', 'Теплее — файл меняли чаще (до 0 коммитов).'], en: ['Warmer is more often changed (up to 1 commit).', 'Warmer is more often changed (up to 2 commits).', 'Warmer is more often changed (up to 5 commits).', 'Warmer is more often changed (up to 0 commits).'] },
   { key: 'journal.size', ru: ['1 байт', '2 байта', '5 байт', '0 байт'], en: ['1 byte', '2 bytes', '5 bytes', '0 bytes'] },
@@ -165,18 +164,7 @@ describe('wiki internationalization', () => {
     }
   });
 
-  test('the bound of one unit is a phrase for each numeral, never a bare number after a fixed word', () => {
-    const bounds = (turns: number): { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number; editorialRequestsPerPage: number } => ({ turns, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 });
-    const words = (language: 'en' | 'ru', turns: number): string => i18n.t('knowledge.writer.bound', { ...unitLimitWords(bounds(turns), (key, options) => i18n.t(key, { ...options, lng: language })), domains: 12, lng: language });
-    expect(words('en', 1)).toContain('bound by 1 turn, 10 minutes, 80 tool calls and 5 refused writes');
-    expect(words('en', 30)).toContain('bound by 30 turns, 10 minutes, 80 tool calls and 5 refused writes');
-    expect(words('ru', 1)).toContain('ограничен: 1 ход, 10 минут, 80 вызовов инструментов и 5 отклонённых записей');
-    expect(words('ru', 2)).toContain('ограничен: 2 хода, 10 минут, 80 вызовов инструментов и 5 отклонённых записей');
-    expect(words('ru', 5)).toContain('ограничен: 5 ходов, 10 минут, 80 вызовов инструментов и 5 отклонённых записей');
-    expect(i18n.t('knowledge.refreshNote', { ...unitLimitWords(bounds(1), (key, options) => i18n.t(key, { ...options, lng: 'en' })), lng: 'en' }))
-      .toContain('Each unit is bound by 1 turn and 10 minutes.');
-    expect(i18n.t('knowledge.refreshNote', { ...unitLimitWords(bounds(1), (key, options) => i18n.t(key, { ...options, lng: 'ru' })), lng: 'ru' }))
-      .toContain('Каждый юнит ограничен: 1 ход и 10 минут.');
+  test('reset counts keep each numeral’s form', () => {
     expect(i18n.t('knowledge.reset.answers', { count: 1, lng: 'en' })).toBe('1 answer stays. People’s corrections stay too.');
     expect(i18n.t('knowledge.reset.answers', { count: 2, lng: 'en' })).toBe('2 answers stay. People’s corrections stay too.');
     expect(i18n.t('knowledge.reset.answers', { count: 1, lng: 'ru' })).toBe('Сохранится 1 ответ. Поправки и исправления сохранятся тоже.');

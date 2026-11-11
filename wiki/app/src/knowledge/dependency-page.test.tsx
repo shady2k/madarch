@@ -158,7 +158,7 @@ describe('the dependency graph page', () => {
     expect(section.getAttribute('data-area')).toBe('requirements');
     expect(section.open).toBe(false);
     expect(section.querySelector('summary')!.textContent).toContain('Requirements');
-    expect(section.querySelector('summary')!.textContent).toContain('1 entity');
+    expect(section.querySelector('summary')!.textContent).toContain('1 kind');
     expect(section.querySelector('[data-testid="dependencies-independent-counts"]')!.textContent).toBe('1 partial');
     expect(section.querySelector('[data-testid="dependencies-independent-list"]')!.textContent).toContain('FAQ');
     expect(localeKeyIn(renderedText(page))).toBeUndefined();

@@ -18,12 +18,12 @@ import { Badge } from '@/components/ui/badge.js';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
-import { getProducts, startFill } from './api.js';
+import { getProducts } from './api.js';
+import { Card, CardContent } from '@/components/ui/card.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, NewHome, SourcePage, StatementPage, Overview } from './pages.js';
 import { DependencyPage } from './dependency-page.js';
-import { FillSidePanel } from './fill-panel.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
@@ -172,7 +172,7 @@ interface NavGroup {
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !inLoop(kind));
-  const shown = status.kinds.filter((kind) => !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
+  const shown = status.kinds.filter((kind) => kind.page !== false && !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, short: group.short as Record<string, string> | undefined, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
@@ -360,17 +360,11 @@ function pagesOf(status: WikiStatus): number {
 }
 
 /**
- * The fill's state in the toolbar and the wiki's one fill control (madarch-stm0.6): the badge carries the status dot
- * and opens the panel from the right, where the sections, the agent and the cap are chosen and the fill is pressed. The
- * badge has no second Sync button beside it; while a run works it says how far it is, and after it, when it ended and how
- * many pages the wiki holds. Choosing the pages' language stays the one request of the badge itself — it starts the run
- * that writes them in it.
+ * The fill status and current run controls. Starting a fill belongs to /fill;
+ * the toolbar menu only links there.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t, i18n } = useTranslation();
-  const [starting, setStarting] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-  const [pagesLanguage, setPagesLanguage] = useState<string | null>(null);
   // The badge's panel is a plain dialog in the toolbar, not a menu with a portal of its own: a badge is a button, and
   // what it opens is reached by the keyboard (madarch-m38l.23) — Tab from the badge opens it and moves into it, Escape
   // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
@@ -379,8 +373,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const wrap = useRef<HTMLDivElement | null>(null);
   const focusPanel = useRef(false);
   const [open, setOpen] = useState(false);
-  /** The side panel's node: it stands at the window's right edge, so the badge measures nothing for it. */
-  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-side-panel"]');
+  /** The menu opened by the status badge. */
+  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-menu"]');
   const openPanel = (): void => {
     setOpen(true);
     focusPanel.current = true;
@@ -447,23 +441,9 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     narrow = null;
     if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   }
-  // A product with a repository and no fill yet offers Fill in the top bar (the owner, 2026-11-10): the press opens the
-  // panel over the page, where the person chooses the sections and the agent and reads the estimate before pressing. A
-  // product with no repository has nothing to fill and says so on its home page instead.
+  // A product with a repository offers the menu even before its first fill.
   else if (status.repositories.length > 0) { label = t('knowledge.fillButton'); solid = true; }
   else return null;
-  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
-  // The pages' language is the one request in the popover, and it is the fill: the run that writes them in that language.
-  const start = (chosen: 'ru' | 'en'): void => {
-    if (busy) return;
-    setPagesLanguage(chosen);
-    setStarting(true);
-    setRefused(null);
-    startFill(status.chosenAgent?.id ?? null, chosen !== status.language ? chosen : undefined).then(
-      () => { setStarting(false); refresh(); },
-      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
   // Below a phone's width the badge is its state's mark and the count on one line; its name and the popover keep the
   // whole sentence. A held or ended run has its figures in its sentence, so its count stands only where the words go.
   const compact = authoring && writer.units.length > 0;
@@ -472,7 +452,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     <div
       // No box of its own: the badge stays the toolbar's flex item it always was, so the one row keeps its width at a
       // phone's width, and the panel is placed against the window rather than against this wrapper.
-      className="contents"
+      className="relative"
       ref={wrap}
       onKeyDown={(event) => {
         // Escape gives the badge back its focus, wherever in the panel it was pressed.
@@ -487,7 +467,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         setOpen(false);
       }}
     >
-      <button
+      <Button
         ref={chip}
         type="button"
         className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`}
@@ -519,15 +499,11 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
                   : <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{narrow}</span></>}
           </span>
         </Badge>
-      </button>
+      </Button>
       {open && (
-        <FillSidePanel
-          status={status}
-          refresh={refresh}
-          onClose={() => setOpen(false)}
-          id="fill-menu-panel"
-          extra={<div className="mt-3 grid gap-2 border-t border-line pt-3" data-testid="fill-menu-extra">            <div className="language-menu-label" id="fill-menu-title">{t('knowledge.fillMenuTitle')}</div>
-            <div className="language-menu-separator" role="separator" />
+        <Card id="fill-menu-panel" role="dialog" aria-label={t('knowledge.fillMenuTitle')} data-testid="fill-menu" className="absolute right-0 top-full z-40 mt-2 max-h-[70vh] w-[min(24rem,90vw)] overflow-y-auto shadow-[var(--shadow-high)]">
+          <CardContent className="grid gap-2 p-3">
+            <KLink href={WIKI_FILL} testId="fill-menu-choose" className="rounded-[var(--radius-control)] px-2 py-2 text-small text-ink hover:bg-[var(--surface-hover)]">{t('knowledge.fillChoose')}</KLink>
             {(authoring || filling) && (
               // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
               // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
@@ -552,24 +528,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
             {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
             {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
             {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
-            <div className="px-2 pb-2">
-              {status.chosenAgent !== null && (
-                <div role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
-                  <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
-                  <div className="flex flex-wrap gap-2">
-                    {(['ru', 'en'] as const).map((code) => (
-                        <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
-                          <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} disabled={busy} onChange={() => start(code)} onClick={(event) => event.stopPropagation()} />
-                          <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
-                        </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {refused !== null && <p className="mb-0 mt-0 text-small" role="alert" data-testid="fill-menu-refused">{refused}</p>}
-            </div>
-</div>}
-        />
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -30,7 +30,7 @@ import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './
 import { entityAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
-import { kindNumbers } from './kind-numbers.js';
+import { catalogKinds } from './catalog-view.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
 
@@ -327,22 +327,24 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 }
 
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
-  const numbers = await kindNumbers(ctx);
-  return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
-    kind: decl.name,
-    source: decl.source,
-    single: decl.file !== undefined,
-    // The listing and the navigation the manifest gives the kind travel to the app, which holds no kind of its own: an
-    // app screen asks the kind summary which table the kind's page draws and where the kind stands in the navigation.
-    ...(decl.listing === undefined ? {} : { listing: decl.listing }),
-    ...(decl.nav === undefined ? {} : { nav: decl.nav }),
-    ...(decl.group === undefined ? {} : { group: decl.group }),
-    origins: originsOf(ctx, decl),
-    ...(decl.descriptions === undefined ? {} : { descriptions: { ...decl.descriptions } }),
-    ...(decl.labels === undefined ? {} : { labels: { ...decl.labels } }),
-    ...(numbers.statements.has(decl.name) ? { statements: numbers.statements.get(decl.name)! } : {}),
-    count: numbers.count(decl.name, decl.source),
-  }));
+  const rows = await catalogKinds(ctx);
+  return rows.map((row) => {
+    const decl = ctx.manifest.kinds.get(row.kind);
+    return {
+      kind: row.kind,
+      source: decl?.source ?? 'graph',
+      single: decl?.file !== undefined,
+      page: row.page,
+      ...(decl?.listing === undefined ? {} : { listing: decl.listing }),
+      ...(decl?.nav === undefined ? {} : { nav: decl.nav }),
+      ...(decl?.group === undefined ? {} : { group: decl.group }),
+      origins: decl === undefined ? [] : originsOf(ctx, decl),
+      ...(row.descriptions === undefined ? {} : { descriptions: row.descriptions }),
+      ...(row.labels === undefined ? {} : { labels: row.labels }),
+      ...(row.statements === undefined ? {} : { statements: row.statements }),
+      count: row.count,
+    };
+  });
 }
 
 /** A node of the Markdown tree, as the excerpt's reading walks it. */

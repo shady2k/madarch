@@ -73,7 +73,7 @@ export const ENTITY_ADDRESS_PREFIX = '/e/';
 export const addressOfEntity = (id: string): string => `/e/${addressName(id)}`;
 export const addressOfKind = (kind: string): string => `/kind/${addressName(kind)}`;
 
-/** The address of the catalogue: the one place a graph page sends a reader to choose entities. */
+/** The address of the browse-only kind catalogue. */
 export const addressOfCatalogue = (): string => WIKI_CATALOGUE;
 
 /** The API the app reads: one address per answer. */
@@ -93,7 +93,6 @@ export const API = {
   run: '/api/run',
   products: '/api/products',
   fill: '/api/fill',
-  fillSelection: '/api/fill-selection',
   fillSelected: '/api/fill-selected',
   pause: '/api/pause',
   stop: '/api/stop',

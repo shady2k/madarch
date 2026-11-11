@@ -39,7 +39,7 @@ import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { readMarkdownEntitiesFrom, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillSelectionView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -89,7 +89,6 @@ import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../p
 import { WikiReadError } from './read-error.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { readProblemDismissalsIn, writeProblemDismissal } from '../loop/problem-files.js';
-import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
 import { readUnitStates } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 
@@ -1953,20 +1952,6 @@ export class KnowledgeProduct {
       states.set(rest.slice(colon + 1), state);
     }
     return states;
-  }
-
-  /** The catalogue's fill selection as the store keeps it (madarch-stm0.6): checked kinds, the agent and the cap. */
-  async fillSelection(): Promise<FillSelectionView> {
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    return await readFillSelection(await this.open(), product.id);
-  }
-
-  /** Writes the selection the catalogue page made; the checked kinds are the given ones, in code point order. */
-  async saveFillSelection(selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null }): Promise<FillSelectionView> {
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    return await writeFillSelection(await this.open(), product.id, selection);
   }
 
   /**

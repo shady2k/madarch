@@ -406,26 +406,18 @@ describe('the fill card', () => {
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
 
-  test('an empty product with a repository says what to do and starts the fill on the press of one button', async () => {
+  test('an empty product with a repository links to the fill page without starting a run', async () => {
     const calls: string[] = [];
     stubFetch(calls);
-    let refreshed = 0;
-    const container = into(createElement(FillCard, { status: status(), refresh: () => { refreshed += 1; } }));
-    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');
+    const container = into(createElement(FillCard, { status: status(), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the fill link');
     expect(container.textContent).toContain('This wiki is empty');
     expect(container.textContent).toContain('(training)');
-    (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
-    await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['GET /api/agents', 'POST /api/fill {"agent":null}']);
-  });
-
-  test('a refusal of the server is shown in its own words', async () => {
-    stubFetch([], () => new Response(JSON.stringify({ message: 'the repositories training are not checked out under repos/: run "madarch bootstrap" first' }), { status: 409 }));
-    const container = into(createElement(FillCard, { status: status(), refresh: () => undefined }));
-    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');
-    (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
-    await until(() => container.querySelector('[data-testid=fill-refused]') !== null, 'the refusal');
-    expect(container.querySelector('[data-testid=fill-refused]')!.textContent).toContain('run "madarch bootstrap" first');
+    const link = container.querySelector('[data-testid=fill-start]')!;
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe(appPath('/fill'));
+    expect(container.querySelector('input, select, [data-testid=agent-bound]')).toBeNull();
+    expect(calls).toEqual([]);
   });
 
   test('a product with no repository says to connect one and offers no button that cannot work', async () => {
@@ -479,37 +471,27 @@ describe('the agent stage', () => {
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
   });
 
-  test('the empty wiki offers the agents with their state, states the bound in plain words, and one press installs the adapter, saves the choice and starts the fill', async () => {
+  test('the empty wiki leaves agent choice and starting the run to the fill page', async () => {
     const calls: string[] = [];
     stubFetch(calls);
-    let refreshed = 0;
-    const container = into(createElement(FillCard, { status: status(), refresh: () => { refreshed += 1; } }));
-    await until(() => container.querySelector('[data-testid=agent-claude-code]') !== null, 'the agents');
-    const claude = container.querySelector('[data-testid=agent-claude-code]')!;
-    expect(claude.textContent).toContain('pressing the button below installs @agentclientprotocol/claude-agent-acp 0.93.0 (about 314 MB) into /opt/madarch/agents/claude');
-    expect(container.querySelector('[data-testid=agent-codex]')!.textContent).toContain('Codex has no sign-in here');
-    const bound = container.querySelector('[data-testid=agent-bound]')!.textContent!;
-    expect(bound).toContain('30 turns, 10 minutes, 80 tool calls and 5 refused writes');
-    expect(bound).toContain('Nothing runs an agent until you press the button.');
-    // With no pick the button is the plain fill; picking an agent makes the same button the whole consent.
-    expect(container.querySelector('[data-testid=fill-start]')!.textContent).toBe('Start the fill');
-    ((claude.querySelector('input')) as HTMLInputElement).click();
-    await until(() => container.querySelector('[data-testid=fill-start]')!.textContent === 'Start the fill and let Claude Code write the pages', 'the button');
-    (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
-    await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['GET /api/agents', 'POST /api/agent {"agent":"claude-code","install":true}', 'POST /api/fill {"agent":"claude-code","language":"en"}']);
+    const container = into(createElement(FillCard, { status: status(), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the fill link');
+    expect(container.querySelector('[data-testid=fill-start]')!.getAttribute('href')).toBe(appPath('/fill'));
+    expect(container.querySelector('[data-testid=agent-claude-code], [data-testid=agent-codex], [data-testid=agent-bound]')).toBeNull();
+    expect(calls).toEqual([]);
   });
 
-  test('a filled product with no pages offers the agent on a card whose button needs a chosen agent', async () => {
+  test('a filled product with no pages links to the fill page without fetching or choosing an agent', async () => {
     const calls: string[] = [];
     stubFetch(calls);
     const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' } }), refresh: () => undefined }));
     await until(() => container.querySelector('[data-state=offer]') !== null, 'the offer');
     expect(container.textContent).toContain('Let an agent write the product pages');
-    expect((container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain('Choose Claude Code or Codex to let an agent write.');
-    await until(() => calls.includes('GET /api/agents'), 'the agent request');
-    expect(calls).toEqual(['GET /api/agents']);
+    const link = container.querySelector('[data-testid=fill-start]')!;
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe(appPath('/fill'));
+    expect(container.querySelector('input, select')).toBeNull();
+    expect(calls).toEqual([]);
   });
 
   test('the product pages say a stage is under way in one line, with no paths and the way to the fill page', async () => {
@@ -610,18 +592,18 @@ describe('the agent stage', () => {
     expect(container.textContent).not.toContain('What the refresh will do');
   });
 
-  test('a stage that ended with a failure says so and offers to try again', async () => {
+  test('a stage that ended with a failure says so and links to the fill page to try again', async () => {
     const calls: string[] = [];
     stubFetch(calls);
-    let refreshed = 0;
     const writer: WikiStatus['writer'] = { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'failed' }], message: 'some pages were not written; each unit above says why.' };
-    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, writer }), refresh: () => { refreshed += 1; } }));
+    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, writer }), refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=writer-retry]') !== null, 'the retry');
     expect(container.querySelector('[data-testid=writer-line]')!.textContent).toContain('Codex did not finish the pages');
     expect(container.querySelector('[data-testid=writer-message]')!.textContent).toContain('some pages were not written');
-    (container.querySelector('[data-testid=writer-retry]') as HTMLButtonElement).click();
-    await until(() => refreshed === 1, 'the refresh');
-    expect(calls.at(-1)).toBe('POST /api/fill {"agent":"codex"}');
+    const retry = container.querySelector('[data-testid=writer-retry]')!;
+    expect(retry.tagName).toBe('A');
+    expect(retry.getAttribute('href')).toBe(appPath('/fill'));
+    expect(calls).toEqual([]);
   });
 });
 
@@ -865,7 +847,7 @@ describe('document links', () => {
 });
 
 
-describe('the badge and the panel it opens', () => {
+describe('the badge and its fill menu', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
   });
@@ -893,29 +875,39 @@ describe('the badge and the panel it opens', () => {
     expect(localeKeyIn(renderedText(line))).toBeUndefined();
   });
 
-  test('a product with a repository and no fill yet offers Fill in the top bar, and its press opens the panel', async () => {
+  test('a product with a repository and no fill yet opens a menu linking to the fill page without starting a run', async () => {
     await setWikiLanguage('en');
-    stubFetch([]);
+    const calls: string[] = [];
+    stubFetch(calls);
     const empty = status({ filled: false, repositories: [{ name: 'training', filled: false }], fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, chosenAgent: null, home: null });
     const container = into(createElement(FillMenu, { status: empty, refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the Fill button');
     const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
     expect(chip.textContent).toBe('Fill');
-    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
     chip.click();
-    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
-    // Nothing is filled yet, so the panel is where the person chooses sections, agent and cap before the one press.
-    expect(container.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
-    // A product with no repository has nothing to fill: it offers no button that cannot work.
+    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the menu');
+    const menu = container.querySelector('[data-testid=fill-menu]')!;
+    const choose = menu.querySelector('[data-testid=fill-menu-choose]')!;
+    expect(choose.tagName).toBe('A');
+    expect(choose.textContent).toBe('Fill…');
+    expect(choose.getAttribute('href')).toBe(appPath('/fill'));
+    expect(menu.querySelector('input, select')).toBeNull();
+    expect(menu.querySelector('[data-testid=fill-start], [data-testid=fill-side-press], [data-testid=menu-language]')).toBeNull();
+    expect(container.querySelector('[data-testid=fill-side-panel]')).toBeNull();
+    expect(localeKeyIn(renderedText(menu))).toBeUndefined();
+    expect(calls).toEqual([]);
+    // With no repository there is nothing to fill, so no badge offers an unusable action.
     rendered?.unmount();
     document.body.innerHTML = '';
     const bare = into(createElement(FillMenu, { status: status({ filled: false, repositories: [] }), refresh: () => undefined }));
     await new Promise((rest) => setTimeout(rest, 20));
     expect(bare.querySelector('[data-testid=fill-chip]')).toBeNull();
+    expect(calls).toEqual([]);
   });
 
-  test('Tab on the badge opens the panel and moves into it; Escape shuts it and gives the badge its focus back', async () => {
-    stubFetch([]);
+  test.each(['Tab', 'ArrowDown'])('%s on the badge opens the menu; Escape closes it and returns focus', async (key) => {
+    const calls: string[] = [];
+    stubFetch(calls);
     const container = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
     const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
@@ -923,60 +915,66 @@ describe('the badge and the panel it opens', () => {
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     expect(container.querySelector('[data-testid=fill-menu]')).toBeNull();
     chip.focus();
-    chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
-    const panel = container.querySelector('[data-testid=fill-side-panel]') as HTMLElement;
-    expect(panel.getAttribute('role')).toBe('dialog');
-    expect(panel.getAttribute('aria-modal')).toBe('false');
+    chip.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the menu');
+    const menu = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
+    expect(menu.getAttribute('role')).toBe('dialog');
     expect(chip.getAttribute('aria-expanded')).toBe('true');
-    expect(chip.getAttribute('aria-controls')).toBe(panel.id);
-    // The focus went in, on the panel's first control: its Close. The run's own controls and the language choice follow,
-    // inside the panel's own text.
-    await until(() => panel.contains(document.activeElement), 'the focus inside the panel');
-    expect(document.activeElement).toBe(panel.querySelector('[data-testid=fill-side-close]') as HTMLElement);
-    expect(panel.querySelector('[data-testid=fill-side-sections]')).not.toBeNull();
-    expect(panel.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
-    expect(panel.querySelector('[data-testid=fill-side-catalogue]')).not.toBeNull();
-    expect(localeKeyIn(renderedText(panel))).toBeUndefined();
-    // The languages are reachable and offered: both radios are enabled with nothing running.
-    expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([false, false]);
-    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    await until(() => container.querySelector('[data-testid=fill-side-panel]') === null, 'the panel to close');
+    expect(chip.getAttribute('aria-controls')).toBe(menu.id);
+    await until(() => document.activeElement === menu.querySelector('[data-testid=fill-menu-choose]'), 'focus on the fill link');
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the menu to close');
     expect(document.activeElement).toBe(chip);
     expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(calls).toEqual([]);
   });
 
-  test('after a finished run the panel lists the pages the run changed, as links', async () => {
-    stubFetch([]);
-    const changed = status({ fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }, { id: 'domain:payment', title: 'Payment' }] } });
+  test('a finished run with changed pages offers the fill page, not a side panel or fill controls', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    const changed = status({ fill: { state: 'done', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }] } });
     const container = into(createElement(FillMenu, { status: changed, refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
     (container.querySelector('[data-testid=fill-chip]') as HTMLElement).click();
-    await until(() => container.querySelector('[data-testid=fill-side-changed]') !== null, 'the changed pages');
-    const links = [...container.querySelectorAll('[data-testid=fill-side-changed] a')].map((anchor) => [anchor.textContent, anchor.getAttribute('href')]);
-    expect(links).toEqual([
-      ['a.ts', appPath(`/e/${encodeURIComponent('code.file:src/a.ts')}`)],
-      ['Payment', appPath(`/e/${encodeURIComponent('domain:payment')}`)],
-    ]);
-    expect(container.querySelector('[data-testid=fill-side-changed]')!.textContent).toContain('Changed pages: 2');
+    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the menu');
+    expect(container.querySelector('[data-testid=fill-menu-choose]')!.getAttribute('href')).toBe(appPath('/fill'));
+    expect(container.querySelector('[data-testid=fill-side-panel]')).toBeNull();
+    expect(container.querySelector('input, select, [data-testid=fill-start], [data-testid=menu-language]')).toBeNull();
+    expect(calls).toEqual([]);
   });
 
-  test('the panel comes from the right over the page, full height, and scrolls its own words', async () => {
-    stubFetch([]);
+  test('clicking the badge toggles the menu, and a press outside closes it without network requests', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    const container = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
+    chip.click();
+    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the menu');
+    chip.click();
+    await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the toggled menu to close');
+    chip.click();
+    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the reopened menu');
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the outside press to close the menu');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(calls).toEqual([]);
+  });
+
+  test('a live run keeps its status and controls in the menu, not a fill form', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
     const container = into(createElement(FillMenu, { status: running(), refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
     (container.querySelector('[data-testid=fill-chip]') as HTMLElement).click();
-    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
-    const panel = container.querySelector('[data-testid=fill-side-panel]') as HTMLElement;
-    // A panel from the right over the page, not a modal and not a page: it takes the window's height at its right edge,
-    // and its words scroll inside it.
-    for (const held of ['fixed', 'inset-y-0', 'right-0']) expect(panel.className).toContain(held);
-    // Its words scroll inside it: the panel itself is the frame and its body is the scroller.
-    expect(panel.querySelector('.overflow-y-auto')).not.toBeNull();
-    expect(panel.querySelector('[data-testid=fill-side-intro]')!.textContent).toContain('continue');
-    // A run under way is shown in the panel (its own controls), and the languages are spent while it runs.
-    expect(panel.querySelector('[data-testid=run-controls]')).not.toBeNull();
-    expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
+    await until(() => container.querySelector('[data-testid=fill-menu-live]') !== null, 'the live menu');
+    const menu = container.querySelector('[data-testid=fill-menu]')!;
+    expect(menu.querySelector('[data-testid=fill-menu-total]')!.textContent).toBe('The agent is writing · 1/5');
+    expect(menu.querySelector('[data-testid=fill-menu-current]')!.textContent).toContain('Ordering');
+    expect(menu.querySelector('[data-testid=fill-menu-open]')!.getAttribute('href')).toBe(appPath('/fill'));
+    expect([...menu.querySelector('[data-testid=run-controls]')!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
+    expect(menu.querySelector('input, select, [data-testid=fill-start]')).toBeNull();
+    expect(calls).toEqual([]);
   });
 });
 
@@ -1015,13 +1013,13 @@ describe('a run a person pauses or stops', () => {
     // «Не останавливать» closes the question and sends nothing.
     (container.querySelector('[data-testid=stop-cancel]') as HTMLButtonElement).click();
     await until(() => container.querySelector('[data-testid=stop-dialog]') === null, 'the question to close');
-    expect(calls).toEqual([]);
+    expect(calls.filter((call) => call.startsWith('POST '))).toEqual([]);
     // The second press ends the run: one request, and the page reads the run again.
     (container.querySelector('[data-testid=run-stop]') as HTMLButtonElement).click();
     await until(() => container.querySelector('[data-testid=stop-confirm]') !== null, 'the confirmation');
     (container.querySelector('[data-testid=stop-confirm]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['POST /api/stop {"confirm":true}']);
+    expect(calls.filter((call) => call.startsWith('POST '))).toEqual(['POST /api/stop {"confirm":true}']);
     // «Продолжить» is the fill's own press, made for the agent this run writes with.
     (container.querySelector('[data-testid=run-resume]') as HTMLButtonElement).click();
     await until(() => refreshed === 2, 'the resume');
@@ -1043,6 +1041,13 @@ describe('a run a person pauses or stops', () => {
     expect(pause.className).toContain('fill-chip-state-icon');
     expect(chip.querySelector('.animate-pulse')).toBeNull();
     expect(chip.className).not.toContain('fill-chip-writing');
+    (chip as HTMLElement).click();
+    await until(() => bar.querySelector('[data-testid=fill-menu-paused]') !== null, 'the paused menu');
+    const menu = bar.querySelector('[data-testid=fill-menu]')!;
+    expect(menu.querySelector('[data-testid=fill-menu-total]')!.textContent).toBe('Paused: 2 of 4 written');
+    expect([...menu.querySelector('[data-testid=run-controls]')!.children].map((child) => child.textContent)).toEqual(['Resume', 'Stop']);
+    expect(menu.querySelector('[data-testid=fill-menu-choose]')!.getAttribute('href')).toBe(appPath('/fill'));
+    expect(menu.querySelector('input, select, [data-testid=menu-language]')).toBeNull();
     rendered?.unmount();
     document.body.innerHTML = '';
     // The line over the product's pages is the run under way, not the run a person holds: nothing stands over the pages.
@@ -1070,8 +1075,8 @@ describe('a run a person pauses or stops', () => {
     const bar = into(createElement(FillMenu, { status: graph, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
     (bar.querySelector('[data-testid=fill-chip]') as HTMLButtonElement).click();
-    await until(() => bar.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
-    const menu = bar.querySelector('[data-testid=fill-side-panel] [data-testid=run-controls]');
+    await until(() => bar.querySelector('[data-testid=fill-menu]') !== null, 'the menu');
+    const menu = bar.querySelector('[data-testid=fill-menu] [data-testid=run-controls]');
     expect(menu).not.toBeNull();
     expect([...menu!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
   });

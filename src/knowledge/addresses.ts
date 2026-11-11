@@ -100,7 +100,6 @@ export const API = {
   run: '/api/run',
   products: '/api/products',
   fill: '/api/fill',
-  fillSelection: '/api/fill-selection',
   fillSelected: '/api/fill-selected',
   pause: '/api/pause',
   stop: '/api/stop',
