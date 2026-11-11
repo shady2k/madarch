@@ -1,6 +1,6 @@
 /**
  * The wiki's one app (decision 0029): every address of a product's wiki opens
- * the knowledge wiki. A product without a kinds manifest is seeded with the
+ * the knowledge wiki. A product without a kinds manifest has nothing to show:
  * starter set by the server, and a manifest that cannot be read is a page of
  * this same app naming each finding with its file and line. There is no other
  * app and no address that opens one.

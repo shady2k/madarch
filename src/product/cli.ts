@@ -15,6 +15,7 @@ import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createDraft } from './draft.js';
+import { STARTER_TEMPLATES, starterTemplateIds, starterTemplateOf, templateMenuLines } from '../knowledge/starter-templates.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
@@ -120,6 +121,10 @@ function commandHelp(command: string): string {
   }
   if (spec.flags.host) flags.push('  --host <address>      Wiki bind address (default 127.0.0.1)');
   if (spec.flags.open) flags.push('  --no-open             Do not open a browser');
+  if (spec.flags.template) {
+    flags.push(`  --template <id>       The starter template the product is made from: ${STARTER_TEMPLATES.map((template) => `${template.id} (${template.title.en})`).join(', ')}`);
+    flags.push('                        Without it a terminal asks; a command with no terminal takes the first declared');
+  }
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
   if (spec.flags.mode) flags.push('  --mode <mode>         link, move or clone the checkout');
   if (spec.flags.branch) flags.push('  --branch <name>       Branch to clone');
@@ -152,7 +157,7 @@ interface CommandSpec {
   /** The positional words it takes, in order, by their label for the refusals. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean; entity?: boolean; vertex?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean; entity?: boolean; vertex?: boolean; template?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -172,8 +177,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
   trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
-  init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
-  new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
+  init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, template: true } },
+  new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, template: true } },
   serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false, host: true } },
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
@@ -209,6 +214,8 @@ interface Parsed {
   entities?: readonly string[];
   /** `--vertex`: the one entity a vertex fill rewrites, as `<kind>:<key values>`. */
   vertex?: string;
+  /** `--template`: the starter template `new` (and `init`) makes the product from. */
+  template?: string;
   json: boolean;
 }
 
@@ -231,6 +238,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.agent ? ['--agent'] : []),
     ...(flags.entity ? ['--entity'] : []),
     ...(flags.vertex ? ['--vertex'] : []),
+    ...(flags.template ? ['--template'] : []),
     ...(flags.yes ? ['--yes'] : []),
   ];
 }
@@ -243,7 +251,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, probe: false, agent: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, probe: false, agent: undefined, template: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -420,6 +428,15 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       return 2;
     }
     if (name === '--home') parsed.home = value!.trim();
+    else if (name === '--template') {
+      const id = value!.trim();
+      if (starterTemplateOf(id) === undefined) {
+        console.error(`--template ${JSON.stringify(id)} is not a starter template: choose ${starterTemplateIds().join(', ')}`);
+        console.error('run madarch --help for help');
+        return 2;
+      }
+      parsed.template = id;
+    }
     else if (name === '--product') parsed.product = value!.trim();
     else if (name === '--branch') parsed.branch = value!.trim();
     else if (name === '--source') parsed.source = value!;
@@ -527,6 +544,57 @@ export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined 
   if (choice === '' || choice === 'link') return 'link';
   if (choice === 'move' || choice === 'clone') return choice;
   return undefined;
+}
+
+/**
+ * The manifests guide a product with no starter set needs (docs/guides/how-to-write-a-product-s-manifests.md): the
+ * same address the wiki's no-manifest page links to, kept on the repository the release is published from.
+ */
+const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
+
+/**
+ * The template the command makes the product from: `--template` when given, else the menu a terminal gets, else the
+ * first declared template with `defaulted` set — a script that runs `madarch new` gets a product, and the command says
+ * which template it used and how to pick another. The note is the caller's to print, after the product was made and
+ * never into a `--json` line.
+ */
+async function templateChoice(parsed: Parsed): Promise<{ id: string; defaulted: boolean }> {
+  if (parsed.template !== undefined) return { id: parsed.template, defaulted: false };
+  if (process.stdin.isTTY && process.stdout.isTTY) return { id: await askTemplate(), defaulted: false };
+  return { id: STARTER_TEMPLATES[0]!.id, defaulted: true };
+}
+
+/** The line that says a command with no terminal took the first declared template, and how another is chosen. */
+function defaultTemplateNote(id: string): string {
+  const template = starterTemplateOf(id);
+  return `✓ No terminal asks which template to use: using "${template?.title.en ?? id}", the first declared. Pass --template <id> to choose another (${starterTemplateIds().join(', ')}).`;
+}
+
+/** The template menu of a terminal: every declared template, in their declared order, and the first one by default. */
+async function askTemplate(): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log('Which template should the product start from?');
+    for (const line of templateMenuLines()) console.log(line);
+    while (true) {
+      const answer = (await prompt.question(`Choose 1-${STARTER_TEMPLATES.length} (1): `)).trim();
+      if (answer === '') return STARTER_TEMPLATES[0]!.id;
+      const index = Number(answer);
+      if (Number.isInteger(index) && index >= 1 && index <= STARTER_TEMPLATES.length) return STARTER_TEMPLATES[index - 1]!.id;
+      console.error(`choose a number from 1 to ${STARTER_TEMPLATES.length}`);
+    }
+  } finally {
+    prompt.close();
+  }
+}
+
+/** What the product was made from, in the words the newcomer bar uses: the template, its kinds, and where the guide is. */
+function printTemplate(templateId: string, kinds: number): void {
+  const template = starterTemplateOf(templateId);
+  if (template === undefined) return;
+  console.log(kinds === 0
+    ? `✓ Template "${template.title.en}": no manifest was copied; write madarch/kinds.yaml to give the wiki its kinds (${MANIFESTS_GUIDE})`
+    : `✓ Template "${template.title.en}": ${String(kinds)} kinds in madarch/kinds.yaml, with the page templates and plugins those kinds use`);
 }
 
 async function askRepoMode(): Promise<RepoConnectMode> {
@@ -651,17 +719,21 @@ function productHomeOf(named: string | undefined): string {
   if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
-    const result = initLife({ cwd: process.cwd(), home });
+    const choice = await templateChoice(parsed);
+    const template = choice.id;
+    const result = initLife({ cwd: process.cwd(), home, template });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
     const source = result.prints.find((line) => line.startsWith('source: '))?.slice('source: '.length);
     const facts = Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; }));
     if (!parsed.json) {
+      if (choice.defaulted) console.log(defaultTemplateNote(template));
       console.log(`✓ Created the product "${basename(folder)}" in ${displayPath(folder)}`);
+      printTemplate(String(facts['template'] ?? template), Number(facts['kinds'] ?? 0));
       if (source !== undefined) console.log(`✓ Connected your repository ${displayPath(source)} (it stays where it is)`);
       else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(process.cwd())} (it stays where it is)`);
     }
-    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined);
+    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts, ...(choice.defaulted ? { templateNote: defaultTemplateNote(template) } : {}) } : undefined);
   }
   if (command === 'reset') return await resetCommand(parsed.words[0], home, parsed.yes);
   if (command === 'version') return versionCommand();
@@ -697,13 +769,19 @@ function productHomeOf(named: string | undefined): string {
   if (command !== 'new') return report(runWrapper(command, parsed), parsed.json);
 
   // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
-  const draft = createDraft(home === undefined ? {} : { home });
+  const choice = await templateChoice(parsed);
+  const template = choice.id;
+  const draft = createDraft({ ...(home === undefined ? {} : { home }), template });
   if (draft.outcome !== 'created') {
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
   }
-  if (!parsed.json) console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
-  return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name } : undefined);
+  if (!parsed.json) {
+    if (choice.defaulted) console.log(defaultTemplateNote(template));
+    console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
+    printTemplate(draft.template, draft.kinds);
+  }
+  return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name, template: draft.template, kinds: draft.kinds, ...(choice.defaulted ? { templateNote: defaultTemplateNote(template) } : {}) } : undefined);
 }
 
 /**
@@ -936,8 +1014,9 @@ function nextSteps(folder: string, init: boolean): void {
     console.log(`     No agent runs until you press, and each agent unit is bound by ${DEFAULT_STAGE_LIMITS.maxTurns} turns and ${Math.round(DEFAULT_STAGE_LIMITS.maxDurationMs / 60_000)} minutes.`);
     console.log(`  3. The pages are Markdown files in ${shown}/docs/, and they are yours to commit. Your code stays where it is.`);
   } else {
-    console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set.`);
-    console.log('  • The wiki opens on its own pages and starts empty: connect a code repository (madarch repo add <name> <url>), then choose an agent, press "Start the fill" on its first page and watch the pages appear.');
+    console.log(`  • The wiki opens on the page that says the product is created and nothing is read yet: press Fill there to read the product repository into the graph. Nothing is read or written until you press.`);
+    console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set, then Fill again.`);
+    console.log('  • To read code too, connect a code repository (madarch repo add <name> <url>) before the fill; the pages appear as the fill reads them.');
   }
   console.log('  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
 }

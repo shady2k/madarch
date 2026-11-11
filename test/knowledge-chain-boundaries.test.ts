@@ -10,6 +10,7 @@ import { byCodePoint } from '../src/model/order.js';
 import { buildViews, type GraphView } from '../src/knowledge/views.js';
 import { fixtureManifest } from './knowledge-manifest-fixture.js';
 import type { Chain } from '../src/knowledge/model.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 test('final 1: route entry uses actual handled-by; callback references stay unordered with a range',async()=>{
   const fake = new FakeGraph();
@@ -36,7 +37,7 @@ test('final 1: route entry uses actual handled-by; callback references stay unor
   link('code.calls', callback, target);
   const graph = fake.reader();
   const manifest = parseKinds('kinds: {}', 'kinds.yaml', '.');
-  const ctx: RenderContext = { productFolder: '.', manifest, graph, markdown: new Map(), language: 'en', repositories: [], commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined, resolver: new Resolver({ graph, markdown: new Map(), declared: () => true, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }) };
+  const ctx: RenderContext = { productFolder: '.', files: workingTreeFiles('.'), manifest, graph, markdown: new Map(), language: 'en', repositories: [], commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined, resolver: new Resolver({ graph, markdown: new Map(), declared: () => true, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }) };
   const [registered] = await graph.find('code.route:services/api/main.ts#GET:/healthz');
   const [setup] = await graph.find('code.symbol:services/api/main.ts#setup');
   if (registered === undefined || setup === undefined) throw new Error('missing declared fixture');
@@ -185,7 +186,7 @@ function flatFixture(leaves: number) {
 /** The context a chain view is built in: the page's, with nothing but the graph behind it. */
 function chainContext(graph: GraphReader): RenderContext {
   return {
-    graph, productFolder: '', manifest: fixtureManifest({ 'code.route': { sequence: 'route' }, 'code.symbol': {}, 'code.service': { system: 'container' } }),
+    graph, productFolder: '', files: workingTreeFiles(''), manifest: fixtureManifest({ 'code.route': { sequence: 'route' }, 'code.symbol': {}, 'code.service': { system: 'container' } }),
     markdown: new Map(),  language: 'en',  repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),

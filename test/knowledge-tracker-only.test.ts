@@ -77,24 +77,46 @@ describe('a product that is only a tracker', () => {
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     let owner: DatabaseOwner | undefined;
     try {
-      const status = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
-      expect(status.status).toBe(200);
-      const body = (await status.json()) as { kinds?: { kind: string; count: number }[]; filled?: boolean };
-      expect(body.kinds?.some((kind) => kind.kind === 'idea' && kind.count === 1)).toBe(true);
-      expect(body.kinds?.some((kind) => kind.kind === 'task' && kind.count === 1)).toBe(true);
-      expect(body.kinds?.filter((kind) => kind.kind.startsWith('code.'))).toEqual([]);
+      // The manifest stands in the repository and no fill has read it: the second state, `not-filled`, and the graph
+      // holds no kind. Nothing is written until the fill is pressed.
+      const before = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
+      expect(before.status).toBe(200);
+      const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
+      expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, kinds: [], fill: { state: 'idle' } });
+      expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
+      const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:one')}&full=1`, { headers: { accept: 'application/json' } });
+      expect(unopened.status).toBe(404);
+      expect(String(((await unopened.json()) as { message?: string }).message)).toContain('madarch/kinds.yaml');
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
       owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
       const filled = await runFill({ product, database: owner, store, home, runId: 'tracker-only' });
       expect(filled.ok).toBe(true);
       if (!filled.ok) return;
-      expect(filled.units).toEqual([]);
+      // The fill runs the product repository's files as mechanism state (madarch-hsqs stage C): one tree unit, and no
+      // capability stage, because the manifest binds no code kind.
+      expect(filled.units.map((unit) => unit.stageId)).toEqual(['repository-tree']);
+      // The kinds are the graph's, read after the fill that stored the manifest and the entities.
+      const status = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
+      expect(status.status).toBe(200);
+      const body = (await status.json()) as { kinds?: { kind: string; count: number }[]; filled?: boolean };
+      expect(body.filled).toBe(true);
+      expect(body.kinds?.some((kind) => kind.kind === 'idea' && kind.count === 1)).toBe(true);
+      expect(body.kinds?.some((kind) => kind.kind === 'task' && kind.count === 1)).toBe(true);
+      expect(body.kinds?.filter((kind) => kind.kind.startsWith('code.'))).toEqual([]);
 
       const tables = await owner.run((tx) => tx.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`,
       ));
       const names = tables.rows.map((row) => row.table_name);
+      // The mechanism holds the product's files: the path index, the blob text and the entry of each path.
+      expect(names).toContain('file_entry');
+      expect(names.filter((name) => name.startsWith('d_path_'))).toHaveLength(1);
+      expect(names.filter((name) => name.startsWith('d_blob_'))).toHaveLength(1);
+      // No code kind is declared, so no generated kind table stands: the product's opinion layer is empty.
+      for (const generated of ['k_file_', 'k_repository_', 'k_directory_', 'k_commit_', 'k_signature_', 'e_contains_', 'e_as-is_', 'd_language_']) {
+        expect({ table: generated, present: names.some((name) => name.startsWith(generated)) }).toEqual({ table: generated, present: false });
+      }
       for (const absent of ['repository', 'directory', 'file', 'gitlink', 'commit', 'signature', 'blob', 'path', 'language', 'touched', 'history', 'parent_position', 'authored', 'lifecycle', 'responsibility', 'work_span']) {
         expect({ table: absent, present: names.includes(absent) }).toEqual({ table: absent, present: false });
       }
@@ -110,3 +132,4 @@ describe('a product that is only a tracker', () => {
     }
   }, 300_000);
 });
+;

@@ -6,7 +6,8 @@
  * themselves and not the milliseconds they took. A file a person writes beside the server is still seen on the next
  * answer: the key is the stamp of the files the answer reads, not a clock.
  */
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, mock, test, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(60_000);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,8 @@ import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, makeProduct, writeSamplePages } from './knowledge-fixture.js';
+import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withoutPluginTurns } from './knowledge-fixture.js';
+import { fillInProcess } from './fill-inline.js';
 
 const realKinds = await import('../src/knowledge/kinds.js');
 const realReadKinds = realKinds.readKinds;
@@ -34,6 +36,7 @@ const SHOP = 'stamp-shop';
 const CODE = 'stamp-code';
 
 let work: string;
+let home: string;
 let folder: string;
 let server: StartedServer;
 
@@ -51,9 +54,10 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const price = 10;\n');
   git(repository, ['add', '.']);
   git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'first']);
-  const home = join(work, 'home');
+  home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
+  withoutPluginTurns(folder);
   writeSamplePages(folder);
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
@@ -61,7 +65,14 @@ beforeAll(async () => {
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-}, 120_000);
+  await fill();
+}, 180_000);
+
+/** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
+async function fill(): Promise<void> {
+  await fillInProcess(folder, home, join(work, 'store'));
+  await get('/api/status');
+}
 
 afterAll(async () => {
   await server.stop();
@@ -69,7 +80,7 @@ afterAll(async () => {
 });
 
 describe('a status answer reads the manifest once per key', () => {
-  test('eight polls of an unchanged product read the manifest not at all', async () => {
+  test('eight polls of an unchanged product read the manifest file not at all, and the manifest once per graph revision', async () => {
     // The reader a product starts on its first answer moves the key once (its snapshot number joins the key): a poll
     // that finds the reader open is the poll this bounds.
     const warm = await get('/api/status');
@@ -93,25 +104,34 @@ describe('a status answer reads the manifest once per key', () => {
     for (const answer of answers) expect(countOf(answer.body, 'domain')).toBe(1);
   });
 
-  test('a page written beside the product shows on the next answer', async () => {
+  test('a page written and committed beside the product shows after the fill that stores it', async () => {
     const before = await get('/api/status');
     expect(countOf(before.body, 'domain')).toBe(1);
     const refund = SAMPLE_DOMAIN.replace('id: domain:payment', 'id: domain:refund').replace('title: Payment', 'title: Refund');
     writeFileSync(join(folder, 'docs', 'domains', 'refund.md'), refund);
+    // Uncommitted, the page is not part of the product repository's commit: the answer stands until a fill reads it.
+    expect(countOf((await get('/api/status')).body, 'domain')).toBe(1);
+    commitProduct(folder, 'Write the refund domain');
+    await fill();
     const after = await get('/api/status');
     expect(after.status).toBe(200);
-    expect(countOf(after.body, 'domain'), 'a page written beside the server').toBe(2);
+    expect(countOf(after.body, 'domain'), 'a page the fill stored').toBe(2);
   });
 
-  test('a manifest edited beside the product is read again and its answer shows the new group', async () => {
+  test('a manifest edited and committed beside the product shows after the fill, and the wiki never reads the file itself', async () => {
     manifestReads = 0;
     const file = join(folder, 'madarch', 'kinds.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.setIn(['groups', 'stamp-probe'], { en: 'Stamp probe', ru: 'Проба чекана' });
     writeFileSync(file, manifest.toString());
+    expect((await get('/api/status')).body.groups.map((group: { group: string }) => group.group)).not.toContain('stamp-probe');
+    commitProduct(folder, 'Declare a probe group');
+    await fill();
+    // Starting a fill is a write path and reads the working tree once; a reader of a page reads the graph alone.
+    manifestReads = 0;
     const answer = await get('/api/status');
     expect(answer.status).toBe(200);
     expect((answer.body.groups as { group: string }[]).map((group) => group.group)).toContain('stamp-probe');
-    expect(manifestReads, 'the manifest read for an edited manifest').toBeGreaterThan(0);
+    expect(manifestReads, "the working tree's manifest, read by a reader of a page").toBe(0);
   });
 });

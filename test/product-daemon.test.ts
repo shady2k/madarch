@@ -3,6 +3,7 @@ import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { keepsProductEntry, startServer, type StartedServer } from '../src/server/http.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
@@ -18,6 +19,8 @@ function product(home: string, folder: string, id: string): void {
   const path = join(home, folder); mkdirSync(join(path, 'docs'), { recursive: true });
   writeFileSync(join(path, 'workspace.yaml'), `schemaVersion: 1\nid: ${id}\nname: ${folder}\n`);
   writeFileSync(join(path, 'docs', 'vision.md'), `# ${folder} vision\n`);
+  // A hand-made product holds its own copy of the starter set, as `madarch new` leaves it.
+  seedStarterSet(path);
   // A product folder is its own Git checkout; the files producer reads it into the graph.
   gitCommit(path);
 }

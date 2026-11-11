@@ -20,6 +20,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { STARTER_TEMPLATES } from '../src/knowledge/starter-templates.js';
+import { checkStarterTemplate } from './template-check.js';
 
 const USAGE = 'usage: bun run check:catalog [--folder <product folder>]';
 
@@ -90,6 +92,16 @@ function main(): void {
     console.log(
       `catalog: ${areas.length} areas, ${subgroups.length} subgroups, ${kinds.length} kinds (${shown.length} with a page of their own or a member's row); ${manifest.file}`,
     );
+    // Every declared template writes a manifest the wiki reads with no finding, and it declares exactly the kinds the
+    // template names: a template that drops a kind its pages need, or adds one it does not, fails here.
+    for (const template of STARTER_TEMPLATES) {
+      const checked = checkStarterTemplate(template);
+      for (const problem of checked.problems) console.error(problem);
+      if (!checked.ok) { failed = true; continue; }
+      console.log(checked.kinds.length === 0
+        ? `template ${template.id}: no manifest, the product starts from scratch`
+        : `template ${template.id}: ${String(checked.kinds.length)} kinds, no finding`);
+    }
     if (failed) process.exit(1);
   } finally {
     if (temporary) rmSync(folder, { recursive: true, force: true });

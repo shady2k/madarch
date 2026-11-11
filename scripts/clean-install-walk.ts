@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -47,6 +47,12 @@ const npxArgs = ['--yes', 'madarch'];
 const home = join(work, 'products');
 const env = { ...process.env, GIT_AUTHOR_NAME: 'Madarch Clean Walk', GIT_AUTHOR_EMAIL: 'walk@example.invalid', GIT_COMMITTER_NAME: 'Madarch Clean Walk', GIT_COMMITTER_EMAIL: 'walk@example.invalid' };
 async function removeWork(): Promise<void> {
+  // The product's own store server is a process of its own, and it outlives the daemon that started it: the walk's
+  // scratch folder is named in its command line, so a walk stops what still names the folder before the folder goes
+  // (measured: a `postgres -D <scratch>/…/pgdata` left after `madarch stop`). Windows has no `pkill`; there the runner
+  // tears the processes down with the job.
+  if (process.platform !== 'win32') spawnSync('pkill', ['-f', work], { stdio: 'ignore' });
+  await new Promise((done) => setTimeout(done, 500));
   for (let attempt = 0; attempt < 20; attempt++) {
     try { rmSync(work, { recursive: true, force: true }); return; }
     catch (error) {
@@ -100,19 +106,48 @@ async function serveCheck(): Promise<void> {
   // `new` returns at once: the products home's background server serves the
   // draft, so the walk reads the address the command printed instead of
   // waiting on a foreground that no longer exists.
+  /** The daemon's log, for a failure that only the server's own words explain (the status answers a plain 500). */
+  const daemonTail = (): string => {
+    try { return `\nthe server's log at ${join(home, '.madarch-daemon.log')} said:\n${readFileSync(join(home, '.madarch-daemon.log'), 'utf8').split('\n').slice(-40).join('\n')}`; } catch { return ''; }
+  };
   const port = await freePort();
   let failure: Error | undefined;
   let product = '';
   try {
     if (port === 0) throw new Error('the walk could not find a free port on 127.0.0.1 to start the server on');
-    console.log(`$ npx madarch new --home ${home} --port ${port} --json --no-open`);
-    const created = runMadarch('new', ['--home', home, '--port', String(port), '--json', '--no-open']);
+    console.log(`$ npx madarch new --home ${home} --port ${port} --template everything --json --no-open`);
+    const created = runMadarch('new', ['--home', home, '--port', String(port), '--template', 'everything', '--json', '--no-open']);
     if (created.status !== 0) throw new Error(`npx madarch new did not create a draft and serve it (exit ${created.status})`);
     const line = created.stdout.trim().split('\n').filter((part) => part !== '').at(-1) ?? '';
     let facts: { url: string; folder: string; port: number; reused: boolean };
     try { facts = JSON.parse(line) as typeof facts; } catch { throw new Error(`npx madarch new printed no facts to read the wiki's address from: ${created.stdout}`); }
     if (facts.reused !== false || facts.port !== port) throw new Error(`npx madarch new served on ${String(facts.port)} though the walk named the free port ${port}: ${line}`);
     if (!await waitForProduct(facts.url)) throw new Error(`npx madarch new did not serve the graph-backed draft at ${facts.url}`);
+    // The draft's manifest stands in its repository, and no fill has read it into the graph: the wiki reads the second
+    // of its three states, `not-filled`, and nothing is written before the person presses Fill. The first answer may
+    // fail while the product's store opens (a Windows runner installs the server on this first use), so the walk
+    // retries and, when it still fails, prints the server's own words.
+    let state: { manifest?: string; manifestFile?: string; fill?: { state?: string } } = {};
+    let last = '';
+    let answered = 0;
+    const untilStatus = Date.now() + 60_000;
+    while (Date.now() < untilStatus) {
+      const status = await fetch(`${facts.url}api/status`).catch(() => undefined);
+      if (status !== undefined) {
+        answered = status.status;
+        last = await status.text();
+        if (status.ok) {
+          const read = JSON.parse(last) as typeof state;
+          if (read.manifest === 'not-filled') { state = read; break; }
+        }
+      }
+      await new Promise((done) => setTimeout(done, 250));
+    }
+    if (state.manifest !== 'not-filled') throw new Error(`npx madarch new: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
+    if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/kinds.yaml')) throw new Error(`npx madarch new: the draft's status names no madarch/kinds.yaml: ${last}`);
+    if (state.fill?.state !== 'idle') throw new Error(`npx madarch new: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
+    const entry = await fetch(facts.url);
+    if (!entry.ok || !(await entry.text()).includes('<div id="root"')) throw new Error(`npx madarch new: ${facts.url} is not the wiki app's page (HTTP ${entry.status})`);
     product = facts.folder;
   } catch (error) {
     failure = error as Error;

@@ -10,8 +10,6 @@
  * path }` items. A lock that cannot be read is refused with the file and the
  * line, never treated as no lock.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { byCodePoint } from '../model/order.js';
@@ -49,16 +47,13 @@ export function majorOf(version: string): string {
   return cut < 0 ? version : version.slice(0, cut);
 }
 
-/** The lock as the product folder holds it: its entries, a refusal, or absent when the product holds none. */
-export function readPluginLock(productFolder: string): PluginLockRead {
-  const file = PLUGINS_LOCK_FILE;
-  let text: string;
-  try {
-    text = readFileSync(join(productFolder, file), 'utf8');
-  } catch (error) {
-    if ((error as { code?: string }).code === 'ENOENT') return { ok: true, file, entries: [], text: '', absent: true };
-    return { ok: false, file, line: 1, message: `the plugin lock ${file} cannot be read: ${(error as Error).message}` };
-  }
+
+/**
+ * Parses a plugin lock's text, as the working tree or the graph's stored files hold it: `text` undefined is a product
+ * that holds no lock.
+ */
+export function parsePluginLock(text: string | undefined, file: string = PLUGINS_LOCK_FILE): PluginLockRead {
+  if (text === undefined) return { ok: true, file, entries: [], text: '', absent: true };
   const lines = new LineCounter();
   const parsed = parseDocument(text, { lineCounter: lines, uniqueKeys: true });
   const at = (path: (string | number)[]): number => {

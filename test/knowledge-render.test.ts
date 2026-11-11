@@ -12,11 +12,12 @@ import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { readMarkdownEntities } from '../src/knowledge/markdown.js';
+import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { findAnchor } from '../src/knowledge/anchors.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
@@ -72,9 +73,9 @@ beforeAll(async () => {
   add(DATABASE, 'code.database', 'billing', { service: 'billing' });
   add(INVOICES, 'code.table', 'invoices', { schema: 'public', database: 'billing' });
   add(CUSTOMERS, 'code.table', 'customers', { schema: 'public', database: 'billing' });
-  add(`${INVOICES}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
-  add(`${INVOICES}/customer_id`, 'code.column', 'customer_id', { type: 'uuid', nullable: false });
-  add(`${CUSTOMERS}/id`, 'code.column', 'id', { type: 'uuid', nullable: false, primaryKey: true });
+  add('code.column:billing/public.invoices/id', 'code.column', 'id', { table: 'billing/public.invoices', name: 'id', type: 'uuid', nullable: false, primary_key: true });
+  add('code.column:billing/public.invoices/customer_id', 'code.column', 'customer_id', { table: 'billing/public.invoices', name: 'customer_id', type: 'uuid', nullable: false });
+  add('code.column:billing/public.customers/id', 'code.column', 'id', { table: 'billing/public.customers', name: 'id', type: 'uuid', nullable: false, primary_key: true });
   link('code.foreign-key', INVOICES, CUSTOMERS, { column: 'customer_id' }, 'customer_id');
 
   const write = (path: string, text: string): void => {
@@ -160,11 +161,12 @@ beforeAll(async () => {
 
   const read = parseKinds(await Bun.file(join(productFolder, 'madarch/kinds.yaml')).text(), join(productFolder, 'madarch/kinds.yaml'), productFolder);
   expect(read.findings).toEqual([]);
-  const markdown = new Map(readMarkdownEntities(productFolder, read).entities.map((entity) => [entity.id, entity]));
+  const markdown = new Map(readMarkdownEntitiesFrom(workingTreeFiles(productFolder), read).entities.map((entity) => [entity.id, entity]));
   const graph = fake.reader();
   const readSource = async (repo: string | null, path: string): Promise<string | undefined> => (repo === 'shop' ? documents.get(path) : undefined);
   ctx = {
     productFolder,
+    files: workingTreeFiles(productFolder),
     manifest: read,
     graph,
     markdown,
@@ -222,7 +224,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term, members, repository, folder, file, overview-about, overview-how, overview-data, overview-terms, overview-status, overview-reading)');
+    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, relations, related, callers, callees, source, er, sequence, system, modules, treemap, files, history, definition, stated, implementedby, linkedfrom, properties, children, term, members, repository, folder, file, overview-about, overview-how, overview-data, overview-terms, overview-status, overview-reading)');
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 

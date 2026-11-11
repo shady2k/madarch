@@ -460,6 +460,7 @@ export async function readStoreStamp(database: FillStateDatabase): Promise<strin
                                         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash
                                    FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = 'repository'
                                   WHERE n.context_id = 1 AND NOT n.removed) r) AS stamp`,
+
     );
     return rows[0]?.stamp ?? '0:-:-';
   }, 'snapshot');
@@ -662,6 +663,29 @@ export async function readUnitStates(database: FillStateDatabase): Promise<Map<s
   return await run(at, database, 'readUnitStates()', ['fill_unit_generation'], async (executor) => {
     const rows = await executor.query<{ unit_id: string; state: string }>('SELECT DISTINCT ON (unit_id) unit_id, state FROM fill_unit_generation ORDER BY unit_id, generation DESC');
     return new Map(rows.rows.map((row) => [row.unit_id, row.state] as const));
+  }, 'snapshot');
+}
+
+/**
+ * Whether every unit of one stage in the product's live run has ended (madarch-stm0.7.1, piece 3): a whole-graph turn is
+ * planned only after the plugin turns it reads have published. A product with no live run, and a live run with no unit of
+ * the stage, answer true: there is nothing to wait for.
+ */
+export async function stageSettled(database: FillStateDatabase, product: string, stageId: string): Promise<boolean> {
+  const at = here();
+  return run(at, database, `stageSettled(${product}, ${stageId})`, ['fill_run', 'fill_unit', 'fill_unit_generation'], async (executor) => {
+    const active = await executor.query<{ run_id: string }>(
+      "SELECT run_id FROM fill_run WHERE product = $1 AND state IN ('planning', 'running', 'pausing') ORDER BY created_at DESC LIMIT 1",
+      [product],
+    );
+    const runId = active.rows[0]?.run_id;
+    if (runId === undefined) return true;
+    const held = await executor.query<{ state: string }>(
+      'SELECT g.state AS state FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.product = $1 AND u.stage_id = $2 AND g.run_id = $3',
+      [product, stageId, runId],
+    );
+    const settled = new Set(['published', 'superseded', 'failed', 'cancelled', 'stale', 'blocked']);
+    return held.rows.every((row) => settled.has(row.state));
   }, 'snapshot');
 }
 

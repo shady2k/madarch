@@ -24,6 +24,17 @@ import { sha256Hex } from './digest.js';
 import { byCodePoint } from '../model/order.js';
 import { createContractTablesIn, EMPTY_CONTRACT, generatedTableName, type GraphContract } from './contract.js';
 
+/**
+ * The product repository's files as mechanism state (decision 0034, item 14; the stage C review of madarch-hsqs): the
+ * path index, the blob text and the entry that joins them to one repository. Every product's own repository is stored
+ * here by the files producer, whatever entities its manifest declares, so a product that binds no code kind still has
+ * its files in the graph. The names are the dictionary names stage B used, so a store keeps its ids; the entity kinds'
+ * opinion tables refer to the same blob rows.
+ */
+export const FILE_PATH_TABLE = generatedTableName('path', 'dictionary');
+export const FILE_BLOB_TABLE = generatedTableName('blob', 'dictionary');
+export const FILE_ENTRY_TABLE = 'file_entry';
+
 
 /** The metadata schema the stamp and the store's own marks stand in: engine metadata, never the graph. */
 const META_SCHEMA = 'madarch_meta';
@@ -40,8 +51,12 @@ const STORE_SCHEMA_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended('madarc
  * null for a language name; a file opinion written under revision 1 cannot be matched by the writer any more, and its
  * store is made again and filled. Revision 3: the store holds no table but the graph's and its mechanisms' —
  * `layer_entry`, `gap` and `knowledge_fill` are gone — and a store that still holds them is reset and filled once.
+ * Revision 4: the product repository's files are mechanism state (`file_entry` beside its path and blob dictionaries),
+ * so a store written under revision 3 holds no such table and is reset and filled once. Revision 5: a dangling edge's
+ * row carries its discriminator (`unresolved_reference.edge_discriminator`), so two dangling edges of one kind and one
+ * target are two rows; a store written under revision 4 is reset and filled once.
  */
-const SCHEMA_REVISION = 3;
+const SCHEMA_REVISION = 5;
 
 /** The tables a reset drops, in the order their foreign keys allow: the opinions and the catalogue before the nodes. */
 const GENERATED_PREFIXES = ['k_', 'e_', 'd_'] as const;
@@ -111,6 +126,33 @@ const SCHEMA: readonly string[] = [
     expectation jsonb,
     change jsonb NOT NULL
   )`,
+  // The product repository's files as mechanism state: a path's text once, a blob's bytes once, and the entry of each
+  // repository path. The code kinds' opinion rows name the same blob rows (see src/graph/write.ts).
+  `CREATE TABLE IF NOT EXISTS ${FILE_PATH_TABLE} (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    text text NOT NULL UNIQUE CHECK (text <> '')
+  )`,
+  `CREATE TABLE IF NOT EXISTS ${FILE_BLOB_TABLE} (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    hash text NOT NULL UNIQUE,
+    algorithm text NOT NULL,
+    bytes bigint NOT NULL,
+    form text NOT NULL,
+    lines bigint,
+    content text,
+    CHECK ((algorithm = 'sha1' AND length(hash) = 40) OR (algorithm = 'sha256' AND length(hash) = 64)),
+    CHECK ((form = 'binary') = (lines IS NULL)),
+    CHECK ((form = 'text') OR (content IS NULL))
+  )`,
+  `CREATE TABLE IF NOT EXISTS ${FILE_ENTRY_TABLE} (
+    repository text NOT NULL CHECK (repository <> ''),
+    path_id bigint NOT NULL REFERENCES ${FILE_PATH_TABLE} (id),
+    mode text,
+    blob_id bigint REFERENCES ${FILE_BLOB_TABLE} (id),
+    PRIMARY KEY (repository, path_id),
+    CHECK ((mode IS NULL) = (blob_id IS NULL))
+  )`,
+  `CREATE INDEX IF NOT EXISTS file_entry_blob ON ${FILE_ENTRY_TABLE} (blob_id)`,
   // A reference to a key no vertex holds: the publication records it and goes on (A2; the consistency plugin
   // madarch-stm0.7 reads these). A rerun of the same answer records the same row once (nulls not distinct); the row
   // names its producer and, for an edge end, the edge kind and the other endpoint; and it goes when the reference
@@ -124,10 +166,21 @@ const SCHEMA: readonly string[] = [
     target_key jsonb NOT NULL,
     producer text NOT NULL CHECK (producer <> ''),
     against_node bigint REFERENCES node (id),
+    edge_discriminator text,
     context_id bigint NOT NULL DEFAULT 1,
     at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE NULLS NOT DISTINCT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id)
+    UNIQUE NULLS NOT DISTINCT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
   )`,
+  // A store made before the discriminator: the column is added, the old identity is replaced, and the rows keep their
+  // place. The discriminator tells two dangling edges of one kind and one target apart.
+  `ALTER TABLE unresolved_reference ADD COLUMN IF NOT EXISTS edge_discriminator text`,
+  `UPDATE unresolved_reference SET edge_discriminator = '' WHERE edge_entity IS NOT NULL AND edge_discriminator IS NULL`,
+  `DO $$ DECLARE held text; BEGIN
+     SELECT conname INTO held FROM pg_constraint WHERE conrelid = 'unresolved_reference'::regclass AND contype = 'u';
+     IF held IS NOT NULL THEN EXECUTE 'ALTER TABLE unresolved_reference DROP CONSTRAINT ' || quote_ident(held); END IF;
+   END $$`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS unresolved_reference_identity ON unresolved_reference
+     (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) NULLS NOT DISTINCT`,
 ];
 
 
@@ -176,7 +229,7 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
     // A journal row written before stage 2 may carry no default for its id; the writer names none, so the database does.
     await tx.query(`ALTER TABLE operation ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
   }
-  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
+  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', FILE_ENTRY_TABLE, ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
     await tx.query(`DROP TABLE IF EXISTS "${table}"`);
   }
 }
@@ -191,12 +244,17 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
     await tx.query(STORE_SCHEMA_LOCK);
     await tx.query(`CREATE SCHEMA IF NOT EXISTS ${META_SCHEMA}`);
     await tx.query(STAMP_SQL);
+    // The stamp names every opinion field, its type and its nullability, not only the kind and its key: a contract that
+    // gains a nullable column moves the stamp, so the short fast path is skipped and the table is reconciled before a
+    // publication or a page read asks for the new column (madarch-8bdc.2.24).
+    const fields = (held: readonly { readonly name: string; readonly type: string; readonly nullable?: boolean; readonly reference?: string }[]): string =>
+      held.map((field) => `${field.name}:${field.type}:${field.nullable === true ? 'null' : 'not-null'}${field.reference === undefined ? '' : `:${field.reference}`}`).join(',');
     const parts = [
       `revision ${String(SCHEMA_REVISION)}`,
       ...SCHEMA,
-      ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')} ${kind.key.join(',')}`),
-      ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''}`),
-      ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')}`),
+      ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')} ${kind.key.join(',')} ${fields(kind.fields)}`),
+      ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''} ${fields(kind.fields)}`),
+      ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')} ${fields(one.fields)} ${one.key.join(',')}`),
     ];
     const stamp = sha256Hex(new TextEncoder().encode(parts.join('\n')));
     // A store whose stamp stands is opened with one statement and no catalog walk: its stamp and its revision are read

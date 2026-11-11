@@ -31,19 +31,20 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
-import { readWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
+import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
 import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../problems/types.js';
 import { Value } from 'typebox/value';
 import { PluginContractFile, type PluginContractDeclaration } from '../plugin/protocol.js';
-import { majorOf, PLUGINS_LOCK_FILE, readPluginLock } from '../plugin/lock.js';
+import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
+import { workingTreeFiles, type ProductFileRead } from './product-files.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -130,6 +131,8 @@ export interface PluginFieldDecl {
   readonly meaning: string;
   readonly example: unknown;
   readonly required: boolean;
+  /** Whether an opinion of this field must carry evidence (madarch-stm0.7.1, piece 4). */
+  readonly evidence?: boolean;
 }
 
 /** One output kind a plugin's own contract declares, with its key and fields. */
@@ -139,11 +142,23 @@ export interface PluginOutputKind {
   readonly fields: readonly PluginFieldDecl[];
 }
 
+/** One edge kind a plugin's own contract declares, with the kinds of its ends and its fields. */
+export interface PluginOutputEdge {
+  readonly kind: string;
+  readonly from: string;
+  readonly to: string;
+  readonly fields: readonly PluginFieldDecl[];
+}
+
 /** What a plugin's own contract holds: the outputs its introduction sends and the fields they declare. */
 export interface PluginContract {
   readonly id: string;
   readonly version: string;
+  /** What the plugin reads: one unit at a time, or the whole graph once after every other plugin turn. */
+  readonly reads: 'unit' | 'whole-graph';
   readonly vertices: readonly PluginOutputKind[];
+  /** The edge kinds it produces, with their fields: the ones whose capability it fills at a manifest declaration's ends. */
+  readonly edges: readonly PluginOutputEdge[];
   readonly file: string;
 }
 
@@ -235,6 +250,12 @@ export interface KindDecl {
    * a passage of a general kind no kind names is said to be unshown, never dropped silently.
    */
   semantics?: SemanticKind;
+  /**
+   * Whether this kind's entities are findings: what a producer states about the graph's own consistency, read by the
+   * Problems page as problems (madarch-stm0.7.1). The engine names no kind: the product's manifest says which kind is
+   * its findings kind, and a kind that declares nothing is no findings kind.
+   */
+  readonly findings?: boolean;
   /**
    * Document kinds: the sections a section of this kind holds (`Status`, `Context`, `Decision`,
    * `Consequences`): the structure pass reads them, as a heading or as a paragraph that opens with
@@ -412,7 +433,8 @@ export interface MemberDecl {
 }
 
 /** The renderers a diagram can open on (`diagram:` of the manifest). */
-const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify'];
+/** The diagram engines a product may open on (madarch-j9ao.1 adds the treemap's ECharts beside the drawn views'); `echarts` draws the Files map and cannot draw the drawn views. */
+export const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify', 'echarts'];
 
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
@@ -508,7 +530,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
-  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
+  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
@@ -778,27 +800,36 @@ function nothing(file: string, findings: Finding[]): KindsManifest {
  * The manifest with the product's workflows beside it: a product that holds `madarch/workflows.yaml` reads its
  * workflows here, and their findings stand with the manifest's own, each naming its own file and line.
  */
-function withWorkflows(manifest: KindsManifest, productFolder: string): KindsManifest {
-  const read = readWorkflows(productFolder);
-  if (!read.present) return manifest;
+function withWorkflows(manifest: KindsManifest, files: ProductFileRead, productFolder: string): KindsManifest {
+  const file = join(productFolder, WORKFLOWS_FILE);
+  const text = files.has(WORKFLOWS_FILE) ? files.text(WORKFLOWS_FILE) : undefined;
+  if (text === undefined) {
+    if (!files.has(WORKFLOWS_FILE)) return manifest;
+    return { ...manifest, workflows: { file, workflows: new Map(), findings: [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }] }, findings: [...manifest.findings, { file, line: 1, message: 'the file cannot be read: the source holds no text of it' }] };
+  }
+  const read = { ...parseWorkflows(text, file), present: true };
   return {
     ...manifest,
-    workflows: { file: read.file, workflows: read.workflows, findings: read.findings },
+    workflows: { file, workflows: read.workflows, findings: read.findings },
     findings: [...manifest.findings, ...read.findings],
   };
 }
 
-/** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
+/** Reads `madarch/kinds.yaml` of a product folder's working tree; absent when the product holds none. */
 export function readKinds(productFolder: string): KindsRead {
+  return readKindsFrom(workingTreeFiles(productFolder), productFolder);
+}
+
+/**
+ * Reads `madarch/kinds.yaml` and the declaration files beside it from a source of the product repository's files: the
+ * fill's working tree, or the graph's stored text for a reader of the wiki. Nothing is read from a checkout here.
+ */
+export function readKindsFrom(files: ProductFileRead, productFolder: string): KindsRead {
   const file = join(productFolder, KINDS_FILE);
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    if ((error as { code?: string }).code === 'ENOENT') return { present: false, file };
-    return { present: true, manifest: nothing(file, [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }]) };
-  }
-  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder), productFolder) };
+  if (!files.has(KINDS_FILE)) return { present: false, file };
+  const text = files.text(KINDS_FILE);
+  if (text === undefined) return { present: true, manifest: nothing(file, [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }]) };
+  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder, files), files, productFolder) };
 }
 
 /**
@@ -840,13 +871,11 @@ function parsedManifest(text: string, file: string): { readonly doc: Document; r
  * cannot read is a finding naming the file and the line, and the plugin stands without one, so every binding to it is
  * refused rather than trusted.
  */
-function readPluginContract(productFolder: string, id: string, path: string, manifestFile: string, line: number, findings: Finding[]): PluginContract | undefined {
+function readPluginContract(files: ProductFileRead, id: string, path: string, manifestFile: string, line: number, findings: Finding[]): PluginContract | undefined {
   const file = `${path}/contract.json`;
-  let text: string;
-  try {
-    text = readFileSync(join(productFolder, file), 'utf8');
-  } catch (error) {
-    findings.push({ file: manifestFile, line, message: `plugin "${id}": the contract ${file} cannot be read (${(error as Error).message}): a plugin's folder holds its contract.json` });
+  const text = files.has(file) ? files.text(file) : undefined;
+  if (text === undefined) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": the contract ${file} cannot be read (${files.has(file) ? 'the source holds no text of it' : 'the product repository holds no such file'}): a plugin's folder holds its contract.json` });
     return undefined;
   }
   let value: unknown;
@@ -862,7 +891,7 @@ function readPluginContract(productFolder: string, id: string, path: string, man
     findings.push({ file, line: jsonLine(text, where.length), message: `the plugin contract ${file} is not a plugin contract: ${first === undefined ? 'it does not fit the protocol' : `${where === '' ? 'the contract' : where.slice(1)} ${first.message}`}` });
     return undefined;
   }
-  const contract = value as { id: string; version: string; outputs: PluginContractDeclaration };
+  const contract = value as { id: string; version: string; outputs: PluginContractDeclaration; reads?: 'unit' | 'whole-graph' };
   if (contract.id !== id) findings.push({ file, line: 1, message: `the plugin contract ${file} declares the id ${JSON.stringify(contract.id)}, and the manifest declares the plugin ${JSON.stringify(id)}` });
   const vertices: PluginOutputKind[] = [];
   for (const vertex of contract.outputs.vertices) {
@@ -879,7 +908,8 @@ function readPluginContract(productFolder: string, id: string, path: string, man
     }
     vertices.push({ kind: vertex.kind, key: vertex.key ?? [], fields });
   }
-  return { id, version: contract.version, vertices, file };
+  const edges: PluginOutputEdge[] = (contract.outputs.edges ?? []).map((edge) => ({ kind: edge.kind, from: edge.from, to: edge.to, fields: edge.fields ?? [] }));
+  return { id, version: contract.version, reads: contract.reads ?? 'unit', vertices, edges, file };
 }
 
 /** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */
@@ -890,7 +920,7 @@ function jsonLine(text: string, segment: number): number {
   return text.slice(0, at).split('\n').length;
 }
 
-export function parseKinds(text: string, file: string, productFolder: string): KindsManifest {
+export function parseKinds(text: string, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
   const findings: Finding[] = [];
   const { doc, lines } = parsedManifest(text, file);
   const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
@@ -1201,12 +1231,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     let template = named;
     if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
     else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
-    else if (!existsSync(join(productFolder, template)) || !statSync(join(productFolder, template)).isFile()) {
+    else if (!files.has(template)) {
       // A kind that names a Markdown template of 0029 and a product that holds the Liquid template of the same name (the
       // starter set of 0032 was written beside the old files) is drawn by that one: the rename is madarch's, and a
       // product need not edit its manifest for it (madarch-u3vw.1).
       const liquid = typeof template === 'string' && template.endsWith('.md') ? `${template.slice(0, -'.md'.length)}.liquid` : undefined;
-      if (liquid !== undefined && existsSync(join(productFolder, liquid)) && statSync(join(productFolder, liquid)).isFile()) template = liquid;
+      if (liquid !== undefined && files.has(liquid)) template = liquid;
       else problem(['template'], `the template "${String(named)}" does not exist in the product repository`);
     }
     const folder = decl['folder'];
@@ -1229,11 +1259,17 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const names2 = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
     if (headings !== undefined && !names2(headings)) problem(['headings'], '"headings" is a list of the headings whose sections are entities of the kind, such as [Use cases, Qualities]');
     const semantics = decl['semantics'];
+    const findingsKind = decl['findings'];
+    if (findingsKind !== undefined && typeof findingsKind !== 'boolean') problem(['findings'], '"findings" is true for a kind whose entities are findings, and nothing else');
     if (semantics !== undefined && (typeof semantics !== 'string' || !isSemanticKind(semantics))) problem(['semantics'], `"semantics" is the general kind of the sections: ${SEMANTIC_KINDS.join(', ')}`);
     const structure = decl['structure'];
     if (structure !== undefined && !names2(structure)) problem(['structure'], '"structure" is a list of the sections a section of the kind holds, such as [Status, Context, Decision, Consequences]');
     if (source === 'document' && identifier === undefined && terms === undefined && headings === undefined && semantics === undefined) problem([], 'a document kind names "identifier" (the sections that open with an identifier), "headings" (the headings whose sections are entities of the kind), "terms" (the documents whose bold terms are entities) or "semantics" (the passages the classifier reads of a general kind)');
-    if (source !== 'document' && (identifier !== undefined || terms !== undefined || headings !== undefined || structure !== undefined || semantics !== undefined)) {
+    // A graph kind whose producer reads documents names them in `terms` and nothing else of the document vocabulary:
+    // db-schema reads every TypeScript source, so a product that holds none plans no unit for it.
+    const producerBound = Array.isArray(decl['fields']) && (decl['fields'] as unknown[]).some((field) => field !== null && typeof field === 'object' && 'binding' in (field as Record<string, unknown>));
+    const termsOfAGraphKind = source === 'graph' && producerBound && terms !== undefined && identifier === undefined && headings === undefined && structure === undefined && semantics === undefined;
+    if (source !== 'document' && !termsOfAGraphKind && (identifier !== undefined || terms !== undefined || headings !== undefined || structure !== undefined || semantics !== undefined)) {
       const field = identifier !== undefined ? 'identifier' : terms !== undefined ? 'terms' : headings !== undefined ? 'headings' : structure !== undefined ? 'structure' : 'semantics';
       problem([field], `"${field}" belongs to a document kind`);
     }
@@ -1429,6 +1465,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       ...(details.length > 0 ? { details } : {}),
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
+      ...(findingsKind === true ? { findings: true } : {}),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
       ...(er === undefined ? {} : { er }),
       ...(sequence === undefined ? {} : { sequence }),
@@ -1536,14 +1573,14 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       if (plugins.has(id)) { findings.push({ file, line: at(['plugins', index, 'id']), message: `plugin "${id}": a plugin id stands once` }); return; }
       const path = body['path'];
       if (typeof path !== 'string' || path === '' || path.startsWith('/') || path.split('/').some((leg) => leg === '' || leg === '.' || leg === '..')) { findings.push({ file, line: at(['plugins', index, 'path']), message: `plugin "${id}": "path" is the plugin's folder in the product repository, relative and with no ".."` }); return; }
-      const contract = readPluginContract(productFolder, id, path, file, at(['plugins', index, 'path']), findings);
+      const contract = readPluginContract(files, id, path, file, at(['plugins', index, 'path']), findings);
       plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), line });
     });
   }
   // The plugin lock and the field bindings (decision 0035, items 17, 18, 19 and 20): the lock names each plugin's exact
   // version and closure, a field binds to a field its plugin declares, the type is the plugin's, and a required field
   // the manifest leaves out is the manifest's error. Every problem names the manifest or the contract and its line.
-  const lockRead = readPluginLock(productFolder);
+  const lockRead = parsePluginLock(files.has(PLUGINS_LOCK_FILE) ? files.text(PLUGINS_LOCK_FILE) : undefined);
   if (!lockRead.ok) findings.push({ file: lockRead.file, line: lockRead.line, message: lockRead.message });
   const locked = new Map((lockRead.ok ? lockRead.entries : []).map((entry) => [entry.id, entry] as const));
   for (const plugin of plugins.values()) {
@@ -1661,6 +1698,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     if (orderIndex.size === 0) continue;
     const declaredOutputs = plugin.outputs.filter((output) => orderIndex.has(output));
     if (declaredOutputs.length === 0) continue;
+    // A plugin that reads the whole graph asks for no particular kind as its input: the graph is its input, and the
+    // declared list names what a person should see it read, not a dependency closure (madarch-stm0.7.1, piece 3).
+    if (plugin.contract?.reads === 'whole-graph') continue;
     const earliest = declaredOutputs.reduce((first, next) => (orderIndex.get(next)! < orderIndex.get(first)! ? next : first));
     const closure = closureOf(earliest);
     for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });
@@ -1733,6 +1773,15 @@ export function matchesAny(patterns: readonly string[], path: string): boolean {
   return patterns.some((pattern) => globToRegExp(pattern).test(path));
 }
 
+
+/**
+ * The kinds in the order their declared dependencies give (decision 0035, item 11): a kind after the kinds it depends on.
+ * The manifest's check refuses a cycle before a fill starts, so the order stands whenever a fill reads it.
+ */
+export function kindsInDependencyOrder(manifest: KindsManifest): string[] {
+  const dependencies = new Map<string, readonly string[]>([...manifest.kinds].map(([name, kind]) => [name, kind.dependsOn ?? []]));
+  return dependencyOrder(dependencies);
+}
 
 /** The first dependency cycle among the kinds, as the names in its order, or undefined when the graph is acyclic. */
 function findDependencyCycle(dependencies: ReadonlyMap<string, readonly string[]>): string[] | undefined {

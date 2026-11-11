@@ -117,7 +117,7 @@ const MANIFEST = [
 /** The context the view reads: a graph with three filled entities and two Markdown pages. */
 function context(): RenderContext {
   const manifest = parseKinds(MANIFEST, 'madarch/kinds.yaml', TEMPLATES);
-  const page = (id: string, kind: string): MarkdownEntity => ({ id, kind, title: id, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: `docs/${id}.md`, front: {} });
+  const page = (id: string, kind: string): MarkdownEntity => ({ id, kind, title: id, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: `docs/${id}.md`, source: '', front: {} });
   return {
     productFolder: TEMPLATES,
     manifest,

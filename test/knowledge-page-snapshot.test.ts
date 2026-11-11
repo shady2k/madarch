@@ -17,6 +17,7 @@ import { KnowledgeProduct, pageSnapshotOwner } from '../src/knowledge/product.js
 import { renderPage } from '../src/knowledge/render.js';
 import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const at = '2026-02-04T00:00:00.000Z';
 const id = 'code.author:walk@example.test';
@@ -35,7 +36,7 @@ afterAll(async () => { await owner.close(); });
 
 function context(folder: string, graph: GraphReader): RenderContext {
   return {
-    productFolder: folder, graph, language: 'en', markdown: new Map(),
+    productFolder: folder, files: workingTreeFiles(folder), graph, language: 'en', markdown: new Map(),
     manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.author', { name: 'code.author', template: 'author.md', source: 'graph', title: 'label', relations: [], line: 1 }]]), roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     resolver: { resolve: async () => { throw new Error('the fixture has no authored links'); } },
     repoOfScope: () => undefined, repositories: [],

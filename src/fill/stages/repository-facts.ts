@@ -20,7 +20,8 @@ import { log } from '../../obs/log.js';
 import { byCodePoint } from '../../model/order.js';
 import type { SnapshotSource } from '../snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
-import type { HistoryCommit, HistoryPublish, RecordCounts, TreeFile, TreeGitlink, TreePublish } from '../../graph/index.js';
+import { decideLanguage } from './language-heuristics.js';
+import type { DeclaredKinds, HistoryCommit, HistoryPublish, RecordCounts, TreeFile, TreeGitlink, TreePublish } from '../../graph/index.js';
 
 /** The stage ids of the two passes, as a later step registers them. */
 export const REPOSITORY_TREE_STAGE_ID = 'repository-tree';
@@ -404,6 +405,15 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
   // The text files' bytes, once per blob: two files with the same bytes share one row in the store (item 9).
   const contents = await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
   for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
+  // A path whose extension several languages claim is decided by GitHub Linguist's own rules (madarch-j9ao.1, item 7):
+  // the vendored data, over the first 50 KiB of the text, with the Oniguruma engine Ruby's regexes are built on. A path
+  // git's `.gitattributes` overrides keeps git's answer, and a path no rule decides keeps the dataset's candidates.
+  for (let at = 0; at < files.length; at += 1) {
+    const file = files[at]!;
+    if (file.form !== 'text' || file.candidates.length <= 1 || overrides.has(file.path) || file.content === null) continue;
+    const decided = await decideLanguage(file.path, file.content, file.candidates);
+    if (decided !== undefined) files[at] = { ...file, language: decided.language, candidates: [decided.language] };
+  }
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
   // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a
@@ -615,6 +625,12 @@ export interface RepositoryPassWiring {
   readonly publishHistory?: (input: HistoryPublish) => Promise<RecordCounts>;
   /** The repository paths this fill covers, as prefixes (`src/` covers everything under it); the whole tree when left out. */
   readonly paths?: readonly string[];
+  /**
+   * The code entities these passes may write, by graph kind. The tree is mechanism state for every product
+   * (`file_entry`), and an entity kind the manifest does not declare is not written; false writes no entity at all
+   * (madarch-hsqs stage C).
+   */
+  readonly kinds?: false | DeclaredKinds;
 }
 
 /** The unit id of one repository's pass: `repository:<name>`, the same for both passes of it. */
@@ -671,7 +687,7 @@ export function createRepositoryTreeStage(wiring: RepositoryPassWiring): FillSta
       // and trace name each one, and an unreadable file keeps its own opinion with no blob.
       for (const gap of read.gaps) log.warn('the tree pass could not read', { repository: pin.repository, what: gap.what, reason: gap.reason });
       if (wiring.publishTree === undefined) raise(`the tree pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
-      const counts = await wiring.publishTree(covered);
+      const counts = await wiring.publishTree({ ...covered, ...(wiring.kinds === undefined ? {} : { kinds: wiring.kinds }) });
       context.progress(`${pin.repository} at ${pin.commit}: ${String(covered.files.length)} files, ${String(covered.gitlinks.length)} gitlinks, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };
     },
@@ -698,8 +714,8 @@ export function createRepositoryHistoryStage(wiring: RepositoryPassWiring): Fill
       for (const gap of read.gaps) log.warn('the history pass could not read', { repository: pin.repository, what: gap.what, reason: gap.reason });
       if (wiring.publishHistory === undefined) raise(`the history pass of ${pin.repository} was asked to run, and the run that registered it wired no record store: its publisher is the record pass of src/graph/records.ts (src/fill/stages/repository-facts.ts)`);
       // A shallow clone is a fact about what the pass was given, so the pass states it as its own opinion of the
-      // repository instead of a table of its own.
-      const counts = await wiring.publishHistory({ repository: read.repository, commits: read.commits, shallow: read.gaps.some((gap) => gap.reason === 'shallow-history') });
+      // repository instead of a table of its own; the entity kinds the product declares come with it.
+      const counts = await wiring.publishHistory({ repository: read.repository, commits: read.commits, shallow: read.gaps.some((gap) => gap.reason === 'shallow-history'), ...(wiring.kinds === undefined ? {} : { kinds: wiring.kinds }) });
       context.progress(`${pin.repository}: ${String(read.commits.length)} commits, ${String(counts.inserted)} rows written`, 1);
       return { outcome: 'draft' };
     },

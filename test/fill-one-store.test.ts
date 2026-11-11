@@ -90,7 +90,7 @@ describe('the one store of one product', () => {
   test('the wiki reads the store the command filled, and its pins are the run\'s', async () => {
     const wiki = new KnowledgeProduct({ productFolder: product, storeRoot: knowledgeRootOf(PRODUCTS_HOME) });
     try {
-      expect(wiki.settingsView().store).toBe(store);
+      expect((await wiki.settingsView()).store).toBe(store);
       // The wiki reads the store the command wrote directly (madarch-8bdc.9): no copy stands between them.
       await wiki.status();
       const owner = await openStore(storeDatabasePath(store));

@@ -1,0 +1,9 @@
+{
+  "name": "madarch-plugin-db-schema",
+  "private": true,
+  "dependencies": {
+    "@babel/parser": "7.29.13",
+    "@pgsql/types": "18.0.0",
+    "libpg-query": "18.2.1"
+  }
+}

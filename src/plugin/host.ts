@@ -20,8 +20,8 @@ import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
-import { ClosureRefusal, closureOf, interpreterPinProblem, pluginRightsOf, type Closure } from './closure.js';
-import { PluginGraphFilesRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport } from './protocol.js';
+import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
+import { graphReadsOf, PluginGraphFilesRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startSandbox, sandboxSetupProblem, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -98,6 +98,12 @@ export type UnitOutcome =
   | (UnitTrace & { readonly state: 'extracted'; readonly unitId: string; readonly result: ValidatedUnit })
   | (UnitTrace & { readonly state: 'not-extracted'; readonly unitId: string; readonly cause: UnitCause });
 
+/** The graph request methods the host answers, and the capability each one needs from the contract. */
+type GraphMethod = 'graph.files' | 'graph.value' | 'graph.unresolved' | 'graph.removedEnds' | 'graph.unevidenced';
+const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
+  'graph.files': 'files', 'graph.value': 'value', 'graph.unresolved': 'unresolved', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
+};
+
 /**
  * The graph reads a plugin asks its host for (decision 0035, item 15): the file vertices a pattern names, and one field
  * of one vertex — a file's content, which the files producer stored by blob. The host answers from the graph and only
@@ -106,6 +112,12 @@ export type UnitOutcome =
 export interface GraphAnswerer {
   files(pattern: string): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
   value(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<unknown>;
+  /** A page of the references the writer recorded and no vertex holds (madarch-stm0.7.1, piece 2). Absent: refused. */
+  unresolved?(query: PluginGraphPageRequest): Promise<{ readonly references: readonly PluginGraphUnresolvedReference[]; readonly next?: string }>;
+  /** A page of the edges one of whose ends is removed (piece 2). Absent: refused. */
+  removedEnds?(query: PluginGraphPageRequest): Promise<{ readonly edges: readonly PluginGraphRemovedEnd[]; readonly next?: string }>;
+  /** A page of the open opinions of evidence-required fields that state none (piece 4). Absent: refused. */
+  unevidenced?(query: PluginGraphPageRequest): Promise<{ readonly opinions: readonly PluginGraphUnevidencedOpinion[]; readonly next?: string }>;
 }
 
 /**
@@ -254,7 +266,9 @@ export class PluginHost {
   private snapshot: { folder: string; hash: string } | undefined;
   private declared: PluginIntroduce | undefined;
   /** The rights the closure's own contract declares, read before the plugin starts. */
-  private contractRights: import('./protocol.js').PluginRights | undefined;
+  private contractRights: PluginRights | undefined;
+  /** What the closure's own contract says it reads, read before the plugin starts. */
+  private contractReads: 'unit' | 'whole-graph' = 'unit';
   private failure: SessionFailure | undefined;
   private handshake: { startedAt: number; resolve: () => void; reject: (cause: UnitCause) => void } | undefined;
   private readonly inFlight = new Map<string, InFlight>();
@@ -295,6 +309,7 @@ export class PluginHost {
     // The rights are the contract's, read before the process starts: the sandbox binds a repository only for a plugin
     // whose contract declared the filesystem right (decision 0035, item 9).
     this.contractRights = pluginRightsOf(closure);
+    this.contractReads = pluginReadsOf(closure);
     const snapshot = await withSpan('plugin.snapshot', { 'madarch.plugin.hash': closure.hash }, async () => {
       const copy = await snapshotClosure(closure, this.options.workRoot);
       log.info('plugin closure copied', { folder: copy.folder, hash: copy.hash });
@@ -404,13 +419,13 @@ export class PluginHost {
         log?.settle(slot, taken ? 'answered' : 'refused', 0, taken ? undefined : 'introduce-refused');
         return;
       }
-      if (value.method === 'graph.files' || value.method === 'graph.value') {
+      if (value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.unresolved' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
         const slot = log?.begin(value.method);
         void this.answerGraph(value.id, value.method, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
       const slot = log?.begin(String(value.method));
-      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files and graph.value`));
+      this.write(failureText(value.id, RPC_METHOD_NOT_FOUND, `${WHERE}:1: the host knows no plugin request "${value.method}"; its requests are introduce, graph.files, graph.value, graph.unresolved, graph.removedEnds and graph.unevidenced`));
       log?.settle(slot, 'refused', 0, 'method-not-found');
       return;
     }
@@ -457,16 +472,23 @@ export class PluginHost {
   }
 
   /**
-   * One graph read of a plugin (decision 0035, item 15): answered from the graph when the plugin declared the right and
-   * the host was given an answerer, and refused by name otherwise. The plugin never sees a folder: a file's content
-   * comes through this answer, as the files producer stored it.
+   * One graph read of a plugin (decision 0035, item 15; madarch-stm0.7.1, piece 2): answered from the graph when the
+   * plugin declared the right and the read, and the host was given an answerer; refused by name otherwise. The plugin
+   * never sees a folder or the store: a file's content comes through an answer, and so do the writer's consistency
+   * records.
    */
-  private async answerGraph(id: number | string, method: 'graph.files' | 'graph.value', params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
-    if (this.declared?.rights?.graph !== true || this.options.graph === undefined) {
+  private async answerGraph(id: number | string, method: GraphMethod, params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
+    const read = GRAPH_READ_OF[method];
+    const granted = graphReadsOf(this.declared?.rights);
+    if (this.declared?.rights?.graph !== true || !granted.includes(read)) {
       const cause = this.declared?.rights?.graph !== true
         ? `${WHERE}:1: the plugin declared no graph right in its introduction, so it may read nothing of the graph: declare "graph": true beside the rights it needs, or read no graph`
-        : `${WHERE}:1: the host was given no graph to answer from, so the query is refused`;
+        : `${WHERE}:1: the plugin declared the graph reads ${granted.map((one) => JSON.stringify(one)).join(', ') || 'none'}, and not ${JSON.stringify(read)}: a read its contract does not name is refused by name`;
       this.write(failureText(id, RPC_INVALID_PARAMS, cause, { cause: 'graph-denied' }));
+      return { outcome: 'refused', size: 0, cause: 'graph-denied' };
+    }
+    if (this.options.graph === undefined) {
+      this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the host was given no graph to answer from, so the query is refused`, { cause: 'graph-denied' }));
       return { outcome: 'refused', size: 0, cause: 'graph-denied' };
     }
     try {
@@ -480,18 +502,48 @@ export class PluginHost {
         this.write(successText(id, { files }));
         return { outcome: 'answered', size: files.length };
       }
-      if (!Value.Check(PluginGraphValueRequest, params)) {
-        const first = [...Value.Errors(PluginGraphValueRequest, params)][0];
-        this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.value takes { kind, key, field }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
+      if (method === 'graph.value') {
+        if (!Value.Check(PluginGraphValueRequest, params)) {
+          const first = [...Value.Errors(PluginGraphValueRequest, params)][0];
+          this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.value takes { kind, key, field }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
+          return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
+        }
+        const value = await this.options.graph.value(params.kind, params.key, params.field);
+        this.write(successText(id, { value }));
+        return { outcome: 'answered', size: typeof value === 'string' ? value.length : 0 };
+      }
+      // The three consistency reads take a page request and answer one page each.
+      if (!Value.Check(PluginGraphPageRequest, params)) {
+        const first = [...Value.Errors(PluginGraphPageRequest, params)][0];
+        this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: ${method} takes { after?, limit? }, and was given ${first === undefined ? 'another shape' : first.message}`, { cause: 'graph-invalid' }));
         return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
       }
-      const value = await this.options.graph.value(params.kind, params.key, params.field);
-      this.write(successText(id, { value }));
-      return { outcome: 'answered', size: typeof value === 'string' ? value.length : 0 };
+      if (method === 'graph.unresolved') {
+        if (this.options.graph.unresolved === undefined) return this.graphUnavailable(id, method);
+        const answer = await this.options.graph.unresolved(params);
+        this.write(successText(id, answer));
+        return { outcome: 'answered', size: answer.references.length };
+      }
+      if (method === 'graph.removedEnds') {
+        if (this.options.graph.removedEnds === undefined) return this.graphUnavailable(id, method);
+        const answer = await this.options.graph.removedEnds(params);
+        this.write(successText(id, answer));
+        return { outcome: 'answered', size: answer.edges.length };
+      }
+      if (this.options.graph.unevidenced === undefined) return this.graphUnavailable(id, method);
+      const answer = await this.options.graph.unevidenced(params);
+      this.write(successText(id, answer));
+      return { outcome: 'answered', size: answer.opinions.length };
     } catch (error) {
       this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the graph answered ${JSON.stringify(method)} with a failure: ${(error as Error).message}`, { cause: 'graph-failed' }));
       return { outcome: 'failed', size: 0, cause: 'graph-failed' };
     }
+  }
+
+  /** A read the host's answerer has no way to answer: refused by name, never answered with an empty list. */
+  private graphUnavailable(id: number | string, method: GraphMethod): { outcome: 'refused'; size: number; cause: string } {
+    this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the host was given no answer for ${JSON.stringify(method)}, so the query is refused`, { cause: 'graph-denied' }));
+    return { outcome: 'refused', size: 0, cause: 'graph-denied' };
   }
 
   /** The introduction: held to the schema and the protocol version, then answered; false when it was refused. */
@@ -512,6 +564,13 @@ export class PluginHost {
     }
     if (this.contractRights !== undefined && JSON.stringify(canonicalRights(declared.rights ?? { network: 'none' })) !== JSON.stringify(canonicalRights(this.contractRights))) {
       const cause: UnitCause = { code: 'rights-mismatch', message: `${WHERE}:1: the plugin introduced itself with the rights ${JSON.stringify(declared.rights ?? { network: 'none' })}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractRights)}: the contract is what the host grants, and the introduction repeats it` };
+      this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
+      this.handshake = undefined;
+      this.fail(cause);
+      return false;
+    }
+    if ((declared.reads ?? 'unit') !== this.contractReads) {
+      const cause: UnitCause = { code: 'reads-mismatch', message: `${WHERE}:1: the plugin introduced itself as reading ${JSON.stringify(declared.reads ?? 'unit')}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractReads)}: the contract is what the host plans it by, and the introduction repeats it` };
       this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
       this.handshake = undefined;
       this.fail(cause);
@@ -771,8 +830,11 @@ export class PluginHost {
 }
 
 /** Rights with their keys in code point order, so two declarations of the same rights compare equal. */
-function canonicalRights(rights: { readonly network: string; readonly graph?: boolean; readonly filesystem?: boolean }): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(rights).filter(([, value]) => value !== undefined).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)));
+function canonicalRights(rights: PluginRights): Record<string, unknown> {
+  const graphReads = rights.graphReads === undefined ? undefined : [...new Set(rights.graphReads)].sort(byCodePoint);
+  return Object.fromEntries(Object.entries({ ...rights, ...(graphReads === undefined ? {} : { graphReads }) })
+    .filter(([, value]) => value !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)));
 }
 
 /** A validation refusal as the unit's cause, with the plugin's folder in the message. */

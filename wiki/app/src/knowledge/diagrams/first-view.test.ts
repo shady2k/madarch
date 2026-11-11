@@ -96,3 +96,16 @@ test('a large ownership boundary remains readable when its title and first child
   expect(fit.whole).toBe(false);
   expect(fit.zoom).toBe(1);
 });
+
+
+test('ER attribute and foreign-key labels keep the reading window at twelve pixels', () => {
+  const title = { x: 20, y: 20, width: 100, height: 24, font: 24 };
+  const attributes = [
+    { x: 20, y: 60, width: 100, height: 16, font: 14 },
+    { x: 20, y: 90, width: 100, height: 12, font: 10.5 },
+  ];
+  const fit = firstView({ x: 0, y: 0, width: 1800, height: 1200 }, [title], 792, 540, false, attributes);
+  expect(fit.whole).toBe(false);
+  for (const label of attributes) expect(label.font * fit.zoom).toBeGreaterThanOrEqual(12);
+  expect(fit.readable).toBe(true);
+});

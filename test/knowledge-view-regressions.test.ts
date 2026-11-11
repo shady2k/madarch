@@ -37,15 +37,72 @@ test('disconnected domain services retain their ownership in the actual LikeC4 l
   expect(frame.html).toContain('html[data-embed="true"] .diagram-nav{display:inline-flex!important;position:fixed!important');
 }, 30_000);
 
-test('ER uses only Mermaid and rejects the architecture-only archify frame', async () => {
-  expect(tabsOf('er', 'archify')).toEqual(['mermaid']);
-  expect(tabsOf('er', 'likec4')).toEqual(['mermaid']);
-  const view: GraphView = { ...domainMap, spec: { type: 'er', subject: 'orders' } };
-  const frame = await archifyFrame(view, {});
-  expect(frame.ok).toBe(false);
-  if (frame.ok) throw new Error('archify must not draw an ER table');
-  expect(frame.message).toContain('only by Mermaid erDiagram');
-});
+test('an ER view draws in all three engines, and a sequence still says archify cannot', async () => {
+  // The ER view switches between the three renderers the wiki holds (the owner's addendum of 2026-11-10).
+  expect(tabsOf('er', 'archify')).toEqual(['archify', 'likec4', 'mermaid']);
+  expect(tabsOf('er', 'likec4')).toEqual(['likec4', 'mermaid', 'archify']);
+  expect(tabsOf('er', 'mermaid')).toEqual(['mermaid', 'likec4', 'archify']);
+  const er: GraphView = {
+    spec: { type: 'er', subject: 'code.table:shop/orders' },
+    title: 'Tables: orders',
+    label: 'Tables',
+    elements: [
+      { id: 'code.table:shop/orders', label: 'orders', kind: 'table', href: '/e/orders', dashed: false, columns: [{ name: 'id', type: 'uuid', key: true }, { name: 'user_id', type: 'uuid', fk: true }] },
+      { id: 'code.table:shop/users', label: 'users', kind: 'table', href: '/e/users', dashed: false, columns: [{ name: 'id', type: 'uuid', key: true }] },
+    ],
+    edges: [{ from: 'code.table:shop/orders', to: 'code.table:shop/users', label: 'user_id', dashed: false }],
+    notes: [],
+    empty: null,
+    marker: null,
+  };
+  // LikeC4 lays the same tables out as one box per table with its columns, and archify draws that layout.
+  const model = await likec4Model(er);
+  if (!model.ok) throw new Error(`LikeC4 did not lay out the ER view: ${model.message}`);
+  expect(JSON.stringify(model.model)).toContain('orders');
+  const frame = await archifyFrame(er, {});
+  if (!frame.ok) throw new Error(`archify did not draw the ER view: ${frame.message}`);
+  expect(frame.html).toContain('orders');
+  expect(frame.html).toContain('user_id');
+  expect(frame.html).toContain('users');
+  // A table that references itself: LikeC4 refuses an arrow an element draws to itself ("Invalid parent-child
+  // relationship"), and archify draws that same layout, so the arrow is left out of their picture and Mermaid draws it.
+  const selfEdge: GraphView = { ...er, edges: [{ from: 'code.table:shop/orders', to: 'code.table:shop/orders', label: 'parent_id', dashed: false }] };
+  expect(workspaceOf(selfEdge).workspace).not.toContain('-> n0');
+  const selfModel = await likec4Model(selfEdge);
+  if (!selfModel.ok) throw new Error(`LikeC4 did not lay out the ER view with a self reference: ${selfModel.message}`);
+  expect((await archifyFrame(selfEdge, {})).ok).toBe(true);
+  // A table with many columns: archify refuses a sublabel its component cannot hold even at its 6 px floor, so an ER
+  // layout is written as large as the longest column line needs, and the reader scrolls the page.
+  const wide: GraphView = {
+    ...er,
+    elements: er.elements.map((element) => (element.id === 'code.table:shop/orders' ? { ...element, columns: Array.from({ length: 9 }, (_, at) => ({ name: `very_long_column_name_${at + 1}`, type: 'timestamp_with_time_zone', key: at === 0 })) } : element)),
+  };
+  const wideFrame = await archifyFrame(wide, {});
+  if (!wideFrame.ok) throw new Error(`archify did not draw a wide ER table: ${wideFrame.message}`);
+  expect(wideFrame.html).toContain('very_long_column_name_9');
+  // A type an engine cannot draw says so, naming the engine and the type.
+  const sequence: GraphView = { ...domainMap, spec: { type: 'sequence', subject: 'orders' } };
+  const refused = await archifyFrame(sequence, {});
+  expect(refused.ok).toBe(false);
+  if (refused.ok) throw new Error('archify must not draw a sequence');
+  expect(refused.message).toContain('a sequence is drawn only by Mermaid');
+}, 60_000);
+
+test('a relation whose ends are one element is drawn by Mermaid, and the view says so', async () => {
+  const subject: GraphEntity = { key: 'code.table:shop/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
+  const table = (name: string): GraphEntity => ({ key: `code.table:shop/public.${name}`, kind: 'code.table', label: name, properties: {}, nodeIds: [], scope: 'repo' });
+  const graph = {
+    find: async (key: string) => (key === subject.key ? [subject] : []),
+    byPrefix: async () => ({ rows: [], total: 0 }),
+    relationEdges: async () => ({ rows: [{ from: subject, to: subject, properties: { column: 'parent_id' } }], total: 1 }),
+    neighbors: async () => [{ relation: 'code.foreign-key', direction: 'out', total: 1, edges: 1, rows: [{ entity: table('orders'), edges: 1 }] }],
+  } as unknown as GraphReader;
+  const ctx = { graph, manifest: MANIFEST, repoOfScope: () => undefined } as unknown as RenderContext;
+  const [view] = await buildViews({ ctx, lang: 'en', productTitle: 'Shop' }, { type: 'er', subject: subject.key });
+  expect(view!.notes).toContain('One relation starts and ends at the same element; LikeC4 and archify draw arrows only between different elements, so Mermaid is where it is drawn.');
+  // The picture's model leaves the arrow out; the engine that refuses it is not handed it.
+  expect(workspaceOf(view!).workspace).not.toContain('-> n0');
+}, 60_000);
 
 test('renderer HTTP failure stays 500 and includes escaped actionable diagnostics',async()=>{
   const message='/tmp/diagram/document.json:1: renderer exit 1: missing /tmp/app/renderer.mjs <script>bad</script>';
@@ -137,11 +194,11 @@ test('forty-two deployment elements fold into their twenty-one real files and dr
 
 test('ER retains all 64 columns including combined PK/FK and parallel column labels', async () => {
   const table: GraphEntity = { key: 'code.table:shop/public.orders', kind: 'code.table', label: 'orders', properties: {}, nodeIds: [], scope: 'repo' };
-  const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `${table.key}/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { type: 'uuid', primaryKey: index === 0 } }));
+  const columns = Array.from({ length: 64 }, (_, index) => ({ ...table, key: `code.column:shop/public.orders/column_${index}`, kind: 'code.column', label: `column_${index}`, properties: { table: 'shop/public.orders', name: `column_${index}`, type: 'uuid', primary_key: index === 0 } }));
   const graph = {
     find: async () => [table],
     // A table holds no tables under its key: the columns are what the graph holds there (the data model extractor's facts).
-    byPrefix: async (kind: string, prefix: string, limit: number) => (kind === 'code.column' && prefix.startsWith(`${table.key}/`)
+    byPrefix: async (kind: string, prefix: string, limit: number) => (kind === 'code.column' && prefix.startsWith('code.column:shop/public.orders/')
       ? { rows: columns.slice(0, limit), total: columns.length }
       : { rows: [], total: 0 }),
     neighbors: async () => [{ relation: 'code.foreign-key', direction: 'out', total: 1, edges: 2, rows: [{ entity: table, edges: 2 }] }],

@@ -7,6 +7,8 @@
 export {
   RecordGap, commitWithPaths, createRecordSchema, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles,
   graphKindCounts, listDirectories, listDocuments, listFiles, listRepositories, publishHistory, publishTree, repositoryFacts,
-  type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
+  repositoryFileIndex,
+  type DeclaredKinds, type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
   type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';
+export { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from './consistency.js';

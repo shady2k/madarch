@@ -27,7 +27,7 @@ import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.j
 
 type DiagramsBlock = Extract<Block, { type: 'diagrams' }>;
 
-const RENDERER_NAME: Record<DiagramRenderer, string> = { likec4: 'LikeC4', mermaid: 'Mermaid', archify: 'archify' };
+const RENDERER_NAME: Record<DiagramRenderer, string> = { likec4: 'LikeC4', mermaid: 'Mermaid', archify: 'archify', echarts: 'ECharts' };
 
 /**
  * Makes the nodes of a drawn Mermaid svg links: the server names the boxes of a flowchart `n<position>` (a sequence's
@@ -71,7 +71,7 @@ const LIKE_C4_SIZE = { minZoom: 0.05, maxZoom: 2.5, initialZoom: 1, fitView: fal
  * names the address the server sent beside the model. It renders nothing — it is mounted inside the diagram so the
  * event reaches it.
  */
-function NodeClicks({ links, onOpen, host, full, onReadable }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void; host: React.RefObject<HTMLDivElement | null>; full: boolean; onReadable: (readable: boolean) => void }): null {
+function NodeClicks({ links, onOpen, host, full, onReadable, titleFloor }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void; host: React.RefObject<HTMLDivElement | null>; full: boolean; onReadable: (readable: boolean) => void; titleFloor?: number }): null {
   const diagram = useDiagram();
   // LikeC4 1.59 passes minZoom to React Flow but not its actor. Its actor fits again after initialization at 0.05.
   // Set the actor's own input too, then centre from its bounds (including non-zero origins), in the measured frame.
@@ -92,11 +92,15 @@ function NodeClicks({ links, onOpen, host, full, onReadable }: { links: Readonly
       let titlePairs: ReturnType<typeof diagramTitleNodes>;
       try { titlePairs = diagramTitleNodes(root, 'likec4', ''); } catch (error) { console.error(error); onReadable(false); return; }
       const titles = titlePairs.map(({ title, node }) => ({ ...local(title as Element), font: parseFloat(getComputedStyle(title as Element).fontSize), node: local(node as Element) }));
+      // Every other word the picture holds rides in the floor its own font asks for: a table's column line, an edge's label.
+      const labels = [...root.querySelectorAll('.likec4-element-technology, .react-flow__edge-text, .react-flow__edge-textwrapper')]
+        .map((element) => ({ ...local(element), font: parseFloat(getComputedStyle(element).fontSize) }))
+        .filter((one) => one.font > 0);
       if (!titles.length || !nodes.length) return;
       const x = (Math.min(...nodes.map((r) => r.left)) - origin.x - matrix.e) / matrix.a;
       const y = (Math.min(...nodes.map((r) => r.top)) - origin.y - matrix.f) / matrix.a;
       const bounds = { x, y, width: (Math.max(...nodes.map((r) => r.right)) - origin.x - matrix.e) / matrix.a - x, height: (Math.max(...nodes.map((r) => r.bottom)) - origin.y - matrix.f) / matrix.a - y };
-      const fit = firstView(bounds, titles, origin.width, origin.height, full);
+      const fit = firstView(bounds, titles, origin.width, origin.height, full, labels, titleFloor);
       void instance.setViewport({ x: fit.x, y: fit.y, zoom: fit.zoom }, { duration: 0 }).then((ok: boolean) => {
         element.setAttribute('data-viewport-result', String(ok));
         element.setAttribute('data-viewport-read', JSON.stringify(instance.getViewport()));
@@ -195,7 +199,7 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
     ? (
       <LikeC4ModelProvider likec4model={likeC4Model}>
         <ReactLikeC4 key={`${view.query}|${full}`} className="dg-likec4-view" viewId="index" pannable zoomable controls {...LIKE_C4_SIZE}>
-          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} host={host} full={full} onReadable={setReadable} />
+          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} host={host} full={full} onReadable={setReadable} titleFloor={view.titleFloor} />
         </ReactLikeC4>
       </LikeC4ModelProvider>
     )
@@ -238,7 +242,7 @@ export function mermaidPicture(root: HTMLElement): SVGSVGElement | null {
 }
 
 /** Zoom for a Mermaid picture: the buttons, or Ctrl and the wheel; in full screen the picture fills the window and scrolls. */
-function ZoomBox({ children }: { children: ReactElement }): ReactElement {
+function ZoomBox({ children, titleFloor }: { children: ReactElement; titleFloor?: number }): ReactElement {
   const { t } = useTranslation();
   const full = useFullscreen();
   const [scale, setScale] = useState(1);
@@ -276,12 +280,12 @@ function ZoomBox({ children }: { children: ReactElement }): ReactElement {
         const leaves = [...element.querySelectorAll('text, foreignObject p')];
         return { ...local(element), font: Math.min(...(leaves.length ? leaves : [element]).map(leaf => parseFloat(getComputedStyle(leaf).fontSize))), node: local(node as Element) };
       });
-      const edgeLabels = [...svg.querySelectorAll<SVGGraphicsElement>('g.edgeLabel, text.messageText, text.transition, .relationshipLabel')].map((node) => {
+      const labels = [...svg.querySelectorAll<SVGGraphicsElement>('text, foreignObject p')].map((node) => {
         const r = node.getBoundingClientRect(), inverse = svg.getScreenCTM()!.inverse();
         const a = new DOMPoint(r.left, r.top).matrixTransform(inverse), b = new DOMPoint(r.right, r.bottom).matrixTransform(inverse);
         return { x:a.x, y:a.y, width:b.x-a.x, height:b.y-a.y, font:parseFloat(getComputedStyle(node).fontSize) };
       });
-      const fitted = firstView({ x, y, width, height }, titles, root.clientWidth, full ? Math.max(320, innerHeight - 230) : 520, full, edgeLabels);
+      const fitted = firstView({ x, y, width, height }, titles, root.clientWidth, full ? Math.max(320, innerHeight - 230) : Math.max(320, root.clientHeight || 520), full, labels, titleFloor);
       svg.style.setProperty('max-width', 'none');
       svg.style.width = `${width * fitted.zoom * scale}px`;
       svg.style.height = `${height * fitted.zoom * scale}px`;
@@ -353,7 +357,7 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
       </div>
       {view.empty !== null ? <p className="m-0 p-3 text-small text-muted" data-testid="diagram-empty">{view.empty}</p> : (
         <div className="dg-picture" data-testid="view-picture">
-          {renderer === 'mermaid' ? <ZoomBox><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} />}
+          {renderer === 'mermaid' ? <ZoomBox titleFloor={view.titleFloor}><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : renderer === 'likec4' || renderer === 'archify' ? <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} /> : null}
           {fellBack !== null && <p className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack.renderer] })} {fellBack.message}</p>}
         </div>
       )}

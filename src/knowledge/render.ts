@@ -6,19 +6,17 @@ import { contentLanguage } from './plural.js';
  * rendered over the graph and the Markdown. Nothing here names a kind: the
  * kind's declaration and its template say what the page shows.
  */
-import { readFileSync } from 'node:fs';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
   attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock, termBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
-import { graphBlock, treemapBlock } from './diagrams.js';
-import { diagramsBlock } from './views.js';
+import { filesBlock, graphBlock, treemapBlock } from './diagrams.js';
+import { diagramsBlock, relationsBlock } from './views.js';
 import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
 import { withSpan } from '../obs/trace.js';
@@ -50,7 +48,7 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
  * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
  */
 /** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
-const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'history', 'definition', 'overview-how', 'overview-data']);
+const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'files', 'history', 'definition', 'overview-how', 'overview-data']);
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: string } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
@@ -85,6 +83,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   if (decl.template.endsWith('.liquid')) {
     const outcome = await renderLiquidPage({
       productFolder: ctx.productFolder,
+      files: ctx.files,
       template: decl.template,
       data: { ...pageAttributes(subject, decl.attributes), lang: lang ?? ctx.language },
       ...(lang === undefined ? {} : { lang }),
@@ -100,11 +99,10 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     }
     if (outcome.refused !== undefined && outcome.blocks.length === 0) return { ok: false, status: 500, message: outcome.refused };
   } else {
-    let templateText: string;
-    try {
-      templateText = readFileSync(join(ctx.productFolder, decl.template), 'utf8');
-    } catch (error) {
-      return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: ${(error as Error).message}` };
+    // The template is the product repository's file as the graph holds it: a reader of a page never opens the checkout.
+    const templateText = ctx.files.text(decl.template);
+    if (templateText === undefined) {
+      return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: the graph holds no text of it (src/knowledge/render.ts)` };
     }
     for (const part of parseTemplate(templateText)) {
       // One block asked for by its identity is the whole page a deferred diagram reads: its text is not part of the answer.
@@ -202,7 +200,8 @@ function isDrawn(block: Block): boolean {
     case 'file': return true;
     case 'members': return block.rows.length > 0;
     case 'graph': return block.neighborhood.nodes.length > 1 || block.neighborhood.edges.length > 0 || block.neighborhood.more.length > 0;
-    case 'treemap': return block.files.some((file) => file.lines > 0);
+    case 'treemap': return true;
+    case 'files': return true;
     case 'history': return block.sections.some((section) => section.rows.length > 0);
     case 'definition': return block.members.length > 0 || block.spec.text.trim() !== '' || block.document !== undefined || (block.descriptions ?? []).length > 0;
     case 'source': return block.text.trim() !== '';
@@ -267,7 +266,8 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
   switch (name) {
     case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
-    case 'treemap': return await treemapBlock(ctx, subject, params, lang ?? ctx.language);
+    case 'treemap': return await treemapBlock(ctx, subject, params, file, line, lang ?? ctx.language);
+    case 'files': return await filesBlock(ctx, subject, params, file, line, lang ?? ctx.language);
     case 'history': return await historyBlock(ctx, subject, params, file, line, lang);
     case 'definition': return await definitionBlock(ctx, subject, params, file, line);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
@@ -278,6 +278,7 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'modules':
     case 'er':
     case 'sequence': return await diagramsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, name, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
+    case 'relations': return await relationsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'repository': return await repositoryBlock(ctx, subject, params, file, line);
     case 'folder': return await folderBlock(ctx, subject, params, file, line);

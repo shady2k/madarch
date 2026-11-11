@@ -81,7 +81,6 @@ export interface KnowledgePart {
   modelRole: (request: Request) => Promise<Handled>;
   /** The graph verdict coverage and rows, or the two budgets a run may spend (madarch-mwhd.1). */
   graphVerdicts: (request: Request) => Promise<Handled>;
-  starter: (request: Request) => Promise<Handled>;
   rewritePages: (request: Request) => Promise<Handled>;
   startFresh: (request: Request) => Promise<Handled>;
   journal: (request: Request) => Promise<Handled>;
@@ -296,7 +295,8 @@ export function createKnowledgePart(
     fill: guarded('start the fill', async (request) => {
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(409, { message: "madarch's own wiki is documentation: it has no code to read and no pages for an agent to write" });
+      // madarch's own wiki is documentation, but it is a product repository: its own files are read by a fill, and its pages
+      // are the graph's (madarch-hsqs stage C). It has no code repository and no agent stage, so the fill reads its files only.
       // The press names the agent it was made for, so a choice saved from another tab meanwhile is not run under this press's consent.
       let expectAgent: string | null | undefined;
       let language: string | undefined;
@@ -397,7 +397,7 @@ export function createKnowledgePart(
       // The settings file is the user's, outside any product: a failure on it is told whole, with its path.
       const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
       // The roles are the product's own: the manifest declares them, the engine keeps none.
-      const roles = choosableRoles(product.declaredRoles());
+      const roles = choosableRoles(await product.declaredRoles());
       if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env, roles)), roles }) };
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
@@ -427,7 +427,7 @@ export function createKnowledgePart(
       if (!done.ok) return refused(409, { message: done.message });
       return { response: json(200, done.plan) };
     }),
-    questions: guarded('list the questions', async () => ({ response: json(200, product.questions()) })),
+    questions: guarded('list the questions', async () => ({ response: json(200, await product.questions()) })),
     question: guarded('read the question', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
       if (id === null || !QUESTION_SLUG.test(id)) return refused(400, { field: 'id', message: '"id" is required: a question\'s id, lower-case words joined by hyphens or the 12-character content hash a new file is named by' });
@@ -522,7 +522,7 @@ export function createKnowledgePart(
       return { response: json(200, await product.refreshPlan(language ?? undefined)) };
     }),
     productSettings: guarded('read the product settings', async (request) => {
-      if (request.method === 'GET') return { response: json(200, { ...product.settingsView(), ...(own ? { own: true } : {}) }) };
+      if (request.method === 'GET') return { response: json(200, { ...(await product.settingsView()), ...(own ? { own: true } : {}) }) };
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       if (own) return refused(403, { message: "madarch's own wiki is documentation: it has no agent, no pages to write and no settings of a product" });
@@ -543,14 +543,14 @@ export function createKnowledgePart(
       }
       if (asked.language !== undefined) {
         if (typeof asked.language !== 'string') return refused(400, { field: 'language', message: '"language" is the language the pages are written in: en or ru' });
-        const saved = product.setLanguage(asked.language);
+        const saved = await product.setLanguage(asked.language);
         if (!saved.ok) return refused(409, { field: 'language', message: saved.message });
       }
       if (asked.model !== undefined || asked.reasoning !== undefined) {
         const chosen = await product.chooseModel(asked.model as string | null | undefined, asked.reasoning as string | null | undefined);
         if (!chosen.ok) return refused(chosen.status, { message: chosen.message });
       }
-      return { response: json(200, product.settingsView()) };
+      return { response: json(200, await product.settingsView()) };
     }),
     agentChoices: guarded('ask the agent for its models', async (request) => {
       // Asking starts the agent's adapter on this machine: only this wiki's own page may.
@@ -628,20 +628,6 @@ export function createKnowledgePart(
       if (!done.ok) return refused(done.status, { message: done.message });
       const state = product.graphVerdictSettings();
       return { response: json(200, { budgets: done.budgets, ...(state.report === undefined ? {} : { report: state.report }) }) };
-    }),
-    starter: guarded('add to the manifest', async (request) => {
-      const crossSite = foreign(request);
-      if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(403, { message: "madarch's own wiki is documentation: its manifest is not changed here" });
-      const plain = notJson(request);
-      if (plain !== undefined) return refused(415, { message: plain });
-      let body: unknown;
-      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const ids = (body as { ids?: unknown } | null)?.ids;
-      if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) return refused(400, { field: 'ids', message: '"ids" is the list of items of the starter set to add, as the Problems page names them' });
-      const done = product.addStarter(ids as string[]);
-      if (!done.ok) return refused(409, { field: 'ids', message: done.message });
-      return { response: json(200, { written: done.written }) };
     }),
     rewritePages: guarded('rewrite the pages', async (request) => {
       const crossSite = foreign(request);

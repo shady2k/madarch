@@ -628,8 +628,9 @@ function inspectBlock(block: Block, tools: BlockTools): void {
       });
       return;
     }
-    case 'treemap': {
-      if (!block.files.some((file) => file.lines > 0)) empty(section, field('files'), `files: ${block.files.length}`, 'no file is drawn');
+    case 'treemap':
+    case 'files': {
+      if (block.data.files.length === 0) empty(section, field('files'), 'files: 0', 'no file is drawn');
       block.notes.forEach((note, at) => words(note, section, field(`notes[${at}]`), tools.user, 'prose'));
       return;
     }

@@ -5,6 +5,7 @@ import type { RenderContext } from '../src/knowledge/blocks.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { buildViews } from '../src/knowledge/views.js';
 import { fixtureManifest } from './knowledge-manifest-fixture.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 // Only the graph-read boundary is doubled. Every projection comes from the real view builders.
 const unusedOwner: DatabaseOwner = {
@@ -50,7 +51,7 @@ const MANIFEST = fixtureManifest({
 });
 
 function context(graph: GraphReader): RenderContext {
-  return { graph, productFolder: '', manifest: MANIFEST,
+  return { graph, productFolder: '', files: workingTreeFiles(''), manifest: MANIFEST,
     markdown: new Map(),  language: 'en',  repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
@@ -64,7 +65,10 @@ const id = (index: number): string => String(index).padStart(2, '0');
 test('database thirteen retains every table, column and native relationship outside its twelve-table overview', async () => {
   const database = entity('code.database', 'fixture');
   const tables = Array.from({ length: 13 }, (_, index) => entity('code.table', `fixture/public.table_${id(index)}`));
-  const columns = tables.map(table => ({ ...entity('code.column', ''), key: `${table.key}/target_id`, label: 'target_id', properties: { type: 'uuid', primaryKey: true } }));
+  const columns = tables.map(table => {
+    const keyrest = table.key.slice(table.key.indexOf(':') + 1);
+    return { ...entity('code.column', ''), key: `code.column:${keyrest}/target_id`, label: 'target_id', properties: { table: keyrest, name: 'target_id', type: 'uuid', primary_key: true } };
+  });
   const facts = tables.slice(1).map(from => ({ relation: 'code.foreign-key', from, to: tables[0]!, discriminator: from.key, properties: { column: 'target_id' } }));
   const [view] = await buildViews({ ctx: context(new FixtureReader([database, ...tables, ...columns], facts)), lang: 'en', productTitle: 'Fixture' }, { type: 'er', subject: database.key });
   expect(view!.elements).toHaveLength(12);

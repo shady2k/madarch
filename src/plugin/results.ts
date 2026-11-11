@@ -128,7 +128,15 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
       if (named.kind !== declaration[end]) {
         return refuse('undeclared-edge-end', `${where}.${end}.kind`, `the edge kind "${edge.kind}" starts at "${declaration.from}" and ends at "${declaration.to}", and the answer names "${named.kind}" as its ${end}`);
       }
-      const endDeclaration = vertexKind(contract, named.kind)!;
+      const endDeclaration = vertexKind(contract, named.kind);
+      // An end the plugin does not produce names an entity the product's own declarations make — a table declared in
+      // a file, a file a table is read from. The plugin states its kind and key, and the graph's writer resolves the
+      // entity and records the reference when the graph holds none: its key is not the plugin's to declare.
+      if (endDeclaration === undefined) {
+        const held = named.key ?? {};
+        if (Object.keys(held).length === 0) return refuse('undeclared-key-field', `${where}.${end}.key`, `the end of the edge kind "${edge.kind}" names the kind "${named.kind}" with no key: every end names the key of the entity it stands for`);
+        continue;
+      }
       const fields = declaredKeyFields(endDeclaration);
       if (!keyConforms(named.key ?? {}, fields)) {
         return refuse('undeclared-key-field', `${where}.${end}.key`, `the kind "${named.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(named.key).sort(byCodePoint).join(', ')}`);

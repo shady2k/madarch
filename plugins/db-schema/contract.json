@@ -1,0 +1,230 @@
+{
+  "id": "db-schema",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "code.database",
+        "key": [
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The database a code repository's SQL writes to, named after the repository.",
+            "example": "madarch",
+            "required": true
+          },
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "The product's repository whose code holds the SQL.",
+            "example": "madarch",
+            "required": true
+          }
+        ]
+      },
+      {
+        "kind": "code.table",
+        "key": [
+          "database",
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "database",
+            "type": "text",
+            "meaning": "The database the table stands in, by its name.",
+            "example": "madarch",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The table's name, schema-qualified when the SQL names a schema other than public.",
+            "example": "node",
+            "required": true
+          },
+          {
+            "name": "schema",
+            "type": "text",
+            "meaning": "The schema the table stands in, when the SQL names one other than public.",
+            "example": "graph",
+            "required": false
+          },
+          {
+            "name": "unsupported",
+            "type": "text",
+            "meaning": "Unsupported SQL and ambiguous declarations that prevent a complete table description.",
+            "example": "unsupported expression index",
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.column",
+        "key": [
+          "table",
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "table",
+            "type": "text",
+            "meaning": "The table that holds the column, as its database and its name.",
+            "example": "madarch/node",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The column's name.",
+            "example": "kind_id",
+            "required": true
+          },
+          {
+            "name": "type",
+            "type": "text",
+            "meaning": "The column's type, as the SQL writes it.",
+            "example": "bigint",
+            "required": true
+          },
+          {
+            "name": "nullable",
+            "type": "boolean",
+            "meaning": "Whether the column admits null.",
+            "example": false,
+            "required": true
+          },
+          {
+            "name": "default",
+            "type": "text",
+            "meaning": "The column's default value, as the SQL writes it; null when it has none.",
+            "example": "gen_random_uuid()",
+            "required": false
+          },
+          {
+            "name": "primary_key",
+            "type": "boolean",
+            "meaning": "Whether the column is part of the table's primary key.",
+            "example": true,
+            "required": true
+          },
+          {
+            "name": "unique",
+            "type": "boolean",
+            "meaning": "Whether the column alone is unique.",
+            "example": false,
+            "required": true
+          },
+          {
+            "name": "check",
+            "type": "json",
+            "meaning": "The CHECK expressions the column holds, as the SQL writes them.",
+            "example": [
+              "line_end >= line_start"
+            ],
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.index",
+        "key": [
+          "table",
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "table",
+            "type": "text",
+            "meaning": "The table the index covers, as its database and its name.",
+            "example": "madarch/edge",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The index's name.",
+            "example": "edge_once",
+            "required": true
+          },
+          {
+            "name": "unique",
+            "type": "boolean",
+            "meaning": "Whether the index is unique.",
+            "example": true,
+            "required": true
+          },
+          {
+            "name": "columns",
+            "type": "json",
+            "meaning": "The columns the index covers, in order.",
+            "example": [
+              "kind_id",
+              "from_node"
+            ],
+            "required": true
+          },
+          {
+            "name": "where",
+            "type": "text",
+            "meaning": "The predicate of a partial index, as the SQL writes it; null when it covers every row.",
+            "example": "parent IS NULL",
+            "required": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "kind": "code.has-column",
+        "from": "code.table",
+        "to": "code.column"
+      },
+      {
+        "kind": "code.has-index",
+        "from": "code.table",
+        "to": "code.index"
+      },
+      {
+        "kind": "code.foreign-key",
+        "from": "code.column",
+        "to": "code.column",
+        "fields": [
+          {
+            "name": "column",
+            "type": "text",
+            "meaning": "The column that holds the key.",
+            "example": "kind_id",
+            "required": true
+          },
+          {
+            "name": "target_column",
+            "type": "text",
+            "meaning": "The column it references.",
+            "example": "id",
+            "required": true
+          },
+          {
+            "name": "constraint",
+            "type": "text",
+            "meaning": "The name the SQL gives the foreign key, when it names one.",
+            "example": "edge_kind_id_fkey",
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.declared-in",
+        "from": "code.table",
+        "to": "code.file"
+      }
+    ]
+  },
+  "rights": {
+    "network": "none",
+    "graph": true
+  }
+}

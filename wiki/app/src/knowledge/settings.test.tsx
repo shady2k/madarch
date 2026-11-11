@@ -9,12 +9,11 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { i18n, setWikiLanguage } from '../i18n.js';
 import { FailureNote } from './errors.js';
-import { ProblemsPage } from './loop.js';
 import { SettingsPage } from './settings.js';
 import { showsProgress } from './app.js';
 import { Root as AppRoot } from './root.js';
 import { wikiRouteOf } from './routes.js';
-import type { AgentChoices, ProductSettings, StarterOffer, WikiStatus } from './types.js';
+import type { AgentChoices, ProductSettings, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -72,7 +71,7 @@ const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
   agentNames: { 'claude-code': 'Claude Code', codex: 'Codex' },
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
-    fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
+    fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
   },
   ...over,
 });
@@ -85,16 +84,9 @@ const choices: AgentChoices = {
   },
 };
 
-const OFFERS: StarterOffer[] = [
-  { id: 'group:product', type: 'group', name: 'product', labels: { en: 'Product knowledge', ru: 'Знания о продукте' } },
-  { id: 'kind:code.route', type: 'kind', name: 'code.route', labels: { en: 'HTTP route', ru: 'HTTP-маршрут' }, description: { en: 'An HTTP route a service serves.', ru: 'HTTP-маршрут сервиса.' }, group: 'contracts' },
-  { id: 'fields:code.service', type: 'fields', name: 'code.service', labels: { en: 'Service', ru: 'Сервис' }, fields: ['group', 'labels'] },
-  { id: 'roles', type: 'roles', name: 'roles' },
-];
-
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'shop', filled: true }],
-  filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS, chosenAgent: null, home: null, starterOffers: 0, ...over,
+  product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'shop', filled: true }],
+  filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS, chosenAgent: null, home: null, ...over,
 });
 
 describe('the product settings page', () => {
@@ -260,8 +252,6 @@ describe('the product settings page', () => {
     expect(dialog.textContent).toContain('Nothing is committed or sent anywhere');
     expect(dialog.querySelector('[data-testid=danger-pages]')!.textContent).toContain('docs/product.md, docs/domains/payments.md');
     expect(dialog.querySelector('[data-testid=danger-agent-edits]')!.textContent).toContain('producer: person');
-    expect(dialog.querySelector('[data-testid=danger-starter]')!.textContent).toContain('2 starter files');
-    expect(dialog.querySelector('[data-testid=danger-edited]')!.textContent).toContain('templates/domain.md');
     expect(dialog.textContent).toContain('docs/domains/mine.md');
     expect(calls).toEqual([]);
     (dialog.querySelector('[data-testid=danger-confirm]') as HTMLElement).click();
@@ -270,22 +260,6 @@ describe('the product settings page', () => {
     expect(calls[0]!.body).toEqual({ preview: settings().danger.fresh });
   });
 
-
-  for (const language of ['en', 'ru'] as const) {
-    test(`one starter file in the start-over dialog reads in the singular in ${language}`, async () => {
-      await setWikiLanguage(language);
-      const current = settings();
-      current.danger.fresh.replacedStarterFiles = ['madarch/kinds.yaml'];
-      stub([], current);
-      const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
-      await until(() => page.querySelector('[data-testid=danger-fresh-open]') !== null, 'start over');
-      (page.querySelector('[data-testid=danger-fresh-open]') as HTMLElement).click();
-      await until(() => page.querySelector('[data-testid=danger-dialog]') !== null, 'the confirmation');
-      const line = page.querySelector('[data-testid=danger-starter]')!.textContent!;
-      expect(line).toContain(language === 'en' ? 'the 1 starter file (the manifest madarch/kinds.yaml and the templates) is put at the current starter set;' : '1 стартовый файл (манифест madarch/kinds.yaml и шаблоны) приводится к текущему стартовому набору;');
-      await setWikiLanguage('en');
-    });
-  }
 
   for (const language of ['en', 'ru'] as const) {
     for (const counts of [[1, 2], [0, 0]] as const) {
@@ -448,69 +422,6 @@ describe('the product settings page', () => {
     expect((page.querySelector('[data-testid=settings-verdicts-next]') as HTMLButtonElement).disabled).toBe(true);
   });
 
-describe('the starter set on the Problems page', () => {
-  /** The first level of the Problems page: no category, and the offers to add. */
-  const categories = (starter: StarterOffer[] = []) => ({
-    categories: [], total: 0, open: 0, closed: 0, dismissed: 0,
-    sections: { code: 0, documents: 0, wiki: 0 }, severities: { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 },
-    notes: [], starter,
-  });
-
-  test('lists what the set holds and the manifest lacks, each with «Add», and adds exactly the one pressed', async () => {
-    const posted: unknown[] = [];
-    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/starter')) { posted.push(JSON.parse(String(init!.body))); return json({ written: ['madarch/kinds.yaml'] }); }
-      return json(categories(OFFERS));
-    };
-    const page = into(createElement(ProblemsPage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 kinds, groups and rules this manifest lacks.');
-    expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();
-    expect(page.querySelectorAll('[data-testid=starter-offer]')).toHaveLength(0);
-    expect(page.querySelector('[data-testid=starter-add-all]')!.textContent).toBe('Add all');
-    (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
-    await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 4, 'the expanded grouped offers');
-    expect([...page.querySelectorAll('[data-testid=starter-group]')].map((row) => row.getAttribute('data-group'))).toEqual(['contracts', 'product']);
-    expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('Kind: HTTP route (code.route)');
-    expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('An HTTP route a service serves.');
-    expect(page.querySelector('[data-testid=problems-empty]')).toBeNull();
-    ((page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')) as HTMLElement).click();
-    await until(() => posted.length === 1, 'the add');
-    expect(posted[0]).toEqual({ ids: ['kind:code.route'] });
-    await until(() => !(page.querySelector('[data-testid=starter-add-all]') as HTMLButtonElement).disabled, 'the add settled');
-    ((page.querySelector('[data-testid=starter-add-all]')) as HTMLElement).click();
-    await until(() => posted.length === 2, 'the add all');
-    expect(posted[1]).toEqual({ ids: OFFERS.map((offer) => offer.id) });
-  });
-
-  test('a rule of the starter set is offered by its label and id, and a rule missing a field says which', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async () => json(categories([
-      { id: 'rule:debt.todo', type: 'rule', name: 'debt.todo', labels: { en: 'TODO', ru: 'TODO' } },
-      { id: 'rule:dependency.cycle', type: 'rule', name: 'dependency.cycle', labels: { en: 'Dependency cycle', ru: 'Цикл зависимостей' }, fields: ['label', 'params'] },
-    ]));
-    const page = into(createElement(ProblemsPage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
-    await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 2, 'the expanded offers');
-    expect(page.querySelector('[data-offer="rule:debt.todo"]')!.textContent).toContain('Rule: TODO (debt.todo)');
-    expect(page.querySelector('[data-offer="rule:dependency.cycle"]')!.textContent).toContain('Fill in the rule Dependency cycle (dependency.cycle): label, params');
-  });
-
-  test('in Russian the offer carries the Russian name and «Добавить»', async () => {
-    await setWikiLanguage('ru');
-    (globalThis as { fetch?: unknown }).fetch = async () => json(categories(OFFERS));
-    const page = into(createElement(ProblemsPage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();
-    (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
-    await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 4, 'the expanded Russian offers');
-    expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('Вид: HTTP-маршрут (code.route)');
-    expect(page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')!.textContent).toBe('Добавить');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 вида, группы и правила, которых нет в вашем манифесте.');
-  });
-
-});
-
 describe('a failure is told once, in the reader\'s language', () => {
   const detail = 'src/knowledge/index/index.ts: the manifest of /p cannot be read\n  madarch/kinds.yaml:5: a\n  madarch/kinds.yaml:9: b';
   test('the headline is the app\'s own words, the engineer\'s lines are behind a link, and the Problems page is one click away', async () => {
@@ -556,9 +467,9 @@ describe('where the settings are and where the progress is', () => {
     }
   });
 
-  test('the bottom of the sidebar links to the settings, counts actual problems but not starter offers, and removes «Start over»', async () => {
+  test('the bottom of the sidebar links to the settings, counts actual problems, and removes «Start over»', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/status')) return json(status({ starterOffers: 56, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
+      if (url.endsWith('/api/status')) return json(status({ loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
       if (url.endsWith('/api/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
       if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
       if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });

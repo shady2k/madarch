@@ -115,8 +115,9 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
     const slowest = [...during].sort((a, b) => b.ms - a.ms)[0]!;
     expect(during.length).toBeGreaterThan(30);
     expect(slowest.ms, `the slowest answer during the fill was ${Math.round(slowest.ms)} ms (${slowest.path})`).toBeLessThan(WORST_MS);
-    // The Files list shows files while the count says how many there are (the empty list of the owner's walk).
-    expect(lastFiles).toBeGreaterThan(0);
+    // The Files list is the graph's: before the store's first publication there is no manifest to declare the kind, and
+    // the answer is a 404 that names it (fast, never a wait); after the publication the list is the count, below.
+    expect(postDoneFiles?.total ?? 0).toBeGreaterThan(0);
     const status = await (await fetch(`${base}/api/status`)).json() as { fill: { state: string }; kinds: { kind: string; count: number }[] };
     expect(status.fill.state).toBe('done');
     const files = await (await fetch(`${base}/api/entities?kind=code.file&limit=100`)).json() as { total: number; rows: unknown[] };

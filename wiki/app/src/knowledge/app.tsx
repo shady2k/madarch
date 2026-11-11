@@ -21,7 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { getProducts, startFill } from './api.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
-import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, NewHome, SourcePage, StatementPage, Overview } from './pages.js';
 import { DependencyPage } from './dependency-page.js';
 import { FillSidePanel } from './fill-panel.js';
 import { FillPage } from './fill-page.js';
@@ -824,7 +824,7 @@ export function KnowledgeApp(): ReactElement {
             <div className="shell-scroll min-w-0 flex-1">
               <div className="shell-document w-full">
                 <main data-testid="knowledge-main">
-                  {status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
+                  {status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
                       {status.own !== true && showsProgress(route, status) && <FillCard status={status} refresh={refresh} />}
                       <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>

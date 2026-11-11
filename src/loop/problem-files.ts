@@ -7,7 +7,7 @@
  * the person's reason, in their own words.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
@@ -15,6 +15,7 @@ import { slugOf } from '../knowledge/anchors.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { problemId } from '../problems/types.js';
 import type { Author } from './entities.js';
+import type { ProductFileSource } from '../knowledge/product-files.js';
 
 const PROBLEMS_FOLDER = 'docs/problems';
 const DISMISSAL_KIND = 'problem-dismissal';
@@ -48,21 +49,27 @@ const authorOf = (value: unknown): Author | undefined => {
   return { name, email, verified: text(value['verified']) ?? 'local, not verified' };
 };
 
-/** Reads every dismissal in the product; a file that cannot be read is a finding with its path and line. */
-export function readProblemDismissals(productFolder: string): DismissalRead {
-  const folder = join(productFolder, PROBLEMS_FOLDER);
+/**
+ * Reads every dismissal as one source of the product's files holds it: the graph's stored files for a reader of a page.
+ * Every file the folder lists is fetched before it is parsed (stage C).
+ */
+export async function readProblemDismissalsIn(files: ProductFileSource): Promise<DismissalRead> {
+  const paths = files.filesIn(PROBLEMS_FOLDER).filter((path) => path.endsWith('.md')).sort(byCodePoint);
+  await files.ensure(paths);
   const problems: { file: string; line: number; message: string }[] = [];
-  if (!existsSync(folder) || !statSync(folder).isDirectory()) return { items: [], problems };
+  const entries: { file: string; source: string }[] = [];
+  for (const file of paths) {
+    const source = files.text(file);
+    if (source === undefined) { problems.push({ file, line: 1, message: `${file}:1: the file cannot be read: the source holds no text of it` }); continue; }
+    entries.push({ file, source });
+  }
+  return parseDismissals(entries, problems);
+}
+
+/** Parses the dismissal files one read found; a file that cannot be read is a finding with its path and line. */
+function parseDismissals(entries: readonly { file: string; source: string }[], problems: { file: string; line: number; message: string }[]): DismissalRead {
   const items: ProblemDismissal[] = [];
-  for (const name of readdirSync(folder).filter((entry) => entry.endsWith('.md')).sort(byCodePoint)) {
-    const file = `${PROBLEMS_FOLDER}/${name}`;
-    let source: string;
-    try {
-      source = readFileSync(join(folder, name), 'utf8');
-    } catch (error) {
-      problems.push({ file, line: 1, message: `${file}:1: the file cannot be read: ${(error as Error).message}` });
-      continue;
-    }
+  for (const { file, source } of entries) {
     const { front } = splitFrontMatter(source.replace(/\r\n/g, '\n'));
     if (front === null) { problems.push({ file, line: 1, message: `${file}:1: a dismissal opens with front matter (--- ... ---)` }); continue; }
     let parsed: unknown;

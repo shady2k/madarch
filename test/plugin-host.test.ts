@@ -48,7 +48,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; unresolved?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ references: readonly import('../src/plugin/protocol.js').PluginGraphUnresolvedReference[]; next?: string }>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ opinions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedOpinion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -350,6 +350,26 @@ describe('the sandbox refuses a way out', () => {
       await bare.close();
     }
     expect(refused.finish().map((one) => [one.method, one.outcome, one.cause])).toEqual([['introduce', 'answered', undefined], ['graph.files', 'refused', 'graph-denied']]);
+  }, 60_000);
+
+  hostTest('the consistency reads are answered when the contract declares them', async () => {
+    const folder = join(FIXTURES, 'plugin-graph');
+    const address = (kind: string, key: Record<string, string>, label: string) => ({ kind, key, label });
+    const reference = { id: 'row-1', referrer: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'repository', target: address('code.repository', { name: 'missing' }, 'missing'), producer: 'git-tree@1' };
+    const end = { edge: { kind: 'code.contains' }, from: address('code.directory', { path: 'src' }, 'src'), to: address('code.file', { path: 'a.ts' }, 'a.ts'), removed: ['to' as const] };
+    const opinion = { entity: address('code.file', { path: 'a.ts' }, 'a.ts'), field: 'language', producer: 'linguist@9.5.0', opinion: '7' };
+    const session = await open(folder, {
+      graph: {
+        files: async () => [], value: async () => null,
+        unresolved: async () => ({ references: [reference] }), removedEnds: async () => ({ edges: [end] }), unevidenced: async () => ({ opinions: [opinion] }),
+      },
+    });
+    try {
+      const outcome = await session.runUnit({ unitId: 'read-consistency', kind: 'probe', key: { id: 'x', behavior: 'read-consistency' } });
+      expect(partialCause(outcome)).toContain('read-consistency: 1 refs, 1 ends, 1 opinions');
+    } finally {
+      await session.close();
+    }
   }, 60_000);
 
   hostTest('a plugin that declared no filesystem right sees no repository at all', async () => {

@@ -8,10 +8,11 @@
  * engine's output.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderLiquidPage, renderWorkers, residentMiB, templateSetOf } from '../src/knowledge/liquid.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { blockIdentity } from '../src/knowledge/template.js';
@@ -44,6 +45,7 @@ async function draw(
 ): Promise<{ blocks: Block[]; findings: { file: string; line: number; message: string }[]; refused?: string }> {
   return renderLiquidPage({
     productFolder: folder,
+    files: workingTreeFiles(folder),
     template,
     data,
     defer: options.defer ?? false,
@@ -64,11 +66,11 @@ describe('the templates of a product', () => {
       'madarch/kinds.yaml': 'kinds: {}\n',
       'docs/page.md': 'a page',
     });
-    const set = templateSetOf(folder);
+    const set = templateSetOf(workingTreeFiles(folder));
     expect(Object.keys(set.files).sort()).toEqual(['templates/entity.liquid', 'templates/partials/part.liquid']);
     const before = set.digest;
     writeFileSync(join(folder, 'templates/entity.liquid'), 'base, edited');
-    expect(templateSetOf(folder).digest).not.toBe(before);
+    expect(templateSetOf(workingTreeFiles(folder)).digest).not.toBe(before);
   });
 
   test('a template outside the folder, or a kind template that is not there, is refused with the path named', async () => {
@@ -158,8 +160,8 @@ describe('the blocks of the library', () => {
     const folder = product({ 'templates/page.liquid': '{% related title="Files" title-ru="Файлы" %}', 'templates/ru.liquid': '{% related title="Files" title-ru="Файлы" %}' });
     const asked: Record<string, string>[] = [];
     const render = async (_name: string, params: Readonly<Record<string, string>>): Promise<Block> => { asked.push({ ...params }); return related(String(params['title'])); };
-    await renderLiquidPage({ productFolder: folder, template: 'templates/page.liquid', data: {}, defer: false, deferred: [], render });
-    await renderLiquidPage({ productFolder: folder, template: 'templates/ru.liquid', data: {}, lang: 'ru', defer: false, deferred: [], render });
+    await renderLiquidPage({ productFolder: folder, files: workingTreeFiles(folder), template: 'templates/page.liquid', data: {}, defer: false, deferred: [], render });
+    await renderLiquidPage({ productFolder: folder, files: workingTreeFiles(folder), template: 'templates/ru.liquid', data: {}, lang: 'ru', defer: false, deferred: [], render });
     expect(asked).toEqual([{ title: 'Files' }, { title: 'Файлы' }]);
   });
 
@@ -199,7 +201,7 @@ describe('the bounds of a page', () => {
     const folder = product({ 'templates/page.liquid': '{% for i in (1..1000000) %}{{ i }}{% endfor %}' });
     // The page's own cooperative limit, small enough that the loop is stopped in a moment: the wall clock would stop it too.
     const drawn = await renderLiquidPage({
-      productFolder: folder, template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
+      productFolder: folder, files: workingTreeFiles(folder), template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
       limits: { templateLimit: 2_000, renderLimit: 200, memoryLimit: 10_000_000, parseLimit: 10_000, blocks: 8, outputChars: 4 << 20 },
       render: async () => ({ type: 'markdown', markdown: '' }),
     });
@@ -211,7 +213,7 @@ describe('the bounds of a page', () => {
   test('a page past its wall clock is refused, and the next page is drawn by a worker of its own', async () => {
     const folder = product({ 'templates/page.liquid': '{% related title="Slow" %}', 'templates/quick.liquid': 'quick' });
     const slow = await renderLiquidPage({
-      productFolder: folder, template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
+      productFolder: folder, files: workingTreeFiles(folder), template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
       bounds: { wallClockMs: 150, memoryMiB: 512 },
       render: () => new Promise<Block>((resolve) => setTimeout(() => resolve(related('late')), 3_000)),
     });
@@ -313,9 +315,8 @@ describe('the review of the engine', () => {
     const outside = product({ 'out/page.liquid': 'outside' });
     rmSync(join(folder, 'templates'), { recursive: true, force: true });
     symlinkSync(join(outside, 'out'), join(folder, 'templates'));
-    const set = templateSetOf(folder);
+    const set = templateSetOf(workingTreeFiles(folder));
     expect(Object.keys(set.files)).toEqual([]);
-    expect(set.findings.map((finding) => finding.message).join(' ')).toContain('link');
     const drawn = await draw(folder, 'templates/page.liquid');
     expect(drawn.refused).toContain('templates/page.liquid');
   });
@@ -324,7 +325,7 @@ describe('the review of the engine', () => {
     const folder = product({ 'templates/page.liquid': '{% related title="Slow" %}', 'templates/quick.liquid': 'quick' });
     const started = Date.now();
     const drawn = await renderLiquidPage({
-      productFolder: folder, template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
+      productFolder: folder, files: workingTreeFiles(folder), template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
       bounds: { wallClockMs: 150, memoryMiB: 512 },
       render: () => new Promise<Block>(() => undefined),
     });
@@ -341,35 +342,22 @@ describe('the review of the engine', () => {
 });
 
 describe('where a page is drawn', () => {
-  test('a product whose templates are the starter set\'s own is drawn by the server itself', async () => {
+  test('a page is drawn by the worker, byte for byte, whatever template it is given', async () => {
     const folder = product({ 'madarch/kinds.yaml': 'kinds: {}\n' });
     seedStarterSet(folder);
     const drawn = await renderLiquidPage({
-      productFolder: folder, template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
-      render: async () => ({ type: 'markdown', markdown: '' }),
-    });
-    expect(drawn.renderedIn).toBe('inline');
-    expect(drawn.findings).toEqual([]);
-  });
-
-  test('a starter template a person edited sends the page to the worker, byte for byte and by nothing else', async () => {
-    const folder = product({ 'madarch/kinds.yaml': 'kinds: {}\n' });
-    seedStarterSet(folder);
-    const file = join(folder, 'templates/entity.liquid');
-    writeFileSync(file, `${readFileSync(file, 'utf8')}{# a person's own line #}`);
-    const drawn = await renderLiquidPage({
-      productFolder: folder, template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
+      productFolder: folder, files: workingTreeFiles(folder), template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
       render: async () => ({ type: 'markdown', markdown: '' }),
     });
     expect(drawn.renderedIn).toBe('worker');
     expect(drawn.findings).toEqual([]);
   });
 
-  test('a template a person wrote from nothing sends the page to the worker, and a starter template beside it does not keep it home', async () => {
+  test('a template a person wrote from nothing is drawn by the worker too', async () => {
     const folder = product({ 'madarch/kinds.yaml': 'kinds: {}\n', 'templates/entity.liquid': 'a page of my own' });
     seedStarterSet(folder);
     const drawn = await renderLiquidPage({
-      productFolder: folder, template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
+      productFolder: folder, files: workingTreeFiles(folder), template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
       render: async () => ({ type: 'markdown', markdown: '' }),
     });
     expect(drawn.renderedIn).toBe('worker');

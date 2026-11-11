@@ -63,7 +63,7 @@ export interface DiagramWorkspace {
  * home prefixes once when it answers the document (`http.ts`, `withProductPrefix`),
  * so the prefix never lands twice.
  */
-export function diagramWorkspace(model: DiagramModel, options: { readonly pageAddress: (id: string) => string }): DiagramWorkspace {
+export function diagramWorkspace(model: DiagramModel, options: { readonly pageAddress: (id: string) => string; readonly title?: string }): DiagramWorkspace {
   const elements = model.elements.map((element, at) => ({ element, id: `${ID_PREFIX}${String(at)}` }));
   // The id LikeC4 knows an element by is its dotted path through the elements that hold it.
   const localIds = new Map(elements.map((held) => [held.element.id, held.id]));
@@ -116,7 +116,10 @@ export function diagramWorkspace(model: DiagramModel, options: { readonly pageAd
   }
   // A bare wildcard includes top-level elements only. Include each holder's children as well so ownership stays drawn.
   const includes = ['*', ...[...holders].map((id) => `${ids.get(id)!}.*`).sort(byCodePoint)];
-  lines.push('}', '', 'views {', `  view ${VIEW_ID} {`, `    title ${text(model.title)}`, `    include ${includes.join(', ')}`, '  }', '}', '');
+  // A diagram whose pages already name it above the frame writes no title of its own: LikeC4 draws that title inside
+  // the canvas, over the first element, and the reader meets the same words twice.
+  const title = options.title === undefined ? [] : [`    title ${text(options.title)}`];
+  lines.push('}', '', 'views {', `  view ${VIEW_ID} {`, ...title, `    include ${includes.join(', ')}`, '  }', '}', '');
   return { workspace: lines.join('\n'), viewId: VIEW_ID, elementIds: ids, componentIds };
 }
 

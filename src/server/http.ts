@@ -511,6 +511,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   if (productHome !== undefined) {
     refreshProducts();
     for (const entry of productEntries.values()) await knowledgeHost.of(entry.wiki.product.folder).warmNow();
+  } else if (productWiki !== undefined) {
+    // One product's server warms it before its first answer, the worker included (the same warm-up the home does).
+    await knowledgeHost.of(productWiki.product.folder).warmNow();
   }
   return {
     hostname: server.url.hostname,
@@ -698,7 +701,6 @@ export function createHandler(dependencies: {
         { method: 'POST', path: API.modelRole, handle: (request: Request) => dependencies.knowledge!.modelRole(request) },
         { method: 'GET', path: API.graphVerdicts, handle: (request: Request) => dependencies.knowledge!.graphVerdicts(request) },
         { method: 'POST', path: API.graphVerdicts, handle: (request: Request) => dependencies.knowledge!.graphVerdicts(request) },
-        { method: 'POST', path: API.starter, handle: (request: Request) => dependencies.knowledge!.starter(request) },
         { method: 'POST', path: API.rewritePages, handle: (request: Request) => dependencies.knowledge!.rewritePages(request) },
         { method: 'POST', path: API.startFresh, handle: (request: Request) => dependencies.knowledge!.startFresh(request) },
       ] as Route[])),

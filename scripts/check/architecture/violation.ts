@@ -37,6 +37,7 @@ export const ARCHITECTURE_RULES = [
   'no-unreachable-code',
   'one-fill-entry',
   'sql-only-in-storage-layer',
+  'starter-data-when-copying',
 ] as const;
 
 export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
@@ -45,7 +46,7 @@ export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
  * The rules that take no baseline: a violation they find is fixed, never written
  * into the list, and no commit's owner decision may keep one there.
  */
-export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['no-unreachable-code'];
+export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['no-unreachable-code', 'starter-data-when-copying'];
 
 /**
  * One violation as a rule found it.

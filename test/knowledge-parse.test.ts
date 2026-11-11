@@ -10,12 +10,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homeKind, parseKinds, readKinds } from '../src/knowledge/kinds.js';
-import { parseTarget, readBody, readMarkdownEntities, splitFrontMatter } from '../src/knowledge/markdown.js';
+import { parseTarget, readBody, readMarkdownEntitiesFrom, splitFrontMatter } from '../src/knowledge/markdown.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { BLOCK_NAMES, parseTemplate, substitute } from '../src/knowledge/template.js';
 import { renderLiquidPage, templateSetOf } from '../src/knowledge/liquid.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const folders: string[] = [];
 function scratch(): string {
@@ -81,7 +82,7 @@ describe('the kinds manifest', () => {
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
       [6, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [7, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
       [9, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/kinds.yaml')).toBe(true);
@@ -144,7 +145,7 @@ describe('Markdown entities', () => {
   test('a file is an entity when its front matter gives the kind and an id that starts with it', () => {
     const root = scratch();
     put(root, 'docs/domains/pay.md', '---\nid: domain:pay\nkind: domain\ntitle: Pay\nrelates:\n  - code.service:x\nproducer: agent\nsources: [docs/a.md]\n---\nBody.\n');
-    const read = readMarkdownEntities(root, kinds(root));
+    const read = readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root));
     expect(read.findings).toEqual([]);
     expect(read.entities).toEqual([expect.objectContaining({ id: 'domain:pay', kind: 'domain', title: 'Pay', relates: ['code.service:x'], producer: 'agent', sources: ['docs/a.md'], body: 'Body.\n', bodyLine: 10, file: 'docs/domains/pay.md' })]);
   });
@@ -157,7 +158,7 @@ describe('Markdown entities', () => {
     put(root, 'docs/domains/one.md', '---\nid: domain:same\nkind: domain\n---\n');
     put(root, 'docs/domains/two.md', '---\nid: domain:same\nkind: domain\n---\n');
     put(root, 'docs/domains/bad-yaml.md', '---\nid: [\n---\n');
-    const read = readMarkdownEntities(root, kinds(root));
+    const read = readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root));
     expect(read.entities.map((entity) => entity.file)).toEqual(['docs/domains/one.md']);
     const said = read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).sort();
     const yaml = said.find((line) => line.startsWith('docs/domains/bad-yaml.md:'))!;
@@ -172,7 +173,7 @@ describe('Markdown entities', () => {
 
   test('the singleton kind is absent until its file is written, and that is no finding', () => {
     const root = scratch();
-    expect(readMarkdownEntities(root, kinds(root))).toEqual({ entities: [], findings: [] });
+    expect(readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root))).toEqual({ entities: [], findings: [] });
   });
 
   test('the front matter is split from the body at the line the body starts', () => {
@@ -229,6 +230,15 @@ describe('the starter set madarch new seeds', () => {
     // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
     // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
     expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml',
+      ...[
+        'ambient.d.ts', 'contract.json', 'main.ts',
+        'node_modules/@babel/parser/LICENSE', 'node_modules/@babel/parser/lib/index.js', 'node_modules/@babel/parser/package.json',
+        'node_modules/@pgsql/types/LICENSE', 'node_modules/@pgsql/types/enums.js', 'node_modules/@pgsql/types/index.js',
+        'node_modules/@pgsql/types/package.json', 'node_modules/@pgsql/types/types.js',
+        'node_modules/libpg-query/LICENSE', 'node_modules/libpg-query/package.json',
+        'node_modules/libpg-query/wasm/index.js', 'node_modules/libpg-query/wasm/libpg-query.js', 'node_modules/libpg-query/wasm/libpg-query.wasm',
+        'plugin.json',
+      ].map((path) => `plugins/db-schema/${path}`),
       'plugins/glossary/contract.json', 'plugins/glossary/main.ts', 'plugins/glossary/plugin.json',
       'templates/entity.liquid',
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
@@ -237,7 +247,10 @@ describe('the starter set madarch new seeds', () => {
         'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'repository', 'directory', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
         'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task',
       ].map((name) => `templates/${name}.liquid`)]);
-    for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
+    for (const file of STARTER_FILES) {
+      if (file.bytes !== undefined) expect(readFileSync(join(draft.folder, file.path))).toEqual(Buffer.from(file.bytes));
+      else expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
+    }
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');
     expect(read.manifest.findings).toEqual([]);
@@ -246,11 +259,12 @@ describe('the starter set madarch new seeds', () => {
     expect(homeKind(read.manifest)!.name).toBe('product');
     // Every kind's template is one the product's templates hold, and the set reads and draws without a problem: the
     // engine parses each template it loads, so a template with a tag the library lacks is a finding on the page.
-    const templates = templateSetOf(draft.folder);
+    const templates = templateSetOf(workingTreeFiles(draft.folder));
     expect(templates.findings).toEqual([]);
     for (const decl of read.manifest.kinds.values()) expect(Object.keys(templates.files)).toContain(decl.template);
     const drawn = await renderLiquidPage({
       productFolder: draft.folder,
+      files: workingTreeFiles(draft.folder),
       template: 'templates/entity.liquid',
       data: {},
       defer: false,

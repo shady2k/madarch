@@ -48,7 +48,7 @@ export type RelatedGroup = {
   relation: string;
   direction: 'out' | 'in';
   total: number;
-  rows: { entity: EntityRef; count: number; hops?: number }[];
+  rows: { entity: EntityRef; count: number; hops?: number; sources?: readonly string[] }[];
 };
 
 export type CallRow = { entity: EntityRef; sites: number; site?: CodeLocation };
@@ -63,14 +63,44 @@ export type Neighborhood = {
   more: DiagramMore[];
   relations: { relation: string; direction: 'out' | 'in'; count: number }[];
 };
-export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
+/** The Files page's read (madarch-j9ao.1), as the server answers it: the same shape as `src/knowledge/files-map.ts`. */
+export type FilesMapArea = 'lines' | 'bytes';
+export type FilesMapColour = 'language' | 'heat' | 'age' | 'authors';
+export type FilesMapWindow = '30d' | '90d' | '1y' | 'all';
+export type FilesMapEngine = 'echarts' | 'mermaid';
+export type FilesMapFile = {
+  id: string;
+  path: string;
+  href: string | null;
+  lines: number | null;
+  bytes: number | null;
+  language: string | null;
+ /** Every open opinion's language and the producer that stated it. */
+  languages: { language: string; saidBy: string }[];
+  /** Commits touching the file: 30 days, 90 days, a year, all. */
+  heat: [number, number, number, number];
+  last: string | null;
+  authors: string[];
+};
+export type FilesMapLanguage = { name: string; files: number; lines: number; bytes: number };
+export type FilesMapTotals = { files: number; lines: number; bytes: number; withoutLines: number; languages: FilesMapLanguage[]; other: number };
+export type FilesMap = {
+  repository: string;
+  folder: string;
+  files: FilesMapFile[];
+  totals: FilesMapTotals;
+  windows: { d30: string; d90: string; d365: string };
+  graphTotal: number | null;
+};
 
-export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
-type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
+export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify' | 'echarts';
+type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment' | 'relations';
 type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
 export type ViewElement = {
   id: string;
   label: string;
+  /** The name the diagram draws when the entity's own is too wide; the list keeps `label`. */
+  short?: string;
   kind: string;
   detail?: string;
   href: string | null;
@@ -97,6 +127,8 @@ export type DiagramView = {
   marker: string | null;
   renderers: DiagramRenderer[];
   mermaidSource: string;
+  /** The smallest node title the first view keeps, in pixels; left out, eleven on a page and nine in full screen. */
+  titleFloor?: number;
   query: string;
 };
 
@@ -122,7 +154,9 @@ type BlockShape =
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
-  | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
+  | { type: 'relations'; title: string; renderer: DiagramRenderer; views: DiagramView[]; groups: RelatedGroup[]; linksHere: { entity: EntityRef; relations: string[] }[]; more: { relation: string; direction: 'out' | 'in'; hidden: number }[]; empty?: string }
+  | { type: 'treemap'; title: string; data: FilesMap; area: FilesMapArea; colour: FilesMapColour; window: FilesMapWindow; engine: FilesMapEngine; mermaid: string; mermaidDrawn: number; mermaidOmitted: number; notes: string[] }
+  | { type: 'files'; title: string; data: FilesMap; area: FilesMapArea; colour: FilesMapColour; window: FilesMapWindow; pageSize: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
@@ -394,11 +428,9 @@ export type AgentOffer = {
 
 export type WikiStatus = {
   product: { name: string; id: string };
-  manifest: 'ok' | 'no-manifest';
+  manifest: 'ok' | 'not-filled' | 'no-manifest';
   manifestFile: string;
   language: string;
-  seeded: string[];
-  seedError?: string;
   /** How many findings the documents hold: a count, never the list (madarch-8bdc.2.5). */
   findingCount: number;
   kinds: KindSummary[];
@@ -415,8 +447,6 @@ export type WikiStatus = {
   own?: boolean;
   /** Questions and corrections waiting, counted from their files. */
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen?: number; problemsOpen?: number };
-  /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
-  starterOffers?: number;
   /** The repository this step's graph holds: the home page is this repository's page while it stands. */
   repository?: RepositoryFactsView;
 };
@@ -586,17 +616,6 @@ export type Problem = {
   at: string | null;
 };
 
-/** One thing the starter set holds and the product's manifest lacks. */
-export type StarterOffer = {
-  id: string;
-  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields' | 'rule';
-  name: string;
-  labels?: { en: string; ru: string };
-  description?: { en: string; ru: string };
-  group?: string;
-  fields?: string[];
-};
-
 /** A note beside a listing, worded by the app when `textKey` is known (madarch-8bdc.2.5). */
 type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
 
@@ -622,7 +641,6 @@ export type ProblemCategories = {
   sections: Record<ProblemSection, number>;
   severities: Record<ProblemSeverity, number>;
   notes: ProblemNote[];
-  starter: StarterOffer[];
 };
 
 /** The second level: the sources of one category, one bounded page at a time. */
@@ -659,7 +677,7 @@ export type AgentChoices = { agent: { id: string; label: string }; choices: { mo
 
 type DangerPlan = {
   rewrite: { agentPages: string[]; keptPages: string[] };
-  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
+  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[] };
 };
 
 /** The model roles a feature may ask for (madarch-j6ho.2). */

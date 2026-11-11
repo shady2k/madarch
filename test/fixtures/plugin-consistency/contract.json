@@ -1,0 +1,125 @@
+{
+  "id": "plugin-consistency",
+  "version": "1.0.0",
+  "reads": "whole-graph",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "probe.finding",
+        "key": [
+          "id"
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": "text",
+            "meaning": "The finding's stable identity.",
+            "example": "removed-end:contains:src:a.ts:to",
+            "required": true
+          },
+          {
+            "name": "rule",
+            "type": "text",
+            "meaning": "The rule that found it.",
+            "example": "removed-end",
+            "required": true
+          },
+          {
+            "name": "subject",
+            "type": "text",
+            "meaning": "The entity the finding is about.",
+            "example": "contains src → a.ts",
+            "required": true
+          },
+          {
+            "name": "target",
+            "type": "text",
+            "meaning": "What the finding names beside its subject.",
+            "example": "a.ts",
+            "required": false
+          },
+          {
+            "name": "cause",
+            "type": "text",
+            "meaning": "Why the finding stands.",
+            "example": "the to end is removed",
+            "required": true
+          },
+          {
+            "name": "severity",
+            "type": "text",
+            "meaning": "How serious it is.",
+            "example": "major",
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "probe.opinion",
+        "key": [
+          "id"
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": "text",
+            "meaning": "The opinion's identity.",
+            "example": "one",
+            "required": true
+          },
+          {
+            "name": "first",
+            "type": "text",
+            "meaning": "A field that must carry evidence.",
+            "example": "a",
+            "required": false,
+            "evidence": true
+          },
+          {
+            "name": "second",
+            "type": "text",
+            "meaning": "A second field that must carry evidence.",
+            "example": "b",
+            "required": false,
+            "evidence": true
+          }
+        ]
+      },
+      {
+        "kind": "probe.keyed",
+        "key": [
+          "id",
+          "title"
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": "text",
+            "meaning": "The first key field.",
+            "example": "one",
+            "required": true,
+            "evidence": true
+          },
+          {
+            "name": "title",
+            "type": "text",
+            "meaning": "The second key field.",
+            "example": "t",
+            "required": true,
+            "evidence": true
+          }
+        ]
+      }
+    ],
+    "edges": []
+  },
+  "rights": {
+    "network": "none",
+    "graph": true,
+    "graphReads": [
+      "unresolved",
+      "removedEnds",
+      "unevidenced"
+    ]
+  }
+}

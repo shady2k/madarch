@@ -27,6 +27,7 @@ import { PendingPages } from './pending.js';
 import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
+import { FilesTableView } from './files-table.js';
 import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
@@ -342,42 +343,93 @@ export function groupLabel(group: RelatedGroup, t: (key: string, options?: Recor
   return t(group.direction === 'out' ? 'knowledge.relationOut' : 'knowledge.relationIn', { relation: word.replace(/-/g, ' ') });
 }
 
-function Related({ block }: { block: Extract<Block, { type: 'related' }> }): ReactElement | null {
+/** A relation as a reader says it: the extractor's namespace is a prefix, not a word of the page. */
+function relationName(relation: string): string {
+  const word = relation.startsWith('code.') ? relation.slice('code.'.length) : relation.startsWith('engine:') ? relation.slice('engine:'.length) : relation;
+  return word.replace(/-/g, ' ');
+}
+
+/** One relation's rows: the table the `related` block and the `relations` block both draw. */
+function RelationGroupTable({ group }: { group: RelatedGroup }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
+  return (
+    <div data-relation={group.relation} data-direction={group.direction}>
+      <div className="mb-1.5 flex items-center gap-2 text-small text-muted">
+        <span>{groupLabel(group, t)}</span>
+        <Badge>{group.total}</Badge>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('knowledge.colName')}</TableHead>
+            <TableHead>{t('knowledge.colKind')}</TableHead>
+            <TableHead>{t('knowledge.colPlace')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {group.rows.map((row) => (
+            <TableRow key={row.entity.id} data-entity={row.entity.id}>
+              <TableCell className="max-w-[28rem] break-words">
+                <EntityName entity={row.entity} />{row.count > 1 && <span className="ml-1.5 text-muted">×{row.count}</span>}
+                {row.sources !== undefined && row.sources.length > 0 && <span className="ml-1.5 text-small text-muted" data-testid="relation-source">{t('knowledge.relationSource', { sources: row.sources.join(', ') })}</span>}
+              </TableCell>
+              <TableCell><Badge>{kindName(row.entity.kind, 'one')}</Badge></TableCell>
+              <TableCell className="max-w-[24rem]">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {group.total > group.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="related-cut">{t('knowledge.showing', { shown: group.rows.length, total: group.total })}</p>}
+    </div>
+  );
+}
+
+function Related({ block }: { block: Extract<Block, { type: 'related' }> }): ReactElement | null {
   if (block.groups.length === 0) return null;
   return (
     <section data-block="related" aria-label={block.title}>
       <h2>{block.title}</h2>
       <div className="flex flex-col gap-4">
-        {block.groups.map((group) => (
-          <div key={`${group.relation}:${group.direction}`} data-relation={group.relation} data-direction={group.direction}>
-            <div className="mb-1.5 flex items-center gap-2 text-small text-muted">
-              <span>{groupLabel(group, t)}</span>
-              <Badge>{group.total}</Badge>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('knowledge.colName')}</TableHead>
-                  <TableHead>{t('knowledge.colKind')}</TableHead>
-                  <TableHead>{t('knowledge.colPlace')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {group.rows.map((row) => (
-                  <TableRow key={row.entity.id} data-entity={row.entity.id}>
-                    <TableCell className="max-w-[28rem] break-words"><EntityName entity={row.entity} />{row.count > 1 && <span className="ml-1.5 text-muted">×{row.count}</span>}</TableCell>
-                    <TableCell><Badge>{kindName(row.entity.kind, 'one')}</Badge></TableCell>
-                    <TableCell className="max-w-[24rem]">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {group.total > group.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="related-cut">{t('knowledge.showing', { shown: group.rows.length, total: group.total })}</p>}
-          </div>
-        ))}
+        {block.groups.map((group) => <RelationGroupTable key={`${group.relation}:${group.direction}`} group={group} />)}
       </div>
+    </section>
+  );
+}
+
+/**
+ * The relations block: the entity's one-step neighbourhood through the three diagram engines, under the renderer
+ * switcher, and the same relations as lists — outgoing and incoming by relation, and every entity with an edge to the
+ * page. A page with no relation says so, never an empty frame.
+ */
+function Relations({ block }: { block: Extract<Block, { type: 'relations' }> }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <section data-block="relations" data-testid="relations-block" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      {block.views.length === 0 ? (
+        <p className="text-small text-muted" data-testid="relations-empty">{block.empty ?? t('knowledge.relationsEmpty')}</p>
+      ) : (
+        <>
+          <DiagramsView block={{ type: 'diagrams', title: '', renderer: block.renderer, views: block.views }} />
+          <div className="mt-5 flex flex-col gap-4" data-testid="relations-lists">
+            {block.groups.map((group) => <RelationGroupTable key={`${group.relation}:${group.direction}`} group={group} />)}
+          </div>
+          {block.linksHere.length > 0 && (
+            <div className="mt-6" data-testid="links-here">
+              <h3 className="mb-1.5 text-small font-medium text-secondary">{t('knowledge.linksHere')}</h3>
+              <ul className="dg-elements">
+                {block.linksHere.map((row) => (
+                  <li key={row.entity.id} data-entity={row.entity.id}>
+                    <EntityName entity={row.entity} />
+                    <span className="ml-1.5 text-small text-muted">{row.relations.map(relationName).join(', ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }
@@ -824,7 +876,9 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'source': return <Source block={block} />;
     case 'graph': return <NeighborhoodGraph block={block} />;
     case 'diagrams': return <DiagramsView block={block} />;
+    case 'relations': return <Relations block={block} />;
     case 'treemap': return <TreemapView block={block} />;
+    case 'files': return <FilesTableView block={block} />;
     case 'history': return <History block={block} />;
     case 'overview': return <Overview block={block} />;
     case 'definition': return <Definition block={block} />;

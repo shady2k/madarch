@@ -4,9 +4,10 @@
  * wiki app asks for them. The repository is a tiny fixture built here; the
  * product's pages and questions are written here as an agent would.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(60_000);
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
@@ -14,7 +15,8 @@ import { correctionId } from '../src/loop/ids.js';
 import { taskSlug } from '../src/loop/tasks.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
+import { fillInProcess } from './fill-inline.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -22,6 +24,8 @@ const git = (cwd: string, ...args: string[]): string => execFileSync('git', args
 let work: string;
 let server: StartedServer;
 let folder: string;
+let home: string;
+let repository: string;
 
 const CORRECTION_STATEMENT = 'domain:orders#ten-percent-discount';
 const CORRECTION_SENTENCE = 'Orders get a ten percent discount.';
@@ -89,16 +93,17 @@ const post = async (path: string, body: unknown, headers: Record<string, string>
 
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'madarch-loop-server-'));
-  const repository = join(work, 'repo');
+  repository = join(work, 'repo');
   mkdirSync(join(repository, 'src'), { recursive: true });
   git(repository, 'init', '--quiet', '--initial-branch=main');
   writeFileSync(join(repository, 'src', 'a.ts'), 'export function leaf(): number {\n  return 1;\n}\n');
   writeFileSync(join(repository, 'README.md'), '# Shop\n\n## Discounts\n\nEvery order gets ten percent.\n');
   git(repository, 'add', '.');
   git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'first', '--date', '2026-03-01T10:00:00Z');
-  const home = join(work, 'home');
+  home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, 'orders-shop', repository, 'orders-code');
+  withoutPluginTurns(folder);
   git(folder, 'config', 'user.name', 'Ada Reader');
   git(folder, 'config', 'user.email', 'ada@example.test');
   mkdirSync(join(folder, 'docs/domains'), { recursive: true });
@@ -112,7 +117,14 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   await fetch(`${server.url}/products/orders-shop/api/status`);
-}, 60_000);
+  await refill();
+}, 180_000);
+
+/** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
+async function refill(): Promise<void> {
+  await fillInProcess(folder, home, join(work, 'store'));
+  await get('/api/status');
+}
 
 afterAll(async () => {
   await server.stop();
@@ -126,7 +138,14 @@ describe('the questions', () => {
     expect(listing.body).toMatchObject({ open: 1, answered: 0, closed: 0, problems: [] });
     expect(listing.body.rows).toEqual([{ slug: 'discount-percentage', id: 'question:discount-percentage', title: QUESTION.title, type: 'contradiction', state: 'open', askedIn: 'domain:orders', askedAt: '2026-10-23T10:00:00.000Z', about: ['domain:orders'], answeredBy: null, answeredAt: null, closedBy: [] }]);
     const problems = await get('/api/problems');
-    expect((await get('/api/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
+    // The count is collected beside the status answer for a new revision: a poll can be pending, and the next carries it.
+    let loop: any;
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      loop = (await get('/api/status')).body.loop;
+      if (typeof loop.problemsOpen === 'number') break;
+      await new Promise((rest) => setTimeout(rest, 25));
+    }
+    expect(loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 
   test('a question comes with both sides, its grounds resolved against what the wiki holds, and the reason a ground does not resolve', async () => {
@@ -160,6 +179,7 @@ describe('the questions', () => {
     expect(empty.status).toBe(400);
     expect(empty.body.error.message).toContain('the answer is empty');
     const done = await post('/api/answer', { question: 'discount-percentage', text: 'Ten percent for every order.' });
+    await refill();
     expect(done.status).toBe(200);
     expect(done.body).toMatchObject({ question: 'discount-percentage', state: 'answered', committed: true, by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' } });
     expect(git(folder, 'log', '-1', '--format=%an <%ae>|%s').trim()).toBe('Ada Reader <ada@example.test>|Answer the question discount-percentage');
@@ -183,6 +203,7 @@ describe('the corrections and the problems', () => {
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toContain('the product has no statement domain:orders#no-such-statement');
     const done = await post('/api/correction', { statement: CORRECTION_STATEMENT, reason: CORRECTION_REASON });
+    await refill();
     expect(done.status).toBe(201);
     expect(done.body).toMatchObject({ correction: CORRECTION_SLUG, id: `correction:${CORRECTION_SLUG}`, file: CORRECTION_FILE, committed: true, by: { name: 'Ada Reader' } });
     expect(git(folder, 'log', '-1', '--format=%an <%ae>').trim()).toBe('Ada Reader <ada@example.test>');
@@ -194,13 +215,13 @@ describe('the corrections and the problems', () => {
 
   test('what the engine finds is listed beside them: a ground that names nothing, with the file, the line and who fixes it', async () => {
     const problems = await allProblems();
-    // Nothing is filled: the page stands on a service and a document section the graph does not hold yet.
+    // The page relates a service no fill reads (the tree holds files and commits; no extractor names services yet): the
+    // key that names nothing is a broken link, and the document sections the fill read are not.
     const broken = problems.problems.filter((p: { kind: string }) => p.kind === 'broken-link');
     expect(broken.length).toBeGreaterThan(0);
-    expect(broken[0]).toMatchObject({ fixer: 'agent', closed: false, file: 'docs/domains/orders.md' });
+    expect(broken[0]).toMatchObject({ fixer: 'agent', closed: false, file: 'docs/domains/orders.md', target: 'doc:README.md#tax' });
     expect(typeof broken[0].line).toBe('number');
     expect(broken[0].reason.length).toBeGreaterThan(10);
-    expect(problems.notes.map((note: { message: string }) => note.message).join(' ')).toContain('single code repository');
     expect(problems.open).toBe(problems.problems.length);
   });
 
@@ -226,9 +247,9 @@ describe('the corrections and the problems', () => {
     expect(documents.find((row: { rule: string }) => row.rule === 'document.contradiction')).toMatchObject({
       kind: 'document-contradiction', sonar: 'bug', severity: 'major', file: 'docs/questions/discount-percentage.md', entity: { key: 'question:discount-percentage' },
     });
-    const wiki = problems.problems.find((row: { rule: string; target: string }) => row.rule === 'wiki.broken-link' && row.target === 'doc:README.md#discounts');
+    const wiki = problems.problems.find((row: { rule: string; target: string }) => row.rule === 'wiki.broken-link' && row.target === 'doc:README.md#tax');
     expect(wiki).toMatchObject({ section: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', page: 'domain:orders', fixer: 'agent', place: { key: 'domain:orders' }, entity: { key: 'domain:orders' } });
-    expect(wiki.id).toBe('wiki.broken-link\u0000domain:orders\u0000ten-percent-discount\u0000doc:README.md#discounts');
+    expect(wiki.id).toBe('wiki.broken-link\u0000domain:orders\u0000tax-at-checkout\u0000doc:README.md#tax');
     const onEntity = problems.problems.filter((row: { entity: { key: string } | null }) => row.entity?.key === 'domain:orders').length;
     expect(onEntity).toBeGreaterThan(0);
     const entityPage = (await get('/api/page?id=domain%3Aorders&lang=en')).body;
@@ -240,6 +261,7 @@ describe('the corrections and the problems', () => {
     const broken = before.problems.find((row: { rule: string }) => row.rule === 'wiki.broken-link');
     expect(broken).toBeDefined();
     const done = await post('/api/problem-dismiss', { id: broken.id, reason: 'The README section is written by the fill itself.' });
+    await refill();
     expect(done.status).toBe(201);
     expect(done.body).toMatchObject({ committed: true });
     expect(done.body.file).toStartWith('docs/problems/');
@@ -262,6 +284,7 @@ describe('the corrections and the problems', () => {
     const contradiction = listing.problems.find((row: { rule: string }) => row.rule === 'document.contradiction');
     expect(contradiction.scope).toEqual({ type: 'file', path: 'docs/questions/discount-percentage.md' });
     const created = await post('/api/problem-task', { id: contradiction.id });
+    await refill();
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ state: 'created' });
     const taskTitle = 'Fix document.contradiction in docs/questions/discount-percentage.md:1';
@@ -280,6 +303,8 @@ describe('the corrections and the problems', () => {
 
   test('a file that cannot be read is a problem for a person, naming the file and the line', async () => {
     writeFileSync(join(folder, 'docs/questions/broken-one.md'), 'no front matter\n');
+    commitProduct(folder, 'Write a question file that cannot be read');
+    await refill();
     try {
       const problems = await allProblems();
       const unreadable = problems.problems.find((p: { kind: string; file: string }) => p.kind === 'unreadable-file' && p.file === 'docs/questions/broken-one.md');
@@ -294,17 +319,27 @@ describe('the corrections and the problems', () => {
 
 describe('the refresh plan', () => {
   test('before anything is read it says so; after the fill it says which pages the refresh will touch and why, and what it leaves alone', async () => {
-    const before = await get('/api/refresh-plan');
+    // A product of its own that nothing has filled: the same documents, questions and corrections, and no graph yet.
+    const fresh = makeProduct(home, 'refresh-shop', repository, 'refresh-code');
+    cpSync(join(folder, 'docs'), join(fresh, 'docs'), { recursive: true });
+    commitProduct(fresh, 'Copy the loop files');
+    const ask = async (path: string): Promise<{ status: number; body: any }> => {
+      const response = await fetch(`${server.url}/products/refresh-shop${path}`);
+      return { status: response.status, body: await response.json() };
+    };
+    // The home discovers a product written after the server started when its listing is asked for.
+    await fetch(`${server.url}/api/products`);
+    const before = await ask('/api/refresh-plan');
     expect(before.body).toEqual({ available: false, reason: 'nothing has been read from the code yet: start the fill once to read it' });
-    expect((await get('/api/refresh-plan?language=de')).status).toBe(400);
-    expect((await post('/api/fill', {})).status).toBe(202);
-    let status = (await get('/api/status')).body;
+    expect((await ask('/api/refresh-plan?language=de')).status).toBe(400);
+    expect((await fetch(`${server.url}/products/refresh-shop/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(202);
+    let status = (await ask('/api/status')).body;
     for (let tries = 0; tries < 1200 && status.fill.state === 'running'; tries += 1) {
       await new Promise((rest) => setTimeout(rest, 100));
-      status = (await get('/api/status')).body;
+      status = (await ask('/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
-    const after = await get('/api/refresh-plan');
+    const after = await ask('/api/refresh-plan');
     expect(after.status).toBe(200);
     expect(after.body.available).toBe(true);
     // There is no product page: it is missing. The domain page has a correction waiting and an answered question about it.
@@ -315,7 +350,7 @@ describe('the refresh plan', () => {
     expect(after.body.plan.unchanged).toEqual([]);
     expect(after.body.language).toEqual({ from: 'en', to: 'en', changed: false });
     expect(after.body.commitsNotRead).toBe(0);
-    const russian = (await get('/api/refresh-plan?language=ru')).body;
+    const russian = (await ask('/api/refresh-plan?language=ru')).body;
     expect(russian.language).toEqual({ from: 'en', to: 'ru', changed: true });
     expect(russian.plan.pages.find((p: { path: string }) => p.path === 'docs/domains/orders.md').reasons.map((r: { kind: string }) => r.kind)).toContain('language');
   }, 300_000);

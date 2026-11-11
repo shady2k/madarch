@@ -10,8 +10,9 @@ type GuidePageData = Record<string, unknown>;
 import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
-import type { DiagramsBlockShape } from './views.js';
+import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
+import type { FilesMap, FilesMapArea, FilesMapColour, FilesMapEngine, FilesMapWindow } from './files-map.js';
 
 /**
  * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
@@ -59,7 +60,7 @@ export interface RelatedGroup {
   relation: string;
   direction: 'out' | 'in';
   total: number;
-  rows: { entity: EntityRef; count: number; hops?: number }[];
+  rows: { entity: EntityRef; count: number; hops?: number; sources?: readonly string[] }[];
 }
 
 export interface CallRow {
@@ -185,13 +186,42 @@ export interface ModuleEdge {
   cycle: boolean;
 }
 
-export interface TreemapFile {
-  id: string;
-  path: string;
-  href: string | null;
-  lines: number;
-  /** Commits that changed the file, over the whole history read. */
-  churn: number;
+/**
+ * The Files page's two blocks (madarch-j9ao.1): the repository map, with the area
+ * and colour switches and the engine that draws it, and the file table, with the
+ * measure its filter ranges over. Both carry the same read (`FilesMap`), so the
+ * picture and the table can never disagree about a file.
+ */
+export interface TreemapBlockData {
+  type: 'treemap';
+  title: string;
+  data: FilesMap;
+  area: FilesMapArea;
+  colour: FilesMapColour;
+  window: FilesMapWindow;
+  /** The engine the template chose; a reader may switch the picture to the other one that can draw it. */
+  engine: FilesMapEngine;
+  /** The same map as Mermaid's own `treemap` diagram, at most `MERMAID_TREEMAP_LIMIT` leaves. */
+  mermaid: string;
+  /** The leaves the picture leaves out, and the number it draws: 0 and the drawn count when it draws every one. */
+  mermaidOmitted: number;
+  mermaidDrawn: number;
+  /** What the map leaves out, and why, in the reader's language. */
+  notes: string[];
+}
+
+/** The file table below the map: the same read, paged by a keyset cursor in the app. */
+export interface FilesBlockData {
+  type: 'files';
+  title: string;
+  data: FilesMap;
+  area: FilesMapArea;
+  colour: FilesMapColour;
+  window: FilesMapWindow;
+  /** The rows one page holds. */
+  pageSize: number;
+  /** What the read leaves out, and why, in the reader's language. */
+  notes: string[];
 }
 
 /** The six sections of the product overview (madarch-47vw.5): each is a block the product's own template places. */
@@ -234,7 +264,9 @@ type BlockShape =
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | DiagramsBlockShape
-  | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
+  | RelationsBlockShape
+  | TreemapBlockData
+  | FilesBlockData
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
@@ -742,14 +774,10 @@ export interface AgentOffer {
 export interface WikiStatus {
   product: { name: string; id: string };
   /** `no-manifest` when `madarch/kinds.yaml` is absent. */
-  manifest: 'ok' | 'no-manifest';
+  manifest: 'ok' | 'not-filled' | 'no-manifest';
   manifestFile: string;
   /** The language the product's pages are written in; English when the manifest names none. */
   language: string;
-  /** The starter files this server wrote into the product when it had no kinds manifest. */
-  seeded: string[];
-  /** Why the starter set could not be written into a product that has no manifest. */
-  seedError?: string;
   /** How many findings the documents and the manifest hold: a count, never the list (madarch-8bdc.2.5). */
   findingCount: number;
   kinds: KindSummary[];
@@ -785,8 +813,6 @@ export interface WikiStatus {
    * (madarch-u3vw.8), and a reader falls back to the corrections it counts from their files.
    */
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen?: number };
-  /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
-  starterOffers: number;
   /**
    * The repository this step's graph holds, when the store holds one: the
    * wiki's home page is the repository's own page while this stands

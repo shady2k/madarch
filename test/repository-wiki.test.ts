@@ -38,7 +38,7 @@ function product(name: string, write: (repository: string) => void): { folder: s
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
   git(folder, 'add', '-A');
-  git(folder, 'commit', '-qm', `the product ${name}`);
+  git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
   return { folder, repository };
 }
 
@@ -50,8 +50,8 @@ const json = async (server: StartedServer, product: string, path: string): Promi
 
 
 /** One entity page as the app reads it, its blocks already read. */
-const pageOf = async (server: StartedServer, product: string, id: string, after?: string): Promise<{ status: number; body: Record<string, unknown> }> =>
-  await json(server, product, `/api/page?id=${encodeURIComponent(id)}&full=1${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`);
+const pageOf = async (server: StartedServer, product: string, id: string, after?: string, full = true): Promise<{ status: number; body: Record<string, unknown> }> =>
+  await json(server, product, `/api/page?id=${encodeURIComponent(id)}${full ? '&full=1' : ''}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`);
 
 /** The one block of a page with this type. */
 const blockOf = (page: { body: Record<string, unknown> }, type: string): Record<string, unknown> & { data: Record<string, unknown>; sections?: unknown[]; rows?: unknown[] } => {
@@ -127,7 +127,7 @@ git(folder,'commit','-qm','the nested file moves');
       const runSteps = run['steps'] as FillStepView[];
       // The tree, the history, and the plugin turn, which plans one unit per kind whose documents the tree
       // published (decision 0035, items 6 and 15).
-      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns', 'repository-history', 'repository-tree']);
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns', 'repository-history', 'repository-tree', 'whole-graph-turns']);
       for (const step of runSteps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);
@@ -204,8 +204,14 @@ git(folder,'commit','-qm','the nested file moves');
       const page = deepModel['files'] as unknown[];
       expect(page.length).toBe(100);
       expect(deepModel['nextHref']).toContain('after=files%2Fdeep%2Ff0099.txt');
-      // The whole answer is a page, not the repository: two thousand rows would be tens of thousands of bytes.
-      expect(JSON.stringify(deep.body).length).toBeLessThan(60_000);
+      // The page a reader opens is a page, not the repository: its Files map and table are blocks of their own
+      // (madarch-j9ao.1), asked for later by their identities, so the answer carries the place each stands at and never
+      // the folder's two thousand cells.
+      const deferred = await pageOf(server, 'many', 'code.directory:many-code/files/deep', undefined, false);
+      expect(deferred.status).toBe(200);
+      expect(JSON.stringify(deferred.body).length).toBeLessThan(60_000);
+      const map = (deferred.body['blocks'] as { type: string }[]).find((block) => block.type === 'deferred' && (block as { block?: string }).block === 'treemap');
+      expect(map).toBeDefined();
       const second = await pageOf(server, 'many', 'code.directory:many-code/files/deep', 'files/deep/f0099.txt');
       expect(((blockOf(second, 'folder').data as Record<string, unknown>)['files'] as { path: string }[])[0]!.path).toBe('files/deep/f0100.txt');
     } finally {
@@ -234,11 +240,14 @@ git(folder,'commit','-qm','the nested file moves');
       expect(empty.status).toBe(200);
       // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
       expect(empty.body['findingCount']).toBe(0);
-      expect((empty.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).map((kind) => kind.count)).toEqual([0, 0, 0, 0, 0]);
+      // The manifest is the graph's: before the fill the graph holds none, so the wiki names no kind at all.
+      expect(empty.body['kinds']).toEqual([]);
       const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
+      // No manifest in the graph is no kind at all: the listing refuses by name rather than answering an empty list.
       const useCases = await json(server, 'docs', '/api/entities?kind=doc.use-case');
-      expect(useCases.body).toMatchObject({ total: 0, rows: [], next: null });
+      expect(useCases.status).toBe(404);
+      expect(String(useCases.body['message'])).toContain('declares no kind "doc.use-case"');
       // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.
       const ended = await press(server, 'docs');
       const fill = ended['fill'] as Record<string, unknown>;
@@ -279,6 +288,14 @@ git(folder,'commit','-qm','the nested file moves');
       const emptyStatus = await json(server, 'half', '/api/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
+      // Before the fill the graph holds no manifest and no listing: the unanswered pages say so, and nothing is a finding.
+      const before = await json(server, 'half', '/api/problems');
+      expect(before.status).toBe(200);
+      expect(before.body['categories']).toEqual([]);
+      // The fill reads the committed repository and says what it did for the empty one.
+      const ended = await press(server, 'half');
+      const fill = ended['fill'] as Record<string, unknown>;
+      expect(fill['state']).toBe('done');
       // The finding now lives on the Problems page: its category, then the source the repository is,
       // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
       const categories = await json(server, 'half', '/api/problems');
@@ -295,10 +312,6 @@ git(folder,'commit','-qm','the nested file moves');
       expect(item).toBeDefined();
       expect(item!.reason).toContain('holds no commit yet');
       expect(item!.source).toBe(join(folder, 'repos', 'empty-code'));
-      // The fill reads the committed repository and says what it did for the empty one.
-      const ended = await press(server, 'half');
-      const fill = ended['fill'] as Record<string, unknown>;
-      expect(fill['state']).toBe('done');
       expect(fill['unread']).toEqual([{ repository: 'empty-code', path: join(folder, 'repos', 'empty-code'), reason: 'the checkout holds no commit yet' }]);
       const counts = (ended['repository'] as Record<string, unknown>)['counts'] as Record<string, unknown>;
       expect(counts['files']).toBe(1);
