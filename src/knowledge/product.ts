@@ -965,10 +965,9 @@ export class KnowledgeProduct {
       ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
     };
     this.notify();
+    // A standalone fill owns the fill only. The serving host validates after queued fills; an inline caller asks
+    // graphVerdicts explicitly when it needs validation, rather than inheriting unrelated work at close.
     this.lastUse = Date.now();
-    void this.graphVerdicts({ force: true }).catch((error: unknown) => {
-      this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
-    });
   }
 
   /**
