@@ -2,7 +2,6 @@
 import type { GraphEntity, GraphReader } from '../knowledge/graph-read.js';
 import type { Author, Correction, Question } from './entities.js';
 
-import { readScope, type PlannedTask } from './tasks.js';
 import type { ProblemDismissal } from './problem-files.js';
 import { problemId } from '../problems/types.js';
 
@@ -49,9 +48,6 @@ function field<T>(entity: GraphEntity, name: string): T {
   } else if (name === 'written_at') {
     valid = Array.isArray(value) && value.every((at) => object(at) && typeof at['repository'] === 'string' && typeof at['commit'] === 'string' && ['branch', 'origin'].every((key) => at[key] === undefined || typeof at[key] === 'string'));
     expected = 'must be an array of {repository, commit, branch?, origin?}';
-  } else if (name === 'scope') {
-    valid = Array.isArray(value) && value.length > 0 && value.every((scope) => readScope(scope) !== undefined);
-    expected = 'must be a non-empty array of task scopes';
   } else {
     valid = typeof value === 'string';
     const choices = name === 'status' ? entity.kind === 'question' ? ['open', 'answered'] : entity.kind === 'correction' ? ['open', 'applied'] : ['open', 'closed']
@@ -81,15 +77,6 @@ export async function graphCorrections(graph: LoopGraph): Promise<Correction[]> 
     status: field<Correction['status']>(entity, 'status'), about: field<string>(entity, 'about'), statement: field<string>(entity, 'statement'),
     reason: field<string>(entity, 'correction_reason'), by: field<Author>(entity, 'by'), at: field<string>(entity, 'at'),
     resolvedBy: field<Correction['resolvedBy']>(entity, 'resolved_by'), resolvedAt: field<string | null>(entity, 'resolved_at'),
-  }));
-}
-
-export async function graphTasks(graph: LoopGraph): Promise<PlannedTask[]> {
-  return (await entities(graph, 'task')).map((entity): PlannedTask => ({
-    id: entity.key, title: entity.label, slug: field<string>(entity, 'slug'), file: field<string>(entity, 'file'),
-    status: field<PlannedTask['status']>(entity, 'status'), question: field<string>(entity, 'question'), answer: field<string>(entity, 'answer'),
-    problem: field<string>(entity, 'problem'), grounds: field<string[]>(entity, 'grounds'), scope: field<PlannedTask['scope']>(entity, 'scope'),
-    by: field<Author>(entity, 'by'), at: field<string>(entity, 'at'), closedBy: field<string | null>(entity, 'closed_by'), closedAt: field<string | null>(entity, 'closed_at'),
   }));
 }
 

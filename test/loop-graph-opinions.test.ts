@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { graphQuestions, graphTasks, graphProblemDismissals, type LoopGraph } from '../src/loop/graph.js';
+import { graphQuestions, graphCorrections, graphProblemDismissals, type LoopGraph } from '../src/loop/graph.js';
 import { problemId } from '../src/problems/types.js';
 
 const author = { name: 'Ada', email: 'ada@example.test', verified: 'local' };
@@ -15,11 +15,10 @@ test('question opinions map declared snake-case fields to the loop view', async 
   expect(rows[0]).toMatchObject({ askedIn: 'domain:orders', askedAt: '2026-01-01', resolvedBy: ['domain:orders'], resolvedAt: '2026-01-03', writtenAt: [], language: 'ru' });
 });
 
-test('task opinions preserve the exact scope and closing metadata', async () => {
-  const scope = [{ type: 'lines', path: 'src/a.ts', start: 2, end: 2 }];
-  const rows = await graphTasks(graph('task', { slug: 'example', file: 'docs/tasks/example.md', status: 'closed', question: '', answer: '', problem: '',
-    grounds: [], scope, by: author, at: '2026-01-01', closed_by: 'person', closed_at: '2026-01-02' }));
-  expect(rows[0]).toMatchObject({ id: 'task:example', title: 'Example', scope, closedBy: 'person', closedAt: '2026-01-02' });
+test('correction opinions preserve the exact statement and resolution metadata', async () => {
+  const rows = await graphCorrections(graph('correction', { slug: 'example', file: 'docs/corrections/example.md', status: 'applied', about: 'domain:orders#discount', statement: 'Ten percent.',
+    correction_reason: 'Twenty percent now.', by: author, at: '2026-01-01', resolved_by: ['domain:orders'], resolved_at: '2026-01-02' }));
+  expect(rows[0]).toMatchObject({ id: 'correction:example', statement: 'Ten percent.', reason: 'Twenty percent now.', about: 'domain:orders#discount', resolvedBy: ['domain:orders'], resolvedAt: '2026-01-02' });
 });
 
 test('dismissal opinions name the same stable problem id as the writer', async () => {
@@ -29,7 +28,7 @@ test('dismissal opinions name the same stable problem id as the writer', async (
 });
 
 test('a missing required opinion is an error, not a default or a file fallback', async () => {
-  await expect(graphTasks(graph('task', { slug: 'example' }))).rejects.toThrow('task:example:1: task:example: graph opinion "file" is absent');
+  await expect(graphCorrections(graph('correction', { slug: 'example' }))).rejects.toThrow('correction:example:1: correction:example: graph opinion "file" is absent');
 });
 
 test('a malformed structured opinion is rejected before the loop uses it', async () => {

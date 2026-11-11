@@ -61,19 +61,3 @@ function parseScope(file: string, value: unknown, ix: number): TaskScope {
   if ((s['type'] === 'symbol' || s['type'] === 'statement') && typeof s['key'] === 'string' && s['key'] !== '') return { type: s['type'], key: s['key'] };
   throw new Error(`${file}:2: scope[${ix}] is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }`);
 }
-
-export function scopePath(scope: TaskScope): string | undefined {
-  switch (scope.type) {
-    case 'section': return scope.path;
-    case 'lines': return scope.path;
-    case 'file': return scope.path;
-    // A symbol's key is `code.symbol:<path>#<name>`: the path is what a commit changes, the prefix is not.
-    case 'symbol': {
-      const key = scope.key.startsWith('code.symbol:') ? scope.key.slice('code.symbol:'.length) : scope.key;
-      const hash = key.indexOf('#');
-      return hash < 0 ? key : key.slice(0, hash);
-    }
-    // A statement stands on a page of the product, and its file is that page's: the caller resolves it (closingCommit).
-    case 'statement': return undefined;
-  }
-}

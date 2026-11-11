@@ -30,8 +30,6 @@ export const CORRECTION_KIND = 'correction';
 export const QUESTION_TYPES = ['contradiction', 'ambiguous-term', 'undocumented', 'gap'] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
-export const MAX_ANSWER = 8000;
-export const MAX_REASON = 4000;
 
 export interface Author {
   readonly name: string;
@@ -97,8 +95,6 @@ export interface Correction {
   readonly resolvedAt: string | null;
 }
 
-export const questionPath = (slug: string): string => `${QUESTIONS_FOLDER}/${slug}.md`;
-export const correctionPath = (slug: string): string => `${CORRECTIONS_FOLDER}/${slug}.md`;
 
 /**
  * Where a statement is: the page id and the statement's name (a footnote name, possibly `name~2`). Only the pages the
