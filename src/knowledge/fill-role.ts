@@ -11,7 +11,7 @@ import { readProduct } from '../product/manifest.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan } from '../obs/trace.js';
-import { readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
+import { readFillEnd, readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
@@ -191,6 +191,11 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
 /** Runs one claimed fill: a fresh owner of the store (the run closes it with itself) and the pins the run's own end writes. */
 async function runOne(options: FillRoleOptions, state: RoleState, held: Watched, job: NonNullable<Awaited<ReturnType<typeof claimFillRun>>>, log: (line: string) => void): Promise<void> {
   const data = job.data;
+  // A redelivery after the end was published acknowledges that same run, never replaces its result.
+  if (await readFillEnd(held.owner, data.runId) !== null) {
+    await settleFillRun(held.queue, job, { ok: true });
+    return;
+  }
   const productFolder = data.product;
   const read = readProduct(productFolder);
   if (!read.ok) {

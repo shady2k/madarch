@@ -7,14 +7,14 @@
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { readFillEnd } from '../src/fill/orchestrator-store.js';
+import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { execFileSync } from 'node:child_process';
@@ -78,6 +78,35 @@ test('the language a press names is the one the run records', async () => await 
     // queue left running throws into whatever the process does then — in a test run, the next file's case
     // (`the database owner "…" is closed`, madarch-8bdc.13).
     await queue?.stop().catch(() => undefined);
+    await owner.close();
+  }
+}), 180_000);
+
+test('a redelivered fill keeps its published failure and acknowledges the job without reopening the product', async () => await withStorePreparationOwner(async () => {
+  const knowledgeRoot = join(work, 'redelivery-knowledge');
+  const storeFolder = join(knowledgeRoot, 'ended');
+  const graphFolder = join(storeFolder, 'graph');
+  await requestStorePreparation(graphFolder);
+  const owner = await createDatabaseOwner({ store: graphFolder, connectOnly: true });
+  const queue = await openFillRunQueue(owner);
+  const job = { product: join(work, 'missing-redelivered-product'), store: storeFolder, runId: 'ended-run' };
+  const original = { runId: job.runId, state: 'failed', message: 'The original failure must remain exact.' };
+  try {
+    await writeFillEnd(owner, original);
+    expect(await askFillRun(queue, job)).toBe(true);
+    let passes = 0;
+    expect(await runFillRole({
+      knowledgeRoot,
+      log: () => undefined,
+      idle: () => passes++ > 0,
+      openStore: async (folder) => await createDatabaseOwner({ store: folder, connectOnly: true }),
+    })).toBe(0);
+    expect(await readFillEnd(owner, job.runId)).toEqual(original);
+    expect(existsSync(join(storeFolder, 'traces', `${job.runId}.jsonl`))).toBe(false);
+    // Completion releases the product's singleton, unlike an unfinished retry.
+    expect(await askFillRun(queue, { ...job, runId: 'next-run' })).toBe(true);
+  } finally {
+    await queue.stop();
     await owner.close();
   }
 }), 180_000);
