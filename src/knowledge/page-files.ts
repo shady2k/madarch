@@ -643,6 +643,37 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         groups: block.neighborhood.relations.map((relation) => ({ relation: relation.relation, direction: relation.direction, total: relation.count, items: [] })),
         ...(block.neighborhood.more.length === 0 ? {} : { notes: block.neighborhood.more.map((more) => `${more.hidden} more ${more.relation} (${more.direction}) from ${more.node}`) }),
       };
+    case 'relations':
+      return {
+        title: block.title,
+        type: 'diagram',
+        views: block.views.map((view) => ({
+          title: view.title,
+          label: view.label,
+          query: view.query,
+          renderers: [...view.renderers],
+          mermaid: view.mermaidSource,
+          empty: view.empty,
+          notes: [...view.notes],
+          items: view.elements.map((element) => ({
+            title: element.label,
+            url: at(element.href, prefix),
+            kind: element.kind,
+            id: element.id,
+            ...(element.detail === undefined ? {} : { note: element.detail }),
+            ...(element.location === undefined ? {} : { place: placeOf(element.location, prefix)! }),
+            ...(element.standsFor === undefined ? {} : { count: element.standsFor }),
+          })),
+          edges: view.edges.map((edge) => ({ from: edge.from, to: edge.to, relation: edge.label, count: 1 })),
+        })),
+        groups: block.groups.map((group) => ({
+          relation: group.relation,
+          direction: group.direction,
+          total: group.total,
+          items: group.rows.map((row) => ({ ...itemOf(row.entity, prefix), count: row.count, ...(row.hops === undefined ? {} : { hops: row.hops }) })),
+        })),
+        ...(block.empty === undefined ? {} : { message: block.empty }),
+      };
     case 'overview': {
       const items = [...(block.rows ?? []), ...(block.links ?? [])].map((row) => ({
         title: row.label,

@@ -54,7 +54,7 @@ title. A page's values are read as page.label, or, as the templates of 0029 wrot
 them, as label.
 {% endcomment %}{% block lead %}{% endblock %}
 {% block details %}{% endblock %}
-{% block around %}{% endblock %}
+{% block around %}{% relations title="Relations" title-ru="Связи" %}{% endblock %}
 {% block source %}{% endblock %}
 {% block calls %}{% endblock %}
 {% block chain %}{% endblock %}
@@ -63,7 +63,7 @@ them, as label.
 {% block describedby %}{% endblock %}
 {% block mentionedon %}{% linkedfrom title="Mentioned on" title-ru="Упоминается на" hide-empty="true" %}{% endblock %}
 `,
-  'partials/around.liquid': `{% graph title=title title-ru=title_ru %}`,
+  'partials/around.liquid': `{% relations title=title title-ru=title_ru %}`,
   'partials/pages-about.liquid': `{% related title=title title-ru=title_ru relation="relates" %}`,
   'partials/source.liquid': `{% source title=title title-ru=title_ru %}`,
   'partials/relations.liquid': `{% related title=title title-ru=title_ru %}`,

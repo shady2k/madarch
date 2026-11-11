@@ -1,10 +1,10 @@
 /** The reader's first view: title-based fit, otherwise a top-left reading window without cut titles. */
 interface RectBox { x: number; y: number; width: number; height: number }
 export interface TitleBox extends RectBox { font: number; node?: RectBox }
-export function firstView(bounds: { x: number; y: number; width: number; height: number }, titles: readonly TitleBox[], width: number, height: number, full: boolean, labels: readonly TitleBox[] = []): { x: number; y: number; zoom: number; whole: boolean; readable: boolean } {
+export function firstView(bounds: { x: number; y: number; width: number; height: number }, titles: readonly TitleBox[], width: number, height: number, full: boolean, labels: readonly TitleBox[] = [], floorPx?: number): { x: number; y: number; zoom: number; whole: boolean; readable: boolean } {
   const pad = 12;
   const fit = Math.min((width - 2 * pad) / bounds.width, (height - 2 * pad) / bounds.height);
-  const floor = (full ? 9 : 11) / (titles.length ? Math.min(...titles.map((t) => t.font)) : 14);
+  const floor = (floorPx ?? (full ? 9 : 11)) / (titles.length ? Math.min(...titles.map((t) => t.font)) : 14);
   if (fit >= floor) { const zoom = Math.min(fit, Math.max(1, floor)); return { zoom, x: (width - bounds.width * zoom) / 2 - bounds.x * zoom, y: (height - bounds.height * zoom) / 2 - bounds.y * zoom, whole: true, readable: true }; }
   // A layout can start with empty canvas at the left. Search reading-window boundaries, not the diagram centre.
   // Keep the earliest row, then the leftmost complete titles. Never silently accept a title cut at the floor.

@@ -48,7 +48,7 @@ export type RelatedGroup = {
   relation: string;
   direction: 'out' | 'in';
   total: number;
-  rows: { entity: EntityRef; count: number; hops?: number }[];
+  rows: { entity: EntityRef; count: number; hops?: number; sources?: readonly string[] }[];
 };
 
 export type CallRow = { entity: EntityRef; sites: number; site?: CodeLocation };
@@ -66,11 +66,13 @@ export type Neighborhood = {
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
 
 export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
-type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
+type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment' | 'relations';
 type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
 export type ViewElement = {
   id: string;
   label: string;
+  /** The name the diagram draws when the entity's own is too wide; the list keeps `label`. */
+  short?: string;
   kind: string;
   detail?: string;
   href: string | null;
@@ -97,6 +99,8 @@ export type DiagramView = {
   marker: string | null;
   renderers: DiagramRenderer[];
   mermaidSource: string;
+  /** The smallest node title the first view keeps, in pixels; left out, eleven on a page and nine in full screen. */
+  titleFloor?: number;
   query: string;
 };
 
@@ -122,6 +126,7 @@ type BlockShape =
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
+  | { type: 'relations'; title: string; renderer: DiagramRenderer; views: DiagramView[]; groups: RelatedGroup[]; linksHere: { entity: EntityRef; relations: string[] }[]; more: { relation: string; direction: 'out' | 'in'; hidden: number }[]; empty?: string }
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }

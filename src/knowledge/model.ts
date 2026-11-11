@@ -10,7 +10,7 @@ type GuidePageData = Record<string, unknown>;
 import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
-import type { DiagramsBlockShape } from './views.js';
+import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
 
 /**
@@ -59,7 +59,7 @@ export interface RelatedGroup {
   relation: string;
   direction: 'out' | 'in';
   total: number;
-  rows: { entity: EntityRef; count: number; hops?: number }[];
+  rows: { entity: EntityRef; count: number; hops?: number; sources?: readonly string[] }[];
 }
 
 export interface CallRow {
@@ -234,6 +234,7 @@ type BlockShape =
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | DiagramsBlockShape
+  | RelationsBlockShape
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }

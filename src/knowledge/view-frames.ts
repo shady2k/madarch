@@ -274,7 +274,7 @@ export async function archifyFrame(view: GraphView, _env: Readonly<Record<string
   function fit() {
     var parent = svg.parentElement;
     var full = new URLSearchParams(location.search).get('fullscreen') === '1';
-    var floor = (full ? 9 : 11) / (fonts.length ? Math.min.apply(null, fonts) : 11);
+    var floor = ${view.spec.type === 'relations' ? '(full ? 9 : 12.2)' : '(full ? 9 : 11)'} / (fonts.length ? Math.min.apply(null, fonts) : 11);
     var availableWidth = parent.clientWidth - 24, availableHeight = parent.clientHeight - 24;
     var fitted = Math.min(availableWidth / box.width, availableHeight / box.height);
     var whole = fitted >= floor;

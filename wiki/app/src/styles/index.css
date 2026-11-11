@@ -2290,6 +2290,10 @@ html {
 .dg-likec4-view { width: 100%; height: 540px; min-height: 360px; }
 @media (max-width: 700px) { .dg-likec4-view { height: 420px; } }
 .dg-full .dg-likec4-view { height: calc(100vh - 190px); min-height: 360px; }
+/* The relations block keeps a reading window at a 12 px label: a taller frame holds more of the neighbourhood. */
+[data-block="relations"] .dg-likec4-view,
+[data-block="relations"] .dg-iframe { height: 760px; }
+[data-block="relations"] .dg-zoombox { max-height: 760px; }
 .dg-iframe { display: block; width: 100%; height: 540px; border: 0; background: var(--surface-page); }
 .dg-iframe-loading { visibility: hidden; position: absolute; inset: 0; }
 .dg-legend-line { display: inline-flex; align-items: center; gap: 6px; }

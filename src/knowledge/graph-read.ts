@@ -1046,8 +1046,10 @@ export class GraphReader {
   private async entitiesOfIds(tx: OuterTransaction, ids: readonly string[], scope: string | null = this.scope ?? null): Promise<Map<string, GraphEntity>> {
     if (ids.length === 0) return new Map();
     const found = await tx.query<Raw>(`${entitySelectSql(scope, 'plain')} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
-    const held = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
-    // A node the code kinds' select did not answer is one of a manifest-declared kind: its table answers it.
+    // The select answers every vertex with a fallback key for the code kinds it does not know; a manifest-declared kind's
+    // table is what answers its vertices, with the key and label its contract gives them (a term's name, not its node id).
+    const generated = new Set(this.generated?.keys() ?? []);
+    const held = new Map(found.rows.filter((row) => !generated.has(String(row['kind']))).map((row) => [String(row['node_id']), entityOf(row)]));
     const missing = ids.filter((id) => !held.has(id));
     if (missing.length === 0) return held;
     for (const decl of this.generated?.values() ?? []) {
@@ -1093,6 +1095,101 @@ export class GraphReader {
         }
       }
       return groups;
+    });
+  }
+
+  /**
+   * Every edge touching a vertex, once per relation and direction, with the number of edges behind each far end.
+   * No kind is named here: the store's own `entity` catalogue answers the relation, and a product that declares no
+   * edges takes no query (madarch-j9ao.3.1). Every edge row is read — the store's writer already keeps one open opinion
+   * per producer, and this read filters none of them — and each relation's far ends are capped at `limit`; `total` says
+   * how many the graph holds.
+   */
+  async allNeighbors(entity: GraphEntity, options: { limit: number }): Promise<NeighborGroup[]> {
+    if (this.declared !== undefined && this.declared.size === 0) return [];
+    if (entity.nodeIds.length === 0) return [];
+    return await this.run(async (tx) => {
+      const groups: NeighborGroup[] = [];
+      for (const direction of ['out', 'in'] as const) {
+        const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
+        const found = await tx.query<{ relation: string; node: string; node_edges: string; total: string; edges: string }>(
+          `WITH held AS (
+             SELECT rk.name AS relation, e.${far} AS node
+             FROM edge e JOIN entity rk ON rk.id = e.entity_id
+             WHERE e.${self} = ANY($1::bigint[])
+           ), totals AS (
+             SELECT relation, count(*)::text AS edges, count(DISTINCT node)::text AS total FROM held GROUP BY relation
+           ), numbered AS (
+             SELECT relation, node, count(*) OVER (PARTITION BY relation, node) AS node_edges,
+                    row_number() OVER (PARTITION BY relation ORDER BY node) AS at
+             FROM (SELECT DISTINCT relation, node FROM held) one
+           )
+           SELECT n.relation, n.node::text AS node, n.node_edges::text AS node_edges, t.total, t.edges
+           FROM numbered n JOIN totals t ON t.relation = n.relation
+           WHERE n.at <= $2::int
+           ORDER BY n.relation, n.at`,
+          [`{${entity.nodeIds.join(',')}}`, options.limit],
+        );
+        const byRelation = new Map<string, { total: number; edges: number; rows: { id: string; count: number }[] }>();
+        for (const row of found.rows) {
+          const held = byRelation.get(row.relation) ?? { total: Number(row.total), edges: Number(row.edges), rows: [] };
+          held.rows.push({ id: row.node, count: Number(row.node_edges) });
+          byRelation.set(row.relation, held);
+        }
+        for (const relation of [...byRelation.keys()].sort(byCodePoint)) {
+          const held = byRelation.get(relation)!;
+          const entities = await this.entitiesOfIds(tx, held.rows.map((row) => row.id));
+          const rows = held.rows
+            .map((row) => ({ entity: entities.get(row.id), count: row.count }))
+            .filter((row): row is { entity: GraphEntity; count: number } => row.entity !== undefined)
+            .sort((left, right) => byCodePoint(left.entity.key, right.entity.key));
+          if (rows.length === 0) continue;
+          groups.push({ relation, direction, total: held.total, edges: held.edges, rows: rows.map((row) => ({ entity: row.entity, edges: row.count })) });
+        }
+      }
+      return groups;
+    });
+  }
+
+  /**
+   * Every entity whose open opinion names a file place this vertex stands at: the reverse of the evidence a produced
+   * value carries. A term's definition names the file it is defined in, and the file's page answers its terms. One
+   * statement over every kind table the contract made and the git capability's own, so no kind is named here
+   * (madarch-j9ao.3.1); every open opinion is read and its `said_by` is kept as the source.
+   */
+  async evidenceToward(entity: GraphEntity, options: { limit: number }): Promise<{ entity: GraphEntity; sources: string[] }[]> {
+    const repository = typeof entity.properties['repository'] === 'string' ? entity.properties['repository'] : undefined;
+    const path = typeof entity.properties['path'] === 'string' ? entity.properties['path'] : undefined;
+    if (repository === undefined || path === undefined) return [];
+    const tables = new Set<string>();
+    for (const decl of this.generated?.values() ?? []) tables.add(decl.table);
+    const gitVertices: readonly { kind: string; table: string }[] = [
+      { kind: GIT_KINDS.repository, table: GIT_TABLES.repository },
+      { kind: GIT_KINDS.directory, table: GIT_TABLES.directory },
+      { kind: GIT_KINDS.file, table: GIT_TABLES.file },
+      { kind: GIT_KINDS.gitlink, table: GIT_TABLES.gitlink },
+      { kind: GIT_KINDS.commit, table: GIT_TABLES.commit },
+      { kind: GIT_KINDS.signature, table: GIT_TABLES.signature },
+    ];
+    for (const held of gitVertices) if (this.holds(held.kind)) tables.add(held.table);
+    if (tables.size === 0) return [];
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ node_id: string; said_by: string }>(
+        [...tables].map((table) => `SELECT n.id::text AS node_id, o."said_by" AS said_by FROM ${table} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND o."context_id" = 1 AND o."evidence" @> $1::jsonb`).join(' UNION ALL '),
+        [JSON.stringify([{ type: 'file', repository, path }])],
+      );
+      const sources = new Map<string, Set<string>>();
+      for (const row of found.rows) {
+        if (entity.nodeIds.includes(row.node_id)) continue;
+        const held = sources.get(row.node_id) ?? new Set<string>();
+        held.add(row.said_by);
+        sources.set(row.node_id, held);
+      }
+      const entities = await this.entitiesOfIds(tx, [...sources.keys()]);
+      return [...entities.values()]
+        .sort((left, right) => byCodePoint(left.key, right.key))
+        .slice(0, options.limit)
+        .map((one) => ({ entity: one, sources: [...(sources.get(one.nodeIds[0]!) ?? [])].sort(byCodePoint) }));
     });
   }
 

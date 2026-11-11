@@ -16,7 +16,7 @@ import {
   type RenderContext, type Subject,
 } from './blocks.js';
 import { graphBlock, treemapBlock } from './diagrams.js';
-import { diagramsBlock } from './views.js';
+import { diagramsBlock, relationsBlock } from './views.js';
 import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
 import { withSpan } from '../obs/trace.js';
@@ -276,6 +276,7 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'modules':
     case 'er':
     case 'sequence': return await diagramsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, name, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
+    case 'relations': return await relationsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'repository': return await repositoryBlock(ctx, subject, params, file, line);
     case 'folder': return await folderBlock(ctx, subject, params, file, line);
