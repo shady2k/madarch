@@ -156,6 +156,8 @@ try {
         catch (error) { errors.push(`screenshot: ${String(error)}`); }
         shots.push({ name: visit.name, url: visit.url, width, file, settleMs, errors });
         console.log(`${visit.name} ${width}: ${settleMs}ms, ${errors.length} errors`);
+        // Closing deliberately aborts SSE/background requests; those are not visit failures.
+        page.removeAllListeners();
         await page.close();
       }
     } finally { await context.close(); }
