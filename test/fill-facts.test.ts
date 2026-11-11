@@ -1,10 +1,8 @@
 /**
  * The few fact-vocabulary values the fill still uses (decision 0034): a
- * repository path, which never carries the machine checkout, and the storage
- * forms the product schema declares for a registry kind (0021's amendment).
+ * repository path, which never carries the machine checkout.
  */
 import { describe, expect, test } from 'bun:test';
-import { StorageForm } from '../src/product/schema.js';
 import { isRepositoryPath, repositoryPath } from '../src/fill/facts.js';
 
 describe('repository paths: the machine checkout never reaches a fact', () => {
@@ -23,15 +21,5 @@ describe('repository paths: the machine checkout never reaches a fact', () => {
       expect(isRepositoryPath(value)).toBe(false);
       expect(() => repositoryPath(value)).toThrow(/repository path/);
     }
-  });
-});
-
-describe('the storage forms of the product schema', () => {
-  test('the storage forms are the product schema own five: one declaration', () => {
-    // 0021's amendment names the forms a registry kind may be kept in; the
-    // product schema is their one declaration, so a form added there reaches
-    // every reader of it instead of leaving a copy behind.
-    const union = (StorageForm as unknown as { anyOf: readonly { const: string }[] }).anyOf.map((member) => member.const);
-    expect([...union].sort()).toEqual(['component', 'document', 'fact', 'model-element', 'task']);
   });
 });

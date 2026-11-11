@@ -15,7 +15,7 @@ import { traceKeepOf } from '../knowledge/settings.js';
 import { log } from '../obs/log.js';
 import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
-import type { FillStageConfigurationRead } from './config.js';
+import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import { fillSteps, type RecordPassWiring } from './steps.js';
 import { assertFillGitVersion } from './git-version.js';
 

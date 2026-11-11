@@ -15,9 +15,8 @@
  *   `about: [<page id>#<statement name>]`, `statement` as it read, `status:
  *   open | applied`, `corrected-by`, `corrected-at`), then `## Correction`.
  *
- * This module renders and reads those files. It resolves nothing against the
+ * This module renders those files from structured graph records. It resolves nothing against the
  * graph and runs no git: `answer.ts` writes and commits, `plan.ts` decides.
- * Every error names the file and the line.
  */
 import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
@@ -62,6 +61,7 @@ export const QUESTION_HEADINGS = {
 export type QuestionLanguage = keyof typeof QUESTION_HEADINGS;
 
 export interface Question {
+  readonly producer?: string | null;
   /** The language the file's headings are in; English when absent (files written before the headings were localized). */
   readonly language?: QuestionLanguage;
   readonly slug: string;

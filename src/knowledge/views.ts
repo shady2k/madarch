@@ -27,10 +27,9 @@ import type { RenderContext, Subject } from './blocks.js';
 import { locationOf, refOfGraph, refOfMarkdown, relatesGroups } from './blocks.js';
 import { chainFrom, entriesOf, modulesBlockModel, pathOfKey, serviceLocator, systemModel, type Entry } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
-import { declarationMissing, erFormOf, kindDraws, systemPartOf } from './kinds.js';
+import { declarationMissing, erFormOf, kindDraws, systemPartOf } from '../product/manifest/kinds.js';
 import type { Chain, ChainStep, CodeLocation, EntityRef, RelatedGroup } from './model.js';
 import { sourceAddress } from './resolve.js';
-import { stateMachinesOf } from './state-machines.js';
 
 // ---- the vocabulary ----------------------------------------------------------------------------------
 
@@ -706,57 +705,41 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
 
 // ---- state -------------------------------------------------------------------------------------------
 
-/** The files whose text a subject's state machines are read from. */
-interface SubjectFiles {
-  files: { repo: string | null; path: string; scope: string }[];
-  /** How many files of the subject the read did not reach, so a view says what it did not search. */
-  dropped: number;
+/** A producer's state-machine opinion, including the source locations it claims. */
+interface StateMachineOpinion {
+  name: string;
+  type: string | null;
+  path: string;
+  lineStart: number;
+  lineEnd: number;
+  states: {name: string; label: string; line: number}[];
+  transitions: {from: string; to: string; event: string | null; line: number}[];
 }
 
-async function filesOfSubject(ctx: RenderContext, subject: GraphEntity): Promise<SubjectFiles> {
-  const repo = ctx.repoOfScope(subject.scope) ?? null;
-  const own = typeof subject.properties['path'] === 'string' ? subject.properties['path'] : subject.span?.path;
-  if (subject.kind === 'code.file' || subject.kind === 'code.symbol') return { files: own === undefined ? [] : [{ repo, path: own, scope: subject.scope }], dropped: 0 };
-  if (subject.kind === 'code.module' || subject.kind === 'code.package' || subject.kind === 'code.service') {
-    const root = subject.kind === 'code.service' ? dirname(subject.span?.path ?? '.') : keyTail(subject.key);
-    const found = await ctx.graph.byPrefix('code.file', root === '.' ? 'code.file:' : `code.file:${root}/`, 400);
-    return {
-      files: found.rows.map((file) => ({ repo: ctx.repoOfScope(file.scope) ?? null, path: String(file.properties['path'] ?? keyTail(file.key)), scope: file.scope })).filter((file) => /\.(go|ts|tsx|js|mjs)$/.test(file.path) && !/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[a-z]+$|_test\.go$/.test(file.path)),
-      dropped: Math.max(0, found.total - found.rows.length),
-    };
-  }
-  return { files: [], dropped: 0 };
-}
-
-/** Every state view the subject's files hold, one per transition table. */
+/** State views present published opinions; they never search source text for a transition table. */
 async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Words): Promise<GraphView[]> {
-  const { files, dropped } = await filesOfSubject(ctx, subject);
-  const views: GraphView[] = [];
-  const queue = [...files];
-  const results = new Map<string, Awaited<ReturnType<typeof stateMachinesOf>>>();
-  const read = async (): Promise<void> => {
-    for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-      const text = await ctx.readSource(file.repo, file.path);
-      if (text !== undefined) results.set(`${file.repo ?? ''}|${file.path}`, await stateMachinesOf(file.path, text));
-    }
-  };
-  await Promise.all(Array.from({ length: 8 }, read));
-  const notSearched = dropped === 0 ? [] : [w.filesNotSearched(dropped)];
-  for (const file of files) {
-    for (const machine of results.get(`${file.repo ?? ''}|${file.path}`) ?? []) {
-      const spec: ViewSpec = { type: 'state', subject: subject.key, entry: `${file.path}#${machine.name}` };
-      const place = (line: number): CodeLocation => ({ repo: file.repo, path: file.path, lineStart: line, lineEnd: line, href: sourceAddress(file.repo, file.path, line) });
-      const ids = new Map(machine.states.map((state) => [state.name, `${file.path}#${machine.name}/${state.name}`]));
-      const label = machine.type === null ? machine.name : `${machine.type} (${machine.name})`;
-      const elements: ViewElement[] = machine.states.map((state) => ({ id: ids.get(state.name)!, label: state.label, kind: 'state', href: place(state.line).href, location: place(state.line), dashed: false }));
-      const edges: ViewEdge[] = machine.transitions.map((transition) => ({ from: ids.get(transition.from)!, to: ids.get(transition.to)!, label: transition.event ?? '', dashed: false, location: place(transition.line), href: sourceAddress(file.repo, file.path, transition.line) }));
-      // Mermaid's own state syntax: every transition here is a fact, and the syntax draws no dashed arrow.
-      const stateIds = new Map(machine.states.map((state, at) => [state.name, `s${at}`]));
-      const mermaid = ['stateDiagram-v2', ...machine.states.map((state) => `  state "${state.label.replace(/"/g, "'")}" as ${stateIds.get(state.name)!}`), ...machine.transitions.map((transition) => `  ${stateIds.get(transition.from)!} --> ${stateIds.get(transition.to)!}${transition.event === null ? '' : ` : ${transition.event.replace(/[:\n]/g, ' ')}`}`)].join('\n');
-      views.push({ spec, title: `${w.state}: ${label}`, label: label, elements, edges, notes: [`${file.path}:${machine.lineStart}-${machine.lineEnd}`, ...notSearched], empty: null, marker: null, mermaid });
-    }
-  }
-  return views;
+  const published = subject.properties['state_machines'];
+  if (published === undefined) return [];
+  if (!Array.isArray(published)) throw new ViewRefusal(400, `${subject.span?.path ?? subject.key}:${subject.span?.lineStart ?? 1} (${ctx.productFolder}): stateMachines opinion must be an array`);
+  const repo = ctx.repoOfScope(subject.scope) ?? null;
+  return (published as StateMachineOpinion[]).map((machine) => {
+    if (machine === null || typeof machine !== 'object' || typeof machine.path !== 'string' || typeof machine.name !== 'string' || !Array.isArray(machine.states) || !Array.isArray(machine.transitions)) throw new ViewRefusal(400, `${subject.span?.path ?? subject.key}:${subject.span?.lineStart ?? 1} (${ctx.productFolder}): stateMachines opinion must supply name, path, states and transitions`);
+    const validLine = (line: number): boolean => Number.isInteger(line) && line > 0;
+    if (!(machine.type === null || typeof machine.type === 'string') || !validLine(machine.lineStart) || !validLine(machine.lineEnd) || machine.lineEnd < machine.lineStart || machine.states.some((state) => state === null || typeof state !== 'object' || typeof state.name !== 'string' || typeof state.label !== 'string' || !validLine(state.line)) || machine.transitions.some((transition) => transition === null || typeof transition !== 'object' || typeof transition.from !== 'string' || typeof transition.to !== 'string' || !(transition.event === null || typeof transition.event === 'string') || !validLine(transition.line))) throw new ViewRefusal(400, `${machine.path}:${machine.lineStart} (${ctx.productFolder}): stateMachines opinion has malformed states, transitions or source lines`);
+    if (new Set(machine.states.map((state) => state.name)).size !== machine.states.length) throw new ViewRefusal(400, `${machine.path}:${machine.lineStart} (${ctx.productFolder}): stateMachines opinion has duplicate state names`);
+    const spec: ViewSpec = {type: 'state', subject: subject.key, entry: `${machine.path}#${machine.name}`};
+    const place = (line: number): CodeLocation => ({repo, path: machine.path, lineStart: line, lineEnd: line, href: sourceAddress(repo, machine.path, line)});
+    const ids = new Map(machine.states.map((state) => [state.name, `${machine.path}#${machine.name}/${state.name}`]));
+    const label = machine.type === null ? machine.name : `${machine.type} (${machine.name})`;
+    const elements: ViewElement[] = machine.states.map((state) => ({id: ids.get(state.name)!, label: state.label, kind: 'state', href: place(state.line).href, location: place(state.line), dashed: false}));
+    const edges: ViewEdge[] = machine.transitions.map((transition) => {
+      if (!ids.has(transition.from) || !ids.has(transition.to)) throw new ViewRefusal(400, `${machine.path}:${transition.line} (${ctx.productFolder}): stateMachines opinion has a transition with an undeclared state`);
+      return {from: ids.get(transition.from)!, to: ids.get(transition.to)!, label: transition.event ?? '', dashed: false, location: place(transition.line), href: sourceAddress(repo, machine.path, transition.line)};
+    });
+    const stateIds = new Map(machine.states.map((state, at) => [state.name, `s${at}`]));
+    const mermaid = ['stateDiagram-v2', ...machine.states.map((state) => `  state "${state.label.replace(/"/g, "'")}" as ${stateIds.get(state.name)!}`), ...machine.transitions.map((transition) => `  ${stateIds.get(transition.from)!} --> ${stateIds.get(transition.to)!}${transition.event === null ? '' : ` : ${transition.event.replace(/[:\n]/g, ' ')}`}`)].join('\n');
+    return {spec, title: `${w.state}: ${label}`, label, elements, edges, notes: [`${machine.path}:${machine.lineStart}-${machine.lineEnd}`], empty: null, marker: null, mermaid};
+  });
 }
 
 // ---- sequence ----------------------------------------------------------------------------------------
@@ -1105,8 +1088,8 @@ async function buildViewsOfType(view: ViewContext, spec: ViewSpec, subject: Subj
     }
     case 'state': {
       const entity = await entityAt(view.ctx, spec.subject);
-      if (entity === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: a state view reads the transition tables of its code`);
-      if (!kindDraws(view.ctx.manifest, entity.kind, 'state')) throw notDeclared(view.ctx, entity.kind, '"views: [state]"', 'a state view reads the transition tables in the bytes of an entity\'s code');
+      if (entity === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: a state view presents published transition opinions`);
+      if (!kindDraws(view.ctx.manifest, entity.kind, 'state')) throw notDeclared(view.ctx, entity.kind, '"views: [state]"', 'a state view presents published transition opinions');
       const all = await stateViews(view.ctx, entity, w);
       const wanted = spec.entry === undefined ? all : all.filter((candidate) => candidate.spec.entry === spec.entry);
       if (wanted.length === 0) return [empty(spec, w.state, w.state, w.noMachines)];

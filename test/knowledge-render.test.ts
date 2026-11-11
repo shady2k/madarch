@@ -11,14 +11,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
-import { parseKinds } from '../src/knowledge/kinds.js';
-import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
+import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
-import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
+import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage, searchWiki } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
-import { BLOCK_NAMES } from '../src/knowledge/template.js';
-import { findAnchor } from '../src/knowledge/anchors.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
+
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
@@ -162,20 +160,38 @@ beforeAll(async () => {
 
   const read = parseKinds(await Bun.file(join(productFolder, 'madarch/kinds.yaml')).text(), join(productFolder, 'madarch/kinds.yaml'), productFolder);
   expect(read.findings).toEqual([]);
-  const markdown = new Map(readMarkdownEntitiesFrom(workingTreeFiles(productFolder), read).entities.map((entity) => [entity.id, entity]));
+  const blockPart = (name: string, params: Record<string, string> = {}, line = 1) => ({ type: 'block', name, params, line });
+  const textPart = (text: string, line = 1) => ({ type: 'text', text, line });
+  const attribute = (name: string) => ({ type: 'attribute', name, line: 1 });
+  const template = (path: string, template_parts: unknown[]) => add(`template:${path}`, 'template', path, { template_parts });
+  template('templates/product.md', [blockPart('body')]);
+  template('templates/domain.md', [blockPart('body'), blockPart('related', { title: 'Implemented by', relation: 'relates' }, 2)]);
+  template('templates/service.md', [textPart('A '), attribute('language'), textPart(' service on '), attribute('frameworks'), textPart('; tests: '), attribute('testFramework'), textPart('; owner: '), attribute('owner'), textPart('.'), blockPart('graph', { depth: '1' }, 2), blockPart('related', { title: 'Files', relation: 'code.contains', depth: '3', kind: 'code.file' }, 3), blockPart('related', { title: 'Described by', relation: 'relates' }, 4), { type: 'problem', message: 'unknown block nonsense', line: 5 }, { type: 'problem', message: 'closing block closes nothing', line: 6 }, blockPart('callers', {}, 7)]);
+  template('templates/symbol.md', [attribute('symbolKind'), textPart(' in '), attribute('path'), blockPart('source', {}, 2), blockPart('callers', {}, 3), blockPart('callees', {}, 4), blockPart('sequence', {}, 5), blockPart('related', { title: 'Declared in', relation: 'code.contains', direction: 'in' }, 6), blockPart('er', {}, 7)]);
+  template('templates/file.md', [attribute('path'), blockPart('source', {}, 2), blockPart('related', { title: 'Imports', relation: 'code.imports', direction: 'out' }, 3), blockPart('related', { title: 'Imported by', relation: 'code.imports', direction: 'in' }, 4)]);
+  template('templates/item-plain.md', [blockPart('properties', { title: 'Details' }), blockPart('graph', { title: 'Around this' }, 2), blockPart('related', { title: 'Relations' }, 3), blockPart('related', { title: 'Pages about this', relation: 'relates' }, 4)]);
+  template('templates/database.md', [blockPart('er', { limit: '5' })]);
+  const source = (path: string, text: string, start: number, end: number) => ({ text, language: 'typescript', truncated: false, location: { repo: 'shop', path, lineStart: start, lineEnd: end, href: `/src?repo=shop&path=${encodeURIComponent(path)}&line=${start}` } });
+  add(CHARGE, 'code.symbol', 'charge', { path: 'svc/billing/src/a.ts', symbolKind: 'function', span: span('svc/billing/src/a.ts', 3, 6), source: source('svc/billing/src/a.ts', A_TS.split('\n').slice(2, 6).join('\n'), 3, 6) });
+  add(FILE_A, 'code.file', 'a.ts', { path: 'svc/billing/src/a.ts', source: source('svc/billing/src/a.ts', A_TS.trimEnd(), 1, 10) });
+  add('product:shop', 'product', 'The shop', { body: 'The shop bills customers through the billing service.[^1]', file: 'docs/product.md', body_line: 9, relates: [SERVICE], producer: 'agent' });
+  const links = [{ url: `madarch:${CHARGE}`, line: 19, ground: true }, { url: `madarch:${K('code.symbol', 'svc/none.ts#gone')}`, line: 19, ground: true }, { url: 'madarch:doc:docs/handbook.md#money', line: 20, ground: true }, { url: 'madarch:doc:docs/handbook.md#nothing', line: 20, ground: true }, { url: 'madarch:doc:docs/none.md', line: 20, ground: true }, { url: 'madarch:product:shop', line: 17, ground: false }];
+  const statement = (id: string, text: string, line: number) => ({ id, labels: [id], text, line, digest: id, mentions: [], grounds: [] });
+  add('domain:billing', 'domain', 'Billing', { body: 'Charges go through one function that bills the customer.[^1]\n\nA refund is posted back to the card.\n\nMoney moves in two steps and each step is checked.[^2]', body_line: 11, file: 'docs/domains/billing.md', relates: [SERVICE, CHARGE, K('code.symbol', 'svc/none.ts#gone')], producer: 'agent', links, statements: [statement('1', 'Charges go through one function that bills the customer.', 11), statement('2', 'Money moves in two steps and each step is checked.', 15)], ungrounded: [{ text: 'A refund is posted back to the card.', line: 13 }] });
+  add('document:handbook', 'document', 'Handbook', { repository: 'shop', path: 'docs/handbook.md', markdown: 'Handbook', anchors: { money: { title: 'Money', start: 3, end: 5, markdown: 'text' } } });
   const graph = fake.reader();
+  const markdown = new Map((await graphMarkdownEntities(graph, read)).entities.map((entity) => [entity.id, entity]));
   const readSource = async (repo: string | null, path: string): Promise<string | undefined> => (repo === 'shop' ? documents.get(path) : undefined);
   ctx = {
     productFolder,
-    files: workingTreeFiles(productFolder),
-    productName: 'shop',
+
     manifest: read,
     graph,
     markdown,
     language: 'en',
     repositories: ['shop'],
     commitOf: () => null,
-    resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), readDocument: readSource, repositories: () => ['shop'],
+    resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), documentKinds: ['document'], repositories: () => ['shop'],
     locate: (entity) => (entity.span === undefined ? undefined : { repo: 'shop', path: entity.span.path, lineStart: entity.span.lineStart, lineEnd: entity.span.lineEnd, href: `/src?repo=shop&path=${encodeURIComponent(entity.span.path)}&line=${entity.span.lineStart}` }) }),
     repoOfScope: (id) => repoOfScope.get(id),
     readSource,
@@ -198,6 +214,48 @@ const block = <T extends Block['type']>(model: PageModel, type: T, at = 0): Extr
   return found as Extract<Block, { type: T }>;
 };
 
+describe('structured template opinions at the page boundary', () => {
+  const templateContext = (opinions: readonly Record<string, unknown>[]): RenderContext => {
+    const graph = new Proxy(ctx.graph, {
+      get(target, key) {
+        if (key === 'find') return async (id: string) => id === 'template:templates/service.md'
+          ? opinions.map((properties, index) => ({ key: id, kind: 'template', label: id, properties, nodeIds: [String(index)], scope: '1' }))
+          : (await target.find(id)).map((entity) => id === SERVICE ? { ...entity, label: 'a_b [x]' } : entity);
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    return { ...ctx, graph };
+  };
+
+  test('missing and ambiguous templates fail with the full template path and line', async () => {
+    for (const opinions of [[], [{ template_parts: [] }, { template_parts: [] }]]) {
+      const result = await renderPage(templateContext(opinions), SERVICE);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('an absent or ambiguous template was accepted');
+      expect(result.status).toBe(500);
+      expect(result.message).toBe(`templates/service.md:1: expected one structured template opinion, found ${opinions.length}`);
+    }
+  });
+
+  test('malformed template parts fail instead of dropping an unreadable section', async () => {
+    const result = await renderPage(templateContext([{ template_parts: [{ type: 'block', name: 'unknown', params: {}, line: 3 }] }]), SERVICE);
+    expect(result).toEqual({ ok: false, status: 500, message: 'templates/service.md:1: template opinion requires structured template_parts' });
+  });
+
+  test('literal template syntax stays literal and only explicit attributes are escaped', async () => {
+    const result = await renderPage(templateContext([{ template_parts: [
+      { type: 'text', text: '{{language}} {% body %} :::body / ', line: 1 },
+      { type: 'attribute', name: 'label', line: 2 },
+      { type: 'text', text: ' / ', line: 2 },
+      { type: 'attribute', name: 'span.path', line: 2 },
+    ] }]), SERVICE);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.message);
+    expect(block(result.page, 'markdown').markdown).toBe('{{language}} {% body %} :::body / a\\_b \\[x\\] / svc/billing/package.json');
+  });
+});
+
 describe('a page\'s title', () => {
   test('is the manifest\'s title attribute, the same title the changed-page list shows, not the label', () => {
     expect(graphTitleOf('name', { key: 'code.database:internal-42', kind: 'code.database', label: 'internal-42', properties: { name: 'Payments' } })).toBe('Payments');
@@ -217,7 +275,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const text = block(model, 'markdown').markdown;
     expect(text).toBe('A typescript service on express, pino; tests: jest; owner: –.');
-    expect(model.findings).toContainEqual({ file: 'templates/service.md', line: 1, message: '"{{owner}}" names no attribute of this entity' });
+    expect(model.findings).toContainEqual({ file: 'templates/service.md', line: 1, message: '"owner" names no attribute of this entity' });
     expect(model.title).toBe('billing');
     expect(model.kind).toBe('code.service');
   });
@@ -226,7 +284,8 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain(`"nonsense" is not a block of the library (${BLOCK_NAMES.join(', ')})`);
+
+    expect(model.findings.map((entry) => entry.message)).toContain('unknown block nonsense');
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 
@@ -420,13 +479,7 @@ describe('Markdown pages, links and grounds', () => {
     expect(rows[0]!.entity.href).toBe(`/e/${encodeURIComponent(SERVICE)}`);
   });
 
-  test('document sections are found by heading slug, by an explicit id and by a label opening the line', () => {
-    const text = ['# Handbook', '', '## Money', '', '## Refunds {#refunds}', '', '- **UC-7 Pay.** The shopper pays.'].join('\n');
-    expect(findAnchor(text, 'money')).toBe(3);
-    expect(findAnchor(text, 'refunds')).toBe(5);
-    expect(findAnchor(text, 'uc-7')).toBe(7);
-    expect(findAnchor(text, 'pays')).toBeNull();
-  });
+
 });
 
 describe('what has a page', () => {
@@ -458,5 +511,18 @@ describe('what has a page', () => {
     const filtered = await listEntities(ctx, 'code.symbol', { limit: 10, q: 'hand' });
     expect(filtered!.rows.map((row) => row.id)).toEqual([HANDLE]);
     expect(await listEntities(ctx, 'code.module', { limit: 10 })).toBeUndefined();
+  });
+});
+
+
+describe('search over page opinions', () => {
+  test('body and title matches are case insensitive, keep nearby text and group by kind', async () => {
+    const answer = await searchWiki(ctx, 'CUSTOMERS', 'en');
+    const product = answer.groups.find((group) => group.kind === 'product');
+    expect(product?.rows).toContainEqual({ id: 'product:shop', kind: 'product', title: 'The shop', href: '/e/product%3Ashop', excerpt: 'The shop bills customers through the billing service.[^1]' });
+    const title = await searchWiki(ctx, 'bILLING', 'en');
+    expect(title.groups.find((group) => group.kind === 'domain')?.rows[0]).toMatchObject({ id: 'domain:billing', title: 'Billing' });
+    expect(await searchWiki(ctx, '   ', 'en')).toEqual({ groups: [], total: 0 });
+    expect(await searchWiki(ctx, 'absent-search-word', 'en')).toEqual({ groups: [], total: 0 });
   });
 });

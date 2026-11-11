@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { GROUP_SHORT_LABEL_LIMIT, parseKinds } from '../src/knowledge/kinds.js';
+import { GROUP_SHORT_LABEL_LIMIT, parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/starter-catalog.js';
 
@@ -245,7 +245,8 @@ describe('a catalog is read as its manifest declares it', () => {
     const starter = product();
     const seeded = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', starter);
     expect(seeded.findings).toEqual([]);
-    expect(read.catalog!.kinds.size).toBe(516);
+
+    expect(read.catalog!.kinds.size).toBe(519);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);

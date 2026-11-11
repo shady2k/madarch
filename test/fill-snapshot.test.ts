@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { deflateSync } from 'node:zlib';
-import { createGitSnapshotSource, isReadableEntry, SnapshotError, SnapshotReader, type RepositoryPin } from '../src/fill/snapshot.js';
+import { createGitSnapshotSource, isReadableEntry, SnapshotError, SnapshotReader, type RepositoryPin } from '../src/plugin/repository-snapshot.js';
 
 /** A throwaway repository with two commits: the second changes a file, adds a folder and pins a submodule. */
 interface Fixture {

@@ -6,7 +6,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet, starterPageKindNames } from '../src/knowledge/seed.js';
 import type { StarterTemplate } from '../src/knowledge/starter-templates.js';
 

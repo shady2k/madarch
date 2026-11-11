@@ -16,7 +16,6 @@ import { join } from 'node:path';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import type { ViewPayload } from '../src/knowledge/views.js';
-import { stateMachinesOf } from '../src/knowledge/state-machines.js';
 import { ROOT, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
 /**
@@ -219,12 +218,7 @@ describe('the neighbourhood', () => {
   });
 });
 
-describe('reading explicit transition tables only', () => {
-  bunTest.skipIf(skip || skippedSuite !== undefined)('ignores transition-looking text in comments and ordinary Go nested maps', async () => {
-    expect(await stateMachinesOf('src/order.ts', `/* const transitions = { pending: { paid: 'confirmed' } }; */\nconst permissions = { admin: { scope: 'all' } };`)).toEqual([]);
-    expect(await stateMachinesOf('order.go', `var permissions = map[string]map[string]string{\n  "admin": { "scope": "all" },\n}`)).toEqual([]);
-  });
-});
+
 
 describe('the drawn views: C4, components, ER, state and deployment, and the hotspot treemap', () => {
   bunTest.skipIf(skip || skippedSuite !== undefined)('the home page draws the context and the containers: four services, their databases and the topics with HTTP, gRPC, SQL and event links (interaction.*, database.*)', async () => {

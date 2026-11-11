@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import type { Page } from 'puppeteer';
 import { OnceEvidence, assertOnceManifest, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, expectedEventSource, deadline, hashFiles, ownedPIDs, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
-import { readBody, splitFrontMatter } from '../src/knowledge/markdown.js';
 
 describe('questions-once harness rejects incomplete evidence', () => {
   const plan = { store: ['/fixture/graph'], agentPages: ['docs/domains/payments.md'] };
@@ -75,7 +74,10 @@ describe('questions-once harness rejects incomplete evidence', () => {
   test('reset finding lines follow retained body offsets after metadata removal, without changing allowed targets', () => {
     const before = '---\nid: question:kept\nresolved-by: [domain:payments]\nresolved-at: yesterday\n---\nGround.[^one]\n\n[^one]: [file](madarch:code.file:src/pay.ts)\n';
     const after = before.replace('resolved-by: [domain:payments]\nresolved-at: yesterday\n', '');
-    const links = (source: string) => { const body = splitFrontMatter(source); return readBody(body.body, 'docs/questions/kept.md', body.bodyLine).links; };
+    const links = (source: string) => source.split('\n').flatMap((text, index) => {
+      const url = /\]\((madarch:[^)]+)\)/.exec(text)?.[1];
+      return url === undefined ? [] : [{ url, line: index + 1 }];
+    });
     expect(links(after)[0]!.url).toBe(links(before)[0]!.url);
     expect(links(after)[0]!.line).toBe(links(before)[0]!.line - 2);
   });

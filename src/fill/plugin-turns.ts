@@ -1,3 +1,4 @@
+import { storedFileValueAnswerer } from '../plugin/stored-text.js';
 /**
  * The plugin turn (decision 0035, items 1, 6, 9, 15 and 16): one fill step that runs each plugin
  * the product holds for a kind, once for the kind. A unit is not a path: the plugin asks its host
@@ -18,9 +19,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
-import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../knowledge/kinds.js';
+import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { fileContent, graphFiles, producerEdges, producerEntities, writeRequestEntry } from '../graph/plugin-turns.js';
+import { graphFiles, producerEdges, producerEntities, writeRequestEntry } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf } from '../plugin/closure.js';
@@ -28,7 +29,7 @@ import { PluginHost, RequestLog, type GraphAnswerer } from '../plugin/host.js';
 import { canonicalKey } from '../plugin/results.js';
 import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
-import type { SnapshotSource } from './snapshot.js';
+import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
 import { GIT_WIKI } from './stages/git-contract.js';
 import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
@@ -312,13 +313,7 @@ function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
         .map((file) => ({ kind: GIT_WIKI.file, key: { repository: file.repository, path: file.path } }));
       return files;
     },
-    value: async (kind, key, field) => {
-      if (kind !== GIT_WIKI.file) throw new Error(`the graph read of a ${JSON.stringify(kind)} is not one the host answers: a plugin reads the files producer's vertices (${GIT_WIKI.file})`);
-      const repository = String(key['repository'] ?? '');
-      const path = String(key['path'] ?? '');
-      if (field !== 'content') throw new Error(`the field ${JSON.stringify(field)} is not one a plugin reads of a file: the files producer stores its content`);
-      return await fileContent(wiring.owner, repository, path);
-    },
+    value: storedFileValueAnswerer(wiring.owner),
     // The writer's consistency records (madarch-stm0.7.1, pieces 2 and 4), one bounded page at a time: the plugin asks
     // by name, and the store is read here, in the fill's own layer, never by the plugin.
     unresolved: async (query) => {

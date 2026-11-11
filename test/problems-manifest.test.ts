@@ -8,7 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES, STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
 import { DEFAULT_THRESHOLDS } from '../src/problems/types.js';
 

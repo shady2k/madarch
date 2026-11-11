@@ -1,3 +1,4 @@
+import { publishSamplePageOpinions } from './knowledge-page-opinions.js';
 /**
  * The wiki's search over HTTP (madarch-o0d): pages and entities by title and text, grouped by kind, read from the same
  * product read as the pages — the Markdown the manifest declares, and the store the graph lives in. The product is a
@@ -57,6 +58,7 @@ beforeAll(async () => {
     if (state !== 'running') break;
     await new Promise((rest) => setTimeout(rest, 250));
   }
+  await publishSamplePageOpinions(product, join(work, 'store'));
 }, 300_000);
 
 afterAll(async () => {

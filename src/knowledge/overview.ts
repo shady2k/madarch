@@ -12,7 +12,7 @@ import { byCodePoint } from '../model/order.js';
 import { attributeOf, type RenderContext, type Subject } from './blocks.js';
 import { entityAddress, FILL_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, GLOSSARY_ADDRESS, PROBLEMS_ADDRESS, kindAddress, sourceAddress } from './addresses.js';
 import type { GraphEntity } from './graph-read.js';
-import { homeKind, listingFormOf, systemKindsOf } from './kinds.js';
+import { homeKind, listingFormOf, systemKindsOf } from '../product/manifest/kinds.js';
 import { kindNumbers } from './kind-numbers.js';
 import type { Block, OverviewBlockShape, OverviewItem, OverviewSection, OverviewSource } from './model.js';
 import { diagramsBlock, type ViewContext } from './views.js';
@@ -135,12 +135,6 @@ export async function overviewAbout(ctx: RenderContext, subject: Subject, params
   // The product page itself is the fallback: its body is the product's own statement when no separate vision page exists.
   if (paragraphs.length === 0 && subject.source === 'markdown' && subject.entity.body.trim() !== '') {
     paragraphs.push({ text: excerpt(subject.entity.body), source: markdownSource(subject.entity) });
-  }
-  const readme = params['readme'] ?? 'README.md';
-  const readmeText = ctx.readSource === undefined ? undefined : await ctx.readSource(null, readme);
-  if (readmeText !== undefined && readmeText.trim() !== '') {
-    const text = excerpt(readmeText, 480);
-    if (!paragraphs.some((paragraph) => paragraph.text === text)) paragraphs.push({ text, source: { label: `${readme}:1`, href: sourceAddress(null, readme, 1) } });
   }
   if (paragraphs.length > 0) return block('about', title, { paragraphs });
   return block('about', title, { absent: absent(lang, visionKinds.map((kind) => kindLabel(ctx, kind, lang)), words(lang).aboutOf) });

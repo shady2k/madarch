@@ -1,3 +1,4 @@
+import { contentsOf, storedFileValueAnswerer } from '../src/plugin/stored-text.js';
 /**
  * The record tables and the two passes (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
  * this step writes, a second run at one commit writing nothing, a new commit writing only what
@@ -17,7 +18,7 @@ import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
-import { GraphReader, type ContentAt } from '../src/knowledge/graph-read.js';
+import { GraphReader } from '../src/knowledge/graph-read.js';
 import { ensureVertex, publishOpinion } from '../src/graph/write.js';
 import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -51,8 +52,6 @@ function pin(commit: string): RepositoryAt {
 }
 
 /** The commits the fixture makes, oldest first: a past commit's text is read at the commit that held it. */
-let one = '';
-let two = '';
 let three = '';
 
 beforeAll(async () => {
@@ -71,7 +70,7 @@ beforeAll(async () => {
   git(['init', '-q', '-b', 'main']);
   // A remote a person cloned with: the credential is read and never stored (madarch-hsqs stage B review).
   git(['remote', 'add', 'origin', 'https://someone:secret-token@example.test/fixture.git']);
-  one = commitAll('one');
+  commitAll('one');
   // A rename, a deletion and a modification.
   git(['mv', 'docs/same-one.md', 'docs/renamed.md']);
   git(['rm', '-q', 'docs/same-two.md']);
@@ -136,13 +135,13 @@ describe('the two passes over one fixture', () => {
   test('a text file\'s bytes stand in the graph once per blob, and a reader takes them there', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const reader = new GraphReader(owner, () => new Date().toISOString());
-    expect(await reader.content('fixture', 'src/a.ts')).toBe('export const a = 2;\n');
-    expect(await reader.content('fixture', 'docs/renamed.md')).toBe('# one\n');
-    expect(await reader.content('fixture', 'blob.bin')).toBeNull();
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'src/a.ts' }, 'content')).toBe('export const a = 2;\n');
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/renamed.md' }, 'content')).toBe('# one\n');
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'blob.bin' }, 'content')).toBeNull();
     // A path that left the tree has no text at the filled commit, though its row and blob remain.
-    expect(await reader.content('fixture', 'docs/same-one.md')).toBeNull();
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/same-one.md' }, 'content')).toBeNull();
     // Many paths at once are one bound text[] parameter: a quote and a backslash in a name are characters, not SQL.
-    const many = await reader.contentsOf('fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
+    const many = await contentsOf(reader, 'fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
     expect(many.get('src/a.ts')).toBe('export const a = 2;\n');
     expect(many.get('docs/renamed.md')).toBe('# one\n');
     expect(many.get('docs/with "quotes" and \\backslash.md')).toBe('# quoted\n');
@@ -202,25 +201,7 @@ describe('the two passes over one fixture', () => {
     expect(a?.lines).toBe(1);
   }, 120_000);
 
-  test('a past commit\'s text is the text that commit held, or absent — never the current tree\'s', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const reader = new GraphReader(owner, () => new Date().toISOString());
-    /** The reason a read answers, refused where it answered a text. */
-    const absence = (answer: ContentAt): string => {
-      if ('text' in answer) throw new Error(`the read answered ${JSON.stringify(answer.text)} where the store holds no text of that version`);
-      return answer.absent;
-    };
-    // src/a.ts changed at the second and the third commit: the store holds no text of its first version, and says so.
-    expect(absence(await reader.contentAt('fixture', 'src/a.ts', one))).toContain(one);
-    // docs/renamed.md came into the tree at the second commit, and no commit touched it after: that is its text there.
-    expect(await reader.contentAt('fixture', 'docs/renamed.md', two)).toEqual({ text: '# one\n' });
-    // The same path stood under another name at the first commit: absent there, naming that commit.
-    expect(absence(await reader.contentAt('fixture', 'docs/renamed.md', one))).toContain(one);
-    // The commit the graph was filled from answers the current text.
-    expect(await reader.contentAt('fixture', 'src/a.ts', three)).toEqual({ text: 'export const a = 3;\n' });
-    // A commit the store\'s history does not hold is absent by name, never the tip\'s text.
-    expect(absence(await reader.contentAt('fixture', 'src/a.ts', '0'.repeat(40)))).toContain('0'.repeat(40));
-  });
+
 
   test('a file\'s language is an opinion field: a changed language closes the old opinion, and the filter reads the field', async () => {
     if (owner === undefined) throw new Error('the store was not opened');

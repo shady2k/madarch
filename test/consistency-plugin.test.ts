@@ -14,7 +14,7 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { planWholeGraphTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { runFill } from '../src/fill/run.js';

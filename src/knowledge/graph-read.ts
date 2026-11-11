@@ -11,10 +11,9 @@ import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner
 import { byCodePoint } from '../model/order.js';
 import type { LandmarkPlan } from './history-landmarks.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
-import { RecordGap, commitWithPaths, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts, repositoryFileIndex } from '../graph/index.js';
+import { RecordGap, commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts, repositoryFileIndex } from '../graph/index.js';
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
 import { entityAddress } from './addresses.js';
-import { DOCUMENT_SUFFIXES } from './doc-sources.js';
 
 export interface SourceSpan {
   path: string;
@@ -662,7 +661,6 @@ export interface GraphCommitFacts {
 }
 
 /** The text one file held at one commit, or why the graph holds none of that version. */
-export type ContentAt = { readonly text: string } | { readonly absent: string };
 
 /**
  * One file's facts, as a listing or a rule draws them: its key, its local node, its path, the repository's name, the
@@ -705,7 +703,7 @@ export class GraphReader {
   }
 
   /** Whether the product declares the graph kind; a reader without a set answers every kind. */
-  private holds(kind: string): boolean {
+  holds(kind: string): boolean {
     return this.declared === undefined || this.declared.has(kind) || this.generated?.has(kind) === true;
   }
 
@@ -752,7 +750,7 @@ export class GraphReader {
 
 
   /** The owner a graph read opens its own statement on: the page's transaction while a page is drawn, never a nested one. */
-  private storeOwner(): DatabaseOwner {
+  storeOwner(): DatabaseOwner {
     const transaction = this.transaction;
     if (transaction === undefined) return this.owner;
     const owner = this.owner;
@@ -808,11 +806,6 @@ export class GraphReader {
     return out;
   }
 
-  /** The text of one file the files producer stored: null when the graph holds none (binary, no fill read it, or the path left the tree). */
-  async content(repository: string, path: string): Promise<string | null> {
-    return await fileContent(this.storeOwner(), repository, path);
-  }
-
   /** Every file of a repository's current tree, in code point order: the product repository read whole once per revision. */
   async fileIndex(repository: string): Promise<readonly FileRecord[]> {
     return await repositoryFileIndex(this.storeOwner(), repository).catch((error: unknown) => {
@@ -821,37 +814,13 @@ export class GraphReader {
     });
   }
 
-  /** The text of many files at once, by path: the listing's titles read in one statement, never one per file. */
-  async contentsOf(repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
-    return await fileContents(this.storeOwner(), repository, paths);
-  }
-
-  /**
-   * The text one file held at one commit, or why the graph holds none of that version: a path no commit after it
-   * touched stands on the blob it has now, and a path one did touch is absent by name, never answered with today's text.
-   */
-  async contentAt(repository: string, path: string, commit: string): Promise<ContentAt> {
-    // The text one commit held is the history's: a manifest without those kinds has none to read.
-    if (!this.holds(GIT_KINDS.commit) || !this.holds(GIT_KINDS.touched) || !this.holds(GIT_KINDS.history)) return { absent: 'commit-not-in-history' };
-    const held = await fileTextAt(this.storeOwner(), repository, path, commit);
-    if ('text' in held) return held;
-    const where = `${JSON.stringify(path)} of ${JSON.stringify(repository)}`;
-    switch (held.absent) {
-      case 'no-file': return { absent: `the graph holds no file ${where} in the current tree: the fill has not read it (src/knowledge/graph-read.ts)` };
-      case 'binary': return { absent: `the blob ${where} stood on at ${commit} is binary: the files producer stores no text of it (src/knowledge/graph-read.ts)` };
-      case 'touched-after': return { absent: `a commit after ${commit} changed ${where}, and the graph keeps no text of the version before it: the answer is absent, never today's text under that commit's name (src/knowledge/graph-read.ts)` };
-      case 'commit-not-in-history': return { absent: `the graph's history of ${JSON.stringify(repository)} holds no commit ${commit}: it cannot name the text ${where} held there (src/knowledge/graph-read.ts)` };
-      case 'unread': return { absent: `the graph holds no text of ${where} at the commit ${commit}: the fill stored no content for its blob (src/knowledge/graph-read.ts)` };
-    }
-  }
-
   /**
    * One page of a repository's current Markdown documents, in code point order: the path rule stands in the statement,
    * so a repository of more files than a page holds still answers its documents, and a store that holds no such
    * repository answers an empty page.
    */
   async documents(repository: string, options: { readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-    return await listDocuments(this.storeOwner(), { repository, suffixes: DOCUMENT_SUFFIXES, ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
+    return await listDocuments(this.storeOwner(), { repository, suffixes: ['.md', '.markdown'], ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
   }
 
   /** One page of a repository's files, for an agent's listing: the graph's own answer, never a checkout's. */

@@ -16,8 +16,8 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { type RepositoryRef } from './closure.js';
 import { type TaskScope } from './tasks.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
-import type { KindsManifest } from '../knowledge/kinds.js';
+import type { ProductFileSource } from '../plugin/product-files.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 
 /** The task a mark points at: enough for the badge to name it and to link to it. */
 export interface PlannedTaskRef {

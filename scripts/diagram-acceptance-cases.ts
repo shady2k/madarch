@@ -2,7 +2,7 @@
 import { buildViews, payloadOf, type ViewPayload } from '../src/knowledge/views.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
-import type { KindsManifest } from '../src/knowledge/kinds.js';
+import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 /**
  * The kinds the fixture's views are read by, as the starter set declares them (`code.table`'s `er: links`): a page

@@ -9,14 +9,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { homeKind, parseKinds, readKinds } from '../src/knowledge/kinds.js';
-import { parseTarget, readBody, readMarkdownEntitiesFrom, splitFrontMatter } from '../src/knowledge/markdown.js';
+import { homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
-import { BLOCK_NAMES, parseTemplate, substitute } from '../src/knowledge/template.js';
-import { renderLiquidPage, templateSetOf } from '../src/knowledge/liquid.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const folders: string[] = [];
 function scratch(): string {
@@ -100,129 +96,8 @@ describe('the kinds manifest', () => {
   });
 });
 
-describe('the template', () => {
-  test('text and blocks keep their lines; parameters read bare and quoted; a fenced code sample is text', () => {
-    const parts = parseTemplate([
-      'Intro {{label}}.', // 1
-      ':::graph{depth=1}', // 2
-      ':::related{title="Used by, and more" relation="code.calls" direction=in}', // 3
-      '```', // 4
-      ':::callers', // 5
-      '```', // 6
-      ':::body', // 7
-    ].join('\n'));
-    expect(parts).toEqual([
-      { type: 'text', text: 'Intro {{label}}.', line: 1 },
-      { type: 'block', name: 'graph', params: { depth: '1' }, line: 2 },
-      { type: 'block', name: 'related', params: { title: 'Used by, and more', relation: 'code.calls', direction: 'in' }, line: 3 },
-      { type: 'text', text: '```\n:::callers\n```', line: 4 },
-      { type: 'block', name: 'body', params: {}, line: 7 },
-    ]);
-  });
-
-  test('an unknown block, a stray closing line and unreadable parameters are problems at their line', () => {
-    const parts = parseTemplate([':::chart', ':::', ':::related{title}', ':::related{a=1 a=2}', ':::source'].join('\n'));
-    expect(parts.map((part) => (part.type === 'problem' ? [part.line, part.message] : [part.type]))).toEqual([
-      [1, `"chart" is not a block of the library (${BLOCK_NAMES.join(', ')})`],
-      [2, 'a ":::" line closes nothing: a block is one line, ":::name{parameters}"'],
-      [3, 'the parameters of :::related are unreadable: "title" is not name=value'],
-      [4, 'the parameters of :::related are unreadable: "a" is given twice'],
-      ['block'],
-    ]);
-  });
-
-  test('substitution escapes what Markdown would read as markup, and a missing attribute is a dash and a finding', () => {
-    const findings: { file: string; line: number; message: string }[] = [];
-    const text = substitute('# {{name}} and {{gone}}\nsecond {{name}}', 10, 'templates/x.md', (name) => (name === 'name' ? 'a_b*c [d]' : undefined), findings);
-    expect(text).toBe('# a\\_b\\*c \\[d\\] and –\nsecond a\\_b\\*c \\[d\\]');
-    expect(findings).toEqual([{ file: 'templates/x.md', line: 10, message: '"{{gone}}" names no attribute of this entity' }]);
-  });
-});
-
-describe('Markdown entities', () => {
-  const kinds = (root: string) => parseKinds('kinds:\n  domain: { template: templates/t.md, source: markdown, folder: docs/domains }\n  product: { template: templates/t.md, source: markdown, file: docs/product.md }\n', 'madarch/kinds.yaml', (put(root, 'templates/t.md', ':::body\n'), root));
-
-  test('a file is an entity when its front matter gives the kind and an id that starts with it', () => {
-    const root = scratch();
-    put(root, 'docs/domains/pay.md', '---\nid: domain:pay\nkind: domain\ntitle: Pay\nrelates:\n  - code.service:x\nproducer: agent\nsources: [docs/a.md]\n---\nBody.\n');
-    const read = readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root));
-    expect(read.findings).toEqual([]);
-    expect(read.entities).toEqual([expect.objectContaining({ id: 'domain:pay', kind: 'domain', title: 'Pay', relates: ['code.service:x'], producer: 'agent', sources: ['docs/a.md'], body: 'Body.\n', bodyLine: 10, file: 'docs/domains/pay.md' })]);
-  });
-
-  test('a file that is not an entity is a finding at its file, and is not shown as one', () => {
-    const root = scratch();
-    put(root, 'docs/domains/none.md', 'No front matter.\n');
-    put(root, 'docs/domains/wrong-kind.md', '---\nid: domain:a\nkind: product\n---\n');
-    put(root, 'docs/domains/wrong-id.md', '---\nid: service:a\nkind: domain\n---\n');
-    put(root, 'docs/domains/one.md', '---\nid: domain:same\nkind: domain\n---\n');
-    put(root, 'docs/domains/two.md', '---\nid: domain:same\nkind: domain\n---\n');
-    put(root, 'docs/domains/bad-yaml.md', '---\nid: [\n---\n');
-    const read = readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root));
-    expect(read.entities.map((entity) => entity.file)).toEqual(['docs/domains/one.md']);
-    const said = read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).sort();
-    const yaml = said.find((line) => line.startsWith('docs/domains/bad-yaml.md:'))!;
-    expect(yaml).toMatch(/^docs\/domains\/bad-yaml\.md:2: the front matter is not YAML: /);
-    expect(said.filter((line) => line !== yaml)).toEqual([
-      'docs/domains/none.md:1: the file has no front matter: an entity of kind "domain" starts with --- , its id and its kind, ---',
-      'docs/domains/two.md:2: the id "domain:same" is also the id of docs/domains/one.md; an id names one entity',
-      'docs/domains/wrong-id.md:2: the id "service:a" does not start with "domain:", the kind the manifest gives this place',
-      'docs/domains/wrong-kind.md:2: "kind" is "domain" in the manifest and "product" here',
-    ]);
-  });
-
-  test('the singleton kind is absent until its file is written, and that is no finding', () => {
-    const root = scratch();
-    expect(readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root))).toEqual({ entities: [], findings: [] });
-  });
-
-  test('the front matter is split from the body at the line the body starts', () => {
-    expect(splitFrontMatter('---\na: 1\n---\ntext\n')).toEqual({ front: 'a: 1', body: 'text\n', bodyLine: 4 });
-    expect(splitFrontMatter('text\n')).toEqual({ front: null, body: 'text\n', bodyLine: 1 });
-  });
-});
-
-describe('a body and its grounds', () => {
-  test('the madarch: links are found, with the line and whether they are a ground; a target is a key or a document section', () => {
-    const body = ['A statement that is grounded here.[^1] And another one with a [link](madarch:domain:pay) inside it.[^2]', '', '[^1]: [one](madarch:code.symbol:a.ts#x), [two](madarch:doc:docs/a.md#top)', '[^2]: [three](madarch:code.file:a.ts)'].join('\n');
-    const reading = readBody(body, 'docs/p.md', 11);
-    expect(reading.links).toEqual([
-      { url: 'madarch:domain:pay', line: 11, ground: false },
-      { url: 'madarch:code.symbol:a.ts#x', line: 13, ground: true },
-      { url: 'madarch:doc:docs/a.md#top', line: 13, ground: true },
-      { url: 'madarch:code.file:a.ts', line: 14, ground: true },
-    ]);
-    expect(reading.ungrounded).toEqual([]);
-    expect(reading.statements).toBe(2);
-    expect(parseTarget('madarch:code.symbol:a.ts#x')).toEqual({ kind: 'key', key: 'code.symbol:a.ts#x' });
-    expect(parseTarget('madarch:doc:docs/a.md#top')).toEqual({ kind: 'doc', path: 'docs/a.md', anchor: 'top' });
-    expect(parseTarget('madarch:doc:docs/a.md')).toEqual({ kind: 'doc', path: 'docs/a.md', anchor: null });
-  });
-
-  test('a statement with no footnote is named; headings, short connecting lines and See also are not statements', () => {
-    const reading = readBody(['# Heading of the page', '', 'This statement has nothing behind it at all. This one is grounded.[^1]', '', 'See also the shop and the billing pages.', '', 'Short.', '', '[^1]: [a](madarch:code.file:a.ts)'].join('\n'), 'docs/p.md', 1);
-    expect(reading.ungrounded).toEqual([{ text: 'This statement has nothing behind it at all.', line: 3 }]);
-    expect(reading.statements).toBe(2);
-  });
-
-  test('a period in a link label does not end the statement the link introduces', () => {
-    const body = ['- [BR-5 Promotion cap. A promotion never takes off more than...](madarch:doc:docs/requirements.md#br-5-promotion-cap) — A promotion never takes off more than the subtotal.[^1]', '', '[^1]: [rules](madarch:doc:docs/requirements.md#br-5)'].join('\n');
-    const reading = readBody(body, 'docs/product.md', 1);
-    expect(reading.ungrounded).toEqual([]);
-    expect(reading.statements).toBe(1);
-  });
-
-  test('a footnote used and never defined, and a footnote that lists no ground, are findings at their line', () => {
-    const reading = readBody(['One statement with a missing note here.[^2]', '', 'Another statement with an empty note here.[^3]', '', '[^3]: just words, no link'].join('\n'), 'docs/p.md', 5);
-    expect(reading.findings).toEqual([
-      { file: 'docs/p.md', line: 5, message: 'the footnote [^2] is used and never defined' },
-      { file: 'docs/p.md', line: 9, message: 'the footnote [^3] lists no ground: a footnote is a list of madarch: links' },
-    ]);
-  });
-});
-
 describe('the starter set madarch new seeds', () => {
-  test('a new product holds the manifest and the starter templates, the manifest reads without a finding and every template parses without a problem', async () => {
+  test('a new product holds the manifest and the starter templates, the manifest reads without a finding and the authored starter files match their packaged content', async () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
@@ -244,7 +119,7 @@ describe('the starter set madarch new seeds', () => {
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
       'templates/partials/relations.liquid', 'templates/partials/history.liquid',
       ...[
-        'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'repository', 'directory', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
+        'product', 'domain', 'dismissal', 'guide', 'service', 'package', 'module', 'file', 'repository', 'directory', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
         'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task',
       ].map((name) => `templates/${name}.liquid`)]);
     for (const file of STARTER_FILES) {
@@ -254,24 +129,10 @@ describe('the starter set madarch new seeds', () => {
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');
     expect(read.manifest.findings).toEqual([]);
-    expect([...read.manifest.kinds.keys()].slice(0, 2)).toEqual(['product', 'domain']);
+    expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['product', 'domain']));
     expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['doc.use-case', 'doc.rule', 'doc.decision', 'doc.term', 'code.service', 'code.module', 'code.file', 'code.symbol', 'code.route', 'code.table', 'code.env-var', 'code.ci-job', 'code.test-case']));
     expect(homeKind(read.manifest)!.name).toBe('product');
-    // Every kind's template is one the product's templates hold, and the set reads and draws without a problem: the
-    // engine parses each template it loads, so a template with a tag the library lacks is a finding on the page.
-    const templates = templateSetOf(workingTreeFiles(draft.folder));
-    expect(templates.findings).toEqual([]);
-    for (const decl of read.manifest.kinds.values()) expect(Object.keys(templates.files)).toContain(decl.template);
-    const drawn = await renderLiquidPage({
-      productFolder: draft.folder,
-      files: workingTreeFiles(draft.folder),
-      template: 'templates/entity.liquid',
-      data: {},
-      defer: false,
-      deferred: [],
-      render: async () => ({ type: 'markdown', markdown: '' }),
-    });
-    expect(drawn.findings).toEqual([]);
+
   });
 
   test('the starter files carry no engine page: they are the product\'s own text, committed with the draft', () => {

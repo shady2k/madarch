@@ -1,132 +1,103 @@
-/**
- * Starting a product's knowledge over (madarch-m38l.4, remark 12): what goes and what stays, the same words from the
- * command and the wiki, and nothing of a person's removed.
- */
-import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { afterEach, expect, test } from 'bun:test';
+import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyReset, planReset } from '../src/knowledge/reset.js';
-import { storeFolderOf } from '../src/product/store.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { setKindsLanguage } from '../src/knowledge/kinds.js';
-import { describeReset } from '../src/product/cli.js';
+import { FakeGraph } from './fake-graph.js';
 
-let root: string | undefined;
-afterEach(() => { if (root !== undefined) rmSync(root, { recursive: true, force: true }); root = undefined; });
-
-const page = (producer: string): string => `---\nid: x\nkind: domain\ntitle: X\nrelates: []\nproducer: ${producer}\nsources: []\n---\n\nText.[^1]\n`;
-
-function fixture(): { product: string; store: string } {
-  root = mkdtempSync(join(tmpdir(), 'madarch-reset-'));
-  const product = join(root, 'product');
-  const store = join(root, 'store');
-  mkdirSync(join(product, 'docs', 'domains'), { recursive: true });
-  mkdirSync(join(product, 'repos', 'code'), { recursive: true });
-  writeFileSync(join(product, 'docs', 'product.md'), page('agent'));
-  writeFileSync(join(product, 'docs', 'domains', 'payments.md'), page('agent'));
-  writeFileSync(join(product, 'docs', 'domains', 'mine.md'), page('person'));
-  writeFileSync(join(product, 'docs', 'vision.md'), '# My vision\n');
-  writeFileSync(join(product, 'repos', 'code', 'a.ts'), 'export {};\n');
-  for (const folder of ['graph', 'read/3']) { mkdirSync(join(store, folder), { recursive: true }); writeFileSync(join(store, folder, 'f'), 'x'); }
-  writeFileSync(join(store, 'last-fill.json'), '{}');
-  writeFileSync(join(store, 'writer.json'), '{"agent":"codex"}');
-  return { product, store };
+const folders: string[] = [];
+afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
+async function fixture() {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-reset-')); folders.push(folder);
+  const product = join(folder, 'product'); const store = join(folder, 'store');
+  mkdirSync(product); mkdirSync(store); seedStarterSet(product);
+  const graph = new FakeGraph();
+  const file = 'docs/product.md'; mkdirSync(join(product, 'docs'), { recursive: true });
+  writeFileSync(join(product, file), 'arbitrary bytes, never parsed');
+  graph.add('product:sample', 'product', 'Sample', { title: 'Sample', slug: 'sample', file, body: '', body_line: 1, producer: 'agent', relates: [], sources: [], statements: [], mentions: [], digest: 'fixture-digest', links: [], findings: [], ungrounded: [] });
+  const read = await readKinds(product);
+  if (!read.present) throw new Error('fixture manifest is absent');
+  return { product, store, graph, manifest: read.manifest, file };
 }
 
-describe('starting over', () => {
-  test('removes the graph store and the pages the agent wrote, and keeps a person\'s pages, the vision, the code and the agent choice', () => {
-    const { product, store } = fixture();
-    const plan = planReset(product, store);
-    expect(plan.agentPages).toEqual(['docs/product.md', 'docs/domains/payments.md']);
-    expect(plan.keptPages).toEqual(['docs/domains/mine.md']);
-    applyReset(product, plan);
-    expect(existsSync(join(store, 'graph'))).toBe(false);
-    expect(existsSync(join(store, 'read'))).toBe(false);
-    expect(existsSync(join(store, 'last-fill.json'))).toBe(false);
-    expect(existsSync(join(store, 'writer.json'))).toBe(true);
-    expect(existsSync(join(product, 'docs', 'product.md'))).toBe(false);
-    expect(existsSync(join(product, 'docs', 'domains', 'payments.md'))).toBe(false);
-    expect(readFileSync(join(product, 'docs', 'domains', 'mine.md'), 'utf8')).toContain('producer: person');
-    expect(readFileSync(join(product, 'docs', 'vision.md'), 'utf8')).toBe('# My vision\n');
-    expect(readFileSync(join(product, 'repos', 'code', 'a.ts'), 'utf8')).toBe('export {};\n');
-  });
-
-  test('the words say what goes and what stays, with the pages by name', () => {
-    const { product, store } = fixture();
-    const words = describeReset('shop', planReset(product, store)).join('\n');
-    expect(words).toContain("Starting shop over removes");
-    expect(words).toContain('the 2 pages the agent wrote: docs/product.md, docs/domains/payments.md');
-    expect(words).toContain('code repositories under repos/');
-    expect(words).toContain('docs/domains/mine.md');
-  });
-
-  test('a product with nothing to remove says so and removes nothing', () => {
-    root = mkdtempSync(join(tmpdir(), 'madarch-reset-'));
-    const plan = planReset(join(root, 'product'), join(root, 'store'));
-    expect(plan).toEqual({ store: [], agentPages: [], keptPages: [], unansweredQuestions: [], keptAnswers: [] });
-    expect(describeReset('shop', plan).join('\n')).toContain('no page: the agent has written none');
-  });
+test('reset selects agent pages from graph opinions, not file contents', async () => {
+  const f = await fixture();
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  expect(plan.agentPages).toEqual([f.file]);
+  await applyReset(f.product, plan);
+  expect(existsSync(join(f.product, f.file))).toBe(false);
 });
 
-describe('what a reset and the wiki\'s own writes never touch', () => {
-  test('a product id that climbs out of the knowledge root names no folder, and a reset refuses a store folder outside the root', () => {
-    expect(() => storeFolderOf('/srv/knowledge', '../../home', '/p/workspace.yaml')).toThrow('cannot name a folder');
-    expect(() => storeFolderOf('/srv/knowledge', 'a/b', '/p/workspace.yaml')).toThrow('/p/workspace.yaml');
-    expect(storeFolderOf('/srv/knowledge', 'shop-1.2', '/p/workspace.yaml')).toBe('/srv/knowledge/shop-1.2');
-    const { product } = fixture();
-    expect(() => planReset(product, join(root!, '..', 'elsewhere'), join(root!, 'store'))).toThrow('not inside the knowledge root');
-  });
-
-  test('a docs folder that is a link out of the product is not read and not removed: the reset refuses and names it', () => {
-    const { product, store } = fixture();
-    const other = join(root!, 'other-repository');
-    mkdirSync(join(other, 'domains'), { recursive: true });
-    writeFileSync(join(other, 'product.md'), page('agent'));
-    writeFileSync(join(other, 'domains', 'x.md'), page('agent'));
-    rmSync(join(product, 'docs'), { recursive: true });
-    symlinkSync(other, join(product, 'docs'));
-    expect(() => planReset(product, store)).toThrow(`${join(product, 'docs')}:1: the path is a link to a place outside the product`);
-    expect(existsSync(join(other, 'product.md'))).toBe(true);
-  });
-
-  test('the starter set is not written through a folder that links out of the product, and a manifest that links out keeps its language', () => {
-    root = mkdtempSync(join(tmpdir(), 'madarch-writes-'));
-    const product = join(root, 'product');
-    const outside = join(root, 'outside');
-    mkdirSync(product); mkdirSync(outside);
-    symlinkSync(outside, join(product, 'templates'));
-    expect(() => seedStarterSet(product)).toThrow(`${join(product, 'templates')} is a link to`);
-    expect(existsSync(join(outside, 'product.md'))).toBe(false);
-    // The manifest as a link out of the product is somebody else's file.
-    const folder = join(root, 'p2');
-    mkdirSync(join(folder, 'madarch'), { recursive: true });
-    writeFileSync(join(outside, 'kinds.yaml'), 'kinds: {}\n');
-    symlinkSync(join(outside, 'kinds.yaml'), join(folder, 'madarch', 'kinds.yaml'));
-    expect(setKindsLanguage(folder, 'ru')).toContain('is a link to');
-    expect(readFileSync(join(outside, 'kinds.yaml'), 'utf8')).toBe('kinds: {}\n');
-  });
+test('a changed file invalidates the preview before any removal', async () => {
+  const f = await fixture();
+  const storePart = join(f.store, 'graph'); mkdirSync(storePart);
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  const changed = 'a person changed this after the preview';
+  writeFileSync(join(f.product, f.file), changed);
+  await expect(applyReset(f.product, plan)).rejects.toThrow('changed since');
+  expect(readFileSync(join(f.product, f.file), 'utf8')).toBe(changed);
+  expect(existsSync(storePart)).toBe(true);
 });
 
+test('a modified preview cannot authorize deletion', async () => {
+  const f = await fixture();
+  const storePart = join(f.store, 'graph'); mkdirSync(storePart);
+  const keptFile = 'docs/vision.md'; writeFileSync(join(f.product, keptFile), 'a person wrote this');
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  plan.agentPages.push(keptFile);
+  await expect(applyReset(f.product, plan)).rejects.toThrow(`${f.product}:1:`);
+  expect(existsSync(join(f.product, keptFile))).toBe(true);
+  expect(existsSync(join(f.product, f.file))).toBe(true);
+  expect(existsSync(storePart)).toBe(true);
+});
 
-describe('validated reset previews', () => {
-  test('a copied or modified preview cannot authorize deletion', () => {
-    const { product, store } = fixture();
-    const plan = planReset(product, store);
-    expect(() => applyReset(product, { ...plan })).toThrow(`${product}:1:`);
-    plan.agentPages.push('docs/vision.md');
-    expect(() => applyReset(product, plan)).toThrow(`${product}:1:`);
-    expect(existsSync(join(product, 'docs/vision.md'))).toBe(true);
-    expect(existsSync(join(store, 'graph'))).toBe(true);
-  });
+test('a copied plan cannot delete a page', async () => {
+  const f = await fixture();
+  const storePart = join(f.store, 'graph'); mkdirSync(storePart);
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  await expect(applyReset(f.product, { ...plan })).rejects.toThrow('not a validated local plan');
+  expect(existsSync(join(f.product, f.file))).toBe(true);
+  expect(existsSync(storePart)).toBe(true);
+});
 
-  test('a changed page after preview refuses before removing the store or pages', () => {
-    const { product, store } = fixture();
-    const plan = planReset(product, store);
-    const file = join(product, 'docs/product.md');
-    writeFileSync(file, page('person'));
-    expect(() => applyReset(product, plan)).toThrow(`${product}:1:`);
-    expect(existsSync(join(store, 'graph'))).toBe(true);
-    expect(readFileSync(file, 'utf8')).toBe(page('person'));
-  });
+test('an answered question is kept and an explicit agent open question is removed', async () => {
+  const f = await fixture();
+  for (const status of ['open', 'answered']) {
+    const slug = status; const file = `docs/questions/${slug}.md`;
+    mkdirSync(join(f.product, 'docs/questions'), { recursive: true }); writeFileSync(join(f.product, file), 'not parsed');
+    f.graph.add(`question:${slug}`, 'question', slug, { slug, file, status, language: 'en', type: 'gap', producer: 'agent', about: [], asked_in: null, asked_at: null, question: 'Unknown?', why: 'Needed.', sides: [], resolved_by: [], resolved_at: null, written_at: [], answer: status === 'open' ? null : { text: 'yes', by: { name: 'Ada', email: 'ada@example.test', verified: 'local' }, at: '2026-10-23T11:00:00Z' } });
+  }
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  expect(plan.keptAnswers).toEqual(['docs/questions/answered.md']);
+  expect(plan.unansweredQuestions).toEqual(['docs/questions/open.md']);
+  await applyReset(f.product, plan);
+  expect(existsSync(join(f.product, 'docs/questions/answered.md'))).toBe(true);
+  expect(existsSync(join(f.product, 'docs/questions/open.md'))).toBe(false);
+});
+
+test('a graph page linked outside the product is refused before deletion', async () => {
+  const f = await fixture();
+  const outside = join(f.store, 'outside.md'); writeFileSync(outside, 'outside');
+  rmSync(join(f.product, f.file)); symlinkSync(outside, join(f.product, f.file));
+  await expect(planReset(f.product, f.store, f.graph.reader(), f.manifest)).rejects.toThrow('outside the product');
+  expect(existsSync(outside)).toBe(true);
+});
+
+test('store paths outside the expected root are refused', async () => {
+  const f = await fixture();
+  await expect(planReset(f.product, f.store, f.graph.reader(), f.manifest, join(f.product, 'knowledge'))).rejects.toThrow('not inside the knowledge root');
+});
+
+test('keepQuestions and keepStore preserve those paths while resetting agent pages', async () => {
+  const f = await fixture(); const storePart = join(f.store, 'graph'); mkdirSync(storePart);
+  const file = 'docs/questions/open.md'; mkdirSync(join(f.product, 'docs/questions'), { recursive: true });
+  writeFileSync(join(f.product, file), 'question bytes');
+  f.graph.add('question:open', 'question', 'Open?', { slug: 'open', file, status: 'open', language: 'en', type: 'gap', producer: 'agent', about: [], asked_in: null, asked_at: null, question: 'Unknown?', why: 'Needed.', sides: [], resolved_by: [], resolved_at: null, written_at: [], answer: null });
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  await applyReset(f.product, plan, { keepQuestions: true, keepStore: true });
+  expect(existsSync(join(f.product, file))).toBe(true);
+  expect(existsSync(storePart)).toBe(true);
+  expect(existsSync(join(f.product, f.file))).toBe(false);
 });

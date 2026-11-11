@@ -34,44 +34,24 @@ describe('a page written for an agent keeps every address it holds', () => {
     ]);
   });
 
-  test('an ordinary wiki link is written at the product mount, and the Markdown and the JSON name the same address', () => {
-    const model = page({
-      blocks: [{ type: 'markdown', markdown: 'See [Home](/e/domain%3Ahome) and [Shop](https://example.com/shop).' }],
-    });
-    const markdown = pageFileMarkdown(model, prefix);
-    expect(markdown).toContain('[Home](/products/shop/e/domain%3Ahome)');
-    expect(markdown).toContain('[Shop](https://example.com/shop)');
-    expect(markdown).not.toContain('](/e/');
-    const document = pageFileDocument(model, prefix);
-    expect(document.sections[0]!.links).toEqual([
-      { title: 'Home', url: '/products/shop/e/domain%3Ahome' },
-      { title: 'Shop', url: 'https://example.com/shop' },
-    ]);
-    // A body that already carries the mount is not mounted twice.
-    const mounted = page({ blocks: [{ type: 'markdown', markdown: '[Here](/products/shop/e/domain%3Ahome)' }] });
-    expect(pageFileMarkdown(mounted, prefix)).toContain('[Here](/products/shop/e/domain%3Ahome)');
+
+  test('authored Markdown is opaque and remains unchanged, including ordinary URLs', () => {
+    const markdown = 'See [Home](/e/domain%3Ahome) and [Shop](https://example.com/shop).';
+    const model = page({ blocks: [{ type: 'markdown', markdown }] });
+    expect(pageFileMarkdown(model, prefix)).toContain(markdown);
+    expect(pageFileDocument(model, prefix).sections[0]).toMatchObject({ text: markdown, links: [] });
   });
 
-  test('a reference link and an autolink are resolved through the definitions and written as the addresses they name', () => {
+  test('resolved link opinions supply export metadata without interpreting references or autolinks', () => {
     const markdown = ['See [Home][h] and <madarch:domain:home>.', '', '[h]: madarch:domain:home'].join('\n');
     const model = page({ resolutions: { 'madarch:domain:home': home }, blocks: [{ type: 'markdown', markdown }] });
-    const written = pageFileMarkdown(model, prefix);
-    expect(written).toContain('[Home](/products/shop/e/domain%3Ahome)');
-    expect(written).toContain('[madarch:domain:home](/products/shop/e/domain%3Ahome)');
-    expect(written).not.toContain('](madarch:');
-    expect(written).not.toContain('[h]: madarch:');
-    const document = pageFileDocument(model, prefix);
-    expect(document.sections[0]!.links).toEqual([
+    expect(pageFileMarkdown(model, prefix)).toContain(markdown);
+    expect(pageFileDocument(model, prefix).sections[0]!.links).toEqual([
       { title: 'Home', url: '/products/shop/e/domain%3Ahome', kind: 'domain', id: 'domain:home' },
-      { title: 'madarch:domain:home', url: '/products/shop/e/domain%3Ahome', kind: 'domain', id: 'domain:home' },
     ]);
-    // A reference with no definition is text, not a link, and stays as the author wrote it.
     const dangling = page({ blocks: [{ type: 'markdown', markdown: '[Nope][x]\n\n[x]: https://example.com/x' }] });
-    const text = pageFileMarkdown(dangling, prefix);
-    expect(text).toContain('[Nope][x]');
-    expect(pageFileDocument(dangling, prefix).sections[0]!.links).toEqual([
-      { title: 'Nope', url: 'https://example.com/x' },
-    ]);
+    expect(pageFileMarkdown(dangling, prefix)).toContain('[Nope][x]');
+    expect(pageFileDocument(dangling, prefix).sections[0]!.links).toEqual([]);
   });
 
   test('a plain title and a relation label are text, so their backticks and pipes stay the characters they are', () => {

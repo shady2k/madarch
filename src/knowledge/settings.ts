@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { madarchHome, type DraftEnv } from '../product/home.js';
-import { EVERY_ROLE } from './kinds.js';
+import { EVERY_ROLE } from '../product/manifest/kinds.js';
 
 const SETTINGS_FILE = 'settings.json';
 

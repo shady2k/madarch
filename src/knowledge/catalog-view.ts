@@ -13,7 +13,7 @@ import { byCodePoint } from '../model/order.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
-import type { KindDecl, KindsManifest } from './kinds.js';
+import type { KindDecl, KindsManifest } from '../product/manifest/kinds.js';
 import type { CatalogKindView, KindProducer, WikiStatus } from './model.js';
 
 /** The groups of the navigation and the catalogue, in the manifest's order, as the app reads them. */

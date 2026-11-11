@@ -1,24 +1,15 @@
-/**
- * The loop's files (madarch-m38l.7): a question and a correction are Markdown
- * files in the product repository; an answer and a correction are written by
- * a person in the wiki and committed with the person as author; the refresh
- * decides which pages need an agent unit. Fixtures only: a draft product made
- * by madarch's own creation code in a scratch home, with invented pages.
- */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft } from '../src/product/draft.js';
-import { localIdentity } from '../src/loop/answer.js';
-import { LoopFileError, parseQuestion, type Question } from './loop-entities-fixture.js';
-import { renderQuestion } from './loop-entities-fixture.js';
-import { questionFootnoteId } from './loop-ids-fixture.js';
+import { answerQuestion, localIdentity } from '../src/loop/answer.js';
+import { renderQuestion, type Question } from '../src/loop/entities.js';
+import { graphQuestions } from '../src/loop/graph.js';
 import { decide } from '../src/loop/plan.js';
-import { readQuestions } from '../src/loop/entities.js';
+import { FakeGraph } from './fake-graph.js';
 import { gitEnv } from './git-env.js';
-
 const folders: string[] = [];
 const scratch = (): string => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-loop-'));
@@ -47,70 +38,6 @@ const QUESTION: Omit<Question, 'file' | 'id'> = {
   sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.symbol\u003asrc/pricing.ts#discountFor'] }],
   answer: null, resolvedBy: [], resolvedAt: null, writtenAt: [{ repository: 'shop', commit: 'a'.repeat(40), branch: 'main' }],
 };
-
-describe('a question file', () => {
-  test('is the same bytes for the same question, reads back whole, and keeps both sides with their grounds', () => {
-    const text = renderQuestion(QUESTION);
-    expect(renderQuestion(QUESTION)).toBe(text);
-    const read = parseQuestion('docs/questions/discount-percentage.md', text);
-    expect(read).toMatchObject({ slug: 'discount-percentage', id: 'question:discount-percentage', status: 'open', type: 'contradiction', about: QUESTION.about, askedIn: 'domain:orders', answer: null });
-    expect(read.sides).toEqual(QUESTION.sides);
-    expect(read.writtenAt).toEqual(QUESTION.writtenAt);
-    // The sides are statements of the page format: a sentence and a footnote that lists its grounds.
-    expect(text).toContain(`- The README says every order gets ten percent.[^${questionFootnoteId(QUESTION.sides[0]!.claim, QUESTION.sides[0]!.grounds)}]`);
-    expect(text).toContain('](madarch:doc:README.md#discounts)');
-  });
-
-  test('a file written before content hashes keeps its footnote names when it is rendered again', () => {
-    const file = 'docs/questions/discount-percentage.md';
-    const rendered = renderQuestion(QUESTION);
-    const label = /\[\^([^\]]+)\]/.exec(rendered)![1]!;
-    const text = rendered.replaceAll(`[^${label}]`, '[^old-readme-name]').replace(`${label}:`, 'old-readme-name:');
-    const read = parseQuestion(file, text);
-    const again = renderQuestion(read);
-    expect(again).toContain('[^old-readme-name]');
-    expect(again).toContain('[^old-readme-name]: [discounts](madarch:doc:README.md#discounts)');
-  });
-
-  test('carries the answer, who gave it and the mark, and reads it back', () => {
-    const by = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' };
-    const text = renderQuestion({ ...QUESTION, status: 'answered', answer: { text: 'Ten percent.\n\n## Not a heading of the file\n--- nor a rule', by, at: '2026-10-23T11:00:00.000Z' }, resolvedBy: ['domain:orders'], resolvedAt: '2026-10-23T12:00:00.000Z' });
-    const read = parseQuestion('docs/questions/discount-percentage.md', text);
-    expect(read.status).toBe('answered');
-    expect(read.answer).toEqual({ text: 'Ten percent.\n\n## Not a heading of the file\n--- nor a rule', by, at: '2026-10-23T11:00:00.000Z' });
-    expect(read.resolvedBy).toEqual(['domain:orders']);
-    expect(text).toContain('Answered by Ada Reader <ada@example.test> at 2026-10-23T11:00:00.000Z (local, not verified).');
-  });
-
-  test('a file that is not one names the file and the line', () => {
-    const file = 'docs/questions/discount-percentage.md';
-    const good = renderQuestion(QUESTION);
-    expect(() => parseQuestion(file, 'no front matter\n')).toThrow(`${file}:1: the file has no front matter`);
-    expect(() => parseQuestion(file, good.replace('status: open', 'status: pending'))).toThrow(`${file}:2: "status" is open or answered`);
-    expect(() => parseQuestion(file, good.replace('id: question:discount-percentage', 'id: question:other'))).toThrow(`${file}:2: "id" is "question:discount-percentage" for this file name`);
-    expect(() => parseQuestion(file, good.replace('type: contradiction', 'type: riddle'))).toThrow('"type" is one of contradiction, ambiguous-term, undocumented, gap');
-    expect(() => parseQuestion(file, good.replace('status: open', 'status: answered'))).toThrow(/the status is answered but the file has no "## Answer" section/);
-    expect(() => parseQuestion(file, good.replace('## What the sources say', '## Sources'))).toThrow(/has no "## What the sources say" section/);
-    try { parseQuestion(file, good.replace('## Why it matters', '## Why')); } catch (error) { expect(error).toBeInstanceOf(LoopFileError); expect((error as LoopFileError).file).toBe(file); }
-  });
-
-  
-  test('the retired Markdown listing fails explicitly', () => {
-    expect(() => readQuestions(product())).toThrow('retired');
-  });
-});
-
-describe('a person answers in the wiki', () => {
-  test('git identity: the author variables win, then the configuration', async () => {
-    const folder = product();
-    expect(await localIdentity(folder, env(PERSON))).toEqual({ name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' });
-    execFileSync('git', ['config', 'user.name', 'Configured'], { cwd: folder, env: gitEnv(SEED) });
-    execFileSync('git', ['config', 'user.email', 'configured@example.test'], { cwd: folder, env: gitEnv(SEED) });
-    expect((await localIdentity(folder, env())).name).toBe('Configured');
-    expect((await localIdentity(folder, env(PERSON))).name).toBe('Ada Reader');
-  });
-
-});
 
 describe('the refresh decides which pages need an agent unit', () => {
   const page = (id: string, file: string, statements: { id: string; grounds: string[]; text?: string }[], relates: string[] = []) => ({
@@ -183,23 +110,57 @@ describe('the refresh decides which pages need an agent unit', () => {
     const first = decide({ ...base, pages: [] });
     expect(first.pages).toEqual([{ id: 'product:*', path: 'docs/product.md', reasons: [{ kind: 'missing' }] }]);
   });
-});
-
-describe('what a review of the first version found', () => {
-  const by = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' };
-
-  test('an answer that looks like a source side is an answer, never a side; a claim with code marks survives an answer unchanged', () => {
-    const claim = 'The code uses `foo_bar` for the key.';
-    const answered = renderQuestion({ ...QUESTION, sides: [{ claim, grounds: ['doc:README.md#discounts'] }, QUESTION.sides[1]!], status: 'answered', answer: { text: 'They bypass the queue.[^readme-says-order-gets]\n- A bullet that is an answer.[^x]', by, at: '2026-10-23T11:00:00.000Z' } });
-    const read = parseQuestion('docs/questions/discount-percentage.md', answered);
-    expect(read.sides.map((side) => side.claim)).toEqual([claim, QUESTION.sides[1]!.claim]);
-    expect(renderQuestion(read)).toBe(answered);
-  });
-
   test('a product page that links a domain with no page makes the domain missing and the product page an edit', () => {
     const product = { id: 'product:shop', kind: 'product', title: 'Shop', file: 'docs/product.md', relates: [], sources: [], writtenAt: [], producer: 'agent', statements: [], mentions: ['domain:orders', 'domain:shipping'], digest: 'd' };
     const orders = { ...product, id: 'domain:orders', kind: 'domain', file: 'docs/domains/orders.md', mentions: [] };
     const plan = decide({ pages: [product, orders], grounds: [], questions: [], corrections: [], newServices: [], language: { from: 'en', to: 'en', changed: false } });
     expect(plan.pages.map((p) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/domains/shipping.md', ['missing']], ['docs/product.md', ['missing-domain']]]);
+  });
+});
+
+describe('structured question opinions and answer writes', () => {
+  const question = (): Question => ({ ...QUESTION, id: 'question:discount-percentage', file: 'docs/questions/discount-percentage.md' });
+
+  test('lists the structured question opinion without reading its file', async () => {
+    const graph = new FakeGraph();
+    const item = question();
+    graph.add(item.id, 'question', item.title, { ...item, producer: null, language: 'en', asked_in: item.askedIn, asked_at: item.askedAt, resolved_by: item.resolvedBy, resolved_at: item.resolvedAt, written_at: item.writtenAt });
+    expect(await graphQuestions(graph.reader())).toEqual([expect.objectContaining(item)]);
+  });
+
+  test('writes and commits an answer from the structured question, even when old text is not parseable', async () => {
+    const folder = product();
+    const item = question();
+    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
+    writeFileSync(join(folder, item.file), 'not a question parser input');
+    const result = await answerQuestion({ productFolder: folder, question: item, text: 'Ten percent.', env: env(PERSON), now: () => new Date('2026-10-23T11:00:00Z') });
+    expect(result.committed).toBe(true);
+    expect(result.question.answer?.text).toBe('Ten percent.');
+    expect(readFileSync(join(folder, item.file), 'utf8')).toBe(renderQuestion(result.question));
+    expect(execFileSync('git', ['log', '-1', '--format=%an <%ae>'], { cwd: folder, encoding: 'utf8', env: env(PERSON) }).trim()).toBe('Ada Reader <ada@example.test>');
+  });
+
+  test('refuses an answered opinion and an empty answer before writing', async () => {
+    const folder = product();
+    const item = question();
+    await expect(answerQuestion({ productFolder: folder, question: item, text: '  ', env: env(PERSON) })).rejects.toThrow('answer is empty');
+    const answered = { ...item, status: 'answered' as const, answer: { text: 'Ten.', by: { name: 'Ada', email: 'ada@example.test', verified: 'local' }, at: 'now' } };
+    await expect(answerQuestion({ productFolder: folder, question: answered, text: 'Other.', env: env(PERSON) })).rejects.toThrow('already answered');
+  });
+
+  test('never writes through a question folder linked outside the product', async () => {
+    const folder = product(); const outside = scratch();
+    mkdirSync(join(folder, 'docs'), { recursive: true });
+    symlinkSync(outside, join(folder, 'docs/questions'));
+    await expect(answerQuestion({ productFolder: folder, question: question(), text: 'Ten.', env: env(PERSON) })).rejects.toThrow('outside the product');
+  });
+
+  test('git identity: the author variables win, then the configuration', async () => {
+    const folder = product();
+    expect(await localIdentity(folder, env(PERSON))).toEqual({ name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' });
+    execFileSync('git', ['config', 'user.name', 'Configured'], { cwd: folder, env: gitEnv(SEED) });
+    execFileSync('git', ['config', 'user.email', 'configured@example.test'], { cwd: folder, env: gitEnv(SEED) });
+    expect((await localIdentity(folder, env())).name).toBe('Configured');
+    expect((await localIdentity(folder, env(PERSON))).name).toBe('Ada Reader');
   });
 });

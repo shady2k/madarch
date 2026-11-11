@@ -1212,7 +1212,7 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
 
 /** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
 /** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
-export async function fileContents(owner: DatabaseOwner, repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
+export async function storedFileTexts(owner: DatabaseOwner, repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
   const answer = new Map<string, string | null>();
   if (paths.length === 0) return answer;
   return await withSpan('records.fileContents', { 'records.repository': repository, 'records.paths': paths.length }, async () => await owner.transaction('snapshot', async (tx) => {
@@ -1254,7 +1254,7 @@ export async function repositoryFileIndex(owner: DatabaseOwner, repository: stri
 
 /** The text of one file in a repository's current tree: null when the store holds none (binary, unread, or the path left the tree). */
 /** The text of one file in a repository's current tree: null when the store holds none (binary, unread, or the path left the tree). */
-export async function fileContent(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
+export async function storedFileText(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
   return await withSpan('records.fileContent', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ content: string | null }>(
       `SELECT b.content FROM ${FILE_ENTRY_TABLE} f
@@ -1266,49 +1266,7 @@ export async function fileContent(owner: DatabaseOwner, repository: string, path
   }));
 }
 
-/** The text of one file at one commit, or why the store holds no text of that version, never today's text under its name. */
-export type FileAtCommit =
-  | { readonly text: string }
-  | { readonly absent: 'no-file' | 'binary' | 'unread' | 'touched-after' | 'commit-not-in-history' };
 
-/**
- * The text one file held at one commit: the blob the path stands on now, answered as that commit's text when nothing
- * touched the path after it — the store keeps one blob per version a fill read, and the history states which versions
- * came and went. Where the store cannot name that version's text it answers why, and never the current tree's bytes.
- */
-export async function fileTextAt(owner: DatabaseOwner, repository: string, path: string, commit: string): Promise<FileAtCommit> {
-  return await withSpan('records.fileTextAt', { 'records.path': path, 'records.commit': commit }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ content: string | null; form: string | null; walk: number | null; as_is: string | null; touched_after: boolean }>(
-      `WITH target AS (
-         SELECT n.id AS file_node, b.content, b.form
-         FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-         LEFT JOIN LATERAL (SELECT min(o."blob_id") AS blob_id FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1 AND o."blob_id" IS NOT NULL HAVING count(DISTINCT o."blob_id") = 1) fo ON true
-         LEFT JOIN ${GIT_TABLES.blob} b ON b.id = fo."blob_id"
-         WHERE n.key @> jsonb_build_object('repository', jsonb_build_object('kind', '${GIT_KINDS.repository}', 'key', jsonb_build_object('name', $1::text))) AND n.key @> jsonb_build_object('path', $2::text) AND NOT n.removed AND ${IN_TREE}
-       ), repository_node AS (
-         SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed
-       ), walked AS (
-         SELECT (o.item->>'walk')::int AS walk FROM jsonb_array_elements((SELECT jsonb_agg(jsonb_build_object('walk', h."walk") ORDER BY h."id") FROM ${GIT_TABLES.history} h JOIN edge he ON he.id = h.edge_id JOIN node cn ON cn.id = he.to_node WHERE he.from_node = (SELECT id FROM repository_node) AND h.state = 'open' AND h.context_id = 1 AND (cn.key->>'hash') = $3)) AS o(item)
-       ), stood AS (
-         SELECT (cn.key->>'hash') AS hash FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.asIs}'
-         JOIN node cn ON cn.id = ae.to_node WHERE ae.from_node = (SELECT id FROM repository_node) AND NOT cn.removed
-       )
-       SELECT t.content, t.form, (SELECT min(walk) FROM walked) AS walk, (SELECT hash FROM stood) AS as_is,
-         EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
-                 JOIN edge he ON he.to_node = e.from_node AND he.from_node = (SELECT id FROM repository_node) AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') AND he.context_id = 1
-                 JOIN ${GIT_TABLES.history} h ON h.edge_id = he.id AND h.state = 'open' AND h.context_id = 1
-                 WHERE e.to_node = t.file_node AND h.walk < (SELECT min(walk) FROM walked)) AS touched_after
-       FROM target t`,
-      [repository, path, commit],
-    );
-    const row = found.rows[0];
-    if (row === undefined) return { absent: 'no-file' };
-    if (row.walk === null && row.as_is !== commit) return { absent: 'commit-not-in-history' };
-    if (row.touched_after) return { absent: 'touched-after' };
-    if (row.content === null) return { absent: row.form === 'binary' ? 'binary' : 'unread' };
-    return { text: row.content };
-  }));
-}
 
 /** Every repository the store holds, in code point order of the names. */
 export async function listRepositories(owner: DatabaseOwner, declared?: ReadonlySet<string>): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {

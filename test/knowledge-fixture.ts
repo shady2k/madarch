@@ -14,10 +14,11 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { createDraft } from '../src/product/draft.js';
 import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/starter-catalog.js';
-import { KINDS_FILE } from '../src/knowledge/kinds.js';
+import { KINDS_FILE } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
+
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const GENERATOR = join(ROOT, 'examples/training-repository/generate.mjs');

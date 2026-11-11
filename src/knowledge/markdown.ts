@@ -1,300 +1,105 @@
-/**
- * The Markdown the product repository holds (decision 0029; the vertical's
- * shared formats, section 1): one file per entity, front matter with its
- * identity and what it relates to, a body whose statements end in footnotes
- * that list their grounds as `madarch:` links.
- *
- * This module reads the files and the body. It resolves nothing against the
- * graph; `grounds.ts` does that. It judges only what the file itself can show:
- * a footnote reference with no definition, a footnote that lists no ground, and
- * the statements that carry no footnote at all.
- */
-import remarkGfm from 'remark-gfm';
-import remarkParse from 'remark-parse';
-import { unified } from 'unified';
-import { LineCounter, parseDocument } from 'yaml';
+/** Knowledge pages are structured graph opinions. The wiki never interprets product Markdown files. */
+import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
-import type { Finding, KindDecl, KindsManifest } from './kinds.js';
-import type { ProductFileSource } from './product-files.js';
+import type { Finding, KindsManifest } from '../product/manifest/kinds.js';
+import type { GraphReader } from './graph-read.js';
+import type { PageStatement } from './index/page.js';
 
-/** The scheme of an entity link. */
-const SCHEME = 'madarch:';
-
+export interface FoundLink { url: string; line: number; ground: boolean }
+export interface Statement { text: string; line: number; paragraph: string; notes: string[] }
+export interface StatementReading { statements: Statement[]; definitions: Map<string, string[]> }
+export interface BodyReading { links: FoundLink[]; findings: Finding[]; ungrounded: { text: string; line: number }[]; statements: number }
 export interface MarkdownEntity {
-  /** `kind:slug`. */
   id: string;
   kind: string;
   title: string;
-  /** The graph keys the page is about. */
   relates: string[];
   producer: string | null;
   sources: string[];
-  /** The body, front matter removed. */
   body: string;
-  /** The line the body starts at in the file. */
   bodyLine: number;
-  /** Repository-relative path of the file. */
   file: string;
-  /** The file's whole text, as the source holds it: the page index reads the front matter and the body from here. */
-  source: string;
-  /** The front matter as written, for attributes. */
   front: Record<string, unknown>;
+  reading: BodyReading;
+  statementReading: StatementReading;
+  indexedStatements: PageStatement[];
+  mentions: string[];
+  digest: string;
 }
 
-/** The front matter and body of a Markdown file; the front matter is null when the file has none. */
-export function splitFrontMatter(text: string): { front: string | null; body: string; bodyLine: number } {
-  const normalized = text.startsWith('\uFEFF') ? text.slice(1) : text;
-  if (!normalized.startsWith('---\n') && !normalized.startsWith('---\r\n')) return { front: null, body: normalized, bodyLine: 1 };
-  const lines = normalized.split('\n');
-  for (let index = 1; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    if ((line.endsWith('\r') ? line.slice(0, -1) : line) === '---') {
-      return { front: lines.slice(1, index).join('\n'), body: lines.slice(index + 1).join('\n'), bodyLine: index + 2 };
-    }
-  }
-  return { front: null, body: normalized, bodyLine: 1 };
-}
-
-/** Reads one Markdown file as an entity of the kind; null with findings when it is not one. */
-export function readMarkdownEntity(text: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
-  const { front, body, bodyLine } = splitFrontMatter(text);
-  if (front === null) {
-    findings.push({ file: path, line: 1, message: `the file has no front matter: an entity of kind "${decl.name}" starts with --- , its id and its kind, ---` });
-    return null;
-  }
-  const lines = new LineCounter();
-  const doc = parseDocument(front.replace(/\r\n/g, '\n').replace(/\r$/u, ''), { lineCounter: lines });
-  if (doc.errors.length > 0) {
-    findings.push({ file: path, line: 1 + (doc.errors[0]!.linePos?.[0].line ?? 1), message: `the front matter is not YAML: ${doc.errors[0]!.message.split('\n')[0]}` });
-    return null;
-  }
-  const value: unknown = doc.toJS();
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    findings.push({ file: path, line: 2, message: 'the front matter is a mapping' });
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const problem = (message: string, line = 2): null => {
-    findings.push({ file: path, line, message });
-    return null;
-  };
-  const id = record['id'];
-  if (typeof id !== 'string' || !/^[^:\s]+:\S+$/.test(id)) return problem(`"id" is the kind, a colon and a slug, such as "${decl.name}:name"; got ${JSON.stringify(id)}`);
-  if (!id.startsWith(`${decl.name}:`)) return problem(`the id "${id}" does not start with "${decl.name}:", the kind the manifest gives this place`);
-  if (record['kind'] !== decl.name) return problem(`"kind" is "${decl.name}" in the manifest and ${JSON.stringify(record['kind'])} here`);
-  const relates = record['relates'];
-  if (relates !== undefined && (!Array.isArray(relates) || relates.some((entry) => typeof entry !== 'string'))) return problem('"relates" is a list of graph keys');
-  const sources = record['sources'];
-  if (sources !== undefined && (!Array.isArray(sources) || sources.some((entry) => typeof entry !== 'string'))) return problem('"sources" is a list of texts');
-  const title = record['title'];
-  if (title !== undefined && typeof title !== 'string') return problem('"title" is a text');
-  const producer = record['producer'];
-  if (producer !== undefined && producer !== 'agent' && producer !== 'person') return problem('"producer" is "agent" or "person"');
-  return {
-    id,
-    kind: decl.name,
-    title: typeof title === 'string' && title !== '' ? title : id.slice(id.indexOf(':') + 1),
-    relates: (relates as string[] | undefined) ?? [],
-    producer: (producer as string | undefined) ?? null,
-    sources: (sources as string[] | undefined) ?? [],
-    body,
-    bodyLine,
-    file: path,
-    source: text,
-    front: record,
-  };
-}
-
-/**
- * Every Markdown entity the manifest places in the product repository, read from a source of its files: the fill's
- * working tree, or the graph's stored text for a reader of the wiki. A file the source holds no text of is a finding,
- * never a silently absent entity (madarch-hsqs stage C).
- */
-export function readMarkdownEntitiesFrom(files: ProductFileSource, manifest: KindsManifest): { entities: MarkdownEntity[]; findings: Finding[] } {
-  const findings: Finding[] = [];
+/** Every page opinion of a manifest kind, including all result pages, in code-point order. */
+export async function graphMarkdownEntities(graph: Pick<GraphReader, 'list'>, manifest: KindsManifest): Promise<{ entities: MarkdownEntity[]; findings: Finding[] }> {
   const entities: MarkdownEntity[] = [];
   for (const decl of manifest.kinds.values()) {
-    if (decl.source !== 'markdown' || decl.origin === 'person') continue;
-    const paths = decl.file !== undefined ? [decl.file] : files.filesBelow(decl.folder!).filter((path) => path.endsWith('.md'));
-    for (const path of paths) {
-      if (!files.has(path)) continue; // the singleton's file is simply not written yet
-      const text = files.text(path);
-      if (text === undefined) {
-        findings.push({ file: path, line: 1, message: 'the file cannot be read: the source holds no text of it' });
-        continue;
-      }
-      const entity = readMarkdownEntity(text, path, decl, findings);
-      if (entity !== null) entities.push(entity);
-    }
-  }
-  const seen = new Map<string, MarkdownEntity>();
-  const unique: MarkdownEntity[] = [];
-  for (const entity of entities) {
-    const first = seen.get(entity.id);
-    if (first !== undefined) {
-      findings.push({ file: entity.file, line: 2, message: `the id "${entity.id}" is also the id of ${first.file}; an id names one entity` });
-      continue;
-    }
-    seen.set(entity.id, entity);
-    unique.push(entity);
-  }
-  return { entities: unique.sort((a, b) => byCodePoint(a.id, b.id)), findings };
-}
-
-// ---- the body ---------------------------------------------------------------------------------
-
-interface Node {
-  type: string;
-  value?: string;
-  url?: string;
-  identifier?: string;
-  label?: string;
-  children?: Node[];
-  position?: { start: { line: number; offset?: number }; end: { line: number; offset?: number } };
-}
-
-const parser = unified().use(remarkParse).use(remarkGfm);
-
-/** A `madarch:` target found in a Markdown text, with the line it stands on. */
-export interface FoundLink {
-  /** The destination as written, `madarch:` included. */
-  url: string;
-  line: number;
-  /** True when the link stands in a footnote definition: a ground. */
-  ground: boolean;
-}
-
-export interface BodyReading {
-  links: FoundLink[];
-  findings: Finding[];
-  /** The statements with no footnote, with the line each starts on. */
-  ungrounded: { text: string; line: number }[];
-  /** How many statements the body makes. */
-  statements: number;
-}
-
-/**
- * The plain text of a node, with a footnote reference standing as `\u0001<label>\u0002` so sentences can be told grounded
- * and the notes that ground each can be named.
- */
-function flatten(node: Node, out: string[]): void {
-  // A `[^n]` the parser left as text names a note that is not defined: it grounds nothing and is not part of the statement.
-  if (node.type === 'text') out.push((node.value ?? '').replace(/\[\^[^\]\s]+\]/g, ''));
-  else if (node.type === 'inlineCode') out.push(node.value ?? '');
-  else if (node.type === 'footnoteReference') out.push(`\u0001${node.identifier ?? node.label ?? ''}\u0002`);
-  else if (node.type === 'break') out.push(' ');
-  else for (const child of node.children ?? []) flatten(child, out);
-}
-
-/** A sentence of a paragraph and the labels of the footnotes that end it. */
-interface Sentence {
-  text: string;
-  grounded: boolean;
-  notes: string[];
-}
-
-/**
- * Statements of a paragraph: sentences ending in . ! ? followed by a blank (the footnote reference after the full stop
- * belongs to the sentence). A formatted run (bold, a link, code) is one piece: a sentence is cut only at a blank in the
- * paragraph's own text, so the app, which cuts the same tree, finds the same sentences (`statements.ts` in the app).
- */
-function sentencesOf(paragraph: Node): Sentence[] {
-  const sentences: Sentence[] = [];
-  let current = '';
-  let terminated = false;
-  const close = (): void => {
-    const notes = [...current.matchAll(/\u0001([^\u0002]*)\u0002/g)].map((match) => match[1]!);
-    const text = current.replace(/\u0001[^\u0002]*\u0002/g, '').trim();
-    if (text !== '') sentences.push({ text, grounded: notes.length > 0, notes });
-    current = '';
-    terminated = false;
-  };
-  for (const child of paragraph.children ?? []) {
-    const parts: string[] = [];
-    flatten(child, parts);
-    const flat = parts.join('');
-    // A link's visible words are a name, not a claim: its punctuation cannot end the sentence the link introduces.
-    const name = child.type === 'link' || child.type === 'linkReference' || child.type === 'image' || child.type === 'imageReference';
-    // The footnote references inside the piece stay in the sentence and say nothing of where it ends.
-    for (const piece of flat.split(/(\u0001[^\u0002]*\u0002)/)) {
-      if (piece.startsWith('\u0001')) {
-        current += piece;
-        continue;
-      }
-      for (const char of piece) {
-        if (terminated && /\s/.test(char)) {
-          // Only the paragraph's own text ends a sentence at a blank; inside a formatted run the blank is part of it.
-          if (child.type === 'text') close();
-          else current += char;
+    if (decl.origin === 'person') continue;
+    let after: string | undefined;
+    do {
+      const page = await graph.list(decl.name, { limit: 500, ...(after === undefined ? {} : { after }) });
+      for (const entity of page.rows) {
+        const fields = entity.properties;
+        const declared = new Set(decl.fields?.map((field) => field.name));
+        const location = `${resolve(typeof fields['file'] === 'string' ? fields['file'] : manifest.file)}:1`;
+        const fail = (name: string): never => { throw new Error(`${location}: ${entity.key}.${name}: malformed or missing declared structured graph opinion`); };
+        if (typeof fields['body'] !== 'string') {
+          if (Object.hasOwn(fields, 'body') || declared.has('body')) fail('body');
           continue;
         }
-        if (!name && terminated && !/[.!?)"'\u201d]/.test(char)) terminated = false;
-        current += char;
-        if (!name && /[.!?]/.test(char)) terminated = true;
+        for (const name of declared) if (fields[name] === undefined) fail(name);
+        const lists = (name: string): string[] => {
+          const value = fields[name];
+          if (value === undefined) return [];
+          if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) fail(name);
+          return value as string[];
+        };
+        const text = (name: string): string => fields[name] === undefined ? '' : typeof fields[name] === 'string' ? fields[name] : fail(name);
+        const line = fields['body_line'] ?? 1;
+        if (typeof line !== 'number' || !Number.isInteger(line) || line < 1) fail('body_line');
+        const records = (name: string): Record<string, unknown>[] => {
+          const value = fields[name] ?? [];
+          if (!Array.isArray(value) || value.some((item) => item === null || typeof item !== 'object' || Array.isArray(item))) return fail(name);
+          return value as Record<string, unknown>[];
+        };
+        const statements = records('statements').map((statement): PageStatement => {
+          for (const name of ['id', 'text', 'digest']) if (typeof statement[name] !== 'string') fail(`statements.${name}`);
+          for (const name of ['labels', 'mentions', 'grounds']) if (!Array.isArray(statement[name]) || (statement[name] as unknown[]).some((value) => typeof value !== 'string')) fail(`statements.${name}`);
+          if (!Number.isInteger(statement['line']) || (statement['line'] as number) < 1) fail('statements.line');
+          if (statement['paragraph'] !== undefined && typeof statement['paragraph'] !== 'string') fail('statements.paragraph');
+          return statement as unknown as PageStatement;
+        });
+        const links = records('links').map((link): FoundLink => {
+          if (typeof link['url'] !== 'string' || !Number.isInteger(link['line']) || typeof link['ground'] !== 'boolean') fail('links');
+          return link as unknown as FoundLink;
+        });
+        const findings = records('findings').map((finding): Finding => {
+          if (typeof finding['file'] !== 'string' || !Number.isInteger(finding['line']) || typeof finding['message'] !== 'string') fail('findings');
+          return finding as unknown as Finding;
+        });
+        const ungrounded = records('ungrounded').map((statement): { text: string; line: number } => {
+          if (typeof statement['text'] !== 'string' || !Number.isInteger(statement['line'])) fail('ungrounded');
+          return statement as unknown as { text: string; line: number };
+        });
+        const producer = fields['producer'] ?? null;
+        if (producer !== null && typeof producer !== 'string') fail('producer');
+        entities.push({
+          id: entity.key, kind: entity.kind, title: typeof fields['title'] === 'string' ? fields['title'] : entity.label,
+          relates: lists('relates'), sources: lists('sources'), producer: producer as string | null,
+          body: text('body'), bodyLine: line as number,
+          file: text('file'), front: fields,
+          reading: { links, findings, ungrounded, statements: statements.length + ungrounded.length },
+          statementReading: {
+            statements: statements.map((statement) => ({ text: statement.text, line: statement.line, paragraph: statement.paragraph ?? statement.text, notes: [...statement.labels] })),
+            definitions: new Map(statements.flatMap((statement) => statement.labels.map((label) => [label, statement.grounds.map((ground) => `madarch:${ground}`)] as [string, string[]]))),
+          },
+          indexedStatements: statements, mentions: lists('mentions'), digest: text('digest'),
+        });
       }
-    }
+      after = page.next ?? undefined;
+    } while (after !== undefined);
   }
-  close();
-  return sentences;
+  return { entities: entities.sort((a, b) => byCodePoint(a.id, b.id)), findings: [] };
 }
 
-/** Text that connects rather than states: a heading-like line, "See also", or a line of only links. */
-function isConnecting(paragraph: Node, sentenceText: string): boolean {
-  const words = sentenceText.split(/\s+/).filter(Boolean);
-  if (words.length < 4 || /^(see|see also|related|next)\b/i.test(sentenceText)) return true;
-  const onlyLinks = (paragraph.children ?? []).every((child) => child.type === 'link' || (child.type === 'text' && (child.value ?? '').trim().replace(/[,;:.\-–—]/g, '') === ''));
-  return onlyLinks;
-}
-
-/** Reads a body: its `madarch:` links, its footnote problems and its ungrounded statements. Lines are the file's. */
-export function readBody(body: string, file: string, bodyLine: number): BodyReading {
-  const tree = parser.parse(body) as unknown as Node;
-  const links: FoundLink[] = [];
-  const findings: Finding[] = [];
-  const ungrounded: { text: string; line: number }[] = [];
-  const references = new Map<string, number>();
-  const definitions = new Map<string, { line: number; grounds: number }>();
-  let statements = 0;
-  const lineOf = (node: Node): number => (node.position?.start.line ?? 1) - 1 + bodyLine;
-  const walk = (node: Node, inGround: boolean, inQuote: boolean): void => {
-    if (node.type === 'link' || node.type === 'definition') {
-      if (typeof node.url === 'string' && node.url.startsWith(SCHEME)) links.push({ url: node.url, line: lineOf(node), ground: inGround });
-    }
-    if (node.type === 'footnoteReference') {
-      const id = node.identifier ?? node.label ?? '';
-      if (!references.has(id)) references.set(id, lineOf(node));
-    }
-    if (node.type === 'text') {
-      for (const match of (node.value ?? '').matchAll(/\[\^([^\]\s]+)\]/g)) {
-        const id = match[1]!.toLowerCase();
-        if (!references.has(id)) references.set(id, lineOf(node));
-      }
-    }
-    if (node.type === 'footnoteDefinition') {
-      const id = node.identifier ?? node.label ?? '';
-      const before = links.length;
-      for (const child of node.children ?? []) walk(child, true, inQuote);
-      definitions.set(id, { line: lineOf(node), grounds: links.length - before });
-      return;
-    }
-    if (node.type === 'paragraph' && !inGround) {
-      for (const sentence of sentencesOf(node)) {
-        if (isConnecting(node, sentence.text)) continue;
-        statements += 1;
-        if (!sentence.grounded) ungrounded.push({ text: sentence.text, line: lineOf(node) });
-      }
-    }
-    for (const child of node.children ?? []) walk(child, inGround, inQuote);
-  };
-  walk(tree, false, false);
-  for (const [id, line] of references) {
-    if (!definitions.has(id)) findings.push({ file, line, message: `the footnote [^${id}] is used and never defined` });
-  }
-  for (const [id, definition] of definitions) {
-    if (definition.grounds === 0) findings.push({ file, line: definition.line, message: `the footnote [^${id}] lists no ground: a footnote is a list of madarch: links` });
-  }
-  return { links, findings, ungrounded, statements };
-}
+const SCHEME = 'madarch:';
 
 /** A `madarch:` target without its scheme; the anchor of a document target is split off. */
 export function parseTarget(url: string): { kind: 'key'; key: string } | { kind: 'doc'; path: string; anchor: string | null } {
@@ -310,57 +115,4 @@ export function parseTarget(url: string): { kind: 'key'; key: string } | { kind:
     return hash < 0 ? { kind: 'doc', path: rest, anchor: null } : { kind: 'doc', path: rest.slice(0, hash), anchor: rest.slice(hash + 1) };
   }
   return { kind: 'key', key: target };
-}
-
-
-// ---- statements -------------------------------------------------------------------------------
-
-/** One statement of a body: its sentence, the paragraph it stands in, and the notes that ground it. */
-interface Statement {
-  text: string;
-  /** The file's line the paragraph starts at. */
-  line: number;
-  /** The paragraph as written in the body, footnote references removed. */
-  paragraph: string;
-  /** The labels of the footnotes that end the sentence; empty when it is ungrounded. */
-  notes: string[];
-}
-
-export interface StatementReading {
-  statements: Statement[];
-  /** The `madarch:` destinations each footnote lists, by its label, in the order written. */
-  definitions: Map<string, string[]>;
-}
-
-/** Reads a body's statements with their paragraphs and its footnotes' grounds (the sentences `readBody` counts). */
-export function readStatements(body: string, bodyLine: number): StatementReading {
-  const tree = parser.parse(body) as unknown as Node;
-  const statements: Statement[] = [];
-  const definitions = new Map<string, string[]>();
-  const lineOf = (node: Node): number => (node.position?.start.line ?? 1) - 1 + bodyLine;
-  const urlsIn = (node: Node, out: string[]): void => {
-    if ((node.type === 'link' || node.type === 'definition') && typeof node.url === 'string' && node.url.startsWith(SCHEME)) out.push(node.url);
-    for (const child of node.children ?? []) urlsIn(child, out);
-  };
-  const walk = (node: Node): void => {
-    if (node.type === 'footnoteDefinition') {
-      const urls: string[] = [];
-      urlsIn(node, urls);
-      definitions.set(node.identifier ?? node.label ?? '', urls);
-      return;
-    }
-    if (node.type === 'paragraph') {
-      const start = node.position?.start.offset;
-      const end = node.position?.end.offset;
-      const paragraph = start === undefined || end === undefined ? '' : body.slice(start, end).replace(/\[\^[^\]\s]+\]/g, '').replace(/[ \t]+\n/g, '\n').replace(/ {2,}/g, ' ').trim();
-      for (const sentence of sentencesOf(node)) {
-        if (isConnecting(node, sentence.text)) continue;
-        statements.push({ text: sentence.text, line: lineOf(node), paragraph, notes: sentence.notes });
-      }
-      return;
-    }
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(tree);
-  return { statements, definitions };
 }

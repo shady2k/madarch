@@ -7,13 +7,14 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { changedGrounds, gitReader, readKnowledgePagesFrom, type IndexedPage } from '../knowledge/index/index.js';
-import { KINDS_FILE, type FindingKind, type KindsManifest } from '../knowledge/kinds.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
+import { changedGrounds, graphKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
+import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
+import type { ProductFileSource } from '../plugin/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import type { Author, Question } from './entities.js';
+import type { LoopGraph } from './graph.js';
 import { type TaskImpact } from './impact.js';
 import { type PlaceView, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
@@ -191,6 +192,7 @@ export interface ProblemItems {
 }
 
 export interface ProblemInput {
+  readonly graph: LoopGraph;
   readonly productFolder: string;
   readonly owner: DatabaseOwner;
   /** The product repository's own files as the graph holds them, and the manifest they declare: the pages are read here. */
@@ -265,7 +267,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   const out: Problem[] = [];
   const notes: ProblemNote[] = [];
   const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
-  const read = readKnowledgePagesFrom(input.files, input.manifest);
+  const read = await graphKnowledgePages(input.graph, input.manifest);
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;
@@ -313,7 +315,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   if (input.repository === undefined) {
     if (pages.length > 0) notes.push({ message: 'the pages name no single code repository, so grounds that disappeared from the code are not looked for' });
   } else if (pages.length > 0) {
-    const changes = await changedGrounds(input.owner, { commit: input.repository.commit, git: gitReader(input.repository.path) });
+    const changes = await changedGrounds(input.owner, { commit: input.repository.commit });
     for (const change of changes) {
       if (change.status !== 'removed') continue;
       const page = byId.get(change.page);

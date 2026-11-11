@@ -16,7 +16,7 @@ import { KnowledgeProduct, pageSnapshotOwner } from '../src/knowledge/product.js
 import { renderPage } from '../src/knowledge/render.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
 
 const at = '2026-02-04T00:00:00.000Z';
 const id = 'code.author:walk@example.test';

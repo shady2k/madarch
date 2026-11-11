@@ -9,13 +9,9 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { byCodePoint } from '../model/order.js';
-import { slugOf } from '../knowledge/anchors.js';
-import { splitFrontMatter } from '../knowledge/markdown.js';
+import { stringify as stringifyYaml } from 'yaml';
 import { problemId } from '../problems/types.js';
 import type { Author } from './entities.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
 
 const PROBLEMS_FOLDER = 'docs/problems';
 const DISMISSAL_KIND = 'problem-dismissal';
@@ -33,68 +29,28 @@ export interface ProblemDismissal {
   readonly file: string;
 }
 
-export interface DismissalRead {
-  readonly items: readonly ProblemDismissal[];
-  readonly problems: readonly { file: string; line: number; message: string }[];
+/** A display name reduced to a safe file-name component. */
+const SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'word' });
+function isWordCharacter(char: string): boolean {
+  for (const piece of SEGMENTER.segment(char)) if (piece.isWordLike) return true;
+  return false;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined);
-
-const authorOf = (value: unknown): Author | undefined => {
-  if (!isRecord(value)) return undefined;
-  const name = text(value['name']);
-  const email = text(value['email']);
-  if (name === undefined || email === undefined) return undefined;
-  return { name, email, verified: text(value['verified']) ?? 'local, not verified' };
-};
 
 /**
- * Reads every dismissal as one source of the product's files holds it: the graph's stored files for a reader of a page.
- * Every file the folder lists is fetched before it is parsed (stage C).
+ * The slug GitHub gives a heading: its marks are not part of it, its spaces become hyphens, and a character that is no
+ * word character, no `-` and no `_` is dropped.
  */
-export async function readProblemDismissalsIn(files: ProductFileSource): Promise<DismissalRead> {
-  const paths = files.filesIn(PROBLEMS_FOLDER).filter((path) => path.endsWith('.md')).sort(byCodePoint);
-  await files.ensure(paths);
-  const problems: { file: string; line: number; message: string }[] = [];
-  const entries: { file: string; source: string }[] = [];
-  for (const file of paths) {
-    const source = files.text(file);
-    if (source === undefined) { problems.push({ file, line: 1, message: `${file}:1: the file cannot be read: the source holds no text of it` }); continue; }
-    entries.push({ file, source });
+function slugOf(heading: string): string {
+  let kept = '';
+  for (const char of heading) {
+    if (char === ' ' || char === '-' || char === '_') { kept += char; continue; }
+    if (isWordCharacter(char)) kept += char;
   }
-  return parseDismissals(entries, problems);
+  let slug = '';
+  for (const char of kept.trim().toLowerCase()) slug += char === ' ' ? '-' : char;
+  return slug;
 }
 
-/** Parses the dismissal files one read found; a file that cannot be read is a finding with its path and line. */
-function parseDismissals(entries: readonly { file: string; source: string }[], problems: { file: string; line: number; message: string }[]): DismissalRead {
-  const items: ProblemDismissal[] = [];
-  for (const { file, source } of entries) {
-    const { front } = splitFrontMatter(source.replace(/\r\n/g, '\n'));
-    if (front === null) { problems.push({ file, line: 1, message: `${file}:1: a dismissal opens with front matter (--- ... ---)` }); continue; }
-    let parsed: unknown;
-    try {
-      parsed = parseYaml(front);
-    } catch (error) {
-      problems.push({ file, line: 1, message: `${file}:1: the front matter is not YAML: ${(error as Error).message}` });
-      continue;
-    }
-    if (!isRecord(parsed)) { problems.push({ file, line: 1, message: `${file}:1: the front matter is a mapping` }); continue; }
-    if (parsed['kind'] !== DISMISSAL_KIND) { problems.push({ file, line: 1, message: `${file}:1: "kind" is "${DISMISSAL_KIND}", got ${JSON.stringify(parsed['kind'])}` }); continue; }
-    const rule = text(parsed['rule']);
-    const identity = text(parsed['identity']);
-    const place = text(parsed['place']);
-    const reason = text(parsed['reason']);
-    const by = authorOf(parsed['by']);
-    const at = text(parsed['at']);
-    if (rule === undefined || identity === undefined || place === undefined || reason === undefined || by === undefined || at === undefined) {
-      problems.push({ file, line: 1, message: `${file}:1: a dismissal names "rule", "identity", "place", "reason", "by" (name, email, verified) and "at"` });
-      continue;
-    }
-    items.push({ id: problemId(rule, identity), rule, identity, place, reason, by, at, file });
-  }
-  return { items, problems };
-}
 
 /** The file name of a dismissal: its rule and a short hash of the identity, so two dismissals never share a file. */
 function problemSlug(rule: string, identity: string): string {

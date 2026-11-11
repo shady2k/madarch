@@ -6,7 +6,7 @@
  * plugin asks for them by name and never builds a statement itself.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { GIT_KINDS, GIT_TABLES, GIT_WIKI } from '../fill/stages/git-contract.js';
+import { GIT_KINDS, GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { generatedTableName } from './contract.js';
 import { journalFor, writeJournal, type JournalRead } from './write.js';
@@ -42,27 +42,6 @@ export async function graphFiles(owner: DatabaseOwner, contract: GraphContract):
 export interface ProducerEntity {
   readonly key: Readonly<Record<string, string>>;
   readonly path: string | null;
-}
-
-/**
- * The text of one file the files producer stored in the graph (decision 0035, item 9): its content by blob, shared by
- * every file with the same bytes. `null` when the graph holds no content — a binary file, or a file no fill read.
- */
-export async function fileContent(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
-  return await owner.transaction('snapshot', async (tx) => {
-    // Every open opinion that names a blob counts: the content is read when they all stand on the same blob, and the
-    // host privileges no producer (no field is authoritative).
-    const found = await tx.query<{ content: string | null }>(
-      `SELECT b.content FROM node f
-       JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}'
-       LEFT JOIN LATERAL (SELECT min(o."blob_id") AS blob_id FROM ${GIT_TABLES.file} o WHERE o."node_id" = f.id AND o."state" = 'open' AND o."context_id" = 1 AND o."blob_id" IS NOT NULL HAVING count(DISTINCT o."blob_id") = 1) g ON true
-       LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
-       WHERE (f.key->'repository'->'key'->>'name') = $1 AND (f.key->>'path') = $2 AND f.context_id = 1 AND NOT f.removed
-       LIMIT 1`,
-      [repository, path],
-    );
-    return found.rows[0]?.content ?? null;
-  });
 }
 
 /**

@@ -15,7 +15,7 @@ import { collectNeighbors, treemapBlock } from '../src/knowledge/diagrams.js';
 import { definitionBlock } from '../src/knowledge/definition.js';
 import { GraphReader, type FileFactRow, type GraphEntity, type NeighborGroup } from '../src/knowledge/graph-read.js';
 import { byCodePoint } from '../src/model/order.js';
-import { readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
+import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { kindSummaries, listEntities } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { starterKinds } from './knowledge-fixture.js';
@@ -178,7 +178,7 @@ function context(manifest: KindsManifest, folder: string, entities: readonly Gra
     readSource: async (_repo: string | null, path: string) => (path === 'contracts/api.yaml'
       ? 'openapi: 3.0.3\ninfo: {title: Catalogue, version: 1.0.0}\npaths:\n  /items: {get: {operationId: listItems, responses: {}}}\n'
       : path === 'services/payments/main.ts' ? 'export const pay = (): void => {};\n' : undefined),
-    resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
+    resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, documentKinds: [], repositories: () => [], locate: () => undefined }),
   } as unknown as RenderContext;
 }
 
@@ -462,7 +462,7 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
           documents: [], repositories: [], commitOf: () => null, repoOfScope: () => 'repo', graph,
     historyEvidence: async () => ({ entities: [], edges: [] }),
           readSource: async () => undefined,
-          resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
+          resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, documentKinds: [], repositories: () => [], locate: () => undefined }),
         } as unknown as RenderContext, subject, { limit: 20 })).rows.map((row) => row.relation),
       };
     };
@@ -486,7 +486,7 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
     historyEvidence: async () => ({ entities: [], edges: [] }),
     // The map's rhythm read is one statement of its own; this fixture has no rhythm to answer.
     fileRhythm: async () => new Map(), readSource: async () => undefined,
-          resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
+          resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, documentKinds: [], repositories: () => [], locate: () => undefined }),
         } as unknown as RenderContext, lang: 'en', productTitle: 'Fixture',
       }, { type: 'sequence', subject: inside.key }, { source: 'graph', entity: inside });
       return views[0]!.elements.map((element) => element.label);
@@ -505,7 +505,7 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
     historyEvidence: async () => ({ entities: [], edges: [] }),
     // The map's rhythm read is one statement of its own; this fixture has no rhythm to answer.
     fileRhythm: async () => new Map(), readSource: async () => undefined,
-      resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
+      resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, documentKinds: [], repositories: () => [], locate: () => undefined }),
     } as unknown as RenderContext, { source: 'graph', entity: SERVICE }, { limit: 20 });
     expect(rows.rows.find((row) => row.relation === 'uses-database')?.ref).toMatchObject({ id: 'code.database:archive', kind: 'code.database', href: null });
   });

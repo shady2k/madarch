@@ -449,6 +449,20 @@ function isFolderName(name: unknown): name is string {
     && name !== '.' && name !== '..' && !/[/\\\u0000-\u001f]/.test(name);
 }
 
+/** The exact manifest text, kept by lifecycle edits for byte-for-byte rollback. */
+export function readManifestText(productFolder: string): string {
+  return readFileSync(join(productFolder, MANIFEST_FILE), 'utf8');
+}
+
+/** The declaration line of an already-known repository, for a lifecycle refusal. */
+export function repositoryDeclarationLine(productFolder: string, index: number): number {
+  const parsed = parseManifest(readManifestText(productFolder), join(productFolder, MANIFEST_FILE));
+  const value = parsed.ok ? parsed.value : {};
+  const items = value !== null && typeof value === 'object' && Array.isArray((value as Record<string, unknown>).repos)
+    ? (value as Record<string, unknown>).repos as unknown[] : [];
+  return items[index] === undefined ? lineOf(value, 'repos') : lineOf(items[index], 'name');
+}
+
 // ---- a product, read from its manifest -------------------------------------
 
 /**
@@ -469,7 +483,7 @@ export function readProduct(productFolder: string): ProductRead {
 
   let text: string;
   try {
-    text = readFileSync(manifestFile, 'utf8');
+    text = readManifestText(folder);
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === 'ENOENT')

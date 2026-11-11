@@ -1,76 +1,61 @@
 import { expect, test } from 'bun:test';
 import { definitionBlock } from '../src/knowledge/definition.js';
+import { buildViews } from '../src/knowledge/views.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { GraphEntity } from '../src/knowledge/graph-read.js';
 import { fixtureManifest } from './knowledge-manifest-fixture.js';
-const contract: GraphEntity = {key: 'code.contract:contracts/api.yaml', kind: 'code.contract', label: 'Catalogue', properties: {format: 'openapi'}, scope: 'scope', nodeIds: ['1']};
-const operation: GraphEntity = {key: 'code.operation:contracts/api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', properties: {method: 'GET', path: '/items'}, scope: 'scope', nodeIds: ['2']};
-function context(text: string, owners = 1): RenderContext {
-  const manifest = fixtureManifest({ 'code.contract': { definitionBlock: 'contract' }, 'code.operation': { definitionBlock: 'operation' } });
-  return {productFolder: '/fixture', manifest, repoOfScope: () => 'catalog', readSource: async () => text, graph: {neighbors: async (entity: GraphEntity) => entity.kind === 'code.operation' ? [{relation: 'code.declares', direction: 'in', total: owners, rows: owners === 0 ? [] : [{entity: contract}]}] : []}} as unknown as RenderContext;
+const contract: GraphEntity = {key: 'code.contract:contracts/api.yaml', kind: 'code.contract', label: 'Catalogue', properties: {path: 'contracts/api.yaml', format: 'openapi'}, scope: 'scope', nodeIds: ['1']};
+const operation: GraphEntity = {key: 'code.operation:items', kind: 'code.operation', label: 'GET /items', properties: {method: 'GET', path: '/items'}, scope: 'scope', nodeIds: ['2']};
+function context(entity: GraphEntity, owners = 1): RenderContext {
+  const manifest = fixtureManifest({'code.contract': {definitionBlock: 'contract'}, 'code.operation': {definitionBlock: 'operation'}, 'code.file': {views: ['state']}});
+  return {productFolder: '/fixture', manifest, repoOfScope: () => 'catalog', graph: {
+    find: async () => [entity],
+    neighbors: async (held: GraphEntity) => held.kind === 'code.operation' ? [{relation: 'code.declares', direction: 'in', total: owners, rows: owners === 0 ? [] : [{entity: contract}]}] : [],
+  }} as unknown as RenderContext;
 }
-test('an operation selects its method and path, not the first operation', async () => {
-  const ctx = context('openapi: 3.0.3\ninfo: {title: Catalogue, version: 1.0.0}\npaths:\n  /other: {post: {operationId: other, responses: {}}}\n  /items: {get: {responses: {}}}');
-  const block = await definitionBlock(ctx, {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
-  expect(block.type).toBe('definition');
-  if (block.type !== 'definition') return;
-  expect(block.selection).toMatchObject({method: 'get', path: '/items'});
-  expect(block.selection?.operationId).not.toBe('other');
-  expect(block.document).toHaveProperty('paths');
-  expect(block.diagnostics).toBeUndefined();
+test('a definition presents the published operation selection and complete document without reading source', async () => {
+  const definition = {spec: {text: 'complete published text', lines: 1}, document: {paths: {'/items': {get: {}}}}, selection: {method: 'get', path: '/items', operationId: 'items'}};
+  const entity = {...operation, properties: {...operation.properties, definition}};
+  const block = await definitionBlock(context(entity), {source: 'graph', entity}, {}, 'templates/operation.md', 2);
+  expect(block).toMatchObject({type: 'definition', ...definition});
 });
-test('missing selection is an explicit source-located error, never another operation', async () => {
-  const block = await definitionBlock(context('openapi: 3.0.3\npaths: {}'), {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
-  expect(block.type).toBe('definition');
-  if (block.type === 'definition') expect(block.diagnostics?.[0]).toMatchObject({path: 'contracts/api.yaml', line: 1, fullPath: '/fixture/repos/catalog/contracts/api.yaml', code: 'selection'});
+test('missing definition opinions are explicit diagnostics, never re-read or synthesized definitions', async () => {
+  const block = await definitionBlock(context(contract), {source: 'graph', entity: contract}, {}, 'templates/detail.md', 7);
+  expect(block).toMatchObject({type: 'definition', diagnostics: [{path: 'contracts/api.yaml', line: 1, fullPath: '/fixture/repos/catalog/contracts/api.yaml', reason: {code: 'definitionMissing'}}]});
 });
-test('ambiguous and absent contract owners do not choose a fallback', async () => {
+test('ambiguous and absent owners do not select a contract', async () => {
   for (const owners of [0, 2]) {
-    const block = await definitionBlock(context('', owners), {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
-    expect(block).toMatchObject({type: 'problem', file: 'templates/operation.md', line: 2});
+    const block = await definitionBlock(context(operation, owners), {source: 'graph', entity: operation}, {}, 'templates/detail.md', 7);
+    expect(block).toMatchObject({type: 'problem', diagnostic: {path: 'templates/detail.md', line: 7, fullPath: '/fixture/templates/detail.md', reason: {code: 'declaringContractCount', params: {count: owners}}}});
+  }
+});
+test('malformed definition opinions are refused and published diagnostics are preserved', async () => {
+  const malformed = {...contract, properties: {...contract.properties, definition: {spec: {text: 'incomplete'}}}};
+  expect(await definitionBlock(context(malformed), {source: 'graph', entity: malformed}, {}, 'template.md', 1)).toMatchObject({diagnostics: [{code: 'shape'}]});
+  const definition = {spec: {text: '', lines: 0}, diagnostics: [{path: 'import.proto', line: 12, fullPath: '/fixture/import.proto', code: 'parse', detail: 'producer evidence'}]};
+  const entity = {...contract, properties: {...contract.properties, definition}};
+  expect(await definitionBlock(context(entity), {source: 'graph', entity}, {}, 'template.md', 1)).toMatchObject(definition);
+});
+test('state diagrams present graph transitions and source locations without parsing files', async () => {
+  const entity = {...contract, key: 'code.file:order.ts', kind: 'code.file', properties: {state_machines: [{name: 'lifecycle', type: null, path: 'order.ts', lineStart: 3, lineEnd: 8, states: [{name: 'pending', label: 'Pending', line: 4}, {name: 'done', label: 'Done', line: 5}], transitions: [{from: 'pending', to: 'done', event: 'complete', line: 6}]}]}};
+  const views = await buildViews({ctx: context(entity), lang: 'en', productTitle: 'Catalogue'}, {type: 'state', subject: entity.key});
+  expect(views[0]?.elements.map((held) => held.label)).toEqual(['Pending', 'Done']);
+  expect(views[0]?.edges[0]).toMatchObject({label: 'complete', location: {path: 'order.ts', lineStart: 6}});
+});
+
+test('malformed state opinions are explicit refusals, never smaller diagrams', async () => {
+  for (const stateMachines of [null, [null], [{name: 'bad', path: 'order.ts', states: [], transitions: [{from: 'missing', to: 'other', event: null, line: 3}], type: null, lineStart: 1, lineEnd: 4}]]) {
+    const entity = {...contract, key: 'code.file:order.ts', kind: 'code.file', properties: {state_machines: stateMachines}};
+    await expect(buildViews({ctx: context(entity), lang: 'en', productTitle: 'Catalogue'}, {type: 'state', subject: entity.key})).rejects.toThrow(/:[0-9]+ \(/);
   }
 });
 
-test('a valid local referenced Path Item selects the declared method', async () => {
-  const ctx = context('openapi: 3.0.3\npaths:\n  /items: {$ref: "#/components/pathItems/Items"}\ncomponents:\n  pathItems:\n    Items:\n      get: {operationId: listItems, responses: {}}');
-  const block = await definitionBlock(ctx, {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
-  expect(block.type).toBe('definition');
-  if (block.type === 'definition') { expect(block.selection).toEqual({method: 'get', path: '/items', operationId: 'listItems'}); expect(block.diagnostics).toBeUndefined(); }
-});
-test('cyclic path items are visible refusal diagnostics, not unbounded resolution', async () => {
-  const ctx = context('openapi: 3.0.3\npaths:\n  /items: {$ref: "#/paths/~1items"}');
-  const block = await definitionBlock(ctx, {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
-  expect(block.type).toBe('definition');
-  if (block.type === 'definition') expect(block.diagnostics?.[0]?.detail).toContain('cyclic');
-});
-
-
-test('selection and early problem diagnostics preserve legacy block shapes and messages', async () => {
-  const missing = await definitionBlock(context('openapi: 3.0.3\npaths: {}'), {source: 'graph', entity: operation}, {}, 'templates/detail.md', 7);
-  if (missing.type !== 'definition') throw new Error('expected definition');
-  expect(missing.diagnostics?.[0]?.reason).toEqual({code: 'operationSelectionMissing', params: {method: 'get', path: '/items'}});
-  for (const count of [0, 2]) {
-    const block = await definitionBlock(context('', count), {source: 'graph', entity: operation}, {}, 'templates/detail.md', 7);
-    expect(block).toMatchObject({type: 'problem', block: 'definition', file: 'templates/detail.md', line: 7});
-    if (block.type !== 'problem') throw new Error('expected problem');
-    expect(block.message).toBe(`templates/detail.md:7 (/fixture/templates/detail.md): operation must have exactly one declaring contract; found ${count}`);
-    expect(block.diagnostic).toMatchObject({path: 'templates/detail.md', line: 7, fullPath: '/fixture/templates/detail.md', reason: {code: 'declaringContractCount', params: {count}}});
+test('definition opinions validate nested display fields before presenting them', async () => {
+  for (const field of [{document: []}, {selection: {method: 'get'}}, {descriptions: [{text: 'x', path: 'api.yaml', fullPath: '/api.yaml', line: 0}]}, {protobuf: {services: [{name: 'Api', methods: [{}]}], messages: []}}, {diagnostics: [{path: 'api.yaml', fullPath: '/api.yaml', line: 1, code: 'parse', detail: 'bad', reason: {code: 'notAReason'}}]}]) {
+    const entity = {...contract, properties: {...contract.properties, definition: {spec: {text: 'full text', lines: 1}, ...field}}};
+    expect(await definitionBlock(context(entity), {source: 'graph', entity}, {}, 'template.md', 1)).toMatchObject({diagnostics: [{path: 'contracts/api.yaml', line: 1, fullPath: '/fixture/repos/catalog/contracts/api.yaml', code: 'shape'}]});
   }
-});
-
-test('unexpected read failures keep original evidence without parsing English', async () => {
-  const ctx = context('');
-  ctx.readSource = async () => {throw new Error('Original vendor evidence «не переводить»');};
-  const block = await definitionBlock(ctx, {source: 'graph', entity: contract}, {}, 'templates/detail.md', 7);
-  if (block.type !== 'definition') throw new Error('expected definition');
-  expect(block.diagnostics?.[0]).toMatchObject({code: 'parse', reason: {code: 'unknownDefinitionFailure'}, detail: 'Error: Original vendor evidence «не переводить»', technicalDetail: 'Error: Original vendor evidence «не переводить»'});
-});
-
-
-test('an unsupported graph subject keeps its legacy problem and gains a structured reason', async () => {
-  const subject = {...contract, kind: 'code.file'};
-  const block = await definitionBlock(context(''), {source: 'graph', entity: subject}, {}, 'templates/detail.md', 7);
-  expect(block).toMatchObject({type: 'problem', block: 'definition', file: 'templates/detail.md', line: 7, message: expect.stringContaining('the manifest madarch/kinds.yaml declares no kind code.file')});
-  if (block.type !== 'problem') throw new Error('expected problem');
-  expect(block.diagnostic).toMatchObject({path: 'templates/detail.md', line: 7, fullPath: '/fixture/templates/detail.md', reason: {code: 'definitionSubjectUnsupported'}});
+  const definition = {spec: {text: 'proto', lines: 1}, protobuf: {services: [{name: 'Api', methods: [{name: 'Get', request: 'Request', response: 'Reply', requestStream: false, responseStream: false}]}], messages: [{name: 'Request', fields: [{name: 'id', type: 'string', id: 1, rule: 'optional'}]}]}};
+  const entity = {...contract, properties: {...contract.properties, definition}};
+  expect(await definitionBlock(context(entity), {source: 'graph', entity}, {}, 'template.md', 1)).toMatchObject(definition);
 });

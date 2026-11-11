@@ -4,7 +4,7 @@ import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type 
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
-import { WORKFLOWS_FILE } from './workflows.js';
+import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
 import { byCodePoint } from '../model/order.js';
 import type { RuleSpec } from '../problems/types.js';
@@ -93,6 +93,10 @@ them, as label.
 {% block lead %}{% body %}{% system title="Architecture of the domain" title-ru="Архитектура домена" view="domain" %}{% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.title %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this page", title_ru="Вокруг этой страницы" %}{% endblock %}
 {% block describedby %}{% related title="Implemented by" title-ru="Реализуют" relation="relates" %}{% endblock %}
+`,
+  'dismissal.liquid': `{% layout "./entity.liquid" %}
+{% block lead %}{{ page.reason }}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
   'guide.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}# {{ page.title }}{% endblock %}
@@ -271,13 +275,13 @@ them, as label.
 {% block lead %}{% term title="Definition" title-ru="Определение" field="definition" synonyms="synonyms" code="code" %}{% endblock %}
 `,
   'question.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
   'correction.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
   'task.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
 };
 
@@ -317,6 +321,31 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   quarantine_reason: { en: 'Reason', ru: 'Причина' },
   since: { en: 'Quarantined since commit', ru: 'Коммит введения карантина' },
   latest_result: { en: 'Latest quarantine CI result', ru: 'Последний результат CI карантина' },
+  correction_reason: { en: "Reason", ru: "Причина", format: "text" },
+  dismissal_reason: { en: "Reason", ru: "Причина", format: "text" },
+  statement: { en: "Statement", ru: "Утверждение", format: "text" },
+  sides: { en: "What the sources say", ru: "Что говорят источники", format: "text" },
+  why: { en: "Why it matters", ru: "Почему это важно", format: "text" },
+  question: { en: "Question", ru: "Вопрос", format: "text" },
+  answer: { en: "Answer", ru: "Ответ", format: "text" },
+  problem: { en: "Problem", ru: "Проблема", format: "text" },
+  grounds: { en: "Grounds", ru: "Основания", format: "text" },
+  closed_by: { en: "Closing commit", ru: "Закрывающий коммит", format: "text" },
+  closed_at: { en: "Closed at", ru: "Время закрытия", format: "text" },
+  rule: { en: "Rule", ru: "Правило", format: "text" },
+  identity: { en: "Identity", ru: "Идентификатор", format: "text" },
+  place: { en: "Place", ru: "Место", format: "text" },
+
+  status: { en: "Status", ru: "Статус", format: "text" },
+  about: { en: "About", ru: "О чём", format: "list" },
+  asked_in: { en: "Asked on", ru: "Страница вопроса", format: "text" },
+  asked_at: { en: "Asked at", ru: "Время вопроса", format: "date" },
+  resolved_by: { en: "Used by pages", ru: "Учтено на страницах", format: "list" },
+  resolved_at: { en: "Resolved at", ru: "Время разрешения", format: "date" },
+  written_at: { en: "Written from", ru: "Основания записи", format: "list" },
+  by: { en: "Corrected by", ru: "Автор поправки", format: "text" },
+  at: { en: "Corrected at", ru: "Время поправки", format: "date" },
+
   language: { en: "Language", ru: "Язык", format: "text" },
   frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
   infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
@@ -499,6 +528,10 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
 
 /** The properties each kind shows on its page, in the order a reader meets them (madarch-m38l.21). */
 export const DETAILS: Readonly<Record<string, readonly string[]>> = {
+  task: ["status", "question", "answer", "problem", "grounds", "scope", "by", "at", "closed_by", "closed_at", "file"],
+  "problem-dismissal": ["rule", "identity", "place", "dismissal_reason", "by", "at", "file"],
+  question: ["question", "why", "sides", "answer", "type", "status", "about", "asked_in", "asked_at", "resolved_by", "resolved_at", "written_at", "file"],
+  correction: ["statement", "correction_reason", "status", "about", "by", "at", "resolved_by", "resolved_at", "file"],
   "code.service": ["language", "frameworks", "infrastructure", "testFramework"],
   "code.package": ["ecosystem", "name", "version", "external", "frameworks", "hasTests", "sourceFiles", "testFiles", "tests", "versionStatus", "standardLibrary"],
   "code.module": ["role", "kind", "language", "files", "parsedFiles", "packageName"],
@@ -829,7 +862,7 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
         // A field bound to a plugin states the binding; the plugin's own contract states its type.
         lines.push(field.binding === undefined
           ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
-          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: "${field.binding}"${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
+          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: ${typeof field.binding === 'string' ? yamlText(field.binding) : `{ agent: ${yamlText(field.binding.agent)} }`}${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
       }
     }
     if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);
