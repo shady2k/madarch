@@ -362,6 +362,33 @@ function agreedValue(opinions: readonly GraphOpinion[], field: string): unknown 
   return distinct.size === 1 ? values[0] : [...distinct.values()];
 }
 
+/**
+ * One field's value from an opinion aggregate, in one pass: the value the opinions agree on, or every distinct value in
+ * the order they stated them — the rule `agreedValue` applies, without building an opinion object, a value map or a
+ * `fieldOpinions` array for every opinion a bulk read carries (madarch-64o5.2, the page budget).
+ */
+function agreedField(value: unknown, field: string): unknown {
+  if (!Array.isArray(value)) return undefined;
+  let first: unknown;
+  let firstKey: string | undefined;
+  let contested: unknown[] | undefined;
+  for (const entry of value) {
+    const held = (entry ?? {}) as Record<string, unknown>;
+    const stated = held[field];
+    if (stated === null || stated === undefined) continue;
+    const key = typeof stated === 'string' ? stated : JSON.stringify(stated);
+    if (firstKey === undefined) {
+      firstKey = key;
+      first = stated;
+      continue;
+    }
+    if (key === firstKey) continue;
+    contested ??= [first];
+    if (!contested.some((one) => (typeof one === 'string' ? one : JSON.stringify(one)) === key)) contested.push(stated);
+  }
+  return firstKey === undefined ? undefined : contested ?? first;
+}
+
 /** One entity's opinions as the wiki holds them: every value with its opinion id, producer, language and evidence. */
 function entityOpinions(opinions: readonly GraphOpinion[]): GraphEntityOpinion[] {
   const out: GraphEntityOpinion[] = [];
@@ -411,35 +438,38 @@ function entityOf(row: Raw, sources = true): GraphEntity {
   const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'language', 'languages'], sources);
   const commitOpinions = graphOpinions(row['commit_opinions'], ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], sources);
   const repositoryOpinions = graphOpinions(row['repository_opinions'], ['url', 'default_branch'], sources);
+  // A bulk read states values alone: its fields are agreed in one pass over the aggregate, never one opinion object a
+  // field. A read that states sources keeps the opinions it built, and each value keeps the opinion that stated it.
+  const valueOf = (aggregate: unknown, opinions: readonly GraphOpinion[], field: string): unknown => sources ? agreedValue(opinions, field) : agreedField(aggregate, field);
   if (graphKind === `${GIT_KINDS.repository}`) {
     properties['name'] = row['repository_name'];
-    properties['url'] = agreedValue(repositoryOpinions, 'url');
-    properties['defaultBranch'] = agreedValue(repositoryOpinions, 'default_branch');
+    properties['url'] = valueOf(row['repository_opinions'], repositoryOpinions, 'url');
+    properties['defaultBranch'] = valueOf(row['repository_opinions'], repositoryOpinions, 'default_branch');
   } else if (graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`) {
     properties['repository'] = row['scope_repository_name'];
     properties['path'] = row['path'];
     if (graphKind === `${GIT_KINDS.file}`) {
       // Every field the opinions agree on is its value; fields they differ on stand as every value, with the opinions
       // beside them (A4: nothing wins by rule).
-      properties['mode'] = agreedValue(fileOpinions, 'mode');
-      properties['blob'] = agreedValue(fileOpinions, 'blob');
-      const bytes = agreedValue(fileOpinions, 'bytes');
+      properties['mode'] = valueOf(row['file_opinions'], fileOpinions, 'mode');
+      properties['blob'] = valueOf(row['file_opinions'], fileOpinions, 'blob');
+      const bytes = valueOf(row['file_opinions'], fileOpinions, 'bytes');
       properties['bytes'] = bytes === undefined ? undefined : typeof bytes === 'string' ? Number(bytes) : bytes;
-      properties['form'] = agreedValue(fileOpinions, 'form');
-      const lines = agreedValue(fileOpinions, 'lines');
+      properties['form'] = valueOf(row['file_opinions'], fileOpinions, 'form');
+      const lines = valueOf(row['file_opinions'], fileOpinions, 'lines');
       properties['lines'] = lines === undefined ? undefined : typeof lines === 'string' ? Number(lines) : lines;
-      const languages = agreedValue(fileOpinions, 'languages');
+      const languages = valueOf(row['file_opinions'], fileOpinions, 'languages');
       const candidates = Array.isArray(languages) && languages.every((one) => typeof one === 'string') ? languages as string[] : [];
       // The file's programming language is an opinion field, like its mode: the opinion's `lang` is the natural language
       // of a text value, and a language name is no such text (madarch-64o5.2, the files worker's finding).
-      properties['language'] = agreedValue(fileOpinions, 'language');
+      properties['language'] = valueOf(row['file_opinions'], fileOpinions, 'language');
       properties['candidates'] = candidates;
     }
   } else if (graphKind === `${GIT_KINDS.commit}`) {
     properties['hash'] = row['commit_hash'];
-    properties['subject'] = agreedValue(commitOpinions, 'subject');
-    properties['authoredAt'] = gitDateOf(agreedValue(commitOpinions, 'author_date') as string | null, agreedValue(commitOpinions, 'author_offset_min') as number | null);
-    properties['committedAt'] = gitDateOf(agreedValue(commitOpinions, 'commit_date') as string | null, agreedValue(commitOpinions, 'commit_offset_min') as number | null);
+    properties['subject'] = valueOf(row['commit_opinions'], commitOpinions, 'subject');
+    properties['authoredAt'] = gitDateOf(valueOf(row['commit_opinions'], commitOpinions, 'author_date') as string | null, valueOf(row['commit_opinions'], commitOpinions, 'author_offset_min') as number | null);
+    properties['committedAt'] = gitDateOf(valueOf(row['commit_opinions'], commitOpinions, 'commit_date') as string | null, valueOf(row['commit_opinions'], commitOpinions, 'commit_offset_min') as number | null);
     properties['effectiveAt'] = properties['committedAt'];
     properties['merge'] = Number(row['parent_count'] ?? 0) > 1;
     properties['onFirstParent'] = true;
@@ -566,6 +596,22 @@ export interface GraphCommitFacts {
 
 /** The text one file held at one commit, or why the graph holds none of that version. */
 export type ContentAt = { readonly text: string } | { readonly absent: string };
+
+/**
+ * One file's facts, as a listing or a rule draws them: its key, its local node, its path, the repository's name, the
+ * repository's node it stands in and the line count its open opinions agree on — no other field, no opinion, no evidence.
+ */
+export interface FileFactRow {
+  readonly key: string;
+  /** The vertex's local id: the churn read counts its incoming edges by it, in one query. */
+  readonly node: string;
+  readonly path: string;
+  readonly repository: string;
+  readonly scope: string;
+  readonly lines: number | null;
+  /** A fact a reader states about the file that the graph holds no column for today (a repository-declared generated file). */
+  readonly generated?: unknown;
+}
 
 export class GraphReader {
   constructor(
@@ -1102,6 +1148,43 @@ export class GraphReader {
     });
   }
 
+  /**
+   * The files' facts, chosen and cut in SQL: a file's key, its repository and path, its local node and the line count its
+   * open opinions agree on — no other field, no opinion and no evidence. The treemap and the Problems page's code rules
+   * drew these from the bulk entity read, which assembled every opinion of every file (5 538 opinions, ~20 ms of server
+   * time and ~10 ms of client assembly twice a page) for one number a row (madarch-64o5.2, the page budget).
+   */
+  async fileFacts(prefix: string, limit: number): Promise<{ total: number; rows: readonly FileFactRow[] }> {
+    if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
+    if (!this.holds(GIT_KINDS.file)) return { total: 0, rows: [] };
+    return await this.run(async (tx) => {
+      const found = await tx.query<{ node: string; path: string; repository: string; scope: string; lines: number | null; total: string }>(
+        `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->'repository'->'key'->>'name') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
+                (SELECT CASE WHEN count(DISTINCT b."lines") = 1 THEN min(b."lines") ELSE NULL END
+                   FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} b ON b.id = o."blob_id"
+                  WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
+                count(*) OVER ()::text AS total
+         FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
+         WHERE n.context_id = 1 AND NOT n.removed
+           AND ($1::text = '' OR left((n.key->>'path'), length($1::text)) = $1::text)
+           AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}
+         ORDER BY (n.key->'repository'->'key'->>'name'), (n.key->>'path') LIMIT $2::bigint`,
+        [prefix, String(limit)],
+      );
+      return {
+        total: Number(found.rows[0]?.total ?? '0'),
+        rows: found.rows.map((row) => ({
+          key: `code.${GIT_KINDS.file}:${row.repository}/${row.path}`,
+          node: row.node,
+          path: row.path,
+          repository: row.repository,
+          scope: row.scope,
+          lines: row.lines === null ? null : Number(row.lines),
+        })),
+      };
+    });
+  }
+
   async relationEdges(relation: string, limit: number): Promise<{ total: number; rows: RelationEdge[] }> {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
     const graph = graphRelationOf(relation);
@@ -1122,6 +1205,29 @@ export class GraphReader {
       }
       return { total: found.rows.length, rows };
     });
+  }
+
+  /**
+   * The in-degrees of nodes the caller already holds, by local id: one query for every node, never one lookup per key.
+   * The treemap's rows are no entities, and a `find` per key would be a query per file (madarch-64o5.2, the page budget).
+   */
+  async inDegreesOfNodes(relation: string, nodes: readonly { readonly id: string; readonly key: string }[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    for (const one of nodes) if (!counts.has(one.key)) counts.set(one.key, 0);
+    if (nodes.length === 0) return counts;
+    const graph = graphRelationOf(relation);
+    if (graph === undefined) return counts;
+    const byNode = new Map(nodes.map((one) => [one.id, one.key]));
+    const found = await this.run(async (tx) => await tx.query<{ node: string; n: string }>(
+      `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
+       WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
+      [graph.kind, `{${nodes.map((one) => one.id).join(',')}}`],
+    ));
+    for (const row of found.rows) {
+      const key = byNode.get(row.node);
+      if (key !== undefined) counts.set(key, Number(row.n));
+    }
+    return counts;
   }
 
   /** The in-degrees of entities the caller already read: one query for every entity, never one lookup per key. */
