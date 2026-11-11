@@ -376,6 +376,8 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     const path = join(folder, 'history');
     try {
       const db = await openRawStore(path);
+      await db.exec('DROP TABLE source_commits');
+      await db.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'history'");
       await db.exec(`CREATE TABLE source_commits (
         source TEXT NOT NULL,
         commit_id TEXT NOT NULL,
@@ -387,9 +389,7 @@ describe('commits: every commit of one source, in the history\'s own commit orde
       await db.query('INSERT INTO source_commits VALUES ($1, $2, $3, $4, $5)', ['shop', 'legacy-c1', DAY(1), 'old-content-digest', DAY(2)]);
       await db.close();
 
-      const history = await newHistory({ store: path, clock: fakeClock(DAY(10)) });
-      await expect(history.sources()).rejects.toThrow(/madarch-legacy-history.*legacy-c1.*shop.*cannot faithfully recover/i);
-      await history.close();
+      await expect(newHistory({ store: path, clock: fakeClock(DAY(10)) })).rejects.toThrow(/madarch-legacy-history.*legacy-c1.*shop.*cannot faithfully recover/i);
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }

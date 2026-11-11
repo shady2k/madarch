@@ -6,7 +6,8 @@ import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from './api.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
 
 /**
@@ -74,7 +75,7 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`Built wiki app is missing: ${join(APP, 'index.html')}`);
     fakeAgentDir = fakeAgentsPath();
     fixture = buildFieldnote();
-    server = await startServer({
+    server = await startPreparedServer({
       productFolder: fixture.product,
       appFolder: APP,
       port: 0,

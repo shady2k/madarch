@@ -12,7 +12,8 @@ import { parse, stringify } from 'yaml';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { fillInProcess } from './fill-inline.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
@@ -59,7 +60,7 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki</title>\n');
   draftWithKinds('files-only', ['code.file']);
   draftWithKinds('repos-only', ['code.repository']);
-  server = await startServer({ productHome: home, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
+  server = await startPreparedServer({ productHome: home, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
 }, 120_000);
 
 afterAll(async () => {

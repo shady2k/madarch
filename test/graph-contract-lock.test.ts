@@ -1,3 +1,4 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The contract lock (decision 0034, item 14): two first fills of one fresh store create the generated tables
  * one at a time, so the catalog's unique type name never sees two CREATE TABLE statements for one table.
@@ -6,7 +7,6 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRecordSchema } from '../src/graph/records.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { generatedTableName } from '../src/graph/contract.js';
 
@@ -30,8 +30,8 @@ const RECORD_TABLES = [
   ]);
   try {
     await Promise.all([
-      createRecordSchema(left, GIT_CONTRACT),
-      createRecordSchema(right, GIT_CONTRACT),
+      prepareStore(left, { contract: GIT_CONTRACT }),
+      prepareStore(right, { contract: GIT_CONTRACT }),
     ]);
     const found = await left.transaction('snapshot', async (tx) => await tx.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`,

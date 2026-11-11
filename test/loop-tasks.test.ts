@@ -14,7 +14,8 @@ import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../src/knowledge/markdown.js';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
@@ -221,7 +222,7 @@ beforeAll(async () => {
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   // The product's reader is a process of its own: the first ask pays for its start, so it is warmed here.
   const warmed = await fetch(`${server.url}/products/${SHOP}/api/tasks`);
   expect(warmed.status).toBe(200);

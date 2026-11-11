@@ -10,6 +10,10 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
+import { installOwnWiki, ownWikiOff } from './own-wiki.js';
+import { readPinnedGraphContract } from './fill-stages.js';
+import { prepareDaemonProduct, withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
+import { selfCommand } from './self-command.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
@@ -19,7 +23,7 @@ import { STARTER_TEMPLATES, starterTemplateIds, starterTemplateOf, templateMenuL
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
-import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl, daemonIsRunning } from './daemon.js';
 import { API } from '../knowledge/addresses.js';
 import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
@@ -612,6 +616,47 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
+  if (['serve', 'daemon-serve', 'demo', 'fill', 'fill-stages'].includes(args[0] ?? '') && !args.includes('--help') && !args.includes('-h') && !args.includes('--probe-acp') && !args.includes('--role') && process.env.MADARCH_ROLE !== 'api' && process.env.MADARCH_ROLE !== 'fill' && process.env.MADARCH_STORE_OWNER_URL === undefined) {
+    const homeAt = args.indexOf('--home');
+    const fillHome = productHomeOf(homeAt === -1 ? args.find((arg) => arg.startsWith('--home='))?.slice('--home='.length) : args[homeAt + 1]);
+    if ((args[0] === 'fill' || args[0] === 'fill-stages') && daemonIsRunning({ home: fillHome })) {
+      return await withDaemonStorePreparation(fillHome, async () => await main(args, deps));
+    }
+    return await withStorePreparationOwner(async () => {
+      if (args[0] === 'serve' || args[0] === 'daemon-serve' || args[0] === 'demo') {
+        const named = (flag: string): string | undefined => { const at = args.indexOf(flag); return at === -1 ? args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1) : args[at + 1]; };
+        const home = productHomeOf(named('--home'));
+        const demo = args[0] === 'demo' ? prepareDemo({ ...(deps.demo ?? {}), home, env: deps.demo?.env ?? process.env }) : undefined;
+        if (demo !== undefined && !demo.ok) { console.error(demo.message); return 1; }
+        const servingArgs = demo?.ok ? ['serve', '--product', demo.folder, ...args.slice(1)] : args;
+        const folders = args[0] === 'daemon-serve'
+          ? (() => { const listed = listProducts({ home }); return listed.outcome === 'listed' ? listed.products.map((product) => product.folder) : []; })()
+          : [demo?.ok ? demo.folder : resolve(named('--product') ?? process.cwd())];
+        const own = args[0] === 'daemon-serve' && !ownWikiOff() ? installOwnWiki({ env: process.env }) : undefined;
+        if (own !== undefined && !own.ok) { console.error(own.message); return 1; }
+        if (own?.ok) folders.push(own.folder);
+        for (const folder of folders) {
+          const read = readProduct(folder);
+          // A manifestless folder has no graph-backed product to activate.
+          if (!read.ok) {
+            if (args[0] !== 'daemon-serve') continue;
+            throw new Error(`${read.file}:${read.line}: ${read.message}`);
+          }
+          const store = productStoreFolder(folder, knowledgeRootOf(args[0] === 'daemon-serve' ? home : dirname(folder)));
+          await requestStorePreparation(storeDatabasePath(store), await readPinnedGraphContract(folder));
+        }
+        const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
+        const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
+        const child = Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } });
+        const stop = (): void => { child.kill('SIGTERM'); };
+        process.once('SIGTERM', stop); process.once('SIGINT', stop);
+        try { return await child.exited; }
+        finally { process.off('SIGTERM', stop); process.off('SIGINT', stop); unpublish?.(); }
+      }
+      return await main(args, deps);
+    });
+  }
+
   // The MCP server is a program of its own that happens to be reached through this command: it reads its own flags
   // (`--repo`, `--store`, `--journal`) and must start even in a folder that is no product, so it is dispatched before
   // the command table is consulted.
@@ -631,12 +676,18 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (roleAt !== -1) {
     const role = args[roleAt + 1];
     const rest = args.filter((_, index) => index !== roleAt && index !== roleAt + 1);
-    if (role === 'fill') return await fillRoleCommand(rest);
+    if (role === 'fill') { process.env.MADARCH_ROLE = 'fill'; return await fillRoleCommand(rest); }
     if (role === 'api') {
       // The api role is every command as it stands, with this process's own role named in the environment: the server
       // reads it and starts no fill process of its own.
       process.env.MADARCH_ROLE = 'api';
-      return await main(rest, deps);
+      const parent = Number(process.env.MADARCH_API_PARENT ?? '0');
+      const watching = parent > 1 ? setInterval(() => {
+        try { process.kill(parent, 0); } catch { process.kill(process.pid, 'SIGTERM'); }
+      }, 50) : undefined;
+      watching?.unref();
+      try { return await main(rest, deps); }
+      finally { if (watching !== undefined) clearInterval(watching); }
     }
     console.error(`unknown role "${role ?? ''}": the roles are "api" (serves the pages and the press) and "fill" (runs the fills the press asks for)`);
     return 2;
@@ -697,7 +748,7 @@ async function fillRoleCommand(rest: readonly string[]): Promise<number> {
     knowledgeRoot: root === undefined || root === '' ? knowledgeRootOf(home) : root,
     ...(Number.isInteger(parent) && parent > 1 ? { parentPid: parent } : {}),
     // The process that owns the binary opens the stores it works: the role itself holds no connection (decision 0033, 3).
-    openStore: async (databaseFolder) => await createDatabaseOwner({ store: databaseFolder, btreeGist: true }),
+    openStore: async (databaseFolder) => await createDatabaseOwner({ store: databaseFolder, connectOnly: true }),
   });
 }
 
@@ -817,7 +868,8 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   const databasePath = storeDatabasePath(storeFolder);
   await mkdir(dirname(databasePath), { recursive: true });
   const workers = parsed.workers ?? 16;
-  const owner = await createDatabaseOwner({ store: databasePath, btreeGist: true });
+  await requestStorePreparation(databasePath, await readPinnedGraphContract(folder));
+  const owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {
@@ -833,6 +885,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
     // the whole one list in the order the stages' declarations derive.
     const result = await runFill({
       product: folder, database: owner, runId, home: storeFolder, store: storeFolder,
+      prepareContract: async (contract) => await requestStorePreparation(databasePath, contract),
       limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
       ...(parsed.steps === undefined ? {} : { steps: parsed.steps }),
       onService: (started) => { service = started; },
@@ -974,7 +1027,8 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   }
   let run;
   try {
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder));
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;
@@ -1032,6 +1086,8 @@ function nextSteps(folder: string, init: boolean): void {
 async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>): Promise<number> {
   const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
   if (!started.ok) { console.error(started.message); return 1; }
+  const ownerHome = resolve(productsHome(process.env as DraftEnv, parsed.home));
+  await prepareDaemonProduct(ownerHome, storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(ownerHome))), await readPinnedGraphContract(folder));
   const name = encodeURIComponent(basename(folder));
   const url = `${started.url}/products/${name}/`;
   const env: ServeEnv = deps.app?.env ?? process.env;

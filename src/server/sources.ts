@@ -70,6 +70,10 @@ export interface SourceStoresOptions {
   dataFolder: string;
   /** Supplies recorded time's "now" for the histories and the heads; tests inject a fake clock. */
   clock: Clock;
+  /** Asks the owning process to prepare a source database before its first store. */
+  prepareHistory?: (database: string) => Promise<void>;
+  /** Asks the owning process to rename a closed source database. */
+  renameHistory?: (from: string, to: string) => Promise<void>;
   /** Where startup repair lines go; standard output by default. */
   log?: (line: string) => void;
   /**
@@ -98,7 +102,7 @@ export interface SourceStoreResult {
 }
 
 export interface SourceStores {
-  /** The source's history, opening (and creating) its file on first use. */
+  /** Attaches to a prepared source history; creates no database or schema. */
   historyOf(source: string): HistoryStore;
   /**
    * Stores one version in the source's history and, when the store
@@ -249,7 +253,7 @@ export async function createSourceStores(options: SourceStoresOptions): Promise<
   const jsonStems = new Set<string>();
   for (const name of folderEntries) if (name.endsWith('.json')) jsonStems.add(name.slice(0, -'.json'.length));
   // The folder's one server: every source's history is a database on it, and the first open starts it.
-  const cluster: StoreHistories = await openStoreHistories({ store: dataFolder, clock, ...(options.log === undefined ? {} : { log: options.log }), ...(options.server === undefined ? {} : { server: options.server }) });
+  const cluster: StoreHistories = await openStoreHistories({ store: dataFolder, clock, ...(options.renameHistory === undefined ? {} : { renameHistory: options.renameHistory }), ...(options.prepareHistory === undefined ? {} : { prepareHistory: options.prepareHistory }), ...(options.log === undefined ? {} : { log: options.log }), ...(options.server === undefined ? {} : { server: options.server }) });
   try {
     return await openSources(cluster, dataFolder, clock, log, jsonStems);
   } catch (error) {
@@ -305,6 +309,15 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
     }
   }
 
+  async function startupSources(database: string, history: HistoryStore): Promise<string[]> {
+    try {
+      return await history.sources();
+    } catch (error) {
+      await history.close();
+      throw new Error(`the history database "${database}" of "${dataFolder}" cannot be opened: ${(error as Error).message}`, { cause: error });
+    }
+  }
+
   /** The head a history itself holds: the newest of its commits by the history's own commit order. */
   async function newestCommit(source: string, id: string, history: HistoryStore): Promise<SourceHead> {
     const commits = await history.commits(source);
@@ -333,7 +346,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
       throw new Error(`the sidecar "${path}" has a file name that does not decode to a source name; the folder was not written by this server`);
     }
     const history = openHistory(cluster.databaseOf(stem));
-    const held = await history.sources();
+    const held = await startupSources(cluster.databaseOf(stem), history);
     if (held.length !== 1) {
       await history.close();
       if (decoded !== sidecarHead.source) {
@@ -371,7 +384,7 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
     const stem = databaseStems.get(database)!;
     if (jsonStems.has(stem)) continue;
     const history = openHistory(database);
-    const names = await history.sources();
+    const names = await startupSources(database, history);
     const said = `the data folder holds the history database "${database}" of "${dataFolder}" but no sidecar for it`;
     if (names.length !== 1) {
       await history.close();
@@ -429,6 +442,13 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
   }
 
   function historyOf(source: string): HistoryStore {
+    if (!heads.has(source)) {
+      throw new Error(`the source "${source}" has no prepared history in "${dataFolder}"; store its first model through the source mutation before reading it (src/server/sources.ts)`);
+    }
+    return attachHistory(source);
+  }
+
+  function attachHistory(source: string): HistoryStore {
     let history = histories.get(source);
     if (history === undefined) {
       history = openHistory(cluster.databaseOf(encodeSourceName(source)));
@@ -458,7 +478,10 @@ async function openSources(cluster: StoreHistories, dataFolder: string, _clock: 
       throw new Error(`the store was called with a source that must be refused first: the name ${JSON.stringify(input.source)} was renamed to ${JSON.stringify(renamedTo.source)}`);
     }
 
-    const history = historyOf(input.source);
+    if (!heads.has(input.source)) {
+      await cluster.prepareHistory(cluster.databaseOf(encodeSourceName(input.source)));
+    }
+    const history = attachHistory(input.source);
     const identity = await history.registry(input.source);
     const id = heads.get(input.source)?.id ?? identity?.id ?? randomUUID();
     const former = formerNames.get(input.source) ?? identity?.formerNames ?? [];

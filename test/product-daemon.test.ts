@@ -1,12 +1,38 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { keepsProductEntry, startServer, type StartedServer } from '../src/server/http.js';
+import { keepsProductEntry, startServer as startClientServer, type ServerOptions, type StartedServer } from '../src/server/http.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
+
+import { listProducts } from '../src/product/list.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { dirname } from 'node:path';
+
+let endOwner: () => void;
+let ownerDone: Promise<void>;
+beforeEach(async () => {
+  let entered!: () => void;
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const ending = new Promise<void>((resolve) => { endOwner = resolve; });
+  ownerDone = withStorePreparationOwner(async () => { entered(); await ending; });
+  await ready;
+});
+async function activateProduct(folder: string, home: string): Promise<void> {
+  await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), await readPinnedGraphContract(folder));
+}
+async function startServer(options: ServerOptions): Promise<StartedServer> {
+  if (options.productHome !== undefined) {
+    const listed = listProducts({ home: options.productHome });
+    if (listed.outcome === 'listed') for (const product of listed.products) await activateProduct(product.folder, options.productHome);
+  } else if (options.productFolder !== undefined) await activateProduct(options.productFolder, dirname(options.productFolder));
+  return await startClientServer(options);
+}
 
 let root: string | undefined;
 let server: StartedServer | undefined;
@@ -71,6 +97,7 @@ function freePort(): Promise<number> {
 }
 afterEach(async () => {
   await server?.stop(); server = undefined;
+  endOwner(); await ownerDone;
   if (daemonHome !== undefined) {
     stopDaemon({ home: daemonHome });
     if (daemonPid !== undefined) {
@@ -221,6 +248,7 @@ test('products-home mode serves a product created after the server started', asy
   expect((await fetch(`${server.url}/products/late/api/product`)).status).toBe(404);
   await Bun.sleep(10);
   product(home, 'late', 'late-id');
+  await activateProduct(join(home, 'late'), home);
   const late = await fetch(`${server.url}/products/late/api/product`);
   expect((await late.json() as { id: string }).id).toBe('late-id');
   const listed = await fetch(`${server.url}/api/products`);

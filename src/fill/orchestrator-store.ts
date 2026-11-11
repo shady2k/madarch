@@ -36,199 +36,16 @@ import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
-import { createSchemaOnce, SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
+import { requireSchema } from '../adapters/store-readiness.js';
 
-/** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
+/** The orchestrator's own tables, named in operation failures. */
 export const ORCHESTRATOR_TABLES = [
   'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event', 'fill_control', 'fill_end',
 ] as const;
 
-/**
- * What a run ended with, where the api role reads it (madarch-8bdc.9): the process that ran the fill writes the answer
- * its own result carried, and the process that pressed it states that answer. Written by `writeFillEnd` too, under the
- * store's schema lock, because a run that fails before the orchestrator starts its schema still ended, and the process
- * that pressed it waits for this row.
- */
-const FILL_END_TABLE = `CREATE TABLE IF NOT EXISTS fill_end (
-    run_id text PRIMARY KEY,
-    state text NOT NULL,
-    message text,
-    unread jsonb,
-    finished_at timestamptz NOT NULL DEFAULT now()
-  )`;
-
-const SCHEMA: readonly string[] = [
-  // A person's pause or stop of a run whose fill process is another one (madarch-8bdc.9): the process that runs the fill
-  // reads this row and takes the action on the run it owns.
-  `CREATE TABLE IF NOT EXISTS fill_control (
-    run_id text PRIMARY KEY,
-    action text NOT NULL,
-    at bigint NOT NULL
-  )`,
-  FILL_END_TABLE,
-  `CREATE TABLE IF NOT EXISTS fill_run_configuration (
-    run_id text PRIMARY KEY,
-    digest text NOT NULL,
-    snapshot jsonb NOT NULL,
-    recorded_at bigint NOT NULL
-  )`,
-  // The stages of one run that have planned (madarch-tzte.26.3): a stage whose
-  // producers have settled inside the run plans then, so the record of which
-  // stages planned is the run's resume point — a run that crashed between a
-  // producer's publication and its consumer's planning plans the consumer when
-  // it is driven again, and never plans a stage twice.
-  `CREATE TABLE IF NOT EXISTS fill_run_stage (
-    run_id text NOT NULL,
-    stage_id text NOT NULL,
-    planned_at bigint NOT NULL,
-    units integer NOT NULL,
-    publications integer NOT NULL,
-    PRIMARY KEY (run_id, stage_id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_plan (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    run_id text NOT NULL,
-    stage_id text NOT NULL,
-    stage_unit_id text NOT NULL,
-    scope text NOT NULL,
-    stage_position integer NOT NULL,
-    plan_position integer NOT NULL,
-    planned_at bigint NOT NULL,
-    PRIMARY KEY (unit_id, generation)
-  )`,
-  'CREATE INDEX IF NOT EXISTS fill_unit_plan_run ON fill_unit_plan (run_id)',
-  `CREATE TABLE IF NOT EXISTS fill_event (
-    run_id text NOT NULL,
-    seq integer NOT NULL,
-    at bigint NOT NULL,
-    stage text NOT NULL,
-    unit_id text NOT NULL,
-    generation integer,
-    kind text NOT NULL,
-    summary text NOT NULL,
-    PRIMARY KEY (run_id, seq)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_read (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    query_digest text NOT NULL,
-    query text NOT NULL,
-    membership text NOT NULL,
-    members integer NOT NULL,
-    read_seq integer NOT NULL,
-    at bigint NOT NULL,
-    PRIMARY KEY (unit_id, generation, query_digest)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_draft (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    digest text NOT NULL,
-    writes jsonb NOT NULL,
-    recorded_at bigint NOT NULL,
-    retracted_at bigint,
-    PRIMARY KEY (unit_id, generation)
-  )`,
-  // A draft set's writes, in parts of `DRAFT_PART_WRITES` (madarch-tzte.21.11): one jsonb value of a
-  // repository-wide unit's whole set — 34 MB for the modules stage over the madarch tree — took the
-  // embedded store's memory up by about 490 MB for good, where the same bytes in parts took it up by
-  // nothing measurable.
-  `CREATE TABLE IF NOT EXISTS fill_unit_draft_part (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    part integer NOT NULL,
-    writes jsonb NOT NULL,
-    PRIMARY KEY (unit_id, generation, part)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_split (
-    parent_unit_id text NOT NULL,
-    parent_generation integer NOT NULL,
-    child_unit_id text NOT NULL,
-    child_generation integer NOT NULL,
-    sealed_at bigint NOT NULL,
-    PRIMARY KEY (parent_unit_id, parent_generation, child_unit_id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_publication (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    digest text NOT NULL,
-    facts integer NOT NULL,
-    published_at bigint NOT NULL,
-    PRIMARY KEY (unit_id, generation)
-  )`,
-];
-
-/**
- * The column a build before madarch-tzte.26.1 did not write: the versions that decided what a unit
- * reads and answers when it was planned — its stage's `id@version` and the stage's own prompt,
- * answer-schema and model versions — recorded with the plan, so a run that resolves another names the
- * one that moved instead of two digests. A plan row that holds none was written before it existed.
- */
-const CACHE_VERSIONS_COLUMN = 'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXISTS cache_versions jsonb';
-
-/**
- * The schema's one key, for the lock that keeps two processes from adding the column at once: the
- * crash suite starts several executor processes beside the server, and concurrent `ALTER TABLE` on
- * one table answers "tuple concurrently updated" to whichever loses. The lock is the transaction's,
- * so it is held for exactly the statement it guards.
- */
-const CACHE_VERSIONS_LOCK = 724_913_556;
-
-/**
- * Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner.
- *
- * As the fill's own schema (`createFillStateSchema`): a schema that stands is not made again, because
- * `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock` even when the index is there, and that lock against a running
- * fill's transaction is the deadlock PostgreSQL's detail named for this check (madarch-8bdc.9).
- */
-/** The foreign keys the orchestrator's rows must satisfy: a run's stages, events and ends belong to the run, and every unit row to its generation. */
-const FOREIGN_KEYS: readonly { readonly table: string; readonly name: string; readonly columns: string; readonly ref: string; readonly refColumns: string }[] = [
-  { table: 'fill_run_configuration', name: 'fill_run_configuration_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
-  { table: 'fill_run_stage', name: 'fill_run_stage_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
-  { table: 'fill_event', name: 'fill_event_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
-  { table: 'fill_event', name: 'fill_event_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_control', name: 'fill_control_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
-  { table: 'fill_end', name: 'fill_end_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
-  { table: 'fill_unit_plan', name: 'fill_unit_plan_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_plan', name: 'fill_unit_plan_run_fk', columns: 'run_id', ref: 'fill_run', refColumns: 'run_id' },
-  { table: 'fill_unit_read', name: 'fill_unit_read_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_draft', name: 'fill_unit_draft_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_draft_part', name: 'fill_unit_draft_part_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_split', name: 'fill_unit_split_parent_fk', columns: 'parent_unit_id, parent_generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_unit_split', name: 'fill_unit_split_child_fk', columns: 'child_unit_id, child_generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-  { table: 'fill_publication', name: 'fill_publication_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-];
-
-/** The statement that adds one foreign key where it does not stand yet; `NOT VALID` keeps an older store's rows while new ones are checked. */
-const foreignKeySql = (key: (typeof FOREIGN_KEYS)[number]): string =>
-  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${key.name}') THEN ALTER TABLE ${key.table} ADD CONSTRAINT ${key.name} FOREIGN KEY (${key.columns}) REFERENCES ${key.ref} (${key.refColumns}) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID; END IF; END $$`;
-
+/** Verifies that store preparation installed the orchestrator schema. */
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
-  const at = here();
-  await withLocation(at, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async () => {
-    await createSchemaOnce(database, {
-      name: 'orchestrator',
-      parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
-      tables: ORCHESTRATOR_TABLES,
-      create: async (executor) => {
-        for (const statement of SCHEMA) await executor.query(statement);
-        for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
-      },
-    });
-  });
-  // The column a store of an older build lacks is added here, once, under its own lock: it is a migration beside the
-  // schema, not part of what the stamp describes.
-  await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
-    // The column is added under the lock and only where it is missing: the check first, so a store a
-    // previous build filled and this build opened pays one query and no DDL at all.
-    await executor.query('SELECT pg_advisory_xact_lock($1)', [CACHE_VERSIONS_LOCK]);
-    const { rows } = await executor.query<{ present: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'fill_unit_plan' AND column_name = 'cache_versions') AS present`,
-    );
-    if (rows[0]?.present === true) return;
-    await executor.query(CACHE_VERSIONS_COLUMN);
-  }, 'write');
+  await requireSchema(database, 'orchestrator');
 }
 
 /** The narrow slice of the process's one database owner these tables borrow: the owner's `transaction`. */
@@ -910,11 +727,6 @@ export interface FillEnd {
 export async function writeFillEnd(database: OrchestratorDatabase, end: FillEnd): Promise<void> {
   const at = here();
   await run(at, database, `writeFillEnd(${end.runId})`, ['fill_end'], async (executor) => {
-    // A run that failed before the orchestrator made its schema — a product with no manifest, a store that could not be
-    // read — still ended, and the process that pressed it waits for this row: the table is made here, under the store's
-    // schema lock, which is the same lock the orchestrator's own creation takes.
-    await executor.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
-    await executor.query(FILL_END_TABLE);
     await executor.query(
       `INSERT INTO fill_end (run_id, state, message, unread) VALUES ($1, $2, $3, $4::jsonb)
        ON CONFLICT (run_id) DO UPDATE SET state = $2, message = $3, unread = $4::jsonb, finished_at = now()`,

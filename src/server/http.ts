@@ -23,6 +23,7 @@
  * default (128 MB) are never reached by honest clients; a client that
  * lies by omission costs one read, then is refused.
  */
+import { requestHistoryPreparation, requestHistoryRename } from '../product/store-preparation.js';
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { traceKeepOf } from '../knowledge/settings.js';
@@ -300,7 +301,11 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
   let sources: SourceStores | undefined;
   try {
-    sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log });
+    if (options.dataFolder !== undefined) await requestHistoryPreparation(options.dataFolder);
+    sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log,
+      prepareHistory: async (database) => await requestHistoryPreparation(options.dataFolder!, database),
+      renameHistory: async (from, to) => await requestHistoryRename(options.dataFolder!, from, to),
+    });
   } catch (error) {
     await queryDatabase?.close().catch(() => {});
     throw error;
@@ -503,7 +508,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   }
   // The fill role, beside this one (madarch-8bdc.9): a child of the same binary that takes the fills pressed here from
   // each store's queue, at a lower scheduling priority so the process that answers pages never loses a core to it.
-  const fillChild = options.fillProcess === false || process.env['MADARCH_ROLE'] === 'api'
+  const fillChild = options.fillProcess === false
     ? undefined
     : startFillRole({ home: serveHome, root: knowledgeHost.root });
   // The api role opens each product's reader before the first request: the store's first page must not pay the
@@ -550,7 +555,7 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
-    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
+    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
       stop: async () => {

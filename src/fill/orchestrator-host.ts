@@ -184,7 +184,7 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
 }
 
 export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
-  return await createDatabaseOwner({ store, btreeGist: true });
+  return await createDatabaseOwner({ store, connectOnly: true });
 }
 
 export async function fillProgressOf(database: DatabaseOwner, product: string): Promise<FillProgressAnswer | null> {
@@ -214,7 +214,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         if (databasePath === undefined) throw new Error("fill-orchestrator: this service was given no store: name the product's owner or its database path (src/fill/orchestrator-host.ts)");
         await mkdir(dirname(databasePath), { recursive: true });
       }
-      const database = lent ?? await createDatabaseOwner({ store: databasePath!, btreeGist: true });
+      const database = lent ?? await createDatabaseOwner({ store: databasePath!, connectOnly: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {

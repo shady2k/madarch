@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The one fill (madarch-8bdc.2.5, item 6): `runFill` over a neutral fixture — every
  * step, one step alone, and a path subset — through the same function every caller
@@ -65,7 +67,9 @@ describe('the one fill', () => {
 
   test('runs every step through one function', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const run = await runFill({ product, database: owner, runId: 'all-steps', home: join(root, 'home') });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    const preparedOwner = owner;
+    const run = await runFill({ product, database: owner, runId: 'all-steps', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.state).toBe('succeeded');
@@ -80,7 +84,8 @@ describe('the one fill', () => {
     // second run writes nothing, so a unit is planned only where the step had not run.
     const alone = await createTestDatabaseOwner({ btreeGist: true });
     try {
-      const run = await runFill({ product, database: alone, steps: ['repository-tree'], runId: 'one-step', home: join(root, 'home') });
+      await prepareStore(alone, { contract: await readPinnedGraphContract(product) });
+      const run = await runFill({ product, database: alone, steps: ['repository-tree'], runId: 'one-step', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(alone, { contract }); } });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
       expect([...new Set(run.units.map((unit) => unit.stageId))]).toEqual(['repository-tree']);
@@ -98,7 +103,8 @@ describe('the one fill', () => {
     // what another fill wrote outside its paths.
     const narrow = await createTestDatabaseOwner({ btreeGist: true });
     try {
-      const run = await runFill({ product, database: narrow, steps: ['repository-tree'], paths: ['src/'], runId: 'paths', home: join(root, 'home') });
+      await prepareStore(narrow, { contract: await readPinnedGraphContract(product) });
+      const run = await runFill({ product, database: narrow, steps: ['repository-tree'], paths: ['src/'], runId: 'paths', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(narrow, { contract }); } });
       expect(run.ok).toBe(true);
       const files = await listFiles(narrow, { repository: 'repo', limit: 100 });
       expect(files.rows.map((row) => row.path)).toEqual(['src/a.ts']);
@@ -114,7 +120,8 @@ describe('the one fill', () => {
     const code = join(root, 'repo');
     const inCode = (...args: string[]): void => { execFileSync('git', ['-C', code, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }); };
     try {
-      const full = await runFill({ product, database: store, runId: 'full-tree', home: join(root, 'home') });
+      await prepareStore(store, { contract: await readPinnedGraphContract(product) });
+      const full = await runFill({ product, database: store, runId: 'full-tree', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
       expect(full.ok).toBe(true);
       if (!full.ok) return;
       expect(full.state).toBe('succeeded');
@@ -126,7 +133,8 @@ describe('the one fill', () => {
       writeFileSync(join(code, 'src', 'a.ts'), 'export const a = 2;\n');
       inCode('add', '-A');
       inCode('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'two');
-      const scoped = await runFill({ product, database: store, steps: ['repository-tree'], paths: ['src/'], runId: 'scoped-tree', home: join(root, 'home') });
+      await prepareStore(store, { contract: await readPinnedGraphContract(product) });
+      const scoped = await runFill({ product, database: store, steps: ['repository-tree'], paths: ['src/'], runId: 'scoped-tree', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
       expect(scoped.ok).toBe(true);
       if (!scoped.ok) return;
       expect(scoped.state).toBe('succeeded');

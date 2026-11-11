@@ -23,7 +23,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { activateTestProduct, startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
@@ -92,7 +93,7 @@ beforeAll(async () => {
   mkdirSync(join(app, 'fonts'), { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
   writeFileSync(join(app, 'fonts', 'Face.woff2'), 'face');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   // The first page of a product waits for its reader to start (a process of its own): the suite's first test does not.
   await fetch(`${server.url}/products/tiny/api/status`);
   await fetch(`${server.url}/products/unconnected/api/status`);
@@ -132,6 +133,7 @@ describe('an empty product', () => {
     seedStarterSet(join(home, 'bare'));
     git(join(home, 'bare'), 'add', '-A');
     git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
+    await activateTestProduct(join(home, 'bare'), home, join(work, 'store'));
     const started = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(started.status).toBe(202);
     for (let attempt = 0; attempt < 240; attempt += 1) {

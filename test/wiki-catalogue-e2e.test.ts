@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 /**
@@ -65,7 +66,7 @@ runDescribe('the catalogue in the built app (real server and Chromium)', () => {
     writeFileSync(join(madarchHome, 'settings.json'), JSON.stringify({ role: 'everything', roleAsked: true }));
     previousHome = process.env.MADARCH_HOME;
     process.env.MADARCH_HOME = madarchHome;
-    server = await startServer({
+    server = await startPreparedServer({
       productFolder: product,
       appFolder: APP,
       port: 0,

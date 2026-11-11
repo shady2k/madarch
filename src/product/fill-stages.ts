@@ -106,6 +106,8 @@ type FillDatabase = Parameters<typeof createRecordSchema>[0];
 
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
+  /** The owning process prepares the exact pinned contract before any fill client attaches. */
+  readonly prepareContract?: (contract: import('../graph/contract.js').GraphContract) => Promise<void>;
   /** The product's folder: its manifest, the product repository, and its `repos/`. */
   readonly product: string;
   /**
@@ -160,6 +162,19 @@ function declaredStagesDigest(registry: StageRegistry): string {
  * manifest does not read is refused before a database is touched; the pins
  * themselves are read when a run plans (`snapshot`, see the module doc).
  */
+/** Resolve the graph contract from the same pinned Git tree a fill reads, before clients start. */
+export async function readPinnedGraphContract(product: string): Promise<import('../graph/contract.js').GraphContract> {
+  const folder = resolve(product);
+  const read = fillFolderIdentity(folder);
+  const pins = pinsOf(read.identity, read.product).pins;
+  const snapshots = createGitSnapshotSource(() => pins);
+  const own = await snapshots.open(productRepositoryId(read.identity));
+  const files = await snapshotFiles(own);
+  await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
+  const kinds = readKindsFrom(files, folder);
+  return kinds.present ? graphContractOf(kinds.manifest) : GIT_CONTRACT;
+}
+
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
   const folder = resolve(options.product);
   const read = await withSpan('fill.identity', { 'madarch.product': folder }, async () => fillFolderIdentity(folder));
@@ -202,6 +217,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // The code entities this run may publish, by graph kind: only the manifest's own, whatever the git reader can fill.
   // The tree stores the product repository's files as mechanism state even when the run publishes no entity.
   const kinds = contract.vertex.length === 0 && contract.edge.length === 0 ? false : { vertex: contract.vertex.map((kind) => kind.name), edge: contract.edge.map((kind) => kind.name) };
+  if (options.prepareContract !== undefined) await options.prepareContract(contract);
   await createRecordSchema(options.database, contract);
   const records = options.records ?? {
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),

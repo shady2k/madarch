@@ -10,7 +10,7 @@
  * identity from.
  */
 import { byCodePoint } from '../model/order.js';
-import { clusterDatabases, leaseStoreCluster, renameClusterDatabase, type ClusterLease } from './database-owner.js';
+import { clusterDatabases, leaseStoreCluster, type ClusterLease } from './database-owner.js';
 import { createHistoryStore } from './sql-history.js';
 import type { Clock, HistoryStore } from '../history-types.js';
 import { sha256Hex } from '../graph/digest.js';
@@ -33,6 +33,10 @@ export interface StoreHistoriesOptions {
   /** The store folder: its cluster is `<store>/pgdata`, its socket folder a private one under the system temporary folder. */
   readonly store: string;
   readonly clock: Clock;
+  /** Asks the store owner to prepare a new history database before its first mutation. */
+  readonly prepareHistory?: (database: string) => Promise<void>;
+  /** Asks the store owner to rename a history database after this client closes it. */
+  readonly renameHistory?: (from: string, to: string) => Promise<void>;
   readonly log?: (line: string) => void;
   /**
    * A server the caller already runs, which the store's histories are databases on instead of a cluster of its own
@@ -48,6 +52,8 @@ export interface StoreHistories {
   readonly databases: readonly string[];
   /** Opens one history database; the store's server answers it, started on the first open. */
   historyOf(database: string): HistoryStore;
+  /** Prepares a new database through the owner; attaching a history never calls this. */
+  prepareHistory(database: string): Promise<void>;
   /** The database name one source's history stands under in this store (two stores on one server never share one). */
   databaseOf(stem: string): string;
   /** Renames one history database; no session may hold it open, so close its history first. */
@@ -71,6 +77,12 @@ export async function openStoreHistories(options: StoreHistoriesOptions): Promis
   return {
     databases,
     databaseOf,
+    async prepareHistory(database: string): Promise<void> {
+      if (options.prepareHistory === undefined) {
+        throw new Error(`the history database "${database}" of "${options.store}" needs preparation by its store owner before a source can be created (src/adapters/store-histories.ts)`);
+      }
+      await options.prepareHistory(database);
+    },
     historyOf(database: string): HistoryStore {
       let history = opened.get(database);
       if (history === undefined) {
@@ -85,7 +97,10 @@ export async function openStoreHistories(options: StoreHistoriesOptions): Promis
         await held.close();
         opened.delete(from);
       }
-      await renameClusterDatabase(ref, from, to);
+      if (options.renameHistory === undefined) {
+        throw new Error(`the history database "${from}" of "${options.store}" must be renamed to "${to}" by its store owner (src/adapters/store-histories.ts)`);
+      }
+      await options.renameHistory(from, to);
     },
     async close(): Promise<void> {
       await Promise.all([...opened.values()].map(async (history) => await history.close()));

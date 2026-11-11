@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { daemonFills } from '../src/product/daemon.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -29,7 +30,7 @@ beforeAll(() => {
 afterAll(() => { rmSync(ROOT, { recursive: true, force: true }); });
 
 describe('two simultaneous first runs of one product', () => {
-  test('open one store, and the second start is the chain\'s refusal', async () => {
+  test('open one store, and the second start is the chain\'s refusal', async () => await withStorePreparationOwner(async () => {
     const fills = daemonFills(HOME);
     const request = { product: { name: 'shop', folder: PRODUCT } };
     try {
@@ -62,5 +63,5 @@ describe('two simultaneous first runs of one product', () => {
     } finally {
       await fills.stop();
     }
-  }, 300_000);
+  }), 300_000);
 });

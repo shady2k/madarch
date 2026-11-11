@@ -49,7 +49,7 @@ import {
   runMachine,
   unitMachine,
 } from './fsm.js';
-import { createSchemaOnce } from '../adapters/schema-stamp.js';
+import { requireSchema } from '../adapters/store-readiness.js';
 import type {
   ChainContext,
   ChainEvent,
@@ -73,7 +73,7 @@ import type {
  */
 export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
 
-/** The tables this store owns; `createFillStateSchema` creates them and every error names the ones it touched. */
+/** The tables this store owns, named in operation failures. */
 export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
 
 /** The store's own step ids: no machine declares them, and their prefix keeps them apart from the tables'. */
@@ -90,113 +90,9 @@ export const FILL_STORE_STEPS = {
  */
 export const RETRYABLE_UNIT_STATES: readonly UnitState[] = ['failed', 'blocked', 'cancelled'];
 
-const SCHEMA: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS fill_chain (
-    product text PRIMARY KEY,
-    state text NOT NULL,
-    context jsonb NOT NULL,
-    updated_at bigint NOT NULL
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_run (
-    run_id text PRIMARY KEY,
-    product text NOT NULL,
-    state text NOT NULL,
-    context jsonb NOT NULL,
-    created_at bigint NOT NULL,
-    updated_at bigint NOT NULL
-  )`,
-  'CREATE INDEX IF NOT EXISTS fill_run_product ON fill_run (product, created_at)',
-  `CREATE TABLE IF NOT EXISTS fill_unit (
-    unit_id text PRIMARY KEY,
-    product text NOT NULL,
-    stage_id text NOT NULL,
-    scope_key text NOT NULL,
-    generation integer NOT NULL,
-    created_at bigint NOT NULL,
-    UNIQUE (product, stage_id, scope_key)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_generation (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    run_id text NOT NULL,
-    state text NOT NULL,
-    inputs_digest text NOT NULL,
-    fence integer NOT NULL,
-    context jsonb NOT NULL,
-    published_at bigint,
-    stale_at bigint,
-    updated_at bigint NOT NULL,
-    PRIMARY KEY (unit_id, generation)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_unit_lease (
-    unit_id text NOT NULL,
-    generation integer NOT NULL,
-    attempt integer NOT NULL,
-    fence integer NOT NULL,
-    holder text NOT NULL,
-    issued_at bigint NOT NULL,
-    expires_at bigint NOT NULL,
-    revoked_at bigint,
-    PRIMARY KEY (unit_id, generation, attempt)
-  )`,
-  `CREATE TABLE IF NOT EXISTS fill_transition (
-    seq bigserial PRIMARY KEY,
-    subject_kind text NOT NULL,
-    subject_id text NOT NULL,
-    generation integer,
-    transition_id text NOT NULL,
-    from_state text NOT NULL,
-    to_state text NOT NULL,
-    event text NOT NULL,
-    fence integer,
-    at bigint NOT NULL
-  )`,
-  'CREATE INDEX IF NOT EXISTS fill_transition_subject ON fill_transition (subject_kind, subject_id)',
-  // Every pass reads a run's units several times, and admission counts them under the run's lock: without this
-  // index each read scans every generation the store holds, which grows with every run a product ever planned.
-  'CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)',
-];
-
-/**
- * Creates the store's tables and indexes; safe to run on every start of the process's owner.
- *
- * A schema that stands is not made again (madarch-8bdc.9): `CREATE INDEX IF NOT EXISTS` takes the table's `ShareLock`
- * even when the index is there, and a process opening a store while another runs a fill deadlocked with it — PostgreSQL's
- * own detail (CI run for ddaefd9b, the fill-crash check; reproduced here):
- *
- *     Process 407868 waits for ShareLock on relation 35538 (fill_unit_generation); blocked by 407862.
- *     Process 407862 waits for RowExclusiveLock on relation 35568 (fill_transition); blocked by 407868.
- *       407868: CREATE INDEX IF NOT EXISTS fill_unit_generation_run ON fill_unit_generation (run_id)
- *       407862: INSERT INTO fill_transition (...)
- *
- * — the creator's index holds `fill_unit_generation` while it waits for `fill_transition`, and the run's transaction
- * holds `fill_transition` while it waits for `fill_unit_generation`. `createSchemaOnce` takes the store's schema lock
- * first and then makes nothing at all when the stamp it left stands, so opening a store that has its schema takes no
- * lock on a table a run writes.
- */
-/** The foreign keys the fill's own rows must satisfy: a generation belongs to a unit and a run, and a lease to a generation. */
-const FOREIGN_KEYS: readonly { readonly table: string; readonly name: string; readonly columns: string; readonly ref: string; readonly refColumns: string }[] = [
-  { table: 'fill_unit_generation', name: 'fill_unit_generation_unit_fk', columns: 'unit_id', ref: 'fill_unit', refColumns: 'unit_id' },
-  { table: 'fill_unit_lease', name: 'fill_unit_lease_generation_fk', columns: 'unit_id, generation', ref: 'fill_unit_generation', refColumns: 'unit_id, generation' },
-];
-
-/** The statement that adds one foreign key where it does not stand yet; `NOT VALID` keeps an older store's rows while new ones are checked. */
-const foreignKeySql = (key: (typeof FOREIGN_KEYS)[number]): string =>
-  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${key.name}') THEN ALTER TABLE ${key.table} ADD CONSTRAINT ${key.name} FOREIGN KEY (${key.columns}) REFERENCES ${key.ref} (${key.refColumns}) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID; END IF; END $$`;
-
+/** Verifies that store preparation installed the fill state schema. */
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
-  const at = here();
-  await withLocation(at, 'createFillStateSchema', FILL_STATE_TABLES, async () => {
-    await createSchemaOnce(database, {
-      name: 'fill-state',
-      parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
-      tables: FILL_STATE_TABLES,
-      create: async (executor) => {
-        for (const statement of SCHEMA) await executor.query(statement);
-        for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
-      },
-    });
-  });
+  await requireSchema(database, 'fill-state');
 }
 
 /** One row of `fill_unit_lease`: the lease an attempt took, and the token it acts under. */

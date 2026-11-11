@@ -4,6 +4,8 @@
  * so the run recorded no language at all. The case asks for one, runs the role over the store, and reads the language off
  * the run's own root span.
  */
+import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { afterAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +32,7 @@ function rootSpanOf(traceFile: string): { name: string; attributes: { key: strin
   throw new Error(`the trace ${traceFile} holds no fill.run span`);
 }
 
-test('the language a press names is the one the run records', async () => {
+test('the language a press names is the one the run records', async () => await withStorePreparationOwner(async () => {
   const env = gitEnv(SAMPLE_IDENTITY);
   const repository = join(work, 'repo');
   mkdirSync(join(repository, 'src'), { recursive: true });
@@ -45,7 +47,8 @@ test('the language a press names is the one the run records', async () => {
   // The store the role watches (the folder the product's own fill keeps), and the database folder inside it.
   const storeFolder = productStoreFolder(product, knowledgeRoot);
   const graphFolder = join(storeFolder, 'graph');
-  const owner: DatabaseOwner = await createDatabaseOwner({ store: graphFolder, btreeGist: true });
+  await requestStorePreparation(graphFolder, await readPinnedGraphContract(product));
+  const owner: DatabaseOwner = await createDatabaseOwner({ store: graphFolder, connectOnly: true });
   let queue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     queue = await openFillRunQueue(owner);
@@ -60,7 +63,7 @@ test('the language a press names is the one the run records', async () => {
         knowledgeRoot,
         log: () => undefined,
         idle: () => finished,
-        openStore: async (folder) => await createDatabaseOwner({ store: folder, btreeGist: true }),
+        openStore: async (folder) => await createDatabaseOwner({ store: folder, connectOnly: true }),
       });
     } finally {
       clearInterval(watching);
@@ -77,4 +80,4 @@ test('the language a press names is the one the run records', async () => {
     await queue?.stop().catch(() => undefined);
     await owner.close();
   }
-}, 180_000);
+}), 180_000);

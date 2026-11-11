@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * A kind's declaration is part of what its turn stands on (decision 0035, the Consequences: a changed declaration of a
  * kind, or a changed plugin closure, invalidates that kind's turn and its dependants, so the next fill reruns them and the
@@ -73,7 +75,8 @@ function commit(folder: string, message: string): void {
 async function fill(folder: string, storeRoot: string): Promise<FillRunAnswer & { ok: true }> {
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, storeRoot)), btreeGist: true });
   opened.push(owner);
-  const answer = await runFill({ product: folder, database: owner, home: storeRoot, store: storeRoot, workers: 4 });
+  await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
+  const answer = await runFill({ product: folder, database: owner, home: storeRoot, store: storeRoot, workers: 4, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
   if (!answer.ok) throw new Error(`the fill was refused: ${answer.code}: ${answer.reason}`);
   return answer;
 }

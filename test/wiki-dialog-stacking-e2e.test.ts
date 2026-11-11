@@ -11,7 +11,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'wiki', 'app', 'dist');
@@ -45,7 +46,7 @@ runDescribe('a first-visit dialog over a diagram (built app and Chromium)', () =
     mkdirSync(SHOTS, { recursive: true });
     work = mkdtempSync(join(tmpdir(), 'madarch-dialog-stacking-'));
     const fixture = prepareFixture(work);
-    server = await startServer({
+    server = await startPreparedServer({
       productHome: fixture.home,
       appFolder: APP,
       port: 0,

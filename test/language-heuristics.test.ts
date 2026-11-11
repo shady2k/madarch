@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The language producer's heuristics (madarch-j9ao.1, item 7): GitHub Linguist's own rules, vendored from
  * github-linguist v9.7.0 as data and read with the Oniguruma engine Ruby's regexes are built on, decide a
@@ -96,7 +98,8 @@ test('a fill writes the decided language as the file opinion, and the candidates
   const store = productStoreFolder(folder, knowledgeRootOf(home));
   const owner = await createTestDatabaseOwner({ store, btreeGist: true });
   try {
-    const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], store, home: store, runId: 'language-heuristics' });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
+    const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], store, home: store, runId: 'language-heuristics', prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
     expect(run.ok).toBe(true);
     const page = await listFiles(owner, { repository: 'code', limit: 20 });
     const languages = new Map(page.rows.map((row) => [row.path, [row.language, [...row.candidates]]]));

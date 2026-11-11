@@ -1,3 +1,5 @@
+import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * A store opened after its contract gained columns (madarch-8bdc.2.24): the stamp names every opinion field, so a
  * nullable field added to a vertex, an edge or a dictionary moves it, the table is reconciled in place, and the next
@@ -7,13 +9,11 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { generatedTableName } from '../src/graph/contract.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
-import { createTestDatabaseOwner } from './test-database.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-schema-reconcile-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -70,9 +70,9 @@ function counted(owner: DatabaseOwner): { readonly owner: DatabaseOwner; readonl
 describe('a store reopened after its contract gained a nullable field', () => {
   test('reconciles the vertex, edge and dictionary columns, keeps the opinions, and keeps the fast path when nothing moved', async () => {
     const store = join(root, 'store');
-    const first = await createTestDatabaseOwner({ store, btreeGist: true });
+    const first = await createDatabaseOwner({ store });
     try {
-      expect(await createOneGraphSchema(first, contractBefore())).toEqual({ reset: true });
+      expect(await prepareStore(first, { contract: contractBefore() })).toEqual({ reset: true });
       await first.transaction('write', async (tx) => await publishGraphDrafts(tx, contractBefore(), {
         vertices: [
           { kind: 'fixture.table', key: { name: 'a' }, values: { label: 'first' }, producer: 'fixture', producerVersion: '1' },
@@ -83,10 +83,10 @@ describe('a store reopened after its contract gained a nullable field', () => {
       }, 1));
     } finally { await first.close(); }
 
-    const changed = await createTestDatabaseOwner({ store, btreeGist: true });
+    const changed = await createDatabaseOwner({ store });
     const changedCount = counted(changed);
     try {
-      expect(await createOneGraphSchema(changedCount.owner, contractAfter())).toEqual({ reset: false });
+      expect(await prepareStore(changedCount.owner, { contract: contractAfter() })).toEqual({ reset: false });
       // The next publication writes the new vertex and edge columns; the old opinions stand.
       await changed.transaction('write', async (tx) => await publishGraphDrafts(tx, contractAfter(), {
         vertices: [{ kind: 'fixture.table', key: { name: 'a' }, values: { unsupported: false }, producer: 'fixture-2', producerVersion: '1' }],
@@ -114,12 +114,15 @@ describe('a store reopened after its contract gained a nullable field', () => {
 
       // The same contract again: the stamp stands and the opening is the short path.
       await changed.close();
-      const same = await createTestDatabaseOwner({ store, btreeGist: true });
+      const same = await createDatabaseOwner({ store });
       const sameCount = counted(same);
       try {
-        expect(await createOneGraphSchema(sameCount.owner, contractAfter())).toEqual({ reset: false });
+        expect(await prepareStore(sameCount.owner, { contract: contractAfter() })).toEqual({ reset: false });
         expect(sameCount.queries()).toBeLessThan(changedQueries);
-        expect(sameCount.queries()).toBeLessThanOrEqual(10);
+        // Client attachment remains the graph's short read-only path, independent of other store modules.
+        const clientCount = counted(same);
+        expect(await createOneGraphSchema(clientCount.owner, contractAfter())).toEqual({ reset: false });
+        expect(clientCount.queries()).toBeLessThanOrEqual(10);
       } finally { await same.close(); }
     } finally {
       await changed.close().catch(() => undefined);

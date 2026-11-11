@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../../../src/product/fill-stages.js';
+import { prepareStore } from '../../../src/adapters/prepare-store.js';
 /**
  * One measured run of the static fill, in a process of its own
  * (madarch-8bdc.2.2): the repository of `count` files the resolution's
@@ -41,7 +43,8 @@ const root = process.argv[3] ?? mkdtempSync(join(tmpdir(), 'madarch-static-heap-
 const { product } = writeProduct(root, count);
 const owner = await createDatabaseOwner({ store: join(root, 'store'), btreeGist: true });
 try {
-  const fill = await createStagesFill({ product, database: owner });
+  await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+  const fill = await createStagesFill({ product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
   let at = 1_700_000_000_000;
   const service = createFillOrchestratorService({
     owner,

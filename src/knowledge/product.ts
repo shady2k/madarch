@@ -21,8 +21,9 @@ import { execFile } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { requestStorePreparation } from '../product/store-preparation.js';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
-import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
+import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { productRepositoryId } from '../product/identity.js';
@@ -345,7 +346,7 @@ export class KnowledgeProduct {
     this.lastUse = Date.now();
     this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
-      const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), btreeGist: true });
+      const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
       try {
         await owner.ready;
         await this.ensureStoreTables(owner);
@@ -880,12 +881,13 @@ export class KnowledgeProduct {
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
     try {
-      const owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true });
+      const owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true });
       const run = await startKnowledgeFill({
         productFolder: product.folder,
         storeFolder,
         runId,
         database: owner,
+        prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract),
         ...(asked.targets === undefined ? {} : { targets: asked.targets }),
         onPublish: () => { void this.published(undefined).catch(() => undefined); },
       });
@@ -1262,7 +1264,7 @@ export class KnowledgeProduct {
     const roles = this.modelRoles();
     // The validation owns its connection for the snapshot: the reader's owner may be closed as idle after the fill,
     // while this validation is still starting (the fill role and the api role have different lifetimes).
-    const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), btreeGist: true });
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
     let snapshot: Awaited<ReturnType<typeof loadGraphSnapshot>>;
     try { snapshot = await loadGraphSnapshot(owner); } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;

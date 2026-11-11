@@ -1,3 +1,4 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * Closing a product while its graph verdicts read the store (madarch-8bdc.2.9). `graphVerdicts` owns a connection of
  * its own for the snapshot, so a product that closes while that run is in flight used to return with the connection
@@ -14,7 +15,6 @@ import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -42,7 +42,7 @@ describe('closing a product while its graph verdicts read the store', () => {
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
-      await createOneGraphSchema(owner, GIT_CONTRACT);
+      await prepareStore(owner, { contract: GIT_CONTRACT });
 
       let releaseLock!: () => void;
       let holdsTheGraph!: () => void;

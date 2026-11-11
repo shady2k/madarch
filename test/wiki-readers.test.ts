@@ -13,7 +13,8 @@ import { join } from 'node:path';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { choosableRoles, readSettings, settingsPath, writeRole } from '../src/knowledge/settings.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { installOwnWiki } from '../src/product/own-wiki.js';
 import { makeWikiRepository, ownGit } from './own-wiki-fixture.js';
 
@@ -163,8 +164,8 @@ describe('the products-home server with madarch\'s own wiki', () => {
     const mine = makeWikiRepository(join(busyHome, 'my-product'), { 'docs/extra.md': '# Extra\n' });
     writeFileSync(join(mine, 'workspace.yaml'), 'schemaVersion: 1\nid: 2ed7a5e0-3aa5-4e9a-9d3c-76d0a0c5c0aa\nname: My product\n');
     const common = { appFolder: app, port: 0, log: () => undefined, errorLog: (line: string) => { errors.push(line); }, env: { MADARCH_HOME: madarchHome }, ownWiki: { folder: installed.folder } };
-    empty = await startServer({ ...common, productHome: emptyHome, knowledgeRoot: join(work, 'store-a') });
-    busy = await startServer({ ...common, productHome: busyHome, knowledgeRoot: join(work, 'store-b') });
+    empty = await startPreparedServer({ ...common, productHome: emptyHome, knowledgeRoot: join(work, 'store-a') });
+    busy = await startPreparedServer({ ...common, productHome: busyHome, knowledgeRoot: join(work, 'store-b') });
     // The first page of a product waits for its reader to start (a process of its own): the tests below do not.
     for (const [server, path] of [[empty, '/products/madarch-wiki/api/status'], [busy, '/products/madarch-wiki/api/status'], [busy, '/products/my-product/api/status']] as const) {
       for (let tries = 0; ; tries += 1) {

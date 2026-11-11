@@ -42,8 +42,11 @@
  */
 import { PgBoss } from 'pg-boss';
 import type { CommandResponse, Db, JobAttempt, JobWithMetadata, PgBoss as PgBossInstance } from 'pg-boss';
+import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ENQUEUE_STAMP_TABLE, ownerDatabase, QUEUE_SCHEMA_STAMP, queueOptions } from './queue-definition.js';
+export { DEFAULT_QUEUE_SCHEMA } from './queue-definition.js';
 import { byCodePoint } from '../model/order.js';
 import type { DatabaseOwner } from './database-owner.js';
+import { requireSchema } from './store-readiness.js';
 import type { OuterTransaction } from '../history-types.js';
 import type {
   ClaimedJob,
@@ -56,17 +59,8 @@ import type {
   QueueService,
 } from '../fill/queue.js';
 
-/** The schema pg-boss's own tables live in, in the database the owner holds. */
-export const DEFAULT_QUEUE_SCHEMA = 'pgboss';
-
 /** The most dead letters one read answers: the bound the database itself takes for a list read. */
 const MAX_DEAD_LETTERS = 100_000;
-
-/**
- * Where the adapter keeps each queue's last enqueue stamp, in the queue's own
- * schema: one row per queue, the place its newest job was given.
- */
-const ENQUEUE_STAMP_TABLE = 'madarch_enqueue_stamp';
 
 /**
  * The least distance between two enqueues' stamps. A stored instant carries
@@ -102,20 +96,6 @@ export interface PgBossQueueOptions {
   log?: (line: string) => void;
 }
 
-/** The owner's pool, shaped for pg-boss: one statement per call, batches through `exec`. */
-function ownerDatabase(owner: DatabaseOwner): Db {
-  return {
-    executeSql: async (text: string, values?: unknown[]) => {
-      if (values !== undefined && values.length > 0) {
-        const { rows } = await owner.run((executor) => executor.query(text, values));
-        return { rows };
-      }
-      const results = await owner.exec(text);
-      return { rows: results.flatMap((result) => result.rows) };
-    },
-  };
-}
-
 /** A caller's transaction, shaped for pg-boss: `db` in the options of one call. */
 function transactionDatabase(transaction: OuterTransaction): Db {
   return {
@@ -136,69 +116,6 @@ function transactionDatabase(transaction: OuterTransaction): Db {
 function settled(answer: CommandResponse): boolean {
   const affected = (answer as { affected?: number }).affected;
   return typeof affected === 'number' && affected > 0;
-}
-
-/** A stored object's name, as the database itself takes one. */
-const OBJECT_NAME = /^[\w.\-/]+$/;
-
-/** How many starts of pg-boss are tried: a schema another process of the binary is creating at the same instant is one of them. */
-const START_ATTEMPTS = 3;
-
-function assertName(what: string, name: string): void {
-  if (!OBJECT_NAME.test(name) || name.length > 50) {
-    throw new Error(`the ${what} "${name}" is not a stored object's name: letters, digits, ".", "_", "-" and "/", at most 50 bytes`);
-  }
-}
-
-/** The declaration's own fields, judged before anything is created, each fault naming the queue. */
-function assertDeclaration(declaration: QueueDeclaration, declared: ReadonlyMap<string, QueueDeclaration>): void {
-  assertName('queue', declaration.name);
-  const where = `the queue "${declaration.name}"`;
-  if (!Number.isInteger(declaration.leaseSeconds) || declaration.leaseSeconds < 1) {
-    throw new Error(`${where} was declared with the lease of ${String(declaration.leaseSeconds)} seconds: a lease is a whole number of seconds, at least 1`);
-  }
-  if (!Number.isInteger(declaration.retries) || declaration.retries < 0) {
-    throw new Error(`${where} was declared with ${String(declaration.retries)} retries: retries are a whole number, 0 or more`);
-  }
-  if (!Number.isInteger(declaration.retryDelaySeconds) || declaration.retryDelaySeconds < 0) {
-    throw new Error(`${where} was declared with the retry delay of ${String(declaration.retryDelaySeconds)} seconds: a retry delay is a whole number of seconds, 0 or more`);
-  }
-  if (declaration.heartbeatSeconds !== undefined && (!Number.isInteger(declaration.heartbeatSeconds) || declaration.heartbeatSeconds < 10)) {
-    throw new Error(`${where} was declared with a heartbeat of ${String(declaration.heartbeatSeconds)} seconds: a heartbeat is a whole number of seconds, at least 10, or left out`);
-  }
-  if (declaration.deadLetter !== undefined) {
-    assertName('dead letter queue', declaration.deadLetter);
-    if (declaration.deadLetter === declaration.name) {
-      throw new Error(`${where} names itself as its own dead letter queue: a dead letter queue is another queue`);
-    }
-    if (!declared.has(declaration.deadLetter)) {
-      throw new Error(`${where} names the dead letter queue "${declaration.deadLetter}", which is not declared: declare it before the queue that fails into it`);
-    }
-  }
-}
-
-/** The pg-boss options one declaration maps to, in the shape both `createQueue` and `updateQueue` take. */
-interface QueueSettings {
-  policy: 'standard' | 'exclusive';
-  expireInSeconds: number;
-  retryLimit: number;
-  retryDelay: number;
-  retryBackoff: boolean;
-  heartbeatSeconds?: number;
-  deadLetter?: string;
-}
-
-/** The pg-boss options one declaration maps to. */
-function queueOptions(declaration: QueueDeclaration): QueueSettings {
-  return {
-    policy: declaration.singletons === true ? 'exclusive' : 'standard',
-    expireInSeconds: declaration.leaseSeconds,
-    retryLimit: declaration.retries,
-    retryDelay: declaration.retryDelaySeconds,
-    retryBackoff: declaration.retryBackoff,
-    ...(declaration.heartbeatSeconds === undefined ? {} : { heartbeatSeconds: declaration.heartbeatSeconds }),
-    ...(declaration.deadLetter === undefined ? {} : { deadLetter: declaration.deadLetter }),
-  };
 }
 
 /**
@@ -257,8 +174,10 @@ class PgBossQueue implements QueueService {
       ...(declaration.deadLetter === undefined ? {} : { deadLetter: declaration.deadLetter }),
     };
     assertDeclaration(judged, this.declared);
-    await this.boss.createQueue(judged.name, queueOptions(judged));
     const existing = await this.boss.getQueue(judged.name);
+    if (existing === null) {
+      throw new Error(`the queue "${judged.name}" is not prepared in ${this.owner.location}: prepare the store with this queue declaration before opening its clients`);
+    }
     const holdsSingletons = existing !== null && existing.policy === 'exclusive';
     if (existing !== null && holdsSingletons !== (judged.singletons === true)) {
       throw new Error(
@@ -276,11 +195,8 @@ class PgBossQueue implements QueueService {
         deadLetter: judged.deadLetter ?? null,
       });
     } catch (error) {
-      // The declaration did not land: the queue stands as the earlier one left it,
-      // or as this declaration's own `createQueue` created it, and this service
-      // does not hold it. Said here, because the caller's next call would
-      // otherwise be refused as if it had never declared the queue at all.
-      throw new Error(`the queue "${judged.name}" was created but its settings were not applied, so it stands as it was: ${error instanceof Error ? error.message : String(error)}`);
+      // The declaration did not land, so this client does not hold it.
+      throw new Error(`the queue "${judged.name}" settings were not applied, so it stands as it was: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.declared.set(judged.name, judged);
   }
@@ -468,77 +384,31 @@ class PgBossQueue implements QueueService {
   }
 }
 
-/**
- * Opens the queue on the process's database owner: pg-boss's own tables are
- * created or migrated in that database at once, and the service is ready to have
- * its queues declared. The owner is never closed by the queue; the caller that
- * opened it closes it, after `stop()`.
- */
+/** Attaches a queue client to an explicitly prepared store. The owner remains the caller's. */
 export async function createPgBossQueue(options: PgBossQueueOptions): Promise<QueueService> {
   const { owner } = options;
-  // The schema is interpolated into the adapter's own identifier positions
-  // verbatim, exactly as pg-boss interpolates it into pg-boss's: a bare name, or
-  // one the caller has quoted itself to reach a name a bare one cannot spell.
   const schema = options.schema ?? DEFAULT_QUEUE_SCHEMA;
-  const database = ownerDatabase(owner);
+  await requireSchema(owner, `queue:${schema}`, QUEUE_SCHEMA_STAMP);
   const superviseInterval = options.superviseIntervalSeconds ?? 60;
   const boss = new PgBoss({
-    // The database is PostgreSQL, on a server or on the pool a caller named;
-    // naming it keeps pg-boss's own diagnostics honest.
     backend: 'postgres',
-    db: database,
+    db: ownerDatabase(owner),
     schema,
+    migrate: false,
+    createSchema: false,
+    // Stats partitions and automatic index rebuilds are DDL, not lease recovery.
+    persistQueueStats: false,
+    reindex: false,
     supervise: options.supervise ?? true,
     superviseIntervalSeconds: superviseInterval,
-    // Without this, a queue's monitor claim (taken for a minute whatever the
-    // pass interval is) would hold back the very recovery a shorter interval
-    // was set for.
     monitorIntervalSeconds: superviseInterval,
     schedule: false,
   });
-  // pg-boss's start creates its schema and tables in the database, and two processes of the binary open one store's
-  // queue at the same instant — the api role when a fill is pressed, and the fill role that claims it. PostgreSQL's
-  // `CREATE SCHEMA IF NOT EXISTS` is not safe under concurrency (the same defect `src/adapters/schema-stamp.ts` names),
-  // so the one that loses reads `duplicate key value violates unique constraint "pg_namespace_nspname_index"`
-  // (measured 2026-11-08: the press answered `failed` with that message in 2 of 12 runs of
-  // `test/repository-wiki.test.ts` on two cores with one busy). pg-boss's own start retries exactly this case — "a
-  // schema another process is still migrating" — when it is asked to, and the schema the other process made is what
-  // this start wanted.
-  // pg-boss's own passes run on timers: a store that closed under one is an error event, and an error event with no
-  // listener ends the process. Log it with the store path and keep serving (madarch-8bdc.12).
   boss.on('error', (error: Error) => {
     const line = `pg-boss at ${owner.location}: ${error.message}`;
     if (options.log !== undefined) options.log(line);
     else console.error(line);
   });
-  await boss.start({ attempts: START_ATTEMPTS });
-  await createStampTable(owner, schema);
+  await boss.start();
   return new PgBossQueue(boss, owner, schema);
-}
-
-/**
- * Creates the queue's enqueue stamps table beside pg-boss's own, once per
- * process that opens the queue. Two processes can open the queue in the same
- * moment, and a table another one has just created is exactly the state this
- * asks for rather than a failure, so a creation that lost that race is read
- * again rather than reported.
- */
-async function createStampTable(owner: DatabaseOwner, schema: string): Promise<void> {
-  const create = `CREATE TABLE IF NOT EXISTS ${schema}.${ENQUEUE_STAMP_TABLE} (queue text PRIMARY KEY, enqueued_at timestamp with time zone NOT NULL)`;
-  try {
-    await owner.run((executor) => executor.query(create));
-  } catch (error) {
-    // Read it rather than ask the catalog: the table being there is the whole of
-    // what is wanted, and reading it needs no name resolved out of a schema the
-    // caller may have quoted.
-    const readable = await owner.run(async (executor) => {
-      try {
-        await executor.query(`SELECT 1 FROM ${schema}.${ENQUEUE_STAMP_TABLE} LIMIT 0`);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    if (!readable) throw error;
-  }
 }

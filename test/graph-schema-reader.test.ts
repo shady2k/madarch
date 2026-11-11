@@ -1,3 +1,4 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * A schema migration and a page's read (madarch-8bdc.2.9). A page reads in one `REPEATABLE READ` transaction, which
  * holds `AccessShare` on every table it reads until it commits; `DROP INDEX` takes `AccessExclusive` on the table. The
@@ -13,8 +14,6 @@
  * answers while the reader still holds the language table and no deadlock can form.
  */
 import { describe, expect, test } from 'bun:test';
-import { createContractTablesIn } from '../src/graph/contract.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -23,7 +22,9 @@ describe('a page reads while a fill migrates its schema', () => {
     const owner = await createTestDatabaseOwner();
     try {
       // The store a page has already read: its schema and every dictionary's key index stand.
-      await createOneGraphSchema(owner, GIT_CONTRACT);
+      await prepareStore(owner, { contract: GIT_CONTRACT });
+
+      await owner.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph'");
 
       let migrationSettled = false;
       let letTheReaderCheck!: () => void;
@@ -61,7 +62,7 @@ describe('a page reads while a fill migrates its schema', () => {
 
       await theReaderHoldsTheLanguageTable;
       // The migration, in another connection: it must leave a key index that stands alone.
-      const migration = owner.transaction('write', async (tx) => { await createContractTablesIn(tx, GIT_CONTRACT); });
+      const migration = prepareStore(owner, { contract: GIT_CONTRACT });
       void migration.then(() => { migrationSettled = true; }, () => { migrationSettled = true; });
       letTheReaderCheck();
       const migrationError = await migration.then(() => undefined, (error: unknown) => (error instanceof Error ? error : new Error(String(error))));

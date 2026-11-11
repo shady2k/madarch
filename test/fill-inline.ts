@@ -1,3 +1,5 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 /**
  * One pass of the files producer in the test's own process: a page reads the graph, and a write to the product reaches a
  * page only at the next pass. The fill is `runFill`, the same one the wiki's button asks for; running it here keeps a
@@ -12,7 +14,8 @@ export async function fillInProcess(product: string, home: string, storeRoot?: s
   const store = productStoreFolder(product, storeRoot ?? knowledgeRootOf(home));
   const owner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
   try {
-    const result = await runFill({ product, database: owner, store, home, runId: `test-${String(Date.now())}` });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    const result = await runFill({ product, database: owner, store, home, runId: `test-${String(Date.now())}`, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
     if (!result.ok) throw new Error(`the fill was refused (${result.code}): ${result.reason}`);
   } finally {
     await owner.close().catch(() => undefined);
