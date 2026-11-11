@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 /** Git byte transport used by the repository metadata stages. */
 import { withSpan } from '../obs/trace.js';
 import { raise } from '../model/raise.js';
@@ -96,23 +95,3 @@ export async function blobContents(root: string, blobs: readonly string[]): Prom
   return contents;
 }
 
-/** Changed line ranges from git's hunk headers; patch bytes stay inside the transport. */
-export function changedLineRanges(root: string, commit: string, path: string): { start: number; end: number }[] {
-  let patch: string;
-  try {
-    patch = execFileSync('git', ['-C', root, 'show', '--format=', '--no-color', '-U0', commit, '--', path], {
-      encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'],
-    });
-  } catch (error) {
-    throw new Error(`${root}/${path}:1: cannot read changed line ranges at ${commit}: ${(error as Error).message.split('\n')[0]}`);
-  }
-  const ranges: { start: number; end: number }[] = [];
-  for (const line of patch.split('\n')) {
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (hunk === null) continue;
-    const start = Math.max(1, Number(hunk[1]));
-    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-    ranges.push({ start, end: count === 0 ? start : start + count - 1 });
-  }
-  return ranges;
-}
