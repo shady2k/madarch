@@ -16,6 +16,7 @@ import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
+import { BLOCK_NAMES } from '../src/knowledge/template.js';
 import { findAnchor } from '../src/knowledge/anchors.js';
 import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
@@ -167,6 +168,7 @@ beforeAll(async () => {
   ctx = {
     productFolder,
     files: workingTreeFiles(productFolder),
+    productName: 'shop',
     manifest: read,
     graph,
     markdown,
@@ -224,7 +226,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, relations, related, callers, callees, source, er, sequence, system, modules, treemap, files, history, definition, stated, implementedby, linkedfrom, properties, children, term, members, repository, folder, file, overview-about, overview-how, overview-data, overview-terms, overview-status, overview-reading)');
+    expect(model.findings.map((entry) => entry.message)).toContain(`"nonsense" is not a block of the library (${BLOCK_NAMES.join(', ')})`);
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 
@@ -330,7 +332,9 @@ describe('the function page', () => {
     const declared = block(model, 'related');
     expect(declared.groups).toEqual([expect.objectContaining({ relation: 'code.contains', direction: 'in', total: 1 })]);
     expect(declared.groups[0]!.rows[0]!.entity.id).toBe(FILE_A);
-    expect(model.trail.map((entry) => entry.id)).toEqual([PACKAGE, MODULE, FILE_A]);
+    // Product / repository / each folder / the entity: the trail ends in the entity's own name.
+    expect(model.trail.map((entry) => entry.id)).toEqual([expect.any(String), PACKAGE, MODULE, FILE_A, CHARGE]);
+    expect(model.trail[0]!.href).toBe('/');
   });
 
   test('the er block says what it draws and what it is given instead', async () => {

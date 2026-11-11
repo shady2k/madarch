@@ -1906,7 +1906,7 @@ export class GraphReader {
                AND (SELECT count(*) FROM edge p JOIN entity pk ON pk.id = p.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
              GROUP BY 1 HAVING count(DISTINCT e.from_node) >= 2
            ), coupled AS (
-             SELECT id, n FROM coupled_all ORDER BY n DESC, id LIMIT $2
+             SELECT id, n FROM coupled_all ORDER BY n DESC FETCH FIRST $2 ROWS WITH TIES
            ), included AS (
              SELECT id FROM focus UNION SELECT id FROM coupled
            )

@@ -211,11 +211,11 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
         )}
         <label className="dg-filter">
           <span>{t('knowledge.files.filterFrom', { measure: measured, max: maxOfMeasure })}</span>
-          <Input type="number" min={0} value={from} onChange={(event) => { setFrom(event.target.value); reset(); }} data-testid="files-filter-from" />
+          <Input type="text" inputMode="numeric" value={from} onChange={(event) => { setFrom(event.target.value); reset(); }} data-testid="files-filter-from" />
         </label>
         <label className="dg-filter">
           <span>{t('knowledge.files.filterTo')}</span>
-          <Input type="number" min={0} value={to} onChange={(event) => { setTo(event.target.value); reset(); }} data-testid="files-filter-to" />
+          <Input type="text" inputMode="numeric" value={to} onChange={(event) => { setTo(event.target.value); reset(); }} data-testid="files-filter-to" />
         </label>
       </div>
       {/* A fixed layout keeps every numeric column at its width and gives the path the rest: no column wraps, and the
