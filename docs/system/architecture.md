@@ -51,9 +51,9 @@ wiki use, and one view on request at any depth (`src/render/one-view.ts`),
 built from the same parts, which the server answers with.
 
 **Wiki** (`src/product-wiki/`, `wiki/app/`, `src/wiki/archify.ts`): the
-served product wiki — its pages read from the product's working tree and its
-graph pages from the fill's record store — and the archify renderer the
-architecture pages use.
+served product wiki reads structured page and template opinions from the graph
+store. Source documents remain repository inputs, not a page parser at request
+time. The archify renderer serves the architecture pages.
 
 **Server** (`src/server/`, `src/product/cli.ts`): one process that serves the
 product wiki, its HTTP API, its MCP tools and the built web files
@@ -103,13 +103,18 @@ server that started it; on a server several of each can run against one store.
 
 ## From a document to a reader
 
-A product's document reaches its reader without a send or a build: `madarch
-new` or `madarch serve` serves the product of the given or the current folder,
-the server reads the pages from the working tree at every ask, and the app
-shows them at their addresses (`/e/<id>` for a graph page, `/doc?path=…` for a
-document); a file saved under `docs/` changes its page within
-two seconds, the open page refetching when the wiki's revision (a digest of
-the pages' paths and contents) changes.
+A document becomes a wiki page when a configured producer publishes its
+structured page opinions to the graph. The reader consumes the stored body,
+statements, links and template parts; it does not parse working-tree Markdown
+or Liquid on each request. Saving a file under `docs/` alone does not publish
+or refresh a page. A fill must publish the changed opinions before the reader
+can see them. Person-authored entities are written through the authored graph
+operations; retired authored Markdown has an explicit one-time import path.
+
+Declarations are a separate boundary: the product's kinds, workflows and plugin
+metadata are validated and published as manifest opinions before graph readers
+open. A reader uses that metadata and the page opinions in its store snapshot.
+The wiki revision follows published graph state, not a digest of live page files.
 
 ## From a repository to a reader
 
