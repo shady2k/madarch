@@ -174,7 +174,8 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
   kind: string;
-  area: string;
+  /** Derived by the app from the catalogue groups when the answer leaves it out. */
+  area?: string;
   subgroup: string;
   labels?: Record<string, { one: string; many: string }>;
   descriptions?: Record<string, string>;
@@ -193,8 +194,8 @@ export type CatalogKindView = {
   turn?: string;
   /** How much of the kind stands: filled, partial (a turn failed or did not finish), or never filled. */
   state: 'filled' | 'partial' | 'never';
-  /** What one fill of this kind would cost, as the graph measures it and its producer declares it. */
-  estimate: KindEstimate;
+  /** What one fill of this kind would cost, when a producer declares a figure; absent means unknown. */
+  estimate?: KindEstimate;
 };
 
 /** One kind's estimate (madarch-stm0.6): a measured volume times a per-unit figure, or unknown. */

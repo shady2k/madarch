@@ -17,6 +17,7 @@ import { useRead } from './live.js';
 import { getCatalog } from './api.js';
 import { addressOfKind, addressOfCatalogue, WIKI_FILL } from './routes.js';
 import { KLink } from './blocks.js';
+import { areaOf } from './catalog-area.js';
 import { Badge } from '@/components/ui/badge.js';
 import type { CatalogKindView, CatalogView, WikiStatus } from './types.js';
 
@@ -130,9 +131,9 @@ export function DependencyPage({ version, status }: { version: number; status: W
       .join(' · ');
   };
   const sectionLabel = (area: string): string => area === '' ? t('knowledge.groupOther') : (data.groups.find((group) => group.group === area)?.labels[language] ?? area);
-  const independentSections = [...new Set(independent.map((kind) => kind.area))]
+  const independentSections = [...new Set(independent.map((kind) => areaOf(data.groups, kind)))]
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
-    .map((area) => ({ area, label: sectionLabel(area), kinds: independent.filter((kind) => kind.area === area) }));
+    .map((area) => ({ area, label: sectionLabel(area), kinds: independent.filter((kind) => areaOf(data.groups, kind) === area) }));
   const place = new Map(nodes.map((node) => {
     const column = layers[node.depth]!;
     return [node.kind.kind, { x: node.depth * COLUMN + 8, y: column.indexOf(node.kind.kind) * (BOX_HEIGHT + GAP) + 8 }] as const;

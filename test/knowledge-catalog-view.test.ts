@@ -138,15 +138,15 @@ describe('the catalogue view lists every declared kind', () => {
   test('a kind the graph holds is listed with its count and its stage, and a kind no stage fills with zero and no producer', async () => {
     const kinds = await catalogKinds(context());
     expect(kinds.map((kind) => kind.kind)).toEqual(['filled', 'empty', 'written', 'by-person']);
-    expect(kinds.find((kind) => kind.kind === 'filled')).toMatchObject({ area: 'area', subgroup: 'area.one', count: 3, page: false, producer: 'extract', fillWith: 'own', filled: true });
-    expect(kinds.find((kind) => kind.kind === 'empty')).toMatchObject({ count: 0, page: false, fillWith: 'agent', filled: false });
+    expect(kinds.find((kind) => kind.kind === 'filled')).toMatchObject({ subgroup: 'area.one', count: 3, page: false, producer: 'extract', filled: true });
+    expect(kinds.find((kind) => kind.kind === 'empty')).toMatchObject({ count: 0, page: false, filled: false });
     expect(kinds.find((kind) => kind.kind === 'empty')!.producer).toBeUndefined();
   });
 
   test('a Markdown page counts its entities and names the writer; a page a person writes is not a stage', async () => {
     const kinds = await catalogKinds(context());
-    expect(kinds.find((kind) => kind.kind === 'written')).toMatchObject({ count: 1, page: true, producer: 'writer', fillWith: 'agent', filled: true });
-    expect(kinds.find((kind) => kind.kind === 'by-person')).toMatchObject({ count: 2, page: true, producer: 'person', fillWith: 'person', filled: false });
+    expect(kinds.find((kind) => kind.kind === 'written')).toMatchObject({ count: 1, page: true, producer: 'writer', filled: true });
+    expect(kinds.find((kind) => kind.kind === 'by-person')).toMatchObject({ count: 2, page: true, producer: 'person', filled: false });
   });
 
   test('the words travel in both languages, so the page never falls back to an English name in Russian', async () => {
@@ -177,6 +177,6 @@ describe('the catalogue view lists every declared kind', () => {
     const manifest = parseKinds(bare, 'madarch/kinds.yaml', TEMPLATES);
     const kinds = await catalogKinds({ ...context(), manifest } as unknown as RenderContext);
     expect(kinds.map((kind) => kind.kind)).toEqual(['written']);
-    expect(kinds[0]).toMatchObject({ area: 'area', subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
+    expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
   });
 });

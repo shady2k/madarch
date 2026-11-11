@@ -24,6 +24,7 @@ import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown
 import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillWithOf } from './producers.js';
+import { areaOf } from './catalog-area.js';
 import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
@@ -593,8 +594,8 @@ export function estimateOf(kinds: readonly CatalogKindView[], checked: ReadonlyS
   let unknown = 0;
   let volume = 0;
   for (const kind of held) {
-    volume += kind.estimate.volume ?? 0;
-    if (kind.estimate.tokens === null || kind.estimate.seconds === null) unknown += 1;
+    volume += kind.estimate?.volume ?? 0;
+    if (kind.estimate === undefined || kind.estimate.tokens === null || kind.estimate.seconds === null) unknown += 1;
     else { tokens += kind.estimate.tokens; seconds += kind.estimate.seconds; }
   }
   return { tokens: unknown > 0 ? null : tokens, seconds: unknown > 0 ? null : seconds, volume, unknown };
@@ -671,10 +672,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const top = data.groups.filter((group) => group.parent === undefined || !known.has(group.parent));
   const children = data.groups.filter((group) => group.parent !== undefined && known.has(group.parent));
   const label = (group: GroupSummary): string => group.labels[language] ?? group.labels['en'] ?? group.group;
-  const ofArea = (area: string): CatalogKindView[] => all.filter((kind) => kind.area === area && (kind.subgroup === '' || !known.has(kind.subgroup)));
+  const ofArea = (area: string): CatalogKindView[] => all.filter((kind) => areaOf(data.groups, kind) === area && (kind.subgroup === '' || !known.has(kind.subgroup)));
   const ofSubgroup = (subgroup: string): CatalogKindView[] => all.filter((kind) => kind.subgroup === subgroup);
   const placed = new Set([...top.map((group) => group.group), ...children.map((group) => group.group)]);
-  const other = all.filter((kind) => !placed.has(kind.area) && !placed.has(kind.subgroup));
+  const other = all.filter((kind) => !placed.has(areaOf(data.groups, kind)) && !placed.has(kind.subgroup));
   const sections: { key: string; name: string; kinds: CatalogKindView[]; subgroups: { key: string; name: string; kinds: CatalogKindView[] }[] }[] = [
     ...top.map((group) => ({
       key: group.group,

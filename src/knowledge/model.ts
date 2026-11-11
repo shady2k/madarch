@@ -363,8 +363,8 @@ export type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'per
 /** One kind of the entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
 export interface CatalogKindView {
   kind: string;
-  /** The area the kind's subgroup belongs to. */
-  area: string;
+  /** The area the kind's subgroup belongs to, derived by the app from `groups` when absent. */
+  area?: string;
   subgroup: string;
   /** The kind's name per interface language; a missing language is left out and its finding names the declaration. */
   labels?: Record<string, { one: string; many: string }>;
@@ -397,8 +397,11 @@ export interface CatalogKindView {
   turn?: string;
   /** How much of the kind stands: filled, partial (a turn of it failed or never finished), or never filled at all. */
   state: 'filled' | 'partial' | 'never';
-  /** What one fill of this kind would cost, as the producer declares it and the graph measures it (madarch-stm0.6). */
-  estimate: KindEstimate;
+  /**
+   * What one fill of this kind would cost, as the producer declares it and the graph measures it (madarch-stm0.6).
+   * Absent when no producer declares a per-unit figure: the page says "unknown" and the row carries no empty object.
+   */
+  estimate?: KindEstimate;
 }
 
 /**

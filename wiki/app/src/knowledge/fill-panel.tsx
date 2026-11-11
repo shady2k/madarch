@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button.js';
 import { getAgents, getCatalog, getFillSelection, fillSelected } from './api.js';
 import { KLink } from './blocks.js';
 import { fillWithOf } from './producers.js';
+import { areaOf } from './catalog-area.js';
 import { addressOfEntity, WIKI_CATALOGUE, WIKI_FILL } from './routes.js';
 import type { AgentOffer, CatalogKindView, CatalogView, FillSelectionView, WikiStatus } from './types.js';
 
@@ -46,14 +47,14 @@ export function panelSections(catalog: CatalogView, language: string): PanelSect
     const group = catalog.groups.find((held) => held.group === key);
     return group?.labels[language] ?? group?.labels['en'] ?? key;
   };
-  const areas = [...new Set(catalog.kinds.map((kind) => kind.area))].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const areas = [...new Set(catalog.kinds.map((kind) => areaOf(catalog.groups, kind)))].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   return areas.map((area) => {
-    const kinds = catalog.kinds.filter((kind) => kind.area === area);
+    const kinds = catalog.kinds.filter((kind) => areaOf(catalog.groups, kind) === area);
     let tokens = 0;
     let seconds = 0;
     let unknown = 0;
     for (const kind of kinds) {
-      if (kind.estimate.tokens === null || kind.estimate.seconds === null) unknown += 1;
+      if (kind.estimate === undefined || kind.estimate.tokens === null || kind.estimate.seconds === null) unknown += 1;
       else { tokens += kind.estimate.tokens; seconds += kind.estimate.seconds; }
     }
     return {
@@ -64,7 +65,7 @@ export function panelSections(catalog: CatalogView, language: string): PanelSect
       own: kinds.filter((kind) => fillWithOf(kind) === 'own').length,
       agent: kinds.filter((kind) => fillWithOf(kind) === 'agent').length,
       person: kinds.filter((kind) => fillWithOf(kind) === 'person').length,
-      volume: kinds.reduce((sum, kind) => sum + (kind.estimate.volume ?? 0), 0),
+      volume: kinds.reduce((sum, kind) => sum + (kind.estimate?.volume ?? 0), 0),
       tokens: unknown > 0 ? null : tokens,
       seconds: unknown > 0 ? null : seconds,
       unknown,

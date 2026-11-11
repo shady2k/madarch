@@ -70,7 +70,7 @@ function stateOf(count: number, turn: string | undefined): KindFillState {
  * (its own tokens and time per unit, the plugin protocol's next version), and the agent plugin will carry the agent's;
  * until one does, both figures are `null` and the cost is unknown, which the panel says instead of guessing.
  */
-function estimateOf(count: number, generated: boolean | undefined, measured: number | undefined): CatalogKindView['estimate'] {
+function estimateOf(count: number, generated: boolean | undefined, measured: number | undefined): NonNullable<CatalogKindView['estimate']> {
   const volume = generated === true ? (measured ?? count) : null;
   const tokensPerUnit: number | null = null;
   const secondsPerUnit: number | null = null;
@@ -93,31 +93,27 @@ export async function catalogKinds(ctx: RenderContext, turns: {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
   const pluginsOf = (decl: KindDecl | undefined): string[] => [...new Set((decl?.fields ?? []).flatMap((field) => (field.binding?.kind === 'plugin' ? [field.binding.plugin] : [])))].sort(byCodePoint);
-  const row = (kind: string, area: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
+  const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
     const producer = producerOf(decl, entry, extractorMark);
     const plugins = pluginsOf(decl);
-    // Who fills the kind: a plugin the declaration binds or a built-in pass the product runs is its own producer; a
-    // person's page is the person's; everything else is the general agent plugin's (madarch-stm0.6).
-    const ownProducer = plugins.length > 0 || producer === 'extract' || producer === 'documents' || producer === 'history';
-    const fillWith: CatalogKindView['fillWith'] = ownProducer ? 'own' : producer === 'person' ? 'person' : 'agent';
     const count = numbers.count(kind, decl?.source);
     const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
     const turn = turns.turnOf?.(kind);
+    const estimate = estimateOf(count, turns.generatedOf?.(kind), count);
     return {
-      kind, area, subgroup,
+      kind, subgroup,
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),
       ...(words.descriptions === undefined || Object.keys(words.descriptions).length === 0 ? {} : { descriptions: { ...words.descriptions } }),
       count,
       ...(numbers.statements.has(kind) ? { statements: numbers.statements.get(kind)! } : {}),
       page,
       ...(producer === undefined ? {} : { producer }),
-      fillWith,
       filled: producer !== undefined && producer !== 'person',
       ...(plugins.length === 0 ? {} : { plugins }),
       ...(dependsOn.length === 0 ? {} : { dependsOn }),
       ...(turn === undefined ? {} : { turn }),
       state: stateOf(count, turn),
-      estimate: estimateOf(count, turns.generatedOf?.(kind), count),
+      ...(estimate.tokens === null && estimate.seconds === null ? {} : { estimate }),
     };
   };
   if (catalog === undefined) {
@@ -126,11 +122,10 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     return [...ctx.manifest.kinds.values()].map((decl) => {
       const group = decl.group;
       const held = group === undefined ? undefined : ctx.manifest.groups.get(group);
-      const area = held?.parent ?? group ?? '';
       const subgroup = held?.parent === undefined ? '' : group!;
-      return row(decl.name, area, subgroup, { ...(decl.labels === undefined ? {} : { labels: decl.labels }), ...(decl.descriptions === undefined ? {} : { descriptions: decl.descriptions }) }, decl.member === undefined, decl, undefined, 'extractor');
+      return row(decl.name, subgroup, { ...(decl.labels === undefined ? {} : { labels: decl.labels }), ...(decl.descriptions === undefined ? {} : { descriptions: decl.descriptions }) }, decl.member === undefined, decl, undefined, 'extractor');
     });
   }
   const extractorMark = catalog.schema.extractorMark;
-  return [...catalog.kinds.values()].map((entry) => row(entry.name, entry.area, entry.subgroup, { labels: entry.labels, descriptions: entry.descriptions }, entry.templatePolicy === 'page' && ctx.manifest.kinds.has(entry.name), ctx.manifest.kinds.get(entry.name), entry, extractorMark));
+  return [...catalog.kinds.values()].map((entry) => row(entry.name, entry.subgroup, { labels: entry.labels, descriptions: entry.descriptions }, entry.templatePolicy === 'page' && ctx.manifest.kinds.has(entry.name), ctx.manifest.kinds.get(entry.name), entry, extractorMark));
 }
