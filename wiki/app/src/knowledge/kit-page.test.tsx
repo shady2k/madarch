@@ -6,9 +6,9 @@ import { setWikiLanguage } from '../i18n.js';
 import { wikiRouteOf } from './routes.js';
 import { KitPage } from './kit-page.js';
 let root: Root | undefined;
-beforeAll(() => { GlobalRegistrator.register({ url: 'http://localhost/kit' }); (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; });
+beforeAll(() => { GlobalRegistrator.register({ url: 'http://localhost/kit' }); });
 afterEach(async () => { await act(async () => { root?.unmount(); }); root = undefined; document.body.innerHTML = ''; });
-afterAll(() => GlobalRegistrator.unregister());
+afterAll(async () => { await setWikiLanguage('en'); GlobalRegistrator.unregister(); });
 for (const language of ['en', 'ru'] as const) test(`kit renders the review set in ${language}`, async () => {
   await setWikiLanguage(language);
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);

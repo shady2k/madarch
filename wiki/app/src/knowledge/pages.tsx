@@ -1,3 +1,4 @@
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
@@ -233,28 +234,28 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
     return (
       <Alert variant="problem" data-testid="source-error">
         <AlertTitle>{t('knowledge.sourceMissing')}</AlertTitle>
-        <AlertDescription><p>{error}</p></AlertDescription>
+        <AlertDescription><Paragraph>{error}</Paragraph></AlertDescription>
       </Alert>
     );
   }
   if (file === null) return <PageSkeleton testId="source-loading" />;
   const total = file.text.endsWith('\n') ? file.text.split('\n').length - 1 : file.text.split('\n').length;
   return (
-    <section data-testid="source-page" data-path={path}>
+    <PageSection data-testid="source-page" data-path={path}>
       <HistoryBar history={file.history} />
-      <header className="mb-4">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+      <PageHeader className="mb-4">
+        <InlineGroup>
           <Badge>{file.repo ?? t('knowledge.productRepository')}</Badge>
           <Badge>{file.language}</Badge>
           {file.commit !== null && <Badge title={file.commit}>{file.commit.slice(0, 10)}</Badge>}
-          <span className="text-small text-muted">{t('knowledge.lines', { count: total })}</span>
-        </div>
-        <h1 className="!text-h2 break-all font-mono !text-[1.1em]" data-testid="source-title">{path}</h1>
-      </header>
-      <div ref={box} className="source-view overflow-hidden rounded-[var(--radius-card)] border border-line">
+          <Metadata>{t('knowledge.lines', { count: total })}</Metadata>
+        </InlineGroup>
+        <FileTitle data-testid="source-title">{path}</FileTitle>
+      </PageHeader>
+      <CodeFrame ref={box}>
         <CodeLines text={file.text.endsWith('\n') ? file.text.slice(0, -1) : file.text} language={file.language} firstLine={1} focus={line} />
-      </div>
-    </section>
+      </CodeFrame>
+    </PageSection>
   );
 }
 
@@ -406,25 +407,25 @@ export function Overview({ status, refresh }: { status: WikiStatus; refresh: () 
   const { t } = useTranslation();
   useTabTitle(status.product.name);
   return (
-    <section data-testid="overview">
-      <header className="mb-6">
-        <h1>{status.product.name}</h1>
-        <p className="text-secondary" data-testid="home-intro">{t('knowledge.homeIntro.summary')}</p>
-      </header>
-      <div className="mb-8" data-testid="home-guidance">
-        <h2 className="mt-0">{t('knowledge.homeIntro.canTitle')}</h2>
-        <ul>
-          <li>{t('knowledge.homeIntro.canStart')}</li>
-          <li>{t('knowledge.homeIntro.canOpen')}</li>
-          <li>{t('knowledge.homeIntro.canAsk')}</li>
-        </ul>
-        <h2>{t('knowledge.homeIntro.howTitle')}</h2>
-        <p>{t('knowledge.homeIntro.howRead')}</p>
-        <p>{t('knowledge.homeIntro.howStages')}</p>
-        <p className="mb-0">{t('knowledge.homeIntro.howAgent')}</p>
-      </div>
+    <PageSection data-testid="overview">
+      <PageHeader className="mb-6">
+        <PageTitle>{status.product.name}</PageTitle>
+        <Paragraph className="text-secondary" data-testid="home-intro">{t('knowledge.homeIntro.summary')}</Paragraph>
+      </PageHeader>
+      <PageSection className="mb-8" data-testid="home-guidance">
+        <SectionTitle className="mt-0">{t('knowledge.homeIntro.canTitle')}</SectionTitle>
+        <BulletList>
+          <ListItem>{t('knowledge.homeIntro.canStart')}</ListItem>
+          <ListItem>{t('knowledge.homeIntro.canOpen')}</ListItem>
+          <ListItem>{t('knowledge.homeIntro.canAsk')}</ListItem>
+        </BulletList>
+        <SectionTitle>{t('knowledge.homeIntro.howTitle')}</SectionTitle>
+        <Paragraph>{t('knowledge.homeIntro.howRead')}</Paragraph>
+        <Paragraph>{t('knowledge.homeIntro.howStages')}</Paragraph>
+        <Paragraph className="mb-0">{t('knowledge.homeIntro.howAgent')}</Paragraph>
+      </PageSection>
       <FillCard status={status} refresh={refresh} />
-    </section>
+    </PageSection>
   );
 }
 
@@ -436,23 +437,23 @@ export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void 
   const { t } = useTranslation();
   useTabTitle(status.product.name);
   return (
-    <section data-testid="no-manifest">
-      <header className="mb-6">
-        <h1>{status.product.name}</h1>
-      </header>
+    <PageSection data-testid="no-manifest">
+      <PageHeader className="mb-6">
+        <PageTitle>{status.product.name}</PageTitle>
+      </PageHeader>
       <Card>
         <CardHeader>
           <CardTitle>{t('knowledge.noManifestTitle')}</CardTitle>
           <CardDescription>{t('knowledge.noManifest', { file: status.manifestFile })}</CardDescription>
         </CardHeader>
         <CardContent>
-          <p>{t('knowledge.noManifestScratch', { file: status.manifestFile })}</p>
-          <p className="mb-0">
-            <a href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.noManifestGuide')}</a>
-          </p>
+          <Paragraph>{t('knowledge.noManifestScratch', { file: status.manifestFile })}</Paragraph>
+          <Paragraph className="mb-0">
+            <TextLink href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.noManifestGuide')}</TextLink>
+          </Paragraph>
         </CardContent>
       </Card>
-    </section>
+    </PageSection>
   );
 }
 
@@ -464,24 +465,24 @@ export function NewHome({ status, refresh }: { status: WikiStatus; refresh: () =
   const { t } = useTranslation();
   useTabTitle(status.product.name);
   return (
-    <section data-testid="not-filled">
-      <header className="mb-6">
-        <h1>{status.product.name}</h1>
-      </header>
+    <PageSection data-testid="not-filled">
+      <PageHeader className="mb-6">
+        <PageTitle>{status.product.name}</PageTitle>
+      </PageHeader>
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>{t('knowledge.notFilledTitle')}</CardTitle>
           <CardDescription>{t('knowledge.notFilledWhat', { file: status.manifestFile })}</CardDescription>
         </CardHeader>
         <CardContent>
-          <p>{t('knowledge.notFilledNext')}</p>
-          <p className="mb-0">
-            <a href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.notFilledGuide')}</a>
-          </p>
+          <Paragraph>{t('knowledge.notFilledNext')}</Paragraph>
+          <Paragraph className="mb-0">
+            <TextLink href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.notFilledGuide')}</TextLink>
+          </Paragraph>
         </CardContent>
       </Card>
       <FillCard status={status} refresh={refresh} />
-    </section>
+    </PageSection>
   );
 }
 

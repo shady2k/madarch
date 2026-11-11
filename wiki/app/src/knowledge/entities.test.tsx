@@ -278,7 +278,7 @@ describe('Markdown read as statements', () => {
     const container = into(createElement(BlockView, { block: body, resolutions, pageId: 'domain:payment' }));
     await until(() => container.querySelector('[data-testid=grounds-switch]') !== null, 'the switch');
     expect(container.querySelector('sup')).toBeNull();
-    const toggle = container.querySelector('[data-testid=grounds-switch] input') as HTMLInputElement;
+    const toggle = container.querySelector('[data-testid=grounds-switch] [role=switch]') as HTMLButtonElement;
     toggle.click();
     await until(() => container.querySelector('section[data-footnotes]') !== null, 'the grounds');
     expect(container.querySelector('sup')).not.toBeNull();

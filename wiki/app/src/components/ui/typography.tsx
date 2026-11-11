@@ -1,5 +1,5 @@
 /** Shared reading-page structure and typography, themed by the wiki tokens. */
-import { forwardRef, type HTMLAttributes } from 'react';
+import { forwardRef, type HTMLAttributes, type AnchorHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils.js';
 
 export const PageSection = forwardRef<HTMLElement, HTMLAttributes<HTMLElement>>(function PageSection({ className, ...props }, ref) {
@@ -32,4 +32,8 @@ export const CodeFrame = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
 });
 export function FileTitle(props: HTMLAttributes<HTMLHeadingElement>) {
   return <h1 className="break-all font-mono text-h2" {...props} />;
+}
+
+export function TextLink({ className, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return <a className={cn('text-ink underline decoration-current underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2', className)} {...props} />;
 }

@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 
 
 let root: Root | undefined;
+const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+let previousActEnvironment: boolean | undefined;
 let Tabs: typeof import('./tabs.js').Tabs;
 let TabsList: typeof import('./tabs.js').TabsList;
 let TabsTrigger: typeof import('./tabs.js').TabsTrigger;
@@ -15,7 +17,8 @@ let Switch: typeof import('./switch.js').Switch;
 let Progress: typeof import('./progress.js').Progress;
 beforeAll(async () => {
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
   ({ Tabs, TabsList, TabsTrigger, TabsContent } = await import('./tabs.js'));
   ({ RadioGroup, RadioGroupItem } = await import('./radio-group.js'));
   ({ Switch } = await import('./switch.js'));
@@ -26,7 +29,11 @@ afterEach(async () => {
   root = undefined;
   document.body.innerHTML = '';
 });
-afterAll(() => { GlobalRegistrator.unregister(); });
+afterAll(() => {
+  if (previousActEnvironment === undefined) delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+  else actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  GlobalRegistrator.unregister();
+});
 
 function mount() {
   const container = document.createElement('div');
@@ -37,13 +44,14 @@ function mount() {
 
 test('tabs connect the selected trigger to its panel', async () => {
   const container = mount();
-  await act(async () => { root!.render(<Tabs defaultValue="diagram"><TabsList aria-label="View"><TabsTrigger value="diagram">Diagram</TabsTrigger><TabsTrigger value="source">Source</TabsTrigger></TabsList><TabsContent value="diagram">Picture</TabsContent><TabsContent value="source">Code</TabsContent></Tabs>); });
+  await act(async () => { root!.render(<Tabs defaultValue="diagram"><TabsList aria-label="View"><TabsTrigger value="diagram">Diagram</TabsTrigger><TabsTrigger value="source">Source</TabsTrigger></TabsList><TabsContent forceMount value="diagram">Picture</TabsContent><TabsContent forceMount value="source">Code</TabsContent></Tabs>); });
   const triggers = container.querySelectorAll<HTMLButtonElement>('[role="tab"]');
   expect(triggers[0]?.getAttribute('aria-selected')).toBe('true');
   await act(async () => { triggers[1]!.focus(); await new Promise((resolve) => setTimeout(resolve, 20)); });
   expect(triggers[1]?.getAttribute('aria-selected')).toBe('true');
   const panel = container.querySelector<HTMLElement>(`[id="${triggers[1]!.getAttribute('aria-controls')}"]`);
   expect(panel?.textContent).toBe('Code');
+  expect(panel?.getAttribute('data-state')).toBe('active');
   expect(panel?.getAttribute('aria-labelledby')).toBe(triggers[1]!.id);
 });
 

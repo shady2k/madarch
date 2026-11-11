@@ -12,8 +12,9 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
+import { Table, TableColumn, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { Input } from '@/components/ui/input.js';
+import { Button } from '@/components/ui/button.js';
 import { KLink } from './blocks.js';
 import type { Block, FilesMapColour, FilesMapFile, FilesMapWindow } from './types.js';
 import { bytesText, countText, drawnLanguage, heatOf, languageSources, languageWords, measureOf, WINDOWS } from './files-measure.js';
@@ -159,9 +160,10 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
 
   const header = (key: SortKey, label: string, numeric = false): ReactElement => (
     <TableHead className={numeric ? 'whitespace-nowrap px-2 text-right' : 'whitespace-nowrap px-2'} aria-sort={sort === key ? (ascending ? 'ascending' : 'descending') : 'none'}>
-      <button
+      <Button
         type="button"
-        className="dg-sort"
+        size="content"
+        className="whitespace-nowrap"
         data-testid={`files-sort-${key}`}
         onClick={() => {
           if (sort === key) setAscending(!ascending);
@@ -174,7 +176,7 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
       >
         {label}
         {sort === key && (ascending ? <ArrowUpIcon aria-hidden="true" className="size-3" /> : <ArrowDownIcon aria-hidden="true" className="size-3" />)}
-      </button>
+      </Button>
     </TableHead>
   );
 
@@ -218,17 +220,16 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
           <Input type="number" min={0} value={to} onChange={(event) => { setTo(event.target.value); reset(); }} data-testid="files-filter-to" />
         </label>
       </div>
-      {/* A fixed layout keeps every numeric column at its width and gives the path the rest: no column wraps, and the
-          table fits a 1150 px page; under that it scrolls inside its own box (min-w below), never the page. */}
-      <Table data-testid="files-table" className="table-fixed min-w-[620px]">
+      {/* Fixed columns leave the path the remaining width; the kit table contains overflow on narrow screens. */}
+      <Table data-testid="files-table" layout="fixed" density="compact" className="min-w-2xl">
         <colgroup>
-          <col />
-          <col style={{ width: '112px' }} />
-          <col style={{ width: '64px' }} />
-          <col style={{ width: '78px' }} />
-          <col style={{ width: '56px' }} />
-          <col style={{ width: '120px' }} />
-          <col style={{ width: '76px' }} />
+          <TableColumn />
+          <TableColumn width="lg" />
+          <TableColumn width="sm" />
+          <TableColumn width="md" />
+          <TableColumn width="xs" />
+          <TableColumn width="xl" />
+          <TableColumn width="md" />
         </colgroup>
         <TableHeader>
           <TableRow>
@@ -247,7 +248,7 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
             const words = languageWords(file, t('knowledge.files.other'));
             return (
               <TableRow key={file.id} data-testid="files-row" data-path={file.path}>
-                <TableCell className="truncate px-2 font-mono text-[0.85em]" title={file.path}>
+                <TableCell className="truncate px-2 font-mono text-small" title={file.path}>
                   {file.href === null ? file.path : <KLink href={file.href} testId="files-row-link">{file.path}</KLink>}
                 </TableCell>
                 <TableCell className="whitespace-nowrap px-2 text-muted" title={languageSources(file, t('knowledge.files.other')).join('\n')}>{words.length === 0 ? t('knowledge.files.other') : words.join(' · ')}</TableCell>
@@ -265,12 +266,12 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
       <div className="dg-files-pager" data-testid="files-pager">
         <span data-testid="files-range">{t('knowledge.files.range', { from: total === 0 ? 0 : start + 1, to: start + page.length, total, all: files.length })}</span>
         <span className="dg-spacer" />
-        <button type="button" className="dg-chip" disabled={before.length === 0} onClick={() => jump(before[before.length - 1] ?? null, true)} data-testid="files-prev">
+        <Button type="button" size="sm" variant="default" disabled={before.length === 0} onClick={() => jump(before[before.length - 1] ?? null, true)} data-testid="files-prev">
           <ChevronLeftIcon aria-hidden="true" className="size-4" />{t('knowledge.files.previous')}
-        </button>
-        <button type="button" className="dg-chip" disabled={!more} onClick={() => jump(page[page.length - 1]?.file.id ?? null, false)} data-testid="files-next">
+        </Button>
+        <Button type="button" size="sm" variant="default" disabled={!more} onClick={() => jump(page[page.length - 1]?.file.id ?? null, false)} data-testid="files-next">
           {t('knowledge.files.next')}<ChevronRightIcon aria-hidden="true" className="size-4" />
-        </button>
+        </Button>
       </div>
       {block.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="files-note">{note}</p>)}
     </section>

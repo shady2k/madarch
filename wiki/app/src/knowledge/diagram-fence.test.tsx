@@ -120,20 +120,23 @@ describe('a Mermaid fence in a document', () => {
     expect(container.querySelector('pre code')!.getAttribute('class')).toBe('language-ts');
   });
 
-  test('the Diagram / Source switch shows the fence\'s own source and the diagram again', async () => {
+  test('the Diagram / Source switch selects its linked source panel and the diagram panel again', async () => {
     const container = into(createElement(KMarkdown, { text: DOC, resolutions: {}, inDocument: { repo: null, path: 'docs/database.md' } }));
     await until(() => container.querySelectorAll('[data-testid=mermaid-fence]').length === 3, 'three Mermaid fences');
     const first = container.querySelector<HTMLElement>('[data-testid=mermaid-fence]')!;
     const sourceTab = first.querySelector<HTMLButtonElement>('[data-testid=fence-source-tab]')!;
     expect(sourceTab.getAttribute('aria-selected')).toBe('false');
-    sourceTab.click();
-    await until(() => first.querySelector('[data-testid=fence-source]') !== null, 'the fence source');
-    expect(first.querySelector('[data-testid=fence-source]')!.textContent).toBe('erDiagram\n  orders ||--o{ lines : holds\n  orders {\n    uuid id PK\n  }\n');
-    expect(first.querySelector('[data-testid=mermaid-diagram]')).toBeNull();
-    expect(sourceTab.getAttribute('aria-selected')).toBe('true');
-    first.querySelector<HTMLButtonElement>('[data-testid=fence-diagram-tab]')!.click();
-    await until(() => first.querySelector('[data-testid=mermaid-diagram]') !== null, 'the diagram again');
-    expect(first.querySelector('[data-testid=fence-source]')).toBeNull();
+    sourceTab.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+    await until(() => sourceTab.getAttribute('aria-selected') === 'true', 'the source tab');
+    const sourcePanel = document.getElementById(sourceTab.getAttribute('aria-controls')!);
+    expect(sourcePanel?.getAttribute('role')).toBe('tabpanel');
+    expect(sourcePanel?.getAttribute('data-state')).toBe('active');
+    expect(sourcePanel?.getAttribute('aria-labelledby')).toBe(sourceTab.id);
+    const diagramTab = first.querySelector<HTMLButtonElement>('[data-testid=fence-diagram-tab]')!;
+    diagramTab.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+    await until(() => diagramTab.getAttribute('aria-selected') === 'true', 'the diagram tab');
+    expect(sourceTab.getAttribute('aria-selected')).toBe('false');
+    expect(document.getElementById(diagramTab.getAttribute('aria-controls')!)?.getAttribute('data-state')).toBe('active');
   });
 
   test('a text whose file is named apart from a document page still names it in the failure', async () => {

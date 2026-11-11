@@ -157,72 +157,7 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "194913e9bfb12a2a923a#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "5a5d8888a618182548af#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "5a5d8888a618182548af#2"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "6762c99eb7add5b0e255#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "6769c061f7e8de0ad119#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "6a8ad871b9f3d34019f7#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "6b21d847b29615349bdf#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "82f97b7d3246a2055f9e#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "82fc9b069ffe0ceb54f3#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "8454a353c57c51fa4f2f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "8454a353c57c51fa4f2f#2"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "84c494e55d28580499e4#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "85696561e5feab5365ec#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "90e582fe0b485e6e61ac#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -233,21 +168,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "ad1196a8773fef9e7ed9#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "c8fd21c101b93b9da256#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "d4b539939672a1bb0700#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "d4b539939672a1bb0700#2"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -273,16 +193,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/errors.tsx",
     "subject": "e549f6ba566f076cfa7b#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "00df71bb43cc5ca2257f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "b051a814388706d1809e#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -447,16 +357,6 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "2cc94da7166937fc6eb7#2"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "2fab6749a67aa33bfb2e#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "357b1c5a4257f36cb026#1"
   },
   {
@@ -501,11 +401,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "d3c0e6b9b2e28f7f67ff#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "0252e7aa3ae5931c46a6#1"
   },
@@ -547,11 +442,6 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/search.tsx",
-    "subject": "0d5f1eafe02f5d581b1c#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/search.tsx",
     "subject": "3ea0c69733467607281a#1"
   },
   {
@@ -568,11 +458,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/search.tsx",
     "subject": "d96dc9141e09ca130b14#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/search.tsx",
-    "subject": "ee95508f8cc33e3d9492#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -641,11 +526,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/skeleton.tsx",
-    "subject": "4ebc55ca7eeae9a82195#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/writer.tsx",
     "subject": "23fd8bb5da4c7bdc11dc#1"
   },
@@ -696,36 +576,6 @@
   },
   {
     "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "14ea2ae6b6643ac23afd#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "488863ef09ee8a4e46bd#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "5862908dce9938c93ef3#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "7f62de9dd3dc768255ec#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "9eb818394d9d78de628b#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "a1ef9c6a462e3ba7fb17#1"
-  },
-  {
-    "rule": "inline-style",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "1e5caeb2423f47ef7fff#1"
   },
@@ -736,28 +586,8 @@
   },
   {
     "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "56a4d2fcdbd3f9414ff5#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "c7e089378573e417d5ff#1"
-  },
-  {
-    "rule": "inline-style",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "1e5caeb2423f47ef7fff#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "b3ef0aa668c6a1c21b14#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/skeleton.tsx",
-    "subject": "9429b3295d1b0f37561e#1"
   },
   {
     "rule": "local-styled-component",
@@ -1187,11 +1017,6 @@
   {
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "EmptyHome#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "EntityCard#1"
   },
   {
@@ -1223,21 +1048,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "KindPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "NewHome#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "Overview#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "SourcePage#1"
   },
   {
     "rule": "local-styled-component",
@@ -1427,16 +1237,6 @@
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "14392dc7160c1a6d4d57#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "18a92a0682da2e0fa957#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "32f81bf99eba43f94196#1"
   },
   {
@@ -1452,22 +1252,12 @@
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "92ad031534baf526429b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "a1d72a8dab4c84188a8e#1"
   },
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "a8d13e32481a7100ae51#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/blocks.tsx",
-    "subject": "b21f3c7c3c54a500afc6#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1481,96 +1271,6 @@
   },
   {
     "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "12aad2b14d66a1b07c48#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "280c414dd886bdd00307#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "280c414dd886bdd00307#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "280c414dd886bdd00307#3"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "280c414dd886bdd00307#4"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "5e7764b5e93e2d23b258#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "8d8598d86c3d8b67c901#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "92ad031534baf526429b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "9b84c614b473bf1d182e#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#3"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#4"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#5"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#6"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#7"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ad76f84d9f135f96caee#8"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "aee2de443d9bc7cac246#1"
-  },
-  {
-    "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/dependency-page.tsx",
     "subject": "7a07a8fec5c08c0bbacf#1"
   },
@@ -1578,16 +1278,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/dependency-page.tsx",
     "subject": "9bc6b7445d3bf7e088ec#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
-    "subject": "bcf6b2759cdd069417bb#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
-    "subject": "d47df3570747bffb2fbf#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1646,26 +1336,6 @@
   },
   {
     "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/errors.tsx",
-    "subject": "03bfa1baa43f360f11c9#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "03d654ae51f3d7c2d310#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "0a243418ca4030d4ddfb#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "122efc36eb26e375790f#1"
-  },
-  {
-    "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/files-table.tsx",
     "subject": "1a039deae1a2887122a2#1"
   },
@@ -1673,16 +1343,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/files-table.tsx",
     "subject": "271b2b6bd5ef0a5edbf6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "3ce46fb47684bf26dd36#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "511f3848b4ed48b44d3a#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1707,22 +1367,7 @@
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "7b65c2fbdedc95146a95#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
     "subject": "894d87a7ce4b29a541b6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "b47f5df3d69f61ba6a4e#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "b57c4f03a5f87ccd2a9b#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1758,16 +1403,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/files-table.tsx",
     "subject": "e1bae2b4695bc1b63acf#6"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e2ba88014bc0551b2ca6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "f36ca29d925c54a5cda4#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1922,11 +1557,6 @@
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/loop.tsx",
-    "subject": "5cf4e89af84c875711e5#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/loop.tsx",
     "subject": "61762295fe18e3cf020d#1"
   },
   {
@@ -1952,11 +1582,6 @@
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/loop.tsx",
-    "subject": "987d676ad95d908101b5#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/loop.tsx",
     "subject": "abff403a541289c12c0c#1"
   },
   {
@@ -1968,11 +1593,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/loop.tsx",
     "subject": "b94bacb95c2166b83718#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/loop.tsx",
-    "subject": "c42a441c0bf2aaaee962#1"
   },
   {
     "rule": "raw-ui-element",
@@ -2041,161 +1661,6 @@
   },
   {
     "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "25810a22c14d4bb45573#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "2ce4a90ee1c80426b452#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "2ce4a90ee1c80426b452#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "2ce4a90ee1c80426b452#3"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "2ce4a90ee1c80426b452#4"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "3cc8a4d56ca9a7c11e5e#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "57a21a014b789d084970#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "7593be416fddf74ee73d#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "7593be416fddf74ee73d#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "7927e8da48a360bc27e7#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "7c2eb9db2a88f88c98bd#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "7c2eb9db2a88f88c98bd#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "7f87152d455b3f6d77e1#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "8658f251a39f6aa7cbba#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "8658f251a39f6aa7cbba#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "8d8598d86c3d8b67c901#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "8d8598d86c3d8b67c901#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "8eae3d62d5f4989e8e2a#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "adedc4d35860c0f083b2#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "aee2de443d9bc7cac246#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "aee2de443d9bc7cac246#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "aee2de443d9bc7cac246#3"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "b840d89132effd8b2f07#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "d9a05e88b987c7c3c6f5#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "d9a05e88b987c7c3c6f5#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "ea171f5dec89804e1489#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "ef543bbbcc8194c0f542#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "ffbf74c902631efca50b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "ffbf74c902631efca50b#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "ffbf74c902631efca50b#3"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "ffbf74c902631efca50b#4"
-  },
-  {
-    "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "25441b62d85db6b0cfc5#1"
   },
@@ -2203,11 +1668,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "954a0e8f54a7f4cf0c5b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/search.tsx",
-    "subject": "29e36ed025dc1d7c54fd#1"
   },
   {
     "rule": "raw-ui-element",

@@ -12,10 +12,10 @@ export function PageSkeleton({ testId, rows = false }: { testId: string; rows?: 
   return (
     <div role="status" aria-busy="true" aria-label={t('knowledge.loading')} data-testid={testId} className="page-skeleton">
       {!rows && <Skeleton className="mb-3 h-3 w-24" />}
-      {!rows && <Skeleton className="mb-6 h-9 w-2/3 max-w-[28rem]" />}
+      {!rows && <Skeleton className="mb-6 h-9 w-2/3 max-w-md" />}
       <div className="space-y-3">
-        {(rows ? [92, 70, 84, 60, 78, 66] : [100, 94, 88, 97, 72, 100, 90, 64]).map((width, index) => (
-          <Skeleton key={index} className={rows ? 'h-8' : 'h-4'} style={{ width: `${width}%` }} />
+        {(rows ? ['w-11/12', 'w-3/4', 'w-5/6', 'w-3/5', 'w-4/5', 'w-2/3'] : ['w-full', 'w-11/12', 'w-5/6', 'w-full', 'w-3/4', 'w-full', 'w-11/12', 'w-2/3']).map((width, index) => (
+          <Skeleton key={index} className={`${rows ? 'h-8' : 'h-4'} ${width}`} />
         ))}
       </div>
     </div>

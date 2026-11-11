@@ -11,7 +11,7 @@ type TableProps = HTMLAttributes<HTMLTableElement> & { layout?: 'auto' | 'fixed'
 
 export const Table = forwardRef<HTMLTableElement, TableProps>(function Table({ className, layout = 'auto', density = 'default', ...props }, ref) {
   return (
-    <div className="ui-table-wrap relative w-full overflow-x-auto rounded-[var(--radius-card)] border border-line">
+    <div className="table-wrap ui-table-wrap relative w-full overflow-x-auto rounded-[var(--radius-card)] border border-line">
       <table ref={ref} className={cn('ui-table m-0 w-full caption-bottom border-collapse text-small', layout === 'fixed' && 'table-fixed min-w-full', density === 'compact' && '[&_td]:px-2 [&_th]:px-2', className)} {...props} />
     </div>
   );

@@ -16,6 +16,8 @@ import { ExternalLinkIcon, FileCode2Icon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
+import { Button } from '@/components/ui/button.js';
+import { Switch } from '@/components/ui/switch.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getBlock } from './api.js';
@@ -51,7 +53,7 @@ export function CodePlace({ location }: { location: CodeLocation }): ReactElemen
   const lines = location.lineEnd > location.lineStart ? `${location.lineStart}–${location.lineEnd}` : String(location.lineStart);
   return (
     <>
-      <KLink href={location.href} className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-[0.875em] text-secondary" title={`${location.repo === null ? '' : `${location.repo}: `}${location.path}`}>
+      <KLink href={location.href} className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-small text-secondary" title={`${location.repo === null ? '' : `${location.repo}: `}${location.path}`}>
         <FileCode2Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
         <span className="truncate" data-testid="code-place">{location.path}:{lines}</span>
       </KLink>
@@ -65,7 +67,7 @@ function WebPlace({ location }: { location: CodeLocation }): ReactElement | null
   const { t } = useTranslation();
   if (location.web === undefined) return null;
   return (
-    <a href={location.web.url} target="_blank" rel="noreferrer noopener" className="ml-2 inline-flex items-center gap-1 text-[0.875em] text-secondary" data-testid="web-place">
+    <a href={location.web.url} target="_blank" rel="noreferrer noopener" className="ml-2 inline-flex items-center gap-1 text-small text-secondary" data-testid="web-place">
       <ExternalLinkIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
       {t('knowledge.openOnHost', { host: location.web.host })}
     </a>
@@ -229,7 +231,12 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
       if (fence !== null) return <MermaidFence source={fence.source} line={fence.line} path={inDocument?.path ?? sourcePath ?? null} />;
       return <pre {...(inDocument === undefined || line === undefined ? {} : { 'data-line': line })}>{children}</pre>;
     },
-    table: ({ children }) => <div className="table-wrap"><table>{children}</table></div>,
+    table: ({ children }) => <Table>{children}</Table>,
+    thead: ({ children }) => <TableHeader>{children}</TableHeader>,
+    tbody: ({ children }) => <TableBody>{children}</TableBody>,
+    tr: ({ children }) => <TableRow>{children}</TableRow>,
+    th: ({ children, style }) => <TableHead align={style?.textAlign === 'right' ? 'right' : style?.textAlign === 'center' ? 'center' : 'left'}>{children}</TableHead>,
+    td: ({ children, style }) => <TableCell align={style?.textAlign === 'right' ? 'right' : style?.textAlign === 'center' ? 'center' : 'left'}>{children}</TableCell>,
     ...(statements === undefined ? {} : {
       span: ({ node: _node, className, children, ...rest }) => {
         const sentence = (rest as Record<string, unknown>)['data-statement'];
@@ -308,7 +315,7 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
     <section data-block="body">
       {read && (
         <label className="mb-3 flex w-fit cursor-pointer items-center gap-2 text-small text-secondary" data-testid="grounds-switch">
-          <input type="checkbox" role="switch" checked={showGrounds} onChange={(event) => setShowGrounds(event.target.checked)} />
+          <Switch checked={showGrounds} onCheckedChange={setShowGrounds} />
           {t('knowledge.showGrounds')}
         </label>
       )}
@@ -370,12 +377,12 @@ function RelationGroupTable({ group }: { group: RelatedGroup }): ReactElement {
         <TableBody>
           {group.rows.map((row) => (
             <TableRow key={row.entity.id} data-entity={row.entity.id}>
-              <TableCell className="max-w-[28rem] break-words">
+              <TableCell className="max-w-md break-words">
                 <EntityName entity={row.entity} />{row.count > 1 && <span className="ml-1.5 text-muted">×{row.count}</span>}
                 {row.sources !== undefined && row.sources.length > 0 && <span className="ml-1.5 text-small text-muted" data-testid="relation-source">{t('knowledge.relationSource', { sources: row.sources.join(', ') })}</span>}
               </TableCell>
               <TableCell><Badge>{kindName(row.entity.kind, 'one')}</Badge></TableCell>
-              <TableCell className="max-w-[24rem]">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+              <TableCell className="max-w-sm">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -459,8 +466,8 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.entity.id} data-entity={row.entity.id}>
-              <TableCell className="max-w-[28rem] break-words"><EntityName entity={row.entity} /></TableCell>
-              <TableCell className="max-w-[26rem]">
+              <TableCell className="max-w-md break-words"><EntityName entity={row.entity} /></TableCell>
+              <TableCell className="max-w-md">
                 {block.type === 'callers' ? (row.site !== undefined ? <CodePlace location={row.site} /> : <span className="text-muted">–</span>) : (row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>)}
               </TableCell>
               <TableCell>{row.sites}</TableCell>
@@ -556,8 +563,8 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
         <TableBody>
           {block.rows.map((row) => (
             <TableRow key={row.name}>
-              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.label ?? (row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`))}</TableCell>
-              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
+              <TableCell className="whitespace-nowrap align-top font-mono text-small text-secondary">{row.label ?? (row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`))}</TableCell>
+              <TableCell className="max-w-2xl break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -577,9 +584,9 @@ function MemberRefs({ refs, testId }: { refs: EntityRef[]; testId: 'member-reade
     <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small" data-testid={testId}>
       {shown.map((entity, at) => <span key={entity.id}>{at > 0 && <span className="text-muted">, </span>}<EntityName entity={entity} /></span>)}
       {refs.length > short && (
-        <button type="button" className="text-small text-secondary underline underline-offset-2 hover:text-ink" data-testid="member-more" onClick={() => setOpen(!open)}>
+        <Button type="button" variant="link" size="content" data-testid="member-more" onClick={() => setOpen(!open)}>
           {open ? t('knowledge.memberLess') : t('knowledge.memberMore', { count: refs.length - short })}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -627,7 +634,7 @@ function Members({ block }: { block: Extract<Block, { type: 'members' }> }): Rea
               <TableCell className="min-w-[9rem] align-top"><span className="font-[550]">{row.name ?? row.entity.label}</span></TableCell>
               {columns.map((column) => {
                 const value = row.values.find((entry) => entry.name === column.name);
-                return <TableCell key={column.name} className="max-w-[28rem] break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
+                return <TableCell key={column.name} className="max-w-md break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
               })}
               {hasReaders && <TableCell className="align-top"><MemberRefs refs={row.readers} testId="member-readers" /></TableCell>}
               {hasWriters && <TableCell className="align-top"><MemberRefs refs={row.writers} testId="member-writers" /></TableCell>}
@@ -654,9 +661,9 @@ function Refs({ block }: { block: Extract<Block, { type: 'refs' }> }): ReactElem
           <TableBody>
             {block.rows.map((row) => (
               <TableRow key={row.entity.id} data-entity={row.entity.id}>
-                <TableCell className="max-w-[26rem] break-words"><EntityName entity={row.entity} />{row.note !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</span>}</TableCell>
+                <TableCell className="max-w-md break-words"><EntityName entity={row.entity} />{row.note !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</span>}</TableCell>
                 <TableCell><Badge>{row.entity.kind === 'document' ? t('knowledge.documentBadge') : kindName(row.entity.kind, 'one')}</Badge></TableCell>
-                <TableCell className="max-w-[24rem]">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+                <TableCell className="max-w-sm">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -676,7 +683,7 @@ function Stated({ block }: { block: Extract<Block, { type: 'stated' }> }): React
       <h2>{block.title}</h2>
       <p className="m-0 flex flex-wrap items-center gap-2">
         {place.single === true ? null : <Badge>{place.repo ?? t('knowledge.productRepository')}</Badge>}
-        <KLink href={place.href} className="font-mono text-[0.875em]"><span data-testid="stated-place">{place.path}:{lines}</span></KLink>
+        <KLink href={place.href} className="font-mono text-small"><span data-testid="stated-place">{place.path}:{lines}</span></KLink>
         {place.commit !== null && <Badge title={place.commit}>{place.commit.slice(0, 10)}</Badge>}
       </p>
     </section>
@@ -760,7 +767,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                 <TableRow key={row.entity?.id ?? `${section.role}-${String(index)}`} {...(row.entity === undefined ? {} : {'data-entity': row.entity.id})}>
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
-                  <TableCell className="max-w-[32rem] break-words">
+                  <TableCell className="max-w-lg break-words">
                     {row.entity === undefined ? row.text : <><EntityName entity={row.entity} />{row.text !== row.entity.label && <span className="block break-all text-small text-muted">{row.text}</span>}</>}
                   </TableCell>
                   <TableCell>
@@ -812,7 +819,7 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
       <AlertTitle>{t('knowledge.blockProblem', { block: block.block })}</AlertTitle>
       <AlertDescription>
         {block.block === 'definition' && block.diagnostic !== undefined ? <ContractDiagnosticView diagnostic={block.diagnostic} /> : <p>{block.message}</p>}
-        <p className="font-mono text-[0.875em] text-muted">{block.file}:{block.line}</p>
+        <p className="font-mono text-small text-muted">{block.file}:{block.line}</p>
       </AlertDescription>
     </Alert>
   );
@@ -825,7 +832,7 @@ function Overview({ block }: { block: Extract<Block, { type: 'overview' }> }): R
     <section data-block="overview" data-overview={block.section} className="mb-6" aria-label={block.title}>
       <h2>{block.title}</h2>
       {block.paragraphs?.map((paragraph, at) => (
-        <p key={at} className="max-w-[70ch] break-words">
+        <p key={at} className="max-w-prose break-words">
           {paragraph.text}
           {paragraph.source !== undefined && <span className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={paragraph.source.href}>{paragraph.source.label}</KLink></span>}
         </p>
@@ -913,12 +920,12 @@ export function Findings({ findings, scope = 'page' }: { findings: readonly { fi
       <AlertDescription>
         <p data-testid="findings-help">{scope === 'manifest' ? t('knowledge.manifestFindingsHelp') : t('knowledge.findingsHelp')}</p>
         {scope === 'manifest' && <p className="mt-1"><KLink href={WIKI_PROBLEMS}>{t('errors.problems')}</KLink></p>}
-        <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
+        <Button type="button" variant="link" size="content" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
           {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
-        </button>
+        </Button>
         {open && (
           <ul className="!my-2">
-            {visible.map((finding, index) => <li key={`${finding.file}:${finding.line}:${index}`}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {scope === 'manifest' ? words(finding.message) : finding.message}</li>)}
+            {visible.map((finding, index) => <li key={`${finding.file}:${finding.line}:${index}`}><span className="font-mono text-small">{finding.file}:{finding.line}</span> {scope === 'manifest' ? words(finding.message) : finding.message}</li>)}
           </ul>
         )}
       </AlertDescription>

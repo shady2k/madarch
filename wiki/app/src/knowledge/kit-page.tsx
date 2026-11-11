@@ -20,7 +20,7 @@ import { Progress } from '@/components/ui/progress.js';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group.js';
 import { Switch } from '@/components/ui/switch.js';
 import { KitPageLayout, KitSection, KitState } from '@/components/ui/kit-preview.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink } from '@/components/ui/typography.js';
 import { appPath } from '../app-base.js';
 
 export function KitPage() {
@@ -105,7 +105,7 @@ export function KitPage() {
         <KitState label={state('error')}><Switch aria-invalid="true" aria-label={state('required')} /></KitState>
       </KitSection>
       <KitSection title={state('typography')}>
-        <PageSection><PageHeader><PageTitle>{state('sample')}</PageTitle><Metadata>{state('description')}</Metadata></PageHeader><SectionTitle>{state('content')}</SectionTitle><Paragraph>{state('sample')}</Paragraph><BulletList><ListItem>{state('sample')}</ListItem></BulletList><InlineGroup><Badge>{state('sample')}</Badge></InlineGroup><FileTitle>example.ts</FileTitle><CodeFrame><Paragraph>const example = true;</Paragraph></CodeFrame></PageSection>
+        <PageSection><PageHeader><PageTitle>{state('sample')}</PageTitle><Metadata>{state('description')}</Metadata></PageHeader><SectionTitle>{state('content')}</SectionTitle><Paragraph>{state('sample')}</Paragraph><BulletList><ListItem>{state('sample')}</ListItem></BulletList><InlineGroup><Badge>{state('sample')}</Badge></InlineGroup><TextLink href={appPath('/')}>{state('home')}</TextLink><FileTitle>example.ts</FileTitle><CodeFrame><Paragraph>const example = true;</Paragraph></CodeFrame></PageSection>
       </KitSection>
     </KitPageLayout>
   </TooltipProvider>;
