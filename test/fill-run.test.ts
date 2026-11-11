@@ -151,11 +151,11 @@ describe('the one fill', () => {
 
 describe('the end of a run another process reads', () => {
   test('a run that could not start still writes its end, with the reason it gave, after the store it filled', async () => {
-    // The api role states a fill from that row alone (madarch-8bdc.9): a run that fails before the orchestrator made its
-    // schema — here a product with no manifest — must still leave its end, or the process that pressed the fill would
-    // answer `running` for ever.
+    // The api role states a fill from that row alone (madarch-8bdc.9): even a product with no manifest must
+    // leave its end in the caller-prepared store, or the process that pressed the fill would answer `running` for ever.
     const store = join(root, 'end-store');
     const writer = await createDatabaseOwner({ store });
+    await prepareStore(writer);
     const reader = await createDatabaseOwner({ store });
     const empty = join(root, 'no-manifest');
     mkdirSync(empty, { recursive: true });
@@ -170,6 +170,7 @@ describe('the end of a run another process reads', () => {
       expect(end?.message).toContain('no-manifest');
     } finally {
       await reader.close();
+      await writer.close();
     }
   }, 120_000);
 });
