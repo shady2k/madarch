@@ -67,6 +67,17 @@ test('moving raw reader declarations into plugins does not permit engine callers
   } finally {rmSync(root, {recursive: true, force: true});}
 });
 
+test('graph opinion projection, authored search excerpts and resolved links are not product parsers', () => {
+  const root = fixture({
+    'src/knowledge/blocks.ts': 'export interface Context { readSource(repo: string, path: string): Promise<string | undefined>; }',
+    'src/knowledge/page-files.ts': 'export function textLinks(_text: string, resolutions: Record<string, {label: string}>) {return Object.values(resolutions).map(item => item.label);}',
+    'src/knowledge/render.ts': 'export function excerpt(body: string) {return body.slice(0,90);}',
+    'src/consumer.ts': "import type {Context} from './knowledge/blocks.js'; import {textLinks} from './knowledge/page-files.js'; import {excerpt} from './knowledge/render.js'; export async function page(ctx: Context) {return excerpt(await ctx.readSource('r','p') ?? '') + textLinks('',{}).join('');}",
+  });
+  try {expect(productFileReaderViolations(root)).toEqual([]);}
+  finally {rmSync(root, {recursive: true, force: true});}
+});
+
 test('URL target parsing does not read product-file text', () => {
   const root = fixture({
     'src/knowledge/markdown.ts': 'export function parseTarget(url: string) {return new URL(url);}',

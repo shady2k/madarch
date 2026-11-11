@@ -14,8 +14,6 @@ const PARSERS: Readonly<Record<string, readonly string[]>> = {
   'src/knowledge/doc-sources.ts': ['documentTitle'],
   'src/knowledge/index/page.ts': ['readIndexedPage'],
   'src/knowledge/template.ts': ['parseTemplate'],
-  'src/knowledge/render.ts': ['excerpt'],
-  'src/knowledge/page-files.ts': ['textLinks'],
   'src/product-wiki/recommendations.ts': ['withoutFencedCode'],
   'src/knowledge/contract-document.ts': ['contractDocument'],
   'src/knowledge/proto-document.ts': ['protoDocument'],
@@ -43,7 +41,6 @@ const TEXT_MEMBERS: Readonly<Record<string, readonly string[]>> = {
   'src/knowledge/graph-read.ts': ['content', 'contentsOf', 'contentAt'],
   'src/fill/snapshot.ts': ['read', 'readText'],
   'src/knowledge/index/grounds.ts': ['text'],
-  'src/knowledge/blocks.ts': ['readSource'],
 };
 const TEXT_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
   'src/plugin/stored-text.ts': ['content', 'contentsOf', 'contentAt', 'fileContent', 'fileContents', 'fileTextAt', 'pluginFileContent', 'pluginFileText', 'storedFileText'],
