@@ -44,7 +44,7 @@ test('imports bytes once, retries an interrupted archive, reports bad items and 
   const bytes = Buffer.from('\uFEFF---\r\nid: note:kept\r\nkind: note\r\ntitle: Kept\r\nextra: [one, two]\r\n---\r\nExact body.\r\n');
   writeFileSync(join(folder, 'old/kept.md'), bytes);
   writeFileSync(join(folder, 'old/bad.md'), 'not an entity');
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest) });
   try {
     await createOneGraphSchema(owner, graphContractOf(manifest));
     // A blocked archive exercises a committed import whose source has not yet moved.
@@ -79,7 +79,7 @@ test('failed publication keeps the file and creates no receipt; symlinks are rep
   writeFileSync(join(folder, 'old/missing-title.md'), '---\nid: note:x\nkind: note\n---\nbody');
   // Required custom fields cannot be silently omitted by the importer.
   manifest.kinds.get('note')!.fields = [...manifest.kinds.get('note')!.fields!, { name: 'required', type: 'text', producers: ['person'] }];
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest) });
   try {
     await createOneGraphSchema(owner, graphContractOf(manifest));
     const result = await importAuthored(folder, owner, manifest, '', 'reader');
@@ -97,7 +97,7 @@ test('an archive link is refused without losing the committed source or writing 
   writeFileSync(join(folder, 'old/kept.md'), '---\nid: note:kept\nkind: note\ntitle: Kept\n---\nBody');
   const outside = mkdtempSync(join(root, 'outside-'));
   symlinkSync(outside, join(folder, '.madarch'));
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: graphContractOf(parsed.manifest) });
   try {
     await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
     const result = await importAuthored(folder, owner, parsed.manifest, '', 'reader');
@@ -113,7 +113,7 @@ test('authored history guard is false before writing and remains true after dele
   const folder = fixture();
   const parsed = readKinds(folder);
   if (!parsed.present) throw new Error('fixture manifest missing');
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: graphContractOf(parsed.manifest) });
   try {
     await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
     expect(await authoredHistoryPresent(owner)).toBe(false);
@@ -134,7 +134,7 @@ test('changed source after a committed archive failure edits the receipt uid and
   const changed = Buffer.from('---\r\nid: note:kept\r\nkind: note\r\ntitle: Changed\r\n---\r\nSecond body\r\n');
   writeFileSync(join(folder, 'old/kept.md'), original);
   writeFileSync(join(folder, '.madarch'), 'blocked');
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: graphContractOf(parsed.manifest) });
   try {
     await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
     const first = await importAuthored(folder, owner, parsed.manifest, '', 'first-reader');
@@ -169,7 +169,7 @@ test('byte-only retry retains the changed exact source once without another opin
   const changed = Buffer.from('---\n# Imported source comment\nid: note:kept\nkind: note\ntitle: Kept\n---\nBody\n');
   writeFileSync(join(folder, 'old/kept.md'), original);
   writeFileSync(join(folder, '.madarch'), 'blocked');
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: graphContractOf(parsed.manifest) });
   try {
     await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
     await importAuthored(folder, owner, parsed.manifest, '', 'reader');
