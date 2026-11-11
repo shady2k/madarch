@@ -151,3 +151,17 @@ describe('madarch trace', () => {
     }
   }, 900_000);
 });
+
+test('root coverage excludes a containing root but not separate roots', () => {
+  const span = (spanId: string, start: number, end: number) => ({ traceId: 'trace', spanId, parentSpanId: undefined, name: spanId, start, end, attributes: {}, failed: false });
+  const a = span('a', 2, 4);
+  const b = span('b', 6, 8);
+  const run = span('run', 0, 10);
+  const contained = traceReportOf([a, b, run], 'fixture.jsonl');
+  expect(contained.uncoveredMs).toBe(6);
+  expect(contained.gaps).toEqual([{ atMs: 0, ms: 2 }, { atMs: 4, ms: 2 }, { atMs: 8, ms: 2 }]);
+  const separate = traceReportOf([a, b], 'fixture.jsonl');
+  expect(separate.uncoveredMs).toBe(2);
+  expect(separate.gaps).toEqual([{ atMs: 2, ms: 2 }]);
+  expect(traceReportOf([], 'fixture.jsonl').wallMs).toBe(0);
+});

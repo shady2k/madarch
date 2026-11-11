@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { raise } from '../model/raise.js';
-import { traceFiles } from './trace.js';
+import { traceFiles, withSpanSync } from './trace.js';
 
 /** One span as a trace line states it: OTLP's names, times in milliseconds. */
 export interface TraceSpan {
@@ -235,13 +235,14 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
     const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
   }
   // The wall clock runs from the earliest span of the run to the last: the trace of one run is one window.
-  const from = spans.length === 0 ? 0 : Math.min(...spans.map((span) => span.start));
-  const to = spans.length === 0 ? 0 : Math.max(...spans.map((span) => span.end));
+  const from = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const to = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   const wallMs = Math.max(0, to - from);
 
   const selfBy = new Map<string, { count: number; selfMs: number }>();
   for (const span of spans) {
-    const childMs = coveredMs((children.get(span.spanId) ?? []).map((child) => ({ start: child.start, end: child.end })));
+    const childSpans = children.get(span.spanId);
+    const childMs = childSpans === undefined ? 0 : coveredMs(childSpans);
     const selfMs = Math.max(0, span.end - span.start - childMs);
     const held = selfBy.get(span.name) ?? { count: 0, selfMs: 0 };
     selfBy.set(span.name, { count: held.count + 1, selfMs: held.selfMs + selfMs });
@@ -265,7 +266,9 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
   // statement, a child process, a library's own operation — covers the time it was open.
   const ids = new Set(spans.map((span) => span.spanId));
   const roots = spans.filter((span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId));
-  const runSpan = roots.find((span) => roots.every((other) => other === span || (other.start >= span.start && other.end <= span.end)));
+  const rootStart = roots.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const rootEnd = roots.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
+  const runSpan = roots.find((span) => span.start === rootStart && span.end === rootEnd);
   const covering = runSpan === undefined ? spans : spans.filter((span) => span !== runSpan);
   const covered = union(covering.map((span) => ({ start: span.start, end: span.end })));
   const gaps: UncoveredGap[] = [];
@@ -360,7 +363,8 @@ export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
   for (const [step, held] of steps) {
     const selfBy = new Map<string, { count: number; selfMs: number }>();
     for (const one of held.spans) {
-      const childMs = coveredMs((children.get(one.spanId) ?? []).map((child) => ({ start: child.start, end: child.end })));
+      const childSpans = children.get(one.spanId);
+      const childMs = childSpans === undefined ? 0 : coveredMs(childSpans);
       const selfMs = Math.max(0, one.end - one.start - childMs);
       const known = selfBy.get(one.name) ?? { count: 0, selfMs: 0 };
       selfBy.set(one.name, { count: known.count + 1, selfMs: known.selfMs + selfMs });
@@ -417,14 +421,14 @@ export function readTraceRun(options: { readonly store: string; readonly runId?:
   if (files.length === 0) raise(`the store holds no trace: its traces are one JSON lines file per run in ${join(options.store, 'traces')}, and a fill writes one`);
   const chosen = options.runId === undefined ? files[0]! : files.find((one) => one.runId === options.runId || one.file.endsWith(`/${traceFileNameOf(options.runId!)}`));
   if (chosen === undefined) raise(`the store holds no trace of run ${JSON.stringify(options.runId)}; its runs are ${files.map((one) => JSON.stringify(one.runId)).join(', ')}`);
-  const spans = readTraceSpans(chosen.file);
-  const startedAt = spans.length === 0 ? 0 : Math.min(...spans.map((span) => span.start));
-  const endedAt = spans.length === 0 ? 0 : Math.max(...spans.map((span) => span.end));
+  const spans = withSpanSync('trace.read', {}, () => readTraceSpans(chosen.file));
+  const startedAt = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const endedAt = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   return {
     file: chosen.file,
     runId: chosen.runId,
-    report: traceReportOf(spans, chosen.file),
-    steps: stepReportsOf(spans),
+    report: withSpanSync('trace.report', {}, () => traceReportOf(spans, chosen.file)),
+    steps: withSpanSync('trace.steps', {}, () => stepReportsOf(spans)),
     startedAtMs: startedAt,
     endedAtMs: endedAt,
   };

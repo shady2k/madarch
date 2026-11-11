@@ -2056,13 +2056,17 @@ export class KnowledgeProduct {
 
   private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
     await this.followStoreFill();
-    const problems = await this.problemsKeySafe();
+    // Without a manifest in the graph there is no Problems listing to collect. Opening a new
+    // store here would block the next poll on initdb for a product nobody has filled.
+    if (ctx === undefined) return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
+    // followStoreFill just read this publication; use the same revision for the Problems key.
+    const problems = await this.problemsKey(this.storeStamp).catch(() => '');
     const collected = this.problemsCache;
     let loop = body.loop;
     if (problems === '' || collected === undefined || collected.key !== problems) {
       // No listing for these inputs yet: the count is pending (the collection runs beside the answer, and the next poll
       // carries it), and a reader shows the corrections it counts from their files.
-      await this.openProblems();
+      await this.openProblems(problems);
       const { problemsOpen: _pending, ...rest } = loop;
       loop = rest;
     } else {
@@ -2359,8 +2363,8 @@ export class KnowledgeProduct {
    * The open problems of the Problems page. Status is polled, so the count is read once per graph revision and the
    * unplaced units; a product whose page cannot be read falls back to the corrections, which are read from the graph.
    */
-  private async openProblems(): Promise<{ count: number; key: string } | undefined> {
-    const key = await this.problemsKeySafe();
+  private async openProblems(knownKey?: string): Promise<{ count: number; key: string } | undefined> {
+    const key = knownKey ?? await this.problemsKeySafe();
     if (key === '') return undefined;
     const cached = this.problemsCache;
     // The listing already collected for exactly these inputs: no walk.
@@ -2991,14 +2995,14 @@ export class KnowledgeProduct {
    * stream moves with is not part of it: a fill that reads a commit moves that revision without changing a problem
    * (madarch-m38l.19). A read of a page never stamps the checkout (madarch-hsqs stage C).
    */
-  private async problemsKey(): Promise<string> {
-    return `${await this.problemInputsKey()}|${this.storeKey()}`;
+  private async problemsKey(revision?: string): Promise<string> {
+    return `${await this.problemInputsKey(revision)}|${this.storeKey()}`;
   }
 
   /** What the Problems listing reads besides the store: the graph revision and the writer's plan. */
-  private async problemInputsKey(): Promise<string> {
+  private async problemInputsKey(revision?: string): Promise<string> {
     const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
-    return `${plan}|${await this.graphRevision()}`;
+    return `${plan}|${revision ?? await this.graphRevision()}`;
   }
 
   /** The store as a listing reads it: the snapshot the pages show and what each repository was filled to. */
