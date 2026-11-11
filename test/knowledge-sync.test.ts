@@ -56,6 +56,7 @@ async function refresh(product: string): Promise<any> {
 }
 
 beforeAll(async () => {
+  if (skippedSuite !== undefined) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-knowledge-sync-'));
   const repository = generateTrainingRepository(join(work, 'training'));
   const home = join(work, 'home');
@@ -87,6 +88,7 @@ Checkout asks the payment service to take the card's amount.[^1]
 }, 120_000);
 
 afterAll(async () => {
+  if (skippedSuite !== undefined) return;
   await server.stop();
   rmSync(work, { recursive: true, force: true });
 }, 60_000);
