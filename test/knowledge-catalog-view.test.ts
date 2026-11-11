@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { catalogKinds } from '../src/knowledge/catalog-view.js';
-import { kindSummaries } from '../src/knowledge/render.js';
+import { kindSummaries, listEntities } from '../src/knowledge/render.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import type { MarkdownEntity } from '../src/knowledge/markdown.js';
@@ -136,6 +136,47 @@ function context(): RenderContext {
 }
 
 describe('the catalogue view lists every declared kind', () => {
+  test('kind details preserve typed fields and project both relation directions without inventing endpoints', async () => {
+    const ctx = context();
+    const written = ctx.manifest.kinds.get('written')!;
+    const person = ctx.manifest.kinds.get('by-person')!;
+    const fields = [{ name: 'owner', type: 'text' as const, nullable: true, reference: 'by-person', producers: ['agent'] }];
+    const kinds = new Map(ctx.manifest.kinds);
+    kinds.set('written', { ...written, fields, relations: [{ type: 'contains', to: 'by-person:{owner}', line: 1 }] });
+    kinds.set('by-person', person);
+    const catalog = ctx.manifest.catalog!;
+    const entries = new Map(catalog.kinds);
+    entries.set('empty', { ...entries.get('empty')!, relationsOut: ['contains'], relationsIn: ['contains'] });
+    const manifest = { ...ctx.manifest, kinds, catalog: { ...catalog, kinds: entries }, edges: new Map([
+      ['owns', { name: 'owns', from: ['written'], to: ['filled'], repeats: false, fields: [], line: 1 }],
+    ]) };
+    const rows = await catalogKinds({ ...ctx, manifest });
+    expect(rows.find((row) => row.kind === 'written')!.fields).toEqual(fields);
+    expect(rows.find((row) => row.kind === 'written')!.relations).toEqual([
+      { direction: 'out', name: 'owns', kind: 'filled' },
+      { direction: 'out', name: 'contains', kind: 'by-person' },
+    ]);
+    expect(rows.find((row) => row.kind === 'by-person')!.relations).toContainEqual({ direction: 'in', name: 'contains', kind: 'written' });
+    expect(rows.find((row) => row.kind === 'filled')!.relations).toContainEqual({ direction: 'in', name: 'owns', kind: 'written' });
+    expect(rows.find((row) => row.kind === 'empty')!.fields).toBeUndefined();
+    expect(rows.find((row) => row.kind === 'empty')!.relations).toEqual([
+      { direction: 'out', name: 'contains' }, { direction: 'in', name: 'contains' },
+    ]);
+  });
+
+  test('catalogue-only and member kinds list real graph records, while unknown kinds remain absent', async () => {
+    const ctx = context();
+    const entity = (kind: string) => ({ key: `${kind}:a`, kind, label: 'A', scope: '', nodeIds: [], properties: {} });
+    const graph = { ...ctx.graph, list: async (kind: string) => ({ total: kind === 'empty' ? 0 : 1, rows: kind === 'empty' ? [] : [entity(kind)], next: null }) };
+    const kinds = new Map(ctx.manifest.kinds);
+    kinds.set('written', { ...kinds.get('written')!, source: 'graph', member: { relation: 'contains', direction: 'in', line: 1 } });
+    const contextWithRecords = { ...ctx, graph, manifest: { ...ctx.manifest, kinds } } as unknown as RenderContext;
+    expect(await listEntities(contextWithRecords, 'filled', { limit: 20 })).toMatchObject({ total: 1, rows: [{ id: 'filled:a', href: null }] });
+    expect(await listEntities(contextWithRecords, 'empty', { limit: 20 })).toEqual({ kind: 'empty', total: 0, rows: [], next: null });
+    expect(await listEntities(contextWithRecords, 'written', { limit: 20 })).toMatchObject({ total: 1, rows: [{ id: 'written:a', href: '/e/written%3Aa' }] });
+    expect(await listEntities(contextWithRecords, 'unknown', { limit: 20 })).toBeUndefined();
+  });
+
   test('each kind carries its standards and the actual product declaration file and line', async () => {
     const ctx = context();
     const file = join(TEMPLATES, 'manifests/catalog.yaml');

@@ -472,7 +472,7 @@ export async function searchWiki(ctx: RenderContext, query: string, lang?: strin
 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
-  if (decl === undefined || decl.member !== undefined) return undefined;
+  if (decl === undefined && !ctx.manifest.catalog?.kinds.has(kind)) return undefined;
   // The graph is the one source of a file listing too: its `code.file` entities carry their repository in the key, so
   // two repositories' paths never collide, and each row links to the entity page the graph names.
   if (kind === 'code.file') {
@@ -495,7 +495,7 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
       }),
     };
   }
-  if (decl.source === 'markdown') {
+  if (decl?.source === 'markdown') {
     const text = options.q?.trim().toLowerCase() ?? '';
     const all = [...ctx.markdown.values()].filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
     const from = options.after === undefined ? 0 : all.findIndex((entity) => byCodePoint(entity.id, options.after!) > 0);

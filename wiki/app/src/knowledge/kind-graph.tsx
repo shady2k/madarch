@@ -1,10 +1,9 @@
 /** Shared catalogue graph: manifest dependencies, fill states, and kind inspection. */
-import type { ReactElement } from 'react';
+import { useEffect, useRef, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { addressOfKind } from './routes.js';
 import { KLink } from './blocks.js';
 import { Badge } from '@/components/ui/badge.js';
-import { Button } from '@/components/ui/button.js';
 import type { CatalogKindView, CatalogView } from './types.js';
 
 /** One entity of the graph: the kind, its dependencies and the depths it stands at. */
@@ -114,12 +113,12 @@ export interface KindGraphProps {
   readonly catalog: CatalogView;
   readonly filling?: boolean;
   readonly chosen?: string | null;
-  readonly onChoose?: (kind: string) => void;
   readonly highlighted?: ReadonlySet<string>;
 }
 
-export function KindGraph({ catalog, filling = false, chosen = null, onChoose, highlighted }: KindGraphProps): ReactElement {
+export function KindGraph({ catalog, filling = false, chosen = null, highlighted }: KindGraphProps): ReactElement {
   const { t, i18n } = useTranslation();
+  const viewport = useRef<HTMLDivElement>(null);
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const { nodes, layers, cycles } = graphLayers(catalog.kinds);
   const active = new Set([...relatedKinds(catalog.kinds, chosen), ...highlighted ?? []]);
@@ -130,11 +129,17 @@ export function KindGraph({ catalog, filling = false, chosen = null, onChoose, h
   const height = Math.max(...layers.map((layer) => layer.length), 1) * (BOX_HEIGHT + GAP) + 16;
   const width = Math.max(layers.length, 1) * COLUMN;
   const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
+  const chosenX = chosen === null ? undefined : place.get(chosen)?.x;
+  useEffect(() => {
+    const frame = viewport.current;
+    if (frame === null || chosenX === undefined) return;
+    frame.scrollLeft = Math.max(0, chosenX + BOX_WIDTH / 2 - frame.clientWidth / 2);
+  }, [chosen, chosenX]);
   return (
     <section data-testid="kind-graph">
       {cycles.length > 0 && <p className="m-0 text-small" role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</p>}
       {/* The graph is its own frame: on a phone it scrolls sideways inside the page, and the page itself never does. */}
-      <div className="overflow-x-auto" data-testid="dependencies-graph">
+      <div ref={viewport} className="overflow-x-auto" data-testid="dependencies-graph">
         <div className="relative" style={{ width, height }}>
           <svg width={width} height={height} aria-hidden="true" className="absolute inset-0">
             {nodes.flatMap((node) => node.dependsOn.flatMap((dependency) => {
@@ -152,7 +157,7 @@ export function KindGraph({ catalog, filling = false, chosen = null, onChoose, h
           {nodes.map((node) => (
             <div
               key={node.kind.kind}
-              className={`absolute rounded-[var(--radius-card)] border px-2 py-1.5 text-small ${active.has(node.kind.kind) ? 'border-ink bg-[var(--surface-active)]' : 'border-line bg-page'}`}
+              className={`absolute rounded-[var(--radius-card)] border text-small ${active.has(node.kind.kind) ? 'border-ink bg-[var(--surface-active)]' : 'border-line bg-page'}`}
               style={{ left: place.get(node.kind.kind)?.x, top: place.get(node.kind.kind)?.y, width: BOX_WIDTH, height: BOX_HEIGHT }}
               data-testid="dependency-node"
               data-kind={node.kind.kind}
@@ -163,13 +168,13 @@ export function KindGraph({ catalog, filling = false, chosen = null, onChoose, h
               data-related={String(active.has(node.kind.kind))}
               data-highlighted={String(active.has(node.kind.kind))}
             >
-              <Button type="button" variant="ghost" size="default" className="block h-auto w-full justify-start truncate rounded-none p-0 text-left text-ink disabled:opacity-100" aria-pressed={chosen === node.kind.kind} disabled={onChoose === undefined} onClick={() => onChoose?.(node.kind.kind)} data-testid={`dependency-choose-${node.kind.kind}`}>{name(node.kind)}</Button>
-              <span className="flex items-center justify-between gap-2 text-[11px] text-muted">
-                <span data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(node.kind, filling)}`)}</span>
-                {node.kind.page
-                  ? <KLink href={addressOfKind(node.kind.kind)} testId={`dependency-link-${node.kind.kind}`}><Badge variant="outline" data-testid="dependency-count">{node.kind.count}</Badge></KLink>
-                  : <Badge variant="outline" data-testid="dependency-count">{node.kind.count}</Badge>}
-              </span>
+              <KLink href={addressOfKind(node.kind.kind)} testId={`dependency-link-${node.kind.kind}`} className="block h-full w-full rounded-[var(--radius-card)] px-2 py-1.5 text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                <span className="block truncate">{name(node.kind)}</span>
+                <span className="flex items-center justify-between gap-2 text-[11px] text-muted">
+                  <span data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(node.kind, filling)}`)}</span>
+                  <Badge variant="outline" data-testid="dependency-count">{node.kind.count}</Badge>
+                </span>
+              </KLink>
             </div>
           ))}
         </div>

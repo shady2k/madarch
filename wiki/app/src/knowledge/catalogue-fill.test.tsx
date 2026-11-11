@@ -6,6 +6,7 @@ import { setWikiLanguage } from '../i18n.js';
 import { CataloguePage } from './pages.js';
 import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import type { CatalogView } from './types.js';
+import { frontTab } from './tabs.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -64,21 +65,6 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
-  test('the source popover names the declaration line, page template and plugin folder', async () => {
-    await setWikiLanguage('en');
-    stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, declaration: { repo: 'shop', path: 'madarch/kinds.yaml', line: 42 }, template: { repo: 'shop', path: 'templates/file.liquid' }, pluginFolders: ['plugins/files'] }] });
-    const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="kind-source-trigger"]') !== null, 'source trigger');
-    page.querySelector<HTMLButtonElement>('[data-testid="kind-source-trigger"]')!.click();
-    await until(() => document.querySelector('[data-testid="kind-source-popover"]') !== null, 'source popover');
-    const popover = document.querySelector('[data-testid="kind-source-popover"]')!;
-    expect(popover.textContent).toContain('madarch/kinds.yaml:42');
-    expect(popover.textContent).toContain('templates/file.liquid');
-    expect(popover.querySelector('[data-testid="kind-source-producer"]')!.textContent).toBe('plugins/files');
-    expect(popover.querySelector('[data-testid="kind-declaration"]')!.getAttribute('href')).toBe('/src?repo=shop&path=madarch%2Fkinds.yaml&line=42');
-    expect(localeKeyIn(renderedText(popover as HTMLElement))).toBeUndefined();
-  });
-
   test('contents lists every section and kind and jumps to the selected section', async () => {
     await setWikiLanguage('en');
     stub([]);
@@ -133,48 +119,53 @@ describe('the catalogue as a browse-only view', () => {
     }
   });
 
-  test('Table and Graph share the filter, chosen kind and dependency highlights', async () => {
-    stub([]);
+  test('Table and Graph show the same kinds and navigation links under a shared filter', async () => {
+    await setWikiLanguage('en');
+    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'doc.use-case' ? { ...kind, page: false } : kind) });
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'table kinds');
     const kinds = [...page.querySelectorAll('[data-kind]')].map((row) => row.getAttribute('data-kind')).sort();
-    (page.querySelector('[data-kind="code.file"] button[aria-pressed]') as HTMLButtonElement).click();
-    await until(() => page.querySelector('[data-kind="doc.term"]')?.getAttribute('data-related') === 'true', 'dependent highlight');
+    const kindLinks = (): (string | null)[] => [...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')]
+      .map((row) => row.querySelector('a')?.getAttribute('href') ?? null).sort();
+    expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
     const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
     graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
     await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph kinds');
     expect([...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')].map((row) => row.getAttribute('data-kind')).sort()).toEqual(kinds);
-    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]')!.getAttribute('data-chosen')).toBe('true');
-    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="doc.term"]')!.getAttribute('data-related')).toBe('true');
+    expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
     expect(localeKeyIn(renderedText(page))).toBeUndefined();
+    const address = window.location.href;
     const input = page.querySelector('input[type="search"]') as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
     input.focus();
     setter.call(input, 'Source files');
     input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 's' }));
     await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered graph');
+    expect(kindLinks()).toEqual(['/kind/code.file']);
     const filteredContents = [...page.querySelectorAll<HTMLAnchorElement>('[data-testid="catalogue-contents"] a')];
     expect(filteredContents.map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code', '#catalogue-kind-code.file']);
     const tableTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Table')!;
     tableTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
     await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table');
     expect(page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')).toHaveLength(1);
-    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]')!.getAttribute('data-chosen')).toBe('true');
-    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"] a')!.getAttribute('href')).toContain('code.file');
+    expect(kindLinks()).toEqual(['/kind/code.file']);
+    expect(window.location.href).toBe(address);
   });
 
-  test('shows standards and the product declaration file together with navigable source line', async () => {
+  test('clicking an ordinary row cell opens the kind detail page', async () => {
     await setWikiLanguage('en');
-    stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, sources: ['https://example.test/standard'], declaration: { repo: 'shop', path: 'madarch/kinds.yaml', line: 42 } }] });
+    stub([]);
     const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-testid="kind-declaration"]') !== null, 'kind sources');
-    const row = page.querySelector('[data-kind="code.file"]')!;
-    expect(row.querySelector('a[href="https://example.test/standard"]')).not.toBeNull();
-    const link = row.querySelector('[data-testid="kind-declaration"]')!;
-    expect(link.textContent).toBe('madarch/kinds.yaml:42');
-    const url = new URL(link.getAttribute('href')!, 'http://localhost');
-    expect(url.pathname).toBe('/src');
-    expect(Object.fromEntries(url.searchParams)).toEqual({ repo: 'shop', path: 'madarch/kinds.yaml', line: '42' });
+    await until(() => page.querySelector('[data-kind="code.file"]') !== null, 'table kinds');
+    const originalAddress = window.location.href;
+    try {
+      page.querySelector<HTMLTableCellElement>('[data-kind="code.file"] td:nth-child(2)')!.click();
+      await until(() => window.location.pathname === '/kind/code.file', 'kind detail navigation');
+      expect(frontTab().address).toBe('/kind/code.file');
+    } finally {
+      window.history.replaceState({}, '', originalAddress);
+      window.dispatchEvent(new Event('popstate'));
+    }
   });
 
   test('shows kinds by section, their meaning, record links, producers and states without fill controls', async () => {
@@ -238,7 +229,7 @@ describe('the catalogue as a browse-only view', () => {
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-kind="note"]') !== null, 'the other section');
     expect(page.querySelectorAll('[data-testid="catalogue-group"]')).toHaveLength(1);
-    expect(page.querySelector('[data-kind="note"] a')).toBeNull();
+    expect(page.querySelector('[data-kind="note"] a')!.getAttribute('href')).toBe('/kind/note');
     expect(page.querySelector('[data-testid="catalogue-total"]')!.textContent).toBe('1 kind, 4 records');
   });
 });

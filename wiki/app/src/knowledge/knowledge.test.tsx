@@ -1151,7 +1151,9 @@ describe('a kind\'s listing follows its declaration', () => {
 
   test('the operations table is drawn for a kind whose declaration gives it, and the plain table for one that does not', async () => {
     for (const drawn of [true, false]) {
-      (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.startsWith('/api/entities')
+      (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.startsWith('/api/catalog')
+        ? new Response(JSON.stringify({ groups: [], findings: [], kinds: [] }))
+        : url.startsWith('/api/entities')
         ? new Response(JSON.stringify({ kind: 'code.operation', total: 1, rows: [{ id: 'code.operation:api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', href: null }], next: null, ...(drawn ? { operations: {} } : {}) }))
         : new Response(JSON.stringify({ renderer: 'mermaid', views: [] })));
       const container = into(createElement(KindLabels.Provider, { value: [summary(drawn ? { listing: 'operations' } : {})] }, createElement(KindPage, { kind: 'code.operation', version: 1 })));

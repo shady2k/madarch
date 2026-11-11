@@ -516,7 +516,7 @@ describe('the catalogue', () => {
     findings: [],
   };
 
-  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link when it has a page, in the reader\'s language', async () => {
+  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link to its details, in the reader\'s language', async () => {
     answer(full);
     const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
@@ -533,11 +533,11 @@ describe('the catalogue', () => {
     expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('code extraction');
     expect(row.querySelector('[data-testid=catalogue-stage]')!.getAttribute('data-stage')).toBe('own');
     expect(container.querySelector('[data-kind="code.commit"] [data-testid=catalogue-stage]')!.textContent).toBe('the history stage');
-    // A kind nothing fills yet stays in the list with zero, and no link is offered to a page it does not have.
+    // Empty catalogue-only kinds also have declaration details.
     const empty = container.querySelector('[data-kind="domain"]')!;
     expect(empty.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
     expect(empty.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('agent');
-    expect(empty.querySelector('a')).toBeNull();
+    expect(empty.querySelector('a')!.getAttribute('href')).toBe('/kind/domain');
     expect(empty.getAttribute('data-filled')).toBe('false');
   });
 
@@ -563,7 +563,7 @@ describe('the catalogue', () => {
       const container = into(createElement(CataloguePage, { version: 0 }));
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
       const row = container.querySelector('[data-kind="domain"]')!;
-      expect(row.querySelector('[data-testid=catalogue-kind-name]')!.textContent).toBe('domain');
+      expect(row.querySelector('a')!.textContent).toBe('domain');
       expect(row.querySelector('[data-testid=catalogue-no-translation]')).toBeNull();
       expect(row.querySelector('[data-testid=catalogue-no-description]')).toBeNull();
       expect(row.textContent).not.toContain('Domains');

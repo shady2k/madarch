@@ -224,6 +224,8 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
   sources?: readonly string[];
+  fields?: readonly { name: string; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
+  relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   template?: { repo: string | null; path: string };
   pluginFolders?: readonly string[];
   declaration?: { repo: string | null; path: string; line: number };

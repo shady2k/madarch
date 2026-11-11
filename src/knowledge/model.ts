@@ -8,7 +8,7 @@ type GuidePageData = Record<string, unknown>;
  * app holds no knowledge of any kind and draws only these shapes.
  */
 import type { RefreshPlan } from '../loop/plan.js';
-import type { Finding } from './kinds.js';
+import type { FieldDecl, Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
@@ -435,6 +435,10 @@ export interface CatalogKindView {
   labels?: Record<string, { one: string; many: string }>;
   /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
   descriptions?: Record<string, string>;
+  /** The typed contract, exactly as the product declares it. */
+  fields?: readonly FieldDecl[];
+  /** Both directions of declared relations; a catalogue constraint may leave the other kind unspecified. */
+  relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   /** The standards or documents the kind declaration cites. */
   sources?: readonly string[];
   /** The product repository file and line that declare the kind. */

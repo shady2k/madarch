@@ -71,22 +71,25 @@ describe('the shared kind graph', () => {
     expect(term.querySelector('[data-testid="dependency-state"]')!.textContent).toBe('Partial');
     expect(term.querySelector('[data-testid="dependency-count"]')!.textContent).toBe('3');
     expect(term.querySelector('a')!.getAttribute('href')).toBe('/kind/doc.term');
-    expect(term.querySelector('button a')).toBeNull();
-    expect(graph.querySelector('[data-kind="independent"] a')).toBeNull();
+    expect(term.querySelector('a')!.textContent).toContain('Terms');
+    expect(nodes.map((node) => node.querySelector('a')!.getAttribute('href'))).toEqual([
+      '/kind/code.file', '/kind/independent', '/kind/doc.term', '/kind/doc.use-case',
+    ]);
+    expect(nodes.every((node) => node.querySelector('a')!.contains(node.querySelector('[data-testid="dependency-count"]')))).toBe(true);
+    expect(graph.querySelector('button')).toBeNull();
     expect(graph.querySelector('h1')).toBeNull();
     expect(graph.querySelector('[data-testid="dependencies-graph"]')!.className).toContain('overflow-x-auto');
     expect(localeKeyIn(renderedText(graph))).toBeUndefined();
   });
 
-  test('choosing is separate from records navigation and highlights dependencies and dependents', async () => {
+  test('a chosen kind highlights dependencies and dependents without changing navigation', async () => {
     const catalog = { ...CATALOG, kinds: [...CATALOG.kinds, kind({ kind: 'root', dependsOn: ['doc.term'] })] };
-    const choices: string[] = [];
-    const graph = into(createElement(KindGraph, { catalog, chosen: 'doc.term', onChoose: (id: string) => { choices.push(id); } }));
-    await until(() => graph.querySelector('button') !== null, 'the graph');
-    const chosen = graph.querySelector<HTMLButtonElement>('[data-testid="dependency-choose-doc.term"]')!;
-    expect(chosen.getAttribute('aria-pressed')).toBe('true');
-    chosen.click();
-    expect(choices).toEqual(['doc.term']);
+    const graph = into(createElement(KindGraph, { catalog, chosen: 'doc.term' }));
+    await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
+    const chosen = graph.querySelector('[data-kind="doc.term"]')!;
+    expect(chosen.getAttribute('data-chosen')).toBe('true');
+    expect(chosen.querySelector('a')!.getAttribute('href')).toBe('/kind/doc.term');
+    expect(graph.querySelector('button')).toBeNull();
     expect([...graph.querySelectorAll('[data-highlighted="true"]')].map((node) => node.getAttribute('data-kind'))).toEqual(['code.file', 'doc.term', 'root']);
     expect(graph.querySelector('[data-kind="doc.use-case"]')!.getAttribute('data-highlighted')).toBe('false');
     expect(graph.querySelector('[data-edge="code.file->doc.term"]')!.getAttribute('data-active')).toBe('true');
@@ -98,7 +101,8 @@ describe('the shared kind graph', () => {
     await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
     expect(graph.querySelector('[data-kind="doc.term"]')!.getAttribute('data-highlighted')).toBe('true');
     expect(graph.querySelectorAll('input')).toHaveLength(0);
-    expect(graph.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    expect(graph.querySelector('button')).toBeNull();
+    expect(graph.querySelectorAll('a')).toHaveLength(CATALOG.kinds.length);
   });
 
   test('layers follow longest chains, missing kinds are retained as dependencies, and cycles stay visible', async () => {
