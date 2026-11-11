@@ -255,7 +255,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
   test('the database page draws every table the SQL creates and the foreign key between them', async () => {
     const page = await product.page('code.database:app');
     if (!page.ok) throw new Error(page.message);
-    const notice = page.page.blocks.filter((block) => block.type === 'prose');
+    const notice = page.page.blocks.filter((block) => block.type === 'markdown');
     expect(JSON.stringify(notice)).toContain('Tables generated at run time are not shown until the agent fill');
     expect(JSON.stringify(notice)).toContain('not the complete database schema');
     const view = diagramsBlock(page.page).views[0];
