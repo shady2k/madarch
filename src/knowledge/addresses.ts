@@ -131,7 +131,6 @@ export const API = {
   agentChoices: '/api/agent-choices',
   modelRole: '/api/model-role',
   graphVerdicts: '/api/graph-verdicts',
-  starter: '/api/starter',
   rewritePages: '/api/rewrite-pages',
   startFresh: '/api/start-fresh',
 } as const;

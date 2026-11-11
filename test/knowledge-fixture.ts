@@ -13,6 +13,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { createDraft } from '../src/product/draft.js';
+import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/starter-catalog.js';
+import { KINDS_FILE } from '../src/knowledge/kinds.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
 
@@ -129,4 +132,30 @@ export function withoutEnrichmentKind(folder: string): void {
   manifest.deleteIn(['kinds', 'enrichment']);
   writeFileSync(file, manifest.toString());
   commitProduct(folder, 'Drop the enrichment kind');
+}
+
+/** One kind of the starter catalogue whose entities the wiki shows: a page of its own, or a member's row. */
+export type ShownStarterKind = CatalogKindData & {
+  readonly template: string;
+  readonly source: string;
+  readonly en: readonly [string, string];
+  readonly ru: readonly [string, string];
+  readonly describe: readonly [string, string];
+};
+
+/**
+ * The starter catalogue's kinds the starter manifest declares with a page: the same filter the starter set's data used
+ * to apply, read here from the catalogue alone — the engine no longer exports the list (madarch-64o5.3).
+ */
+export function starterKinds(): readonly ShownStarterKind[] {
+  return CATALOG_KINDS.filter(
+    (kind): kind is ShownStarterKind => kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined,
+  );
+}
+
+/** The starter manifest's text as `madarch new` writes it, with the product's page language when it has one. */
+export function starterManifestText(language?: string): string {
+  const entry = STARTER_FILES.find((file) => file.path === KINDS_FILE);
+  if (entry === undefined) throw new Error(`the starter set holds no ${KINDS_FILE}`);
+  return language === undefined ? entry.content : `${entry.content}language: ${language}\n`;
 }

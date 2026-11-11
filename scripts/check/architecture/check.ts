@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { dependencyRuleViolations } from './dependency-rules.js';
 import { fillEntryViolations } from './fill-entry.js';
 import { graphWriteViolations } from './graph-writes.js';
+import { starterDataViolations } from './starter-data.js';
 import { unreachableViolations } from './reachability.js';
 import { moduleSet, repositoryRoot } from './sources.js';
 import {
@@ -70,6 +71,7 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
   if (rules.includes('one-fill-entry')) found.push(...fillEntryViolations(root));
   if (rules.includes('graph-writes-in-writer')) found.push(...graphWriteViolations(root));
   if (rules.includes('no-unreachable-code')) found.push(...(await unreachableViolations(root)));
+  if (rules.includes('starter-data-when-copying')) found.push(...starterDataViolations(root));
   const located = orderedViolations(found);
   if (!existsSync(listPath)) {
     return {
@@ -183,6 +185,8 @@ function describe(violation: ArchitectureViolation): string {
       const whole = name === '*' ? 'the runner module as a whole' : `the fill runner ${name}`;
       return `${violation.file} imports ${whole} of ${module}, and only the orchestrator host (src/fill/orchestrator-host.ts) starts a fill`;
     }
+    case 'starter-data-when-copying':
+      return `${violation.file} imports the starter set ${violation.symbol}, and only src/product/draft.ts (what \`madarch new\` runs) copies the starter set into a product: the engine reads the product's own catalogue, templates and loop kinds, and a file it lacks is a problem naming that file`;
     case 'no-unreachable-code':
       return violation.symbol === null
         ? `the module is unreachable from every declared entry point of knip.json`

@@ -438,7 +438,6 @@ export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void 
         <CardHeader>
           <CardTitle>{t('knowledge.noManifestTitle')}</CardTitle>
           <CardDescription>{t('knowledge.noManifest', { file: 'madarch/kinds.yaml' })}</CardDescription>
-          {status.seedError !== undefined && <p className="mb-0 mt-2 text-small" role="alert" data-testid="seed-error">{status.seedError}</p>}
         </CardHeader>
         <CardContent>
           <p className="mb-0"><a href={appPath('/') + '?documents'}>{t('knowledge.documents')}</a></p>

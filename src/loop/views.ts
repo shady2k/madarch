@@ -19,7 +19,6 @@ import { impactOf, type TaskImpact } from './impact.js';
 import { impactGroundsOf, type PlannedMarks } from './planned.js';
 import { readTasksIn, scopeWords, type PlaceView, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
-import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 import { ruleForKind } from '../problems/rules.js';
 import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
 
@@ -158,8 +157,6 @@ export interface ProblemListing {
   readonly dismissed: number;
   /** Why a check could not be made (no single repository, say): said, never skipped silently. */
   readonly notes: readonly ProblemNote[];
-  /** What the current starter set holds and this product's edited manifest lacks; each can be added (madarch-m38l.11). */
-  readonly starter: readonly StarterOffer[];
 }
 
 /** One rule of the Problems page's first level, with the count it holds. */
@@ -188,7 +185,6 @@ export interface ProblemCategories {
   readonly sections: Readonly<Record<ProblemSection, number>>;
   readonly severities: Readonly<Record<ProblemSeverity, number>>;
   readonly notes: readonly ProblemNote[];
-  readonly starter: readonly StarterOffer[];
 }
 
 /** One source of a category: the page or the file its problems stand in. */
@@ -244,7 +240,6 @@ export interface ProblemInput {
   /** Findings of the manifest and of the product's Markdown, already read. */
   readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string; readonly kind?: FindingKind; readonly source?: string; readonly textKey?: string; readonly textArgs?: Record<string, string | number> }[];
   readonly unplaced?: readonly Unplaced[];
-  readonly starter?: readonly StarterOffer[];
   /** The product's `problems:` rules and thresholds, read from its manifest (`problems:`). */
   readonly settings: ProblemSettings;
   /** Ids a person marked «Не проблема»: they are left out of the sections and counted. */
@@ -404,7 +399,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
       label: { ...setting.label },
     };
   }).sort((a, b) => sectionOrder.indexOf(a.section) - sectionOrder.indexOf(b.section) || byCodePoint(a.rule, b.rule));
-  return { problems: kept, categories, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes, starter: input.starter ?? [] };
+  return { problems: kept, categories, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes };
 }
 
 function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings, notes: ProblemNote[]): Problem | undefined {

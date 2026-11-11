@@ -239,7 +239,7 @@ describe('the problems page', () => {
         })).sort((a, b) => a.section.localeCompare(b.section) || a.rule.localeCompare(b.rule));
         const body: ProblemCategories = {
           categories, total: problems.length, open: problems.filter((row) => !row.closed).length, closed: problems.filter((row) => row.closed).length,
-          dismissed: 0, sections: { code: 0, documents: 0, wiki: 0 }, severities: { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 }, notes, starter: [],
+          dismissed: 0, sections: { code: 0, documents: 0, wiki: 0 }, severities: { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 }, notes,
         };
         for (const row of problems) { body.sections[row.section!] += 1; body.severities[row.severity!] += 1; }
         return json(body);

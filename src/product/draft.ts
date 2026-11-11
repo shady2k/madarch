@@ -15,11 +15,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
 import { productsHome, type DraftEnv } from './home.js';
-import { STARTER_FILES } from '../knowledge/seed.js';
+import { seedStarterSet, STARTER_FILES } from '../knowledge/seed.js';
 export type { DraftEnv };
 
 
@@ -247,10 +247,8 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     writeFileSync(join(folder, MANIFEST_FILE), manifestText(id, name));
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
-    for (const starter of STARTER_FILES) {
-      mkdirSync(dirname(join(folder, starter.path)), { recursive: true });
-      writeFileSync(join(folder, starter.path), starter.content);
-    }
+    // The starter set is copied into the product repository by the one module that writes it as files: `madarch new`.
+    seedStarterSet(folder);
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);

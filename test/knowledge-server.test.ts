@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
 import { readKinds } from '../src/knowledge/kinds.js';
@@ -103,14 +104,16 @@ afterAll(async () => {
 });
 
 describe('an empty product', () => {
-  test('a product without a manifest is given the starter set at init, and before a fill it answers no kinds: the graph is the one source', async () => {
+  test('a product without a manifest is given nothing by the server, and before a fill it answers no kinds: the graph is the one source', async () => {
     const bare = await get('/products/bare/api/status');
-    // The init wrote the starter set into the folder; the graph holds nothing yet, so the wiki shows no kind and says
-    // which file it lacks (madarch-hsqs stage C).
+    // The engine knows no entities: nothing was written into the folder, so the wiki shows no kind and says
+    // which file it lacks (decision 0034, item 24).
     expect(bare.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, kinds: [] });
-    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml']);
-    // The seeded file is on disk, where the next fill reads it.
-    expect(readKinds(join(home, 'bare')).present).toBe(true);
+    expect(bare.body.seeded).toBeUndefined();
+    expect(readKinds(join(home, 'bare')).present).toBe(false);
+    const refused = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(await refused.json())).toContain('madarch/kinds.yaml');
     const tiny = await get('/products/tiny/api/status');
     expect(tiny.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
     expect(tiny.body.kinds).toEqual([]);
@@ -119,7 +122,11 @@ describe('an empty product', () => {
   });
 
   test('after a fill the catalogue lists every kind the manifest declares, with a zero count for one nothing filled, and its own answer stays under the size bound', async () => {
-    // The kinds are the manifest's as the graph holds it: a fill of the bare product reads its seeded manifest first.
+    // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
+    // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
+    seedStarterSet(join(home, 'bare'));
+    git(join(home, 'bare'), 'add', '-A');
+    git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
     const started = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(started.status).toBe(202);
     for (let attempt = 0; attempt < 240; attempt += 1) {

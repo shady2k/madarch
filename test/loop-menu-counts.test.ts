@@ -107,7 +107,7 @@ describe('the problems entry of the menu', () => {
     // the starter manifest expects), so the count is read rather than assumed.
     expect(before.body.loop.problemsOpen).toBe(problemsBefore.body.open);
 
-    // A group whose parent is not declared: the Problems page reads it as a finding, and no starter offer changes.
+    // A group whose parent is not declared: the Problems page reads it as a finding.
     const manifest = readFileSync(join(folder, 'madarch/kinds.yaml'), 'utf8');
     expect(manifest).toContain('groups:\n');
     writeFileSync(join(folder, 'madarch/kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, parent: nowhere }\n'));
@@ -118,13 +118,11 @@ describe('the problems entry of the menu', () => {
     const problems = await get('/api/problems');
     expect(problems.status).toBe(200);
     expect(problems.body.open).toBe(problemsBefore.body.open + 1);
-    expect(problems.body.starter).toEqual([]);
 
     // The edit moved the key the count stands under, so the next answers are pending until the listing of the new files
     // lands — and the count they then carry is the new one, never the old one (a listing of other inputs is not answered).
     const after = await statusWithCount();
     expect(after.body.loop.problemsOpen).toBe(problems.body.open);
-    expect(after.body.starterOffers).toBe(before.body.starterOffers);
   }, 60_000);
 });
 

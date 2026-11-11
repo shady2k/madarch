@@ -21,6 +21,7 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -49,6 +50,8 @@ beforeAll(async () => {
   git(repository, 'commit', '-qm', 'the code the walk reads');
   writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: 6a2f3c14-6a4e-4b0a-9a2c-2f7a1b3c4d5e\nname: walk\nrepos:\n  - name: walk-code\n    url: file:///walk-code\n');
   writeFileSync(join(product, 'docs', 'product.md'), '# Walk\n\nA small product the walk fills.\n');
+  // The product holds its own copy of the starter set, as `madarch new` leaves it; the fill workflow is its own.
+  seedStarterSet(product);
   writeFirstFillWorkflow(product);
   git(product, 'init', '-q', '-b', 'main');
   git(product, 'add', '-A');

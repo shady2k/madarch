@@ -782,10 +782,10 @@ describe('every route names its tab', () => {
   const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 };
   const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0,
+    product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0,
     kinds: [{ kind: 'code.symbol', source: 'graph', count: 1, single: false, origins: ['code'] }], groups: [], repositories: [{ name: 'shop', filled: true }],
     filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS,
-    chosenAgent: null, home: null, starterOffers: 0, ...over,
+    chosenAgent: null, home: null, ...over,
   });
   const pageModel = (id: string, title: string): unknown => ({ id, kind: 'domain', title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [] });
   const loading = (): string => i18n.t('knowledge.loading');

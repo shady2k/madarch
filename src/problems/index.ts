@@ -16,7 +16,6 @@ import type { KindsManifest } from '../knowledge/kinds.js';
 import type { Problem, ProblemInput } from '../loop/views.js';
 import { listProblems } from '../loop/views.js';
 import type { Unplaced } from '../loop/plan.js';
-import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 import { readCodeSnapshot, evaluateCode } from './code.js';
 import { evaluateDocuments } from './documents.js';
 import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } from './types.js';
@@ -34,7 +33,6 @@ export interface CollectInput {
   readonly findings: readonly Finding[];
   readonly repository?: ProblemInput['repository'];
   readonly unplaced?: readonly Unplaced[];
-  readonly starter?: readonly StarterOffer[];
   readonly dismissed?: ReadonlySet<string>;
 }
 
@@ -84,7 +82,6 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     settings: input.settings,
     ...(input.repository === undefined ? {} : { repository: input.repository }),
     ...(input.unplaced === undefined ? {} : { unplaced: input.unplaced }),
-    ...(input.starter === undefined ? {} : { starter: input.starter }),
     ...(input.dismissed === undefined ? {} : { dismissed: input.dismissed }),
     extraProblems: drafts.map(problemOf),
   });

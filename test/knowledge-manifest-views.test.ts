@@ -18,7 +18,7 @@ import { byCodePoint } from '../src/model/order.js';
 import { readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
 import { kindSummaries, listEntities } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
-import { STARTER_KINDS } from '../src/knowledge/seed.js';
+import { starterKinds } from './knowledge-fixture.js';
 import { buildViews, diagramsBlock, type GraphView } from '../src/knowledge/views.js';
 
 const work = mkdtempSync(join(tmpdir(), 'madarch-manifest-views-'));
@@ -386,7 +386,8 @@ describe('the navigation a kind gets travels in its summary', () => {
   });
 
   test('the starter set gives the same kinds the views, the chain, the parts, the definition, the listing and the places they had before', () => {
-    const of = (pick: (kind: (typeof STARTER_KINDS)[number]) => string | undefined) => STARTER_KINDS.map(pick).filter((value) => value !== undefined);
+    const shown = starterKinds();
+    const of = (pick: (kind: (typeof shown)[number]) => string | undefined) => shown.map(pick).filter((value) => value !== undefined);
     expect(of((kind) => (kind.views === undefined ? undefined : `${kind.name}: ${kind.views.join(', ')}`))).toEqual([
       'code.service: c4-component, state',
       'code.package: state',

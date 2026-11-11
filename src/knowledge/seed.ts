@@ -1,7 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
-import { parseDocument } from 'yaml';
-import { KINDS_FILE } from './kinds.js';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
@@ -276,24 +274,6 @@ them, as label.
 {% block lead %}{% body %}{% endblock %}
 `,
 };
-
-/** One kind of the starter catalog whose entities the wiki shows: a page of its own, or a member's row. */
-export type StarterKind = CatalogKindData & {
-  readonly template: keyof typeof TEMPLATES;
-  readonly source: 'markdown' | 'graph' | 'document';
-  /** `one` and `many` per language. */
-  readonly en: readonly [string, string];
-  readonly ru: readonly [string, string];
-  readonly describe: readonly [string, string];
-};
-
-/**
- * The kinds of the starter set the wiki shows, in the manifest's order: the catalog hods every kind of the product's
- * life cycle, and a kind the engine cannot make yet (the template policy `none`) shows no page, so it is no kind here.
- */
-export const STARTER_KINDS: readonly StarterKind[] = CATALOG_KINDS.filter(
-  (kind): kind is StarterKind => kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined,
-);
 
 /**
  * The groups of the navigation and the catalogue, as the catalog declares them: an area, then its subgroups. The
@@ -571,17 +551,6 @@ function propertyYaml(label: PropertyLabel): string {
   return `{ en: ${yamlText(label.en)}, ru: ${yamlText(label.ru)}, format: ${yamlText(label.format ?? 'text')}${fields} }`;
 }
 
-/** One property's declaration as the manifest's YAML nodes: what an upgrade adds when a kind needs a property it names. */
-export function propertyDeclaration(name: string): Record<string, unknown> | undefined {
-  const label = PROPERTY_LABELS[name];
-  if (label === undefined) return undefined;
-  const fields = label.fields === undefined ? {} : Object.fromEntries(Object.entries(label.fields).map(([key, field]) => [key, { en: field.en, ru: field.ru, format: field.format ?? 'text' }]));
-  return { en: label.en, ru: label.ru, format: label.format ?? 'text', ...(label.fields === undefined ? {} : { fields }) };
-}
-
-/** The exclusion list of the manifest's `documents` section. */
-export const DOCUMENT_EXCLUDES: readonly string[] = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENTS.md', '**/CLAUDE.md', '**/GEMINI.md'];
-
 /**
  * The rules of the Problems page as the starter manifest writes them (madarch-m38l.19, the review's
  * first finding): this is starter content, not engine behaviour. The engine keeps only the
@@ -666,12 +635,6 @@ function workflowsManifest(): string {
     lines.push(`  ${workflow.name}:`, `    status: ${workflow.status}`, ...stageList(workflow.stages));
   }
   return `${lines.join('\n')}\n`;
-}
-
-/** The starter manifest's text, with the product's page language when it has one. */
-export function starterManifest(language?: string): string {
-  const text = kindsManifest();
-  return language === undefined ? text : `${text}language: ${language}\n`;
 }
 
 function kindsManifest(): string {
@@ -907,46 +870,3 @@ export function seedStarterSet(productFolder: string): string[] {
   return written;
 }
 
-/**
- * The kinds the loop of questions and corrections needs (madarch-m38l.7): `question` and `correction`, their folders and
- * their templates. A product made before they existed is given them when a refresh starts: the manifest gains the
- * missing declarations (its comments kept) and the templates that are absent are written. Answers the paths it wrote.
- */
-export function ensureLoopKinds(productFolder: string): string[] {
-  const written: string[] = [];
-  const file = join(productFolder, KINDS_FILE);
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    throw new Error(`src/knowledge/seed.ts: ${file} cannot be read to add the question and correction kinds: ${(error as Error).message}`);
-  }
-  const document = parseDocument(text);
-  if (document.errors.length > 0) throw new Error(`${file}:${document.errors[0]!.linePos?.[0].line ?? 1}: the manifest cannot be read, so the question and correction kinds are not added: ${document.errors[0]!.message.split('\n')[0]}`);
-  const wanted = STARTER_KINDS.filter((kind) => kind.name === 'question' || kind.name === 'correction' || kind.name === 'administrator-guide' || kind.name === 'user-guide');
-  let changed = false;
-  for (const kind of wanted) {
-    if (document.hasIn(['kinds', kind.name])) continue;
-    // A group the manifest does not declare would make the kind a finding: the kind is then declared without one.
-    for (const detail of DETAILS[kind.name] ?? []) {
-      if (document.hasIn(['properties', detail])) continue;
-      const declaration = propertyDeclaration(detail);
-      if (declaration !== undefined) document.setIn(['properties', detail], document.createNode(declaration));
-    }
-    const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]), catalog: document.hasIn(['catalog']) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
-    document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
-    changed = true;
-  }
-  for (const name of ['question.liquid', 'correction.liquid', 'guide.liquid']) {
-    const target = join(productFolder, 'templates', name);
-    if (existsSync(target)) continue;
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, TEMPLATES[name]!, { flag: 'wx' });
-    written.push(`templates/${name}`);
-  }
-  if (changed) {
-    writeFileSync(file, document.toString(), 'utf8');
-    written.push(KINDS_FILE);
-  }
-  return written;
-}

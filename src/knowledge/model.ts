@@ -746,10 +746,6 @@ export interface WikiStatus {
   manifestFile: string;
   /** The language the product's pages are written in; English when the manifest names none. */
   language: string;
-  /** The starter files this server wrote into the product when it had no kinds manifest. */
-  seeded: string[];
-  /** Why the starter set could not be written into a product that has no manifest. */
-  seedError?: string;
   /** How many findings the documents and the manifest hold: a count, never the list (madarch-8bdc.2.5). */
   findingCount: number;
   kinds: KindSummary[];
@@ -785,8 +781,6 @@ export interface WikiStatus {
    * (madarch-u3vw.8), and a reader falls back to the corrections it counts from their files.
    */
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen?: number };
-  /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
-  starterOffers: number;
   /**
    * The repository this step's graph holds, when the store holds one: the
    * wiki's home page is the repository's own page while this stands

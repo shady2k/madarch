@@ -44,7 +44,7 @@ beforeAll(async () => {
   mkdirSync(app, { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
   server = await startServer({ productFolder: product, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
-  // The starter set is seeded by the first answer; the pages then stand in the product's repository.
+  // The fixture product holds its own copy of the starter set; the pages then stand in the product's repository.
   const seeded = await fetch(`${server.url}/api/status`);
   expect(seeded.status).toBe(200);
   writeSamplePages(product);

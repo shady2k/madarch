@@ -397,8 +397,6 @@ export type WikiStatus = {
   manifest: 'ok' | 'no-manifest';
   manifestFile: string;
   language: string;
-  seeded: string[];
-  seedError?: string;
   /** How many findings the documents hold: a count, never the list (madarch-8bdc.2.5). */
   findingCount: number;
   kinds: KindSummary[];
@@ -415,8 +413,6 @@ export type WikiStatus = {
   own?: boolean;
   /** Questions and corrections waiting, counted from their files. */
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen?: number; problemsOpen?: number };
-  /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
-  starterOffers?: number;
   /** The repository this step's graph holds: the home page is this repository's page while it stands. */
   repository?: RepositoryFactsView;
 };
@@ -586,17 +582,6 @@ export type Problem = {
   at: string | null;
 };
 
-/** One thing the starter set holds and the product's manifest lacks. */
-export type StarterOffer = {
-  id: string;
-  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields' | 'rule';
-  name: string;
-  labels?: { en: string; ru: string };
-  description?: { en: string; ru: string };
-  group?: string;
-  fields?: string[];
-};
-
 /** A note beside a listing, worded by the app when `textKey` is known (madarch-8bdc.2.5). */
 type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
 
@@ -622,7 +607,6 @@ export type ProblemCategories = {
   sections: Record<ProblemSection, number>;
   severities: Record<ProblemSeverity, number>;
   notes: ProblemNote[];
-  starter: StarterOffer[];
 };
 
 /** The second level: the sources of one category, one bounded page at a time. */
@@ -659,7 +643,7 @@ export type AgentChoices = { agent: { id: string; label: string }; choices: { mo
 
 type DangerPlan = {
   rewrite: { agentPages: string[]; keptPages: string[] };
-  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
+  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[] };
 };
 
 /** The model roles a feature may ask for (madarch-j6ho.2). */

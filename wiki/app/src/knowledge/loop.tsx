@@ -13,13 +13,13 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { addStarter, answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblemCategories, getProblemItems, getProblemSources, getQuestion, getQuestions, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
+import { answerQuestion, closeTask, createProblemTask, createTask, dismissProblem, getProblemCategories, getProblemItems, getProblemSources, getQuestion, getQuestions, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, WIKI_QUESTIONS, WIKI_TASKS } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, PlaceView, Problem, ProblemCategory, ProblemSection, ProblemSource, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
+import type { Author, PlaceView, Problem, ProblemCategory, ProblemSection, ProblemSource, QuestionDetail, QuestionRow, QuestionState, RefreshPlan, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -316,66 +316,6 @@ function ProblemItem({ problem, refresh }: { problem: Problem; refresh: () => vo
   );
 }
 
-/** What the starter set holds and the product's own (edited) manifest lacks, each added on a press (madarch-m38l.11). */
-function StarterOffers({ offers, refresh }: { offers: readonly StarterOffer[]; refresh: () => void }): ReactElement | null {
-  const { t } = useTranslation();
-  const language = useLanguage();
-  const [working, setWorking] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  if (offers.length === 0) return null;
-  const add = (ids: string[], key: string): void => {
-    setWorking(key);
-    setError(null);
-    addStarter(ids).then(() => { setWorking(null); refresh(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
-  };
-  const nameOf = (offer: StarterOffer): string => {
-    const label = offer.labels?.[language as 'en' | 'ru'];
-    switch (offer.type) {
-      case 'kind': return t('loop.starter.kind', { name: label ?? offer.name, key: offer.name });
-      case 'fields': return t('loop.starter.fields', { name: label ?? offer.name, key: offer.name, fields: (offer.fields ?? []).join(', ') });
-      case 'rule': return offer.fields === undefined
-        ? t('loop.starter.rule', { name: label ?? offer.name, key: offer.name })
-        : t('loop.starter.ruleFields', { name: label ?? offer.name, key: offer.name, fields: offer.fields.join(', ') });
-      case 'group': return t('loop.starter.group', { name: label ?? offer.name });
-      case 'roles': return t('loop.starter.roles');
-      case 'role': return t('loop.starter.role', { name: t(`knowledge.roles.names.${offer.name}`, { defaultValue: offer.name }) });
-      case 'documents': return t('loop.starter.documents');
-    }
-  };
-  const grouped = new Map<string, StarterOffer[]>();
-  for (const offer of offers) {
-    const group = offer.group ?? (offer.type === 'group' ? offer.name : 'product');
-    const entries = grouped.get(group) ?? [];
-    entries.push(offer);
-    grouped.set(group, entries);
-  }
-  const groupOrder = ['code', 'contracts', 'data', 'operations', 'tests', 'history', 'product'];
-  const groupRank = (group: string): number => { const rank = groupOrder.indexOf(group); return rank < 0 ? groupOrder.length : rank; };
-  const groupLabel = (group: string): string => t(`loop.starter.groups.${group}`, { defaultValue: group });
-  return (
-    <section className="mb-8" data-testid="problems-starter">
-      <h2>{t('loop.starter.summary', { count: offers.length })}</h2>
-      <p className="mb-3 flex flex-wrap items-center gap-3">
-        <Button variant="default" size="default" disabled={working !== null} onClick={() => add(offers.map((offer) => offer.id), '*')} data-testid="starter-add-all">{t('loop.starter.addAll')}</Button>
-        <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} data-testid="starter-toggle">{expanded ? t('loop.starter.hideItems') : t('loop.starter.showItems')}</button>
-      </p>
-      {expanded && <div data-testid="starter-items">{[...grouped.keys()].sort((a, b) => groupRank(a) - groupRank(b)).map((group) => (
-        <section key={group} className="mb-4" data-testid="starter-group" data-group={group}>
-          <h3 className="mb-1 text-base font-semibold">{groupLabel(group)}</h3>
-          <ul className="m-0 list-none p-0">{grouped.get(group)!.map((offer) => (
-            <li key={offer.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line py-2.5 last:border-b-0" data-testid="starter-offer" data-offer={offer.id}>
-              <span className="min-w-0 flex-1"><span className="block font-medium">{nameOf(offer)}</span>{offer.description !== undefined && <span className="block text-small text-muted">{offer.description[language as 'en' | 'ru']}</span>}</span>
-              <Button variant="default" size="default" disabled={working !== null} onClick={() => add([offer.id], offer.id)} data-testid="starter-add">{t('loop.starter.add')}</Button>
-            </li>
-          ))}</ul>
-        </section>
-      ))}</div>}
-      {error !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="starter-error">{error}</p>}
-    </section>
-  );
-}
-
 /** A page of one level, appended to the pages already read; `next` is the server's exact cursor. */
 function usePaged<T extends { next: string | null }>(key: string, version: number, load: (after?: string) => Promise<T>): { pages: T[]; error: string | null; loading: boolean; more: () => void } {
   const [pages, setPages] = useState<T[]>([]);
@@ -497,13 +437,12 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
       {data.notes.map((note) => (
         <Alert key={note.message} className="mb-4" data-testid="problems-note"><AlertDescription><p>{note.textKey === undefined ? note.message : t(`loop.problemNote.${note.textKey}`, { ...(note.textArgs ?? {}), defaultValue: note.message })}</p></AlertDescription></Alert>
       ))}
-      <StarterOffers offers={data.starter ?? []} refresh={refresh} />
       <p className="mb-4 flex flex-wrap items-center gap-2" data-testid="problems-filters">
         {filters.map((filter) => (
           <Button key={filter.key} size="default" variant={section === filter.section ? 'default' : 'ghost'} data-testid={`problems-filter-${filter.section ?? 'all'}`} onClick={() => setSection(filter.section)}>{t(filter.key)}</Button>
         ))}
       </p>
-      {data.categories.length === 0 && (data.starter ?? []).length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
+      {data.categories.length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
       <p className="mb-2 text-secondary" data-testid="problems-total">{t('loop.problemCount', { count: data.open, total: data.total })}</p>
       <ul className="m-0 list-none p-0" data-testid="problem-categories">
         {data.categories.map((category) => (

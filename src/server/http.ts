@@ -701,7 +701,6 @@ export function createHandler(dependencies: {
         { method: 'POST', path: API.modelRole, handle: (request: Request) => dependencies.knowledge!.modelRole(request) },
         { method: 'GET', path: API.graphVerdicts, handle: (request: Request) => dependencies.knowledge!.graphVerdicts(request) },
         { method: 'POST', path: API.graphVerdicts, handle: (request: Request) => dependencies.knowledge!.graphVerdicts(request) },
-        { method: 'POST', path: API.starter, handle: (request: Request) => dependencies.knowledge!.starter(request) },
         { method: 'POST', path: API.rewritePages, handle: (request: Request) => dependencies.knowledge!.rewritePages(request) },
         { method: 'POST', path: API.startFresh, handle: (request: Request) => dependencies.knowledge!.startFresh(request) },
       ] as Route[])),

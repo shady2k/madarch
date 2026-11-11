@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { stopDaemon } from '../src/product/daemon.js';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 
 /** A port the machine holds free right now, for a daemon the test stops again. */
 async function freePort(): Promise<number> {
@@ -200,6 +201,8 @@ function product(base: string, name = 'demo'): string {
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: demo-id\nname: " + name + "\n");
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
+  // A hand-made folder stands as `madarch new` would leave it: its own copy of the starter set.
+  seedStarterSet(folder);
   gitCheckout(folder);
   return folder;
 }
@@ -433,6 +436,8 @@ describe('madarch serve: an existing product served', () => {
     const manifest = join(setMade, 'workspace.yaml');
     const text = await Bun.file(manifest).text();
     writeFileSync(manifest, text.slice(0, text.indexOf('\nrepos:')) + '\n');
+    // The example folder stands as the set leaves a product now: it holds its own copy of the starter set.
+    seedStarterSet(setMade);
     gitCheckout(setMade);
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });

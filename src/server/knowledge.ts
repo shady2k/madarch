@@ -81,7 +81,6 @@ export interface KnowledgePart {
   modelRole: (request: Request) => Promise<Handled>;
   /** The graph verdict coverage and rows, or the two budgets a run may spend (madarch-mwhd.1). */
   graphVerdicts: (request: Request) => Promise<Handled>;
-  starter: (request: Request) => Promise<Handled>;
   rewritePages: (request: Request) => Promise<Handled>;
   startFresh: (request: Request) => Promise<Handled>;
   journal: (request: Request) => Promise<Handled>;
@@ -629,20 +628,6 @@ export function createKnowledgePart(
       if (!done.ok) return refused(done.status, { message: done.message });
       const state = product.graphVerdictSettings();
       return { response: json(200, { budgets: done.budgets, ...(state.report === undefined ? {} : { report: state.report }) }) };
-    }),
-    starter: guarded('add to the manifest', async (request) => {
-      const crossSite = foreign(request);
-      if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(403, { message: "madarch's own wiki is documentation: its manifest is not changed here" });
-      const plain = notJson(request);
-      if (plain !== undefined) return refused(415, { message: plain });
-      let body: unknown;
-      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const ids = (body as { ids?: unknown } | null)?.ids;
-      if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) return refused(400, { field: 'ids', message: '"ids" is the list of items of the starter set to add, as the Problems page names them' });
-      const done = product.addStarter(ids as string[]);
-      if (!done.ok) return refused(409, { field: 'ids', message: done.message });
-      return { response: json(200, { written: done.written }) };
     }),
     rewritePages: guarded('rewrite the pages', async (request) => {
       const crossSite = foreign(request);

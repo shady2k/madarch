@@ -19,7 +19,6 @@ const STATUS = {
   manifest: 'ok',
   manifestFile: 'madarch/kinds.yaml',
   language: 'en',
-  seeded: [],
   findings: [],
   kinds: [
     { kind: KIND_SERVICE, source: 'graph', count: 2, origins: ['code'], single: false, labels: { en: { one: 'Service', many: 'Services' }, ru: { one: 'Сервис', many: 'Сервисы' } } },
@@ -36,7 +35,6 @@ const STATUS = {
   home: null,
   roles: {},
   loop: {},
-  starterOffers: 0,
 };
 
 const ROWS: Record<string, EntityRef[]> = {

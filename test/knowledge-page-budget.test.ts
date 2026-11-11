@@ -121,8 +121,9 @@ test('the four entity pages of a walk-size repository stay bounded, cold with no
   const pages = [
     // Stage C stores the product repository in the graph too, so the first request's reader open reads the as-is commit
     // of both repositories: measured on this box 17 341 rows (main without the product repository entity: 15 407),
-    // the page's own transaction 13 593 of them. The bound names that graph, not a smaller page.
-    ['repository', `/products/shop/api/page?id=${encodeURIComponent('code.repository:big')}&full=1`, 90, 18_000, 300],
+    // the page's own transaction 13 593 of them. The repository page is also the first read, so it pays the worker's
+    // cold start: every page is drawn in the product's own process now (the engine holds no template to recognise).
+    ['repository', `/products/shop/api/page?id=${encodeURIComponent('code.repository:big')}&full=1`, 90, 18_000, 2_000],
     ['commit', `/products/shop/api/page?id=${encodeURIComponent(`code.commit:${hash}`)}&full=1`, 55, 10_000, 200],
     // The file page costs 30 statements on this box at 0cc3fc1a and at this commit (measured: the page is one plan
     // short of the bound the earlier machine named); the bound names the statement the page holds, not a smaller page.
