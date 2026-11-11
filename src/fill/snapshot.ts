@@ -277,8 +277,10 @@ export class SnapshotReader {
         detail: `${JSON.stringify(pin.root)} is no repository this reader can read: ${why(held)}`,
       });
     }
-    const version = await git(pin.root, ['--version']);
-    const pinned = await git(pin.root, ['rev-parse', '--verify', `${pin.commit}^{commit}`]);
+    const [version, pinned] = await Promise.all([
+      git(pin.root, ['--version']),
+      git(pin.root, ['rev-parse', '--verify', `${pin.commit}^{commit}`]),
+    ]);
     if (!pinned.ok) {
       throw new SnapshotError({
         repository,
@@ -288,7 +290,10 @@ export class SnapshotReader {
       });
     }
     const resolvedCommit = pinned.stdout.toString('utf8').trim();
-    const listed = await git(pin.root, ['ls-tree', '-r', '-l', '-z', '--full-tree', resolvedCommit]);
+    const [listed, treeId] = await Promise.all([
+      git(pin.root, ['ls-tree', '-r', '-l', '-z', '--full-tree', resolvedCommit]),
+      git(pin.root, ['rev-parse', '--verify', `${resolvedCommit}^{tree}`]),
+    ]);
     if (!listed.ok) {
       throw new SnapshotError({
         repository,
@@ -297,7 +302,6 @@ export class SnapshotReader {
         detail: `the tree of ${resolvedCommit} could not be listed: ${why(listed)}`,
       });
     }
-    const treeId = await git(pin.root, ['rev-parse', '--verify', `${resolvedCommit}^{tree}`]);
     if (!treeId.ok) {
       throw new SnapshotError({
         repository,
