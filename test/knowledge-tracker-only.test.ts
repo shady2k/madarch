@@ -10,7 +10,8 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { parse, stringify } from 'yaml';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -32,12 +33,6 @@ let product = '';
 const MANIFEST = `groups:
   tracker: { en: Tracker, ru: Трекер, short: { en: Tracker, ru: Трекер } }
 kinds:
-  template:
-    source: graph
-    key: [path]
-    fields:
-      - { name: path, type: text, binding: { agent: "Fixture template path." } }
-      - { name: template_parts, type: json, binding: { agent: "Fixture structured template parts." } }
   idea:
     template: templates/item.liquid
     source: graph
@@ -74,7 +69,11 @@ beforeAll(() => {
   mkdirSync(join(product, 'templates'), { recursive: true });
   mkdirSync(join(product, 'docs', 'ideas'), { recursive: true });
   mkdirSync(join(product, 'docs', 'tasks'), { recursive: true });
-  writeFileSync(join(product, 'madarch', 'kinds.yaml'), MANIFEST);
+  const manifestFile = join(product, 'madarch', 'kinds.yaml');
+  const starter = parse(readFileSync(manifestFile, 'utf8')) as { kinds: Record<string, unknown> };
+  const manifest = parse(MANIFEST) as { kinds: Record<string, unknown> };
+  manifest.kinds['template'] = starter.kinds['template'];
+  writeFileSync(manifestFile, stringify(manifest));
   writeFileSync(join(product, 'templates', 'entity.liquid'), '{% block lead %}{% endblock %}\n{% block details %}{% endblock %}\n{% block parts %}{% endblock %}\n');
   writeFileSync(join(product, 'templates', 'item.liquid'), '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.title }}{% endblock %}\n{% block details %}{% properties title="Details" %}{% endblock %}\n');
   writeFileSync(join(product, 'docs', 'ideas', 'one.md'), '---\nid: idea:one\nkind: idea\ntitle: One idea\n---\n\nAn idea.\n');
