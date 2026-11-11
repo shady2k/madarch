@@ -441,10 +441,6 @@ export interface CatalogKindView {
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   /** The standards or documents the kind declaration cites. */
   sources?: readonly string[];
-  /** The product repository file and line that declare the kind. */
-  declaration?: { repo: string | null; path: string; line: number };
-  /** The page-rendering template in the product repository, not the starter template the product was created from. */
-  template?: { repo: string | null; path: string };
   count: number;
   /** The statements the pages of this kind make, when the index holds any. */
   statements?: number;

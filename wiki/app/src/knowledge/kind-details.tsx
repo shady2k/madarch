@@ -29,16 +29,11 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
     const entry = catalog.kinds.find((item) => item.kind === id);
     return entry?.labels?.[language]?.many ?? entry?.labels?.['en']?.many ?? id;
   };
-  const templateQuery = chosen.template === undefined ? null : new URLSearchParams({
-    ...(chosen.template.repo === null ? {} : { repo: chosen.template.repo }), path: chosen.template.path,
-  });
   return <div className="mb-8 space-y-6" data-testid="kind-details">
     <section>
       {description !== undefined && <p data-testid="kind-meaning">{description}</p>}
       <KindSources kind={chosen} />
       <dl className="mt-4 grid gap-2 text-small sm:grid-cols-[auto_1fr]">
-        <dt className="text-muted">{t('knowledge.kindSources.template')}</dt>
-        <dd className="m-0" data-testid="kind-template">{chosen.template === undefined ? '–' : <KLink href={`/src?${templateQuery}`}>{chosen.template.path}</KLink>}</dd>
         <dt className="text-muted">{t('knowledge.kindSources.producer')}</dt>
         <dd className="m-0" data-testid="kind-producer">{producer}</dd>
         <dt className="text-muted">{t('knowledge.catalogueColState')}</dt>

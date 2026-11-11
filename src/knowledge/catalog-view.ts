@@ -9,7 +9,6 @@
  * leaves out stays absent and its finding names the file and line; the app marks the kind untranslated rather than
  * showing an English name to a reader of another language.
  */
-import { isAbsolute, relative } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
@@ -121,7 +120,6 @@ export async function catalogKinds(ctx: RenderContext, turns: {
 } = {}): Promise<CatalogKindView[]> {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
-  const declarationPath = isAbsolute(ctx.manifest.file) ? relative(ctx.productFolder, ctx.manifest.file) : ctx.manifest.file;
   const pluginsOf = (decl: KindDecl | undefined): string[] => [...new Set((decl?.fields ?? []).flatMap((field) => (field.binding?.kind === 'plugin' ? [field.binding.plugin] : [])))].sort(byCodePoint);
   const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
     const producer = producerOf(decl, entry, extractorMark);
@@ -139,8 +137,6 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       ...(decl?.fields === undefined ? {} : { fields: decl.fields }),
       relations: relationsOf(ctx, kind),
       ...(entry === undefined ? {} : { sources: [...entry.sources] }),
-      declaration: { repo: ctx.ownRepository ?? null, path: declarationPath, line: (entry ?? decl)!.line },
-      ...(decl === undefined ? {} : { template: { repo: ctx.ownRepository ?? null, path: decl.template } }),
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),
       ...(words.descriptions === undefined || Object.keys(words.descriptions).length === 0 ? {} : { descriptions: { ...words.descriptions } }),
       count,

@@ -1,6 +1,7 @@
 import { Operations } from './operations.js';
 import { KindGraph } from './kind-graph.js';
 import { KindDetails } from './kind-details.js';
+import { KindSources } from './kind-sources.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 import { TableOfContents } from '@/components/ui/table-of-contents.js';
 /**
@@ -663,7 +664,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             <TableCell className="whitespace-nowrap align-top">
               <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink>
             </TableCell>
-            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}</TableCell>
+            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} compact /></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
               {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)}>{kind.count}</KLink> : kind.count}
               {kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}

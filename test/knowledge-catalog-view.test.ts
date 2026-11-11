@@ -177,33 +177,14 @@ describe('the catalogue view lists every declared kind', () => {
     expect(await listEntities(contextWithRecords, 'unknown', { limit: 20 })).toBeUndefined();
   });
 
-  test('each kind carries its standards and the actual product declaration file and line', async () => {
+  test('each kind carries exactly the standards and practices its manifest cites', async () => {
     const ctx = context();
-    const file = join(TEMPLATES, 'manifests/catalog.yaml');
-    const manifest = parseKinds(MANIFEST, file, TEMPLATES);
-    const kinds = await catalogKinds({ ...ctx, manifest, ownRepository: 'product' });
+    const kinds = await catalogKinds(ctx);
     for (const kind of kinds) {
       expect(kind.sources).toEqual([`https://example.test/${kind.kind}`]);
-      expect(kind.declaration).toEqual({
-        repo: 'product', path: 'manifests/catalog.yaml',
-        line: MANIFEST.split('\n').indexOf(`  ${kind.kind}:`) + 1,
-      });
+      expect(kind).not.toHaveProperty('declaration');
+      expect(kind).not.toHaveProperty('template');
     }
-    const withoutRepository = await catalogKinds(ctx);
-    expect(withoutRepository[0]!.declaration).toEqual({
-      repo: null, path: 'madarch/kinds.yaml', line: MANIFEST.split('\n').indexOf('  filled:') + 1,
-    });
-  });
-  test('page templates name the actual product file without claiming a starter origin', async () => {
-    const ctx = context();
-    const kinds = await catalogKinds({ ...ctx, ownRepository: 'product' });
-    expect(kinds.find((kind) => kind.kind === 'written')!.template).toEqual({ repo: 'product', path: 'templates/item.liquid' });
-    expect(kinds.find((kind) => kind.kind === 'empty')!.template).toBeUndefined();
-    expect((await catalogKinds(ctx)).find((kind) => kind.kind === 'written')!.template).toEqual({ repo: null, path: 'templates/item.liquid' });
-
-    const manifest = parseKinds(MANIFEST.replaceAll('templates/item.liquid', 'templates/item.md'), 'madarch/kinds.yaml', TEMPLATES);
-    const resolved = await catalogKinds({ ...ctx, manifest });
-    expect(resolved.find((kind) => kind.kind === 'written')!.template).toEqual({ repo: null, path: 'templates/item.liquid' });
   });
 
   test('plugin folders come only from configured field-bound plugins, not from their names', async () => {
@@ -286,8 +267,6 @@ describe('the catalogue view lists every declared kind', () => {
     expect(kinds.map((kind) => kind.kind)).toEqual(['written']);
     expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
     expect(kinds[0]!.sources).toBeUndefined();
-    expect(kinds[0]!.declaration).toEqual({
-      repo: null, path: 'madarch/kinds.yaml', line: bare.split('\n').indexOf('  written:') + 1,
-    });
+
   });
 });

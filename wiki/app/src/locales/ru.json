@@ -1004,9 +1004,7 @@
     },
     "kindDetails": {"unavailable": "Объявление вида недоступно. Записи показаны ниже.", "fields": "Поля", "relations": "Связи", "noFields": "Поля не объявлены.", "noRelations": "Связи не объявлены.", "records": "Записи"},
     "kindSources": {
-      "standards": "Стандарты и документы",
-      "declaration": "Объявлено в",
-      "template": "Шаблон страницы",
+      "standards": "Стандарты и практики",
       "producer": "Заполняет"
     },
     "catalogueViews": {

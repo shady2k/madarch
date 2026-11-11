@@ -65,6 +65,22 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
+  test('description cells cite named standards and offer compact source lists', async () => {
+    const sources = ['https://c4model.com/abstractions', 'https://arc42.org/overview'];
+    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'code.file' ? { ...kind, sources } : kind) });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="code.file"] [data-testid="kind-sources"]') !== null, 'source citations');
+    const row = page.querySelector('[data-kind="code.file"]')!;
+    const citation = row.querySelector('[data-testid="kind-sources"]')!;
+    expect(citation.closest('td')!.textContent).toContain('Source files');
+    expect([...citation.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['C4 model', sources[0]!], ['arc42', sources[1]!],
+    ]);
+    expect(citation.querySelector('button')!.getAttribute('aria-label')).toBe('Standards and practices');
+    expect(page.querySelectorAll('[data-testid="kind-sources"]')).toHaveLength(1);
+    expect(page.querySelector('a[href^="/src?"]')).toBeNull();
+  });
+
   test('contents lists every section and kind and jumps to the selected section', async () => {
     await setWikiLanguage('en');
     stub([]);

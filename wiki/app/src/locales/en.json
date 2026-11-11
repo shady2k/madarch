@@ -1004,9 +1004,7 @@
     },
     "kindDetails": {"unavailable": "The kind declaration is unavailable. Records are shown below.", "fields": "Fields", "relations": "Relations", "noFields": "No fields are declared.", "noRelations": "No relations are declared.", "records": "Records"},
     "kindSources": {
-      "standards": "Standards and documents",
-      "declaration": "Declared in",
-      "template": "Page template",
+      "standards": "Standards and practices",
       "producer": "Filled by"
     },
     "catalogueViews": {

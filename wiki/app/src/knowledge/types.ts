@@ -226,9 +226,7 @@ export type CatalogKindView = {
   sources?: readonly string[];
   fields?: readonly { name: string; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
-  template?: { repo: string | null; path: string };
   pluginFolders?: readonly string[];
-  declaration?: { repo: string | null; path: string; line: number };
   kind: string;
   /** Derived by the app from the catalogue groups when the answer leaves it out. */
   area?: string;
