@@ -156,7 +156,16 @@ async function awaitGone(child: number, within: number): Promise<Gone> {
   for (;;) {
     const postgres = postmasters().filter((pid) => alive(pid));
     const gone: Gone = { child: !alive(child), postgres: postgres.length === 0, waitedMs: Date.now() - started };
-    if ((gone.child && gone.postgres) || gone.waitedMs >= within) return gone;
+    if ((gone.child && gone.postgres) || gone.waitedMs >= within) {
+      if (!gone.child || !gone.postgres) {
+        const rows = processes();
+        const pids = new Set(rows.filter((row) => row.command.includes(work) || row.pid === child).flatMap((row) => [row.pid, row.ppid]));
+        const tree = spawnSync('ps', ['-p', [...pids].join(','), '-o', 'pid=,ppid=,stat=,command='], { encoding: 'utf8' });
+        console.log(`shutdown process states after ${String(gone.waitedMs)} ms:
+${tree.stdout ?? tree.stderr}`);
+      }
+      return gone;
+    }
     await Bun.sleep(50);
   }
 }
