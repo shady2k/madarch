@@ -12,11 +12,12 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { createRecordSchema, publishTree } from '../src/graph/records.js';
+import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
-import { publishGraphDrafts } from '../src/graph/write.js';
+import { ensureEdges, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
 import type { VertexDraft } from '../src/graph/contract.js';
@@ -243,8 +244,38 @@ describe('the manifest makes the table and the writer fills it', () => {
       expect(journal.rows[0]).toEqual({ n: '1', author: '', author_node: null });
       // The empty graph takes a fill: a publication writes its rows again.
       await createRecordSchema(old);
-      const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [], gaps: [] });
+      const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [] });
       expect(counts.inserted).toBeGreaterThan(0);
+    } finally {
+      await old.close();
+    }
+  }, 120_000);
+
+  test('a store written under an older revision of the meaning resets as one and needs a fill; the journal is kept', async () => {
+    const old = await createTestDatabaseOwner();
+    try {
+      // A store as d633a460's shape made it: the current tables, no revision row, and a journal without its order
+      // column. Its file opinion carries a programming language where the old meaning kept one — in `lang`.
+      await createOneGraphSchema(old, GIT_CONTRACT);
+      const made = await old.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'r' } }, path: 'a.ts' } }));
+      await old.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: made.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript'] } }));
+      await old.run(async (tx) => await tx.query(`UPDATE ${GIT_TABLES.file} SET lang = 'TypeScript', language = NULL`));
+      await old.run(async (tx) => await tx.query(`INSERT INTO operation (author, change) VALUES ('git-tree@1', '{"vertices":[],"edges":[],"opinions":[]}'::jsonb)`));
+      await old.run(async (tx) => await tx.query(`DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph-revision'`));
+      await old.run(async (tx) => await tx.query('ALTER TABLE operation DROP COLUMN seq'));
+      // The revision moved: the store's rows mean something else now, so the graph is reset as a whole and asks for a fill.
+      const reset = await createOneGraphSchema(old, GIT_CONTRACT);
+      expect(reset.reset).toBe(true);
+      const opinions = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file}`));
+      expect(opinions.rows[0]?.n).toBe('0');
+      const journal = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string; author: string; seq: string }>('SELECT count(*)::text AS n, min(author) AS author, min(seq::text) AS seq FROM operation'));
+      expect(journal.rows[0]).toEqual({ n: '1', author: 'git-tree@1', seq: '1' });
+      const marks = await old.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT name FROM madarch_meta.schema_stamp WHERE name IN ('graph-reset', 'one-graph-revision') ORDER BY name`));
+      expect(marks.rows.map((row) => row.name)).toEqual(['graph-reset', 'one-graph-revision']);
+      // A second open finds the revision it wrote, and resets nothing again.
+      expect((await createOneGraphSchema(old, GIT_CONTRACT)).reset).toBe(false);
+      const kept = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'));
+      expect(kept.rows[0]?.n).toBe('1');
     } finally {
       await old.close();
     }
@@ -301,7 +332,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [
       { kind: 'vertex', evidence: 'docs/glossary.md', value: { kind: 'doc.term', key: { name: 'Journaled' }, values: { definition: 'a term' }, producer: 'glossary', producerVersion: '1.0.0' } },
     ]));
-    const after = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string; uid: string; node: string; state: string }[]; edges: unknown[]; opinions: { id: string; node: string; state: string; fields: string[] }[] } }>('SELECT author, change FROM operation ORDER BY at'));
+    const after = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string; uid: string; node: string; state: string }[]; edges: unknown[]; opinions: { id: string; node: string; state: string; fields: string[] }[] } }>('SELECT author, change FROM operation ORDER BY seq'));
     expect(after.rows).toHaveLength(Number(before.rows[0]?.n ?? '0') + 1);
     const entry = after.rows[after.rows.length - 1]!;
     expect(entry.author).toBe('glossary@1.0.0');
@@ -316,6 +347,76 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect((entry.change.opinions[0]?.node)).toBe(entry.change.vertices[0]?.uid);
   });
 
+  test('a removal-only publication is journaled under its producer\'s author, and a publication with no author is refused', async () => {
+    // A vertex with this producer's opinion, and a second producer's opinion beside it: the removal below withdraws one.
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Left' }, values: { definition: 'one' }, producer: 'glossary', producerVersion: '1.0.0' } }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Left' }, values: { definition: 'another' }, producer: 'other', producerVersion: '2' } }]));
+    const before = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'));
+    // The removal names its producer and no journal draft: the entry's author is that producer, and the change is kept.
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex-removal', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Left' }, producer: 'glossary' } }]));
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { opinions: { state: string; said_by: string }[]; vertices: { state: string }[] } }>('SELECT author, change FROM operation ORDER BY seq'));
+    expect(entries.rows).toHaveLength(Number(before.rows[0]?.n ?? '0') + 1);
+    const entry = entries.rows[entries.rows.length - 1]!;
+    expect(entry.author).toBe('glossary');
+    expect(entry.change.opinions).toHaveLength(1);
+    expect(entry.change.opinions[0]).toMatchObject({ state: 'closed', said_by: 'glossary@1.0.0' });
+    // Another producer's opinion stands, so the vertex is not journaled as removed (codex, stage 2 review, item 4).
+    expect(entry.change.vertices).toEqual([]);
+    // A publication that states a change and names no author is refused by the writer, naming what is missing.
+    await expect(owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [], removals: [] }, 1, { reads: [{ method: 'graph.files', size: 3, outcome: 'answered' }] }))).rejects.toThrow(/names its author/);
+  }, 120_000);
+
+  test('an ineffective withdrawal journals nothing, whether it repeats the first or follows a removal', async () => {
+    const count = async (): Promise<number> => Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0');
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Gone' }, values: { definition: 'bye' }, producer: 'glossary', producerVersion: '1.0.0' } }]));
+    await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex-removal', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Gone' }, producer: 'glossary' } }]));
+    const afterFirst = await count();
+    // The producer holds nothing here any more: a second withdrawal changes no row and writes no entry.
+    const wrote = await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [{ kind: 'vertex-removal', evidence: 'x', value: { kind: 'doc.term', key: { name: 'Gone' }, producer: 'glossary' } }]));
+    expect(wrote).toBe(0);
+    expect(await count()).toBe(afterFirst);
+  }, 120_000);
+
+  test('a bulk declaration journals one edge event per edge it makes, with its ends by uid', async () => {
+    // The pages kind and its links, the contract the case above made: the same stamp, so this case adds no table.
+    const graph: GraphContract = {
+      vertex: [...contract.vertex, { name: 'doc.page', table: generatedTableName('doc.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'glossary' }],
+      edge: [{ name: 'doc.links', table: generatedTableName('doc.links', 'edge'), from: ['doc.page'], to: ['doc.page'], repeats: false, fields: [], capability: 'glossary' }],
+      dictionary: [],
+    };
+    await createOneGraphSchema(owner, graph);
+    // Two vertices of the links kind's ends, declared by the writer, so the edge has something to name.
+    for (const title of ['From', 'To']) await owner.transaction('write', async (tx) => await publishGraphWrites(tx, graph, [{ kind: 'vertex', evidence: 'x', value: { kind: 'doc.page', key: { title }, values: {}, producer: 'glossary', producerVersion: '1.0.0' } }]));
+    const ids = await owner.transaction('snapshot', async (tx) => await tx.query<{ id: string; name: string }>(
+      `SELECT n.id::text AS id, (n.key->>'title') AS name FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = 'doc.page' WHERE (n.key->>'title') = ANY($1::text[])`, [['From', 'To']],
+    ));
+    const from = ids.rows.find((row) => row.name === 'From')!.id;
+    const to = ids.rows.find((row) => row.name === 'To')!.id;
+    const before = Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0');
+    await owner.transaction('write', async (tx) => {
+      const journal = journalFor('bulk@1');
+      journalOn(tx, journal);
+      await ensureEdges(tx, graph, 'doc.links', [{ from, to }, { from: to, to: from }], 1);
+      await writeJournal(tx, journal);
+    });
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { edges: { entity: string; from: string; to: string; discriminator: string; context: number; state: string }[] } }>('SELECT change FROM operation ORDER BY seq'));
+    expect(entries.rows).toHaveLength(before + 1);
+    const edges = entries.rows[entries.rows.length - 1]!.change.edges;
+    expect(edges).toHaveLength(2);
+    expect(edges.every((one) => one.state === 'declared' && one.entity === 'doc.links' && one.discriminator === '' && one.context === 1)).toBe(true);
+    const uids = await owner.transaction('snapshot', async (tx) => await tx.query<{ uid: string }>(`SELECT uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`, [`{${from},${to}}`]));
+    expect(new Set(edges.flatMap((one) => [one.from, one.to]))).toEqual(new Set(uids.rows.map((row) => row.uid)));
+    // The same batch again declares nothing: no edge is made, so no event is journaled and no entry is written.
+    const again = Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0');
+    await owner.transaction('write', async (tx) => {
+      const journal = journalFor('bulk@1');
+      journalOn(tx, journal);
+      await ensureEdges(tx, graph, 'doc.links', [{ from, to }, { from: to, to: from }], 1);
+      await writeJournal(tx, journal);
+    });
+    expect(Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0')).toBe(again);
+  }, 120_000);
+
   test('an agent operation is one entry with its words, and its opinion rests on the conversation', async () => {
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [{
@@ -325,7 +426,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       }],
       removals: [],
     }, 1, { author: 'agent', words: 'the owner said this term means a term we said' }));
-    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; words: string }>(`SELECT author, words FROM operation WHERE author = 'agent' ORDER BY at DESC LIMIT 1`));
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ author: string; words: string }>(`SELECT author, words FROM operation WHERE author = 'agent' ORDER BY seq DESC LIMIT 1`));
     expect(entries.rows).toEqual([{ author: 'agent', words: 'the owner said this term means a term we said' }]);
     const evidence = await owner.transaction('snapshot', async (tx) => await tx.query<{ evidence: readonly Record<string, unknown>[] }>(`SELECT o.evidence FROM ${contract.vertex[0]!.table} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND (n.key->>'name') = 'Spoken'`));
     expect(evidence.rows[0]?.evidence).toEqual([{ type: 'conversation', id: 'talk-2026-11-11', speaker: 'the owner', at: '2026-11-11T09:00:00Z' }]);

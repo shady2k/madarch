@@ -157,8 +157,7 @@ describe('the update a default-branch commit starts', () => {
     const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
     await owner.ready;
     try {
-      const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));
-      expect(pins.rows).toContainEqual({ repo: read.product.name, commit_hash: commit });
+      // The pins are the graph's own rows (stage 3: `knowledge_fill` is gone): the repository entity and its as-is edge.
       expect((await repositoryFacts(owner, read.product.name))?.asIsCommit).toBe(commit);
     } finally {
       await owner.close();

@@ -16,15 +16,16 @@ import { generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
-import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader, type ContentAt } from '../src/knowledge/graph-read.js';
+import { ensureVertex, publishOpinion } from '../src/graph/write.js';
 import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let repository = '';
 /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
 
 const RECORD_TABLES = [
   ...MECHANISM_TABLES,
@@ -115,6 +116,24 @@ describe('the two passes over one fixture', () => {
     expect([secondHistory.inserted, secondHistory.updated, secondHistory.deleted]).toEqual([0, 0, 0]);
   }, 120_000);
 
+  test('every opinion event of the tree and the history pass names its vertex by uid and its own producer', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { opinions: { node?: string; said_by: string; state: string; values?: Record<string, unknown>; evidence?: unknown[]; context?: number; said_at?: string }[] } }>(
+      `SELECT change FROM operation WHERE author IN ('git-tree@1', 'git-history@1') ORDER BY seq`,
+    ));
+    const opinions = entries.rows.flatMap((row) => row.change.opinions);
+    expect(opinions.length).toBeGreaterThan(10);
+    // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
+    // a replay names no local id of this store.
+    expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
+    // The tree entry's author is the tree, and the event of the language dataset says its own producer.
+    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toContain('linguist');
+    // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
+    const opened = opinions.filter((one) => one.state === 'opened');
+    expect(opened.length).toBeGreaterThan(5);
+    expect(opened.every((one) => one.values !== undefined && Array.isArray(one.evidence) && one.context === 1 && typeof one.said_at === 'string' && one.said_at.length > 10)).toBe(true);
+  }, 120_000);
+
   test('a text file\'s bytes stand in the graph once per blob, and a reader takes them there', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const reader = new GraphReader(owner, () => new Date().toISOString());
@@ -146,9 +165,9 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // The language is the opinion's own `lang`: blob.bin is one language (`unknown`). A `.ts` or `.md` file is not: the
-    // dataset gives `.ts` TypeScript and XML and `.md` GCC Machine Description and Markdown, so the opinion names its
-    // candidates and picks none.
+    // The language is the opinion's field `language` (never its `lang`, which is a text's natural language): blob.bin is
+    // one language (`unknown`). A `.ts` or `.md` file is not: the dataset gives `.ts` TypeScript and XML and `.md` GCC
+    // Machine Description and Markdown, so the opinion names its candidates and picks none.
     expect(byPath.get('blob.bin')?.language).toBe('unknown');
     expect(byPath.get('src/a.ts')?.language).toBeNull();
     expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
@@ -203,6 +222,36 @@ describe('the two passes over one fixture', () => {
     expect(absence(await reader.contentAt('fixture', 'src/a.ts', '0'.repeat(40)))).toContain('0'.repeat(40));
   });
 
+  test('a file\'s language is an opinion field: a changed language closes the old opinion, and the filter reads the field', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    // The language dataset reads a `.ts` file as TypeScript or XML, so the tree pass states no one language, and it
+    // states what it read as a field, never as the opinion's `lang`: that column is a text value's natural language
+    // (madarch-stm0.5 translations) and stands null for a language name (madarch-64o5.2, the files worker's finding).
+    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
+      `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
+       WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'linguist'`,
+    ));
+    expect(stored.rows[0]?.lang).toBeNull();
+    const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'fixture' } }, path: 'src/a.ts' } }));
+    // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
+    // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
+    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
+    const first = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'linguist'`, [node.nodeId],
+    ));
+    expect(first.rows[0]?.n).toBe('1');
+    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
+    const states = await owner.transaction('snapshot', async (tx) => await tx.query<{ state: string; language: string | null; lang: string | null }>(
+      `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'linguist' ORDER BY "id"`, [node.nodeId],
+    ));
+    expect(states.rows.filter((row) => row.state === 'open')).toHaveLength(1);
+    expect(states.rows.filter((row) => row.state === 'open')[0]).toMatchObject({ language: 'JavaScript', lang: null });
+    expect(states.rows.some((row) => row.state === 'closed' && row.language === 'TypeScript')).toBe(true);
+    // The language filter reads the field: the new language finds the file and the one it superseded does not.
+    expect((await listFiles(owner, { repository: 'fixture', language: 'JavaScript', limit: 10 })).rows.map((row) => row.path)).toContain('src/a.ts');
+    expect((await listFiles(owner, { repository: 'fixture', language: 'TypeScript', limit: 10 })).rows.map((row) => row.path)).not.toContain('src/a.ts');
+  }, 120_000);
+
   test('a remote with a user and a password is stored and read without them', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     // The tree pass read the checkout\'s remote, which named a credential: the graph holds the address without it.
@@ -219,8 +268,10 @@ describe('the two passes over one fixture', () => {
     if (block.type !== 'repository') throw new Error(`the repository block answered ${block.type}: ${block.type === 'problem' ? block.message : ''}`);
     expect(block.data.url).toBe('https://example.test/fixture.git');
     // The credential stands nowhere in the store.
-    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string }>(`SELECT url FROM ${GIT_TABLES.repository}`));
-    expect(stored.rows.map((row) => row.url)).toEqual(['https://example.test/fixture.git']);
+    // The tree states the address; the history's own opinion of the repository states only its shallow fact, so its
+    // url column is null — and the credential stands in neither.
+    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string | null }>(`SELECT url FROM ${GIT_TABLES.repository} ORDER BY id`));
+    expect(stored.rows.map((row) => row.url).filter((url) => url !== null)).toEqual(['https://example.test/fixture.git']);
   });
 
   test('run as stages: one unit per repository per pass, publishing through the module', async () => {
@@ -286,41 +337,23 @@ describe('the two passes over one fixture', () => {
 
   });
 
-describe('the gaps each pass owns', () => {
-  test('a pass replaces only the gaps it wrote, whatever reason the other pass wrote them under', async () => {
+describe('a shallow clone is the history pass\'s own opinion of the repository', () => {
+  test('a shallow clone is stated by the pass, and a deeper clone takes the statement back', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const tree = (gaps: { what: string; reason: 'non-utf8-path' | 'unreadable' }[]) => ({ repository: { name: 'gaps', url: 'file:///gaps' }, commit: 'a'.repeat(40), files: [], gitlinks: [], gaps });
-    const history = (gaps: { what: string; reason: 'shallow-history' | 'unreadable' }[]) => ({ repository: { name: 'gaps' }, commits: [], gaps });
-    // The repository's first empty publications make its own rows (the repository, its as-is edge): the
-    // counts below are the gaps', not those rows'.
-    await publishHistory(owner, history([]));
-    await publishTree(owner, tree([]));
-    // The history writes an unreadable field and a shallow history; the tree then writes a path no
-    // UTF-8 can hold. Both passes can write `unreadable`, so the reason cannot say whose row it is.
-    const firstHistory = await publishHistory(owner, history([{ what: 'commit aaa author name <0xff>', reason: 'unreadable' }, { what: 'gaps at aaa', reason: 'shallow-history' }]));
-    expect([firstHistory.inserted, firstHistory.deleted]).toEqual([2, 0]);
-    const firstTree = await publishTree(owner, tree([{ what: 'bad/<0xff>.ts', reason: 'non-utf8-path' }]));
-    expect([firstTree.inserted, firstTree.deleted]).toEqual([1, 0]);
-    const all = await repositoryFacts(owner, 'gaps');
-    expect(all?.gaps).toEqual([
-      { what: 'bad/<0xff>.ts', reason: 'non-utf8-path' },
-      { what: 'commit aaa author name <0xff>', reason: 'unreadable' },
-      { what: 'gaps at aaa', reason: 'shallow-history' },
-    ]);
-    // The history runs again without the unreadable field: its own row goes, and the tree's stands.
-    const secondHistory = await publishHistory(owner, history([{ what: 'gaps at aaa', reason: 'shallow-history' }]));
-    expect([secondHistory.inserted, secondHistory.deleted]).toEqual([0, 1]);
-    expect(secondHistory.unchanged).toBeGreaterThanOrEqual(1);
-    expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([
-      { what: 'bad/<0xff>.ts', reason: 'non-utf8-path' },
-      { what: 'gaps at aaa', reason: 'shallow-history' },
-    ]);
-    // The tree runs again without its unreadable path: its own row goes, and the history's stands.
-    const secondTree = await publishTree(owner, tree([]));
-    expect([secondTree.inserted, secondTree.deleted]).toEqual([0, 1]);
-    expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([{ what: 'gaps at aaa', reason: 'shallow-history' }]);
+    // Stage 3: `gap` is gone. What a pass could not read is a problem for a person, said in the run's log and trace; a
+    // fact it can state about a vertex — a shallow clone — is its opinion of that vertex.
+    const publication = (shallow: boolean) => ({ repository: { name: 'shallow' }, commits: [], shallow });
+    const first = await publishHistory(owner, publication(true));
+    expect(first.inserted).toBeGreaterThan(0);
+    expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
+    // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
+    await publishHistory(owner, publication(false));
+    expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
+    const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' AND (n.key->>'name') = 'shallow'`,
+    ));
+    expect(open.rows[0]?.n).toBe('1');
   }, 120_000);
-
 });
 
 describe('a git date of a zero or a negative offset', () => {

@@ -17,11 +17,44 @@
  * strong model writes and analyses, a weak model or jev classifies).
  */
 import { mkdirSync } from 'node:fs';
+import { basename } from 'node:path';
 import { runFill } from '../fill/run.js';
 import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
-import type { FillOrchestratorService } from '../fill/orchestrator-host.js';
+import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
+import { readChain, readRun } from '../fill/state-store.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
+import { readProduct } from '../product/manifest.js';
 
+
+/**
+ * The refusals that mean a fill of this product already runs, and nothing is wrong with the product (madarch-8bdc.2.18):
+ * the chain of runs follows a live run (`fill-orchestrator/chain-active`, `chain-held`), or the step the new run asked of
+ * the chain has no transition from what the chain stands in — the same thing read one step later, which is how the
+ * reader used to meet `fill-chain/no-transition`. A fill of this product runs one at a time (decision 0027).
+ */
+const ALREADY_RUNNING = ['fill-orchestrator/chain-active', 'fill-orchestrator/chain-held'];
+
+/** Whether one refusal means a fill of this product is already running. */
+export function fillAlreadyRunning(code: string): boolean {
+  return ALREADY_RUNNING.includes(code) || code.startsWith('fill-chain/');
+}
+
+/**
+ * What a refusal to start a fill says to the reader who asked for it. One that means the product's fill already runs says
+ * so in the reader's own terms — since when, which run — and how to follow it, never with an internal code: nothing in the
+ * product needs fixing. Any other refusal keeps its code, because there the code names what to fix in the product's own
+ * files or what the machine lacks.
+ */
+async function refusalWords(owner: StoreOwner, productFolder: string, refusal: RefusedFillRun): Promise<string> {
+  if (!fillAlreadyRunning(refusal.code)) return `${refusal.code}: ${refusal.reason}`;
+  const identity = readProduct(productFolder);
+  const name = identity.ok ? identity.product.name : basename(productFolder);
+  const held = identity.ok ? await readChain(owner, name) : null;
+  const live = held?.context.activeRunId == null ? null : await readRun(owner, held.context.activeRunId);
+  const follow = 'Follow it in the wiki — `madarch serve`, then the fill page (/fill) — or read the run\'s steps with `madarch trace --run <the run\'s id>`.';
+  if (live === null) return `a fill of ${name} is already running: another run holds the product, and it names no run this store holds. This fill started nothing. ${follow}`;
+  return `a fill of ${name} is already running: run ${live.runId}, which stands ${live.state}, started ${new Date(live.createdAt).toISOString()}. This fill started nothing. ${follow.replace("<the run's id>", live.runId)}`;
+}
 
 /**
  * The store's owner, as the orchestrator host names it: the type is derived from the host's own options, so this module
@@ -75,6 +108,11 @@ export interface KnowledgeFillResult {
   readonly state: string;
   /** Why a run that did not end was refused or failed, in the run's own words. */
   readonly message?: string;
+  /**
+   * True when the run never started, which is what a product whose fill already runs answers: the words say why and how
+   * to follow the running fill, and no unit of this press was ever planned (madarch-8bdc.2.18).
+   */
+  readonly refused?: boolean;
   /** The units the run planned. */
   readonly units: number;
   /** The declared repositories the run could not read, each with its path and the state it is in. */
@@ -139,33 +177,12 @@ export interface FinishedKnowledgeStore {
 }
 
 /**
- * Writes the store's pins: the `knowledge_fill` rows that name the repositories it holds and what each was read to.
- * A snapshot carries the pins, so a reader that opens one reads the commit its graph was filled from beside the graph
- * itself — a run that publishes a snapshot before it ends writes its pins first for the same reason.
- */
-async function writePins(owner: StoreOwner): Promise<number> {
-  await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
-    repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
-    commits int NOT NULL, filled_commits int NOT NULL)`));
-  const pins = await pinsOf(owner);
-  for (const pin of pins) {
-    await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(
-      `INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, $6::int, $7::int)
-       ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
-      [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
-    ));
-  }
-  return pins.length;
-}
-
-/**
- * Finishes one store after a run that settled: the `knowledge_fill` rows that name the repositories the
- * run published. Every caller that fills the store — the button, `madarch fill`, `madarch fill-stages`,
- * the daemon's updates and `madarch mcp` — finishes it here, so a run of any of them is read the same way.
+ * Finishes one store after a run that settled: the repositories the graph now holds and what each was filled to, read
+ * from the graph — the repository entity, its as-is edge and the counts of its rows. Nothing is written: a pin is not a
+ * table of the fill's (stage 3: `knowledge_fill` is gone), and a reader opens the same rows the pages read.
  */
 export async function finishKnowledgeStore(owner: StoreOwner): Promise<FinishedKnowledgeStore> {
-  const pins = await writePins(owner);
-  return { pins };
+  return { pins: (await pinsOf(owner)).length };
 }
 
 /**
@@ -216,7 +233,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
               if (lastNotice !== undefined && at - lastNotice < noticeEveryMs) return;
               lastNotice = at;
               try {
-                await writePins(owner);
+                // The notice follows the store's own rows: the pins are the graph's (stage 3: `knowledge_fill` is gone),
+                // so there is nothing to write before a reader is told to read again.
                 await options.onPublish!();
               } catch {
                 // the next publication tries again; the run's end finishes the store whether or not this one did
@@ -224,7 +242,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             },
           }),
         });
-        if (!result.ok) return { ok: false, state: 'failed', message: `${result.code}: ${result.reason}`, units: 0 };
+        if (!result.ok) return { ok: false, state: 'failed', refused: true, message: await refusalWords(owner, options.productFolder, result), units: 0 };
         if (!result.settled || result.state !== 'succeeded') {
           // The run's own durable events name why a unit did not publish: the stage's error, with the
           // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
@@ -241,8 +259,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             units: result.units.length,
           };
         }
-        // The pins are committed before the run is called finished anywhere: they are what a page asked after the fill
-        // reads, and a run whose end was visible first would let the pressing side read an empty store as its result.
+        // The run is finished after the store's last publication is committed: a page asked after the fill reads the
+        // graph's own rows, and a run whose end was visible before them would let the pressing side read an empty store.
         await finishKnowledgeStore(owner);
         return {
           ok: true, state: result.state, units: result.units.length,

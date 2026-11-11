@@ -906,7 +906,9 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
     console.log(JSON.stringify({ product: { name: identity.product.name, folder }, runId, ...result }));
     return result.ok ? 0 : 1;
   }
-  console.log(`Fill ${runId}: ${result.state}`);
+  // A press the product refused never started a run: saying "failed" there would read as a broken product, and the words
+  // after it say what is true (madarch-8bdc.2.18).
+  console.log(`Fill ${runId}: ${result.ok ? result.state : result.refused === true ? 'not started' : 'failed'}`);
   console.log(`Product: ${identity.product.name} in ${displayPath(folder)}`);
   console.log(`Store: ${displayPath(storeFolder)}`);
   console.log(`Units: ${String(result.units)}`);

@@ -17,9 +17,9 @@ import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../knowledge/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { fileContent, graphFiles, producerEntities } from '../graph/plugin-turns.js';
+import { fileContent, graphFiles, producerEntities, writeRequestEntry } from '../graph/plugin-turns.js';
 import { closureOf } from '../plugin/closure.js';
-import { PluginHost, type GraphAnswerer } from '../plugin/host.js';
+import { PluginHost, RequestLog, type GraphAnswerer } from '../plugin/host.js';
 import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from './snapshot.js';
@@ -167,17 +167,15 @@ function canonicalKey(key: Readonly<Record<string, string | number>>): string {
 
 /**
  * The graph the host answers a plugin's reads from: the file vertices its pattern names, and a file's content as the
- * files producer stored it. The plugin never sees a folder (decision 0035, item 9).
+ * files producer stored it. The plugin never sees a folder (decision 0035, item 9). The host records each request it
+ * answers — and each it refuses — in the unit's `RequestLog`, so the answerer states no sizes of its own.
  */
-function answererOf(wiring: PluginTurnWiring, reads: { method: string; size: number }[] | undefined): GraphAnswerer {
-  /** Records one request and the size of its answer, when the product's journal keeps the plugin's requests. */
-  const read = (method: string, size: number): void => { reads?.push({ method, size }); };
+function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
   return {
     files: async (pattern) => {
       const files = (await graphFiles(wiring.owner, wiring.contract))
         .filter((file) => matchesAny([pattern], file.path))
         .map((file) => ({ kind: GIT_WIKI.file, key: { repository: file.repository, path: file.path } }));
-      read('graph.files', files.length);
       return files;
     },
     value: async (kind, key, field) => {
@@ -185,9 +183,7 @@ function answererOf(wiring: PluginTurnWiring, reads: { method: string; size: num
       const repository = String(key['repository'] ?? '');
       const path = String(key['path'] ?? '');
       if (field !== 'content') throw new Error(`the field ${JSON.stringify(field)} is not one a plugin reads of a file: the files producer stores its content`);
-      const value = await fileContent(wiring.owner, repository, path);
-      read('graph.value', value === null ? 0 : value.length);
-      return value;
+      return await fileContent(wiring.owner, repository, path);
     },
   };
 }
@@ -200,17 +196,21 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
   const workRoot = mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-'));
-  const reads: { method: string; size: number }[] | undefined = wiring.debug === true ? [] : undefined;
+  const requests: RequestLog | undefined = wiring.debug === true ? new RequestLog() : undefined;
   const host = new PluginHost({
     pluginFolder,
     closure,
     repository: wiring.productFolder,
-    graph: answererOf(wiring, reads),
+    graph: answererOf(wiring),
     workRoot,
     trust: 'production',
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
+    ...(requests === undefined ? {} : { requests }),
   });
+  const author = `${unit.plugin.id}@${unit.lock.version}`;
+  /** Whether the unit's own publication carries its requests: a unit that failed publishes nothing (see below). */
+  let journaled = false;
   try {
     const session = await host.open();
     try {
@@ -253,9 +253,11 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           } });
         }
       }
-      // The unit's entry names its author and, under the debug setting, every request it made with its answer's size.
-      // It is a draft like the rest, so it lands in the publication's own transaction.
-      draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author: `${unit.plugin.id}@${unit.lock.version}`, ...(reads === undefined ? {} : { reads }) } });
+      // The unit's entry names its author and, under the debug setting, every request it made — its refusals, its
+      // failures and any the unit abandoned included, each with its answer's size and its cause's class, never an
+      // argument or a text. It is a draft like the rest, so it lands in the publication's own transaction.
+      draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
+      journaled = true;
       if (only === undefined && outcome.result.end.state === 'complete') {
         for (const held of await producerEntities(wiring.owner, wiring.contract, unit.kind.name, unit.plugin.id)) {
           if (answered.has(canonicalKey(held.key))) continue;
@@ -265,6 +267,11 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     } finally {
       await session.close();
     }
+  } catch (error) {
+    // A unit that crashed or timed out publishes nothing, and its requests are evidence all the same: they go to the
+    // journal in one transaction of their own, so the record survives the unit's failure (codex, stage 2 review, 5).
+    if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
+    throw error;
   } finally {
     rmSync(workRoot, { recursive: true, force: true });
   }

@@ -9,6 +9,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { generatedTableName } from './contract.js';
+import { journalFor, writeJournal, type JournalRead } from './write.js';
 
 /** One file vertex of the graph: the repository it stands in and its path from that repository's root. */
 export interface GraphFileRow {
@@ -91,5 +92,20 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
       seen.add(rendered);
       return true;
     }).sort((left, right) => (JSON.stringify(left.key) < JSON.stringify(right.key) ? -1 : 1));
+  });
+}
+
+/**
+ * The debug entry of a unit that published nothing — a plugin that read the graph and then crashed or timed out: its
+ * requests stand even where its answer does not, as one journal row in a transaction of its own. This module is the
+ * graph's own, so the write stands where the architecture says a publication may: a caller outside `src/graph` asks
+ * for it by name. A store that cannot take the row does not hide the unit's failure.
+ */
+export async function writeRequestEntry(owner: DatabaseOwner, author: string, records: readonly JournalRead[]): Promise<void> {
+  if (records.length === 0) return;
+  await owner.transaction('write', async (tx) => {
+    const journal = journalFor(author);
+    for (const record of records) journal.read(record);
+    await writeJournal(tx, journal);
   });
 }
