@@ -158,6 +158,8 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
       'src/a.ts': "const META = 'madarch_meta'; export const sql = `CREATE TABLE ${META}.schema_stamp (id bigint PRIMARY KEY); CREATE TABLE sample (a text, b text, UNIQUE (a,b), CHECK (a <> b)); CREATE INDEX expression_idx ON sample ((lower(a))); CREATE INDEX opclass_idx ON sample (a text_pattern_ops); CREATE INDEX method_idx ON sample USING hash (a);`;",
       'src/b.ts': 'export const sql = `CREATE TABLE sample (fixture_only boolean)`;',
       'src/shadow.ts': "const S = 'incorrect'; function ddl(S: string) { return `CREATE TABLE ${S}.shadowed (id bigint)`; }",
+      'src/function-shadow.ts': "const F = 'incorrect'; function ddl() { function F() {} return `CREATE TABLE ${F}.function_shadowed (id bigint)`; }",
+      'src/foreign-schema.ts': "export const sql = `CREATE TABLE known (id bigint REFERENCES ${unknownSchema}.parent(id))`;",
       'test/fixture.ts': 'export const sql = `CREATE TABLE unwanted (id bigint)`;',
     };
     const requested: string[] = [];
@@ -181,7 +183,7 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
       const result = await session.runUnit({ unitId: 'scope', kind: 'code.table', key: {}, inputs: { patterns: ['src/*.ts', 'src/*.ts'] } });
       if (result.state !== 'extracted') throw new Error(JSON.stringify(result));
       const tables = result.result.vertices.filter((v) => v.kind === 'code.table');
-      expect(tables.map((v) => v.key['name']).sort()).toEqual(['madarch_meta.schema_stamp', 'sample']);
+      expect(tables.map((v) => v.key['name']).sort()).toEqual(['known', 'madarch_meta.schema_stamp', 'sample']);
       const sample = tables.find((v) => v.key['name'] === 'sample');
       expect(sample?.values?.['unsupported']).toContain('composite UNIQUE');
       expect(sample?.values?.['unsupported']).toContain('table CHECK');
@@ -194,6 +196,10 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
       expect(columns.map((v) => v.key['name']).sort()).toEqual(['a', 'b']);
       expect(columns.every((v) => v.values?.['unique'] === false)).toBe(true);
       expect(result.result.end.state).toBe('partial');
+      if (result.result.end.state !== 'partial') throw new Error('expected source diagnostics');
+      expect(result.result.end.cause).toContain('app/src/foreign-schema.ts:1');
+      expect(result.result.end.cause).toContain('app/src/function-shadow.ts:1');
+      expect(result.result.end.cause).toContain('app/src/shadow.ts:1');
       expect(requested.every((pattern) => pattern === 'src/*.ts')).toBe(true);
       requested.length = 0;
       const empty = await session.runUnit({ unitId: 'empty', kind: 'code.table', key: {}, inputs: { patterns: [] } });

@@ -365,7 +365,7 @@ function literalsOf(text: string, path: string, problems: Problem[], place: (lin
         else if (child !== null && typeof child === 'object') add(child);
       }
     };
-    if (held['type'] === 'VariableDeclarator') add(held['id']);
+    if (held['type'] === 'VariableDeclarator' || held['type'] === 'FunctionDeclaration' || held['type'] === 'FunctionExpression' || held['type'] === 'ClassDeclaration' || held['type'] === 'ClassExpression') add(held['id']);
     if (Array.isArray(held['params'])) held['params'].forEach(add);
     if (held['type'] === 'CatchClause') add(held['param']);
     for (const [key, value] of Object.entries(held)) if (key !== 'loc') countBindings(value);
@@ -427,7 +427,8 @@ function tableNameOf(relation: PgNode | undefined): string | undefined {
   const name = relation['relname'];
   if (typeof name !== 'string' || name === '') return undefined;
   const schema = relation['schemaname'];
-  // Preserve qualification; unresolved schema placeholders are rejected by the caller.
+  if (name.includes(PLACEHOLDER) || typeof schema === 'string' && schema.includes(PLACEHOLDER)) return undefined;
+  // Preserve every statically known schema qualification.
   return typeof schema === 'string' && schema !== '' && schema !== 'public' ? `${schema}.${name}` : name;
 }
 
@@ -678,18 +679,13 @@ function lineOfOffset(text: string, offset: number): number {
 
 /** Whether a statement's object name is composed at run time: the substitution's placeholder stands where a name goes. */
 function composedName(statement: PgNode): boolean {
-  for (const key of ['CreateStmt', 'IndexStmt', 'AlterTableStmt'] as const) {
-    const held = only(statement, key);
-    if (held === undefined) continue;
-    const relation = only(held, 'relation');
-    if (relation !== undefined) {
-      const name = relation['relname'];
-      if (typeof name === 'string' && name.includes(PLACEHOLDER) || typeof relation['schemaname'] === 'string' && (relation['schemaname'] as string).includes(PLACEHOLDER)) return true;
-    }
-    const indexName = held['idxname'];
-    if (typeof indexName === 'string' && indexName.includes(PLACEHOLDER)) return true;
-  }
-  return false;
+  const visit = (node: unknown): boolean => {
+    if (node === null || typeof node !== 'object') return false;
+    if (Array.isArray(node)) return node.some(visit);
+    return Object.entries(node).some(([key, value]) =>
+      (key === 'relname' || key === 'schemaname' || key === 'idxname') && typeof value === 'string' && value.includes(PLACEHOLDER) || visit(value));
+  };
+  return visit(statement);
 }
 
 /** One statement of a literal that names its object at run time, as the problem that says so. */
