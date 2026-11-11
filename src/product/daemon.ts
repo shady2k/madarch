@@ -483,7 +483,11 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
     // record's token; one that is merely `starting` has nothing to check yet.
     if (seen.reading !== 'daemon') return false;
     if (!daemonTokenMatches(state)) { tokenMissed = true; return false; }
-    try { const response = await fetch(`http://127.0.0.1:${port}/`); if (response.ok) { answered = true; return true; } } catch { /* the listener is still binding */ }
+    try {
+      // The root redirects to a product; listener readiness must not wait for that product's first acquisition.
+      const response = await fetch(`http://127.0.0.1:${port}/`, { redirect: 'manual' });
+      if (response.ok || response.status === 302) { answered = true; return true; }
+    } catch { /* the listener is still binding */ }
     return false;
   }, READY_TIMEOUT_MS);
   if (ready && answered && daemonIsAlive(state, reads)) {
