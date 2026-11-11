@@ -124,6 +124,7 @@ describe('a status answer reads the manifest once per key', () => {
     const file = join(folder, 'madarch', 'kinds.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.setIn(['groups', 'stamp-probe'], { en: 'Stamp probe', ru: 'Проба чекана' });
+    manifest.addIn(['roles', 'developer', 'lead'], 'stamp-probe');
     writeFileSync(file, manifest.toString());
     expect((await get('/api/status')).body.groups.map((group: { group: string }) => group.group)).not.toContain('stamp-probe');
     commitProduct(folder, 'Declare a probe group');
