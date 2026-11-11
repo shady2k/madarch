@@ -191,3 +191,24 @@ test('one trace read gives the same report and steps as the public builders', ()
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('bounded span rankings keep stable ties, missing RSS and negative growth', () => {
+  const spans: TraceSpan[] = Array.from({ length: 40 }, (_, i) => ({
+    traceId: 'trace', spanId: `${i}`, parentSpanId: undefined, name: `span-${i}`,
+    start: i, end: i + (i % 4), failed: i % 2 === 0,
+    attributes: i % 5 === 0 ? {} : { 'process.rss.start': i % 3 === 0 ? 200 : 100, 'process.rss.end': 100 + (i % 3) * 10 },
+  }));
+  const expectedMemory = spans.map((span) => {
+    const start = typeof span.attributes['process.rss.start'] === 'number' ? span.attributes['process.rss.start'] : 0;
+    const end = typeof span.attributes['process.rss.end'] === 'number' ? span.attributes['process.rss.end'] : 0;
+    return { name: span.name, spanId: span.spanId, rssStart: start, rssEnd: end, growth: end - start };
+  }).sort((left, right) => right.growth - left.growth || right.rssEnd - left.rssEnd).slice(0, 10);
+  const expectedSlowest = spans.map((span) => ({ name: span.name, spanId: span.spanId, ms: span.end - span.start }))
+    .sort((left, right) => right.ms - left.ms).slice(0, 10);
+  const report = traceReportOf(spans, 'rankings.jsonl');
+  expect(report.memory).toEqual(expectedMemory);
+  expect(report.slowest).toEqual(expectedSlowest);
+  expect(traceReportOf([], 'empty.jsonl').memory).toEqual([]);
+  expect(traceReportOf(spans.slice(0, 3), 'small.jsonl').slowest).toHaveLength(3);
+});

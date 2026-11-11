@@ -225,6 +225,24 @@ function coveredMs(intervals: readonly Interval[]): number {
   return union(intervals).reduce((sum, one) => sum + (one.end - one.start), 0);
 }
 
+/** The first ten under the same stable order as a full sort, without retaining a result per span. */
+function topSpans(spans: readonly TraceSpan[], compare: (left: TraceSpan, right: TraceSpan) => number): TraceSpan[] {
+  const top: TraceSpan[] = [];
+  for (const span of spans) {
+    let at = top.length;
+    while (at > 0 && compare(span, top[at - 1]!) < 0) at -= 1;
+    if (at >= 10) continue;
+    top.splice(at, 0, span);
+    if (top.length > 10) top.pop();
+  }
+  return top;
+}
+
+function rssOf(span: TraceSpan, boundary: 'start' | 'end'): number {
+  const value = span.attributes[boundary === 'start' ? 'process.rss.start' : 'process.rss.end'];
+  return typeof value === 'number' ? value : 0;
+}
+
 interface SpanIndex {
   readonly byId: ReadonlyMap<string, TraceSpan>;
   readonly childMs: ReadonlyMap<string, number>;
@@ -269,14 +287,13 @@ function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanI
     .sort((left, right) => right.selfMs - left.selfMs || (left.name < right.name ? -1 : 1))
     .slice(0, 20);
 
-  const memory = spans
+  const memory = topSpans(spans, (left, right) =>
+    (rssOf(right, 'end') - rssOf(right, 'start')) - (rssOf(left, 'end') - rssOf(left, 'start')) || rssOf(right, 'end') - rssOf(left, 'end'))
     .map((span) => {
-      const start = typeof span.attributes['process.rss.start'] === 'number' ? span.attributes['process.rss.start'] : 0;
-      const end = typeof span.attributes['process.rss.end'] === 'number' ? span.attributes['process.rss.end'] : 0;
+      const start = rssOf(span, 'start');
+      const end = rssOf(span, 'end');
       return { name: span.name, spanId: span.spanId, rssStart: start, rssEnd: end, growth: end - start };
-    })
-    .sort((left, right) => right.growth - left.growth || right.rssEnd - left.rssEnd)
-    .slice(0, 10);
+    });
 
   // The run's own span covers everything by construction, so it is the one span that does not count as
   // coverage: it is the interval whose inside must be accounted for. Every other span — a phase, a
@@ -301,10 +318,8 @@ function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanI
   }
   gaps.sort((left, right) => right.ms - left.ms);
 
-  const slowest = [...spans]
-    .map((span) => ({ name: span.name, spanId: span.spanId, ms: span.end - span.start }))
-    .sort((left, right) => right.ms - left.ms)
-    .slice(0, 10);
+  const slowest = topSpans(spans, (left, right) => (right.end - right.start) - (left.end - left.start))
+    .map((span) => ({ name: span.name, spanId: span.spanId, ms: span.end - span.start }));
 
   return {
     file, runId, spanCount: spans.length, wallMs,
