@@ -109,9 +109,8 @@ describe('madarch init', () => {
 
   test('the wiki it opens is empty, offers the agents and has run none', async () => {
     const status = await get('api/status');
-    // The wiki opens on the graph, and init fills nothing: the manifest is the product repository's commit, which the
-    // first fill stores (madarch-hsqs stage C). The kinds appear after that press.
-    expect(status.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, kinds: [], repositories: [{ name: 'training-shop', filled: false }] });
+    // Init creates the starter manifest, but no fill has read it into the graph yet. The kinds appear after that press.
+    expect(status.body).toMatchObject({ manifest: 'not-filled', manifestFile: join(home, 'training-shop', 'madarch', 'kinds.yaml'), filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, kinds: [], repositories: [{ name: 'training-shop', filled: false }] });
     const agents = await get('api/agents');
     // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
     // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
