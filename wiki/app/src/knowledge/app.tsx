@@ -1,3 +1,4 @@
+import { Stack } from '@/components/ui/typography.js';
 import { AuthoredPage } from './authored.js';
 /**
  * The knowledge wiki (decision 0029): the product chosen at the top left, the
@@ -489,9 +490,9 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         </Badge>
       </Button>
       {open && (
-        <Card id="fill-menu-panel" role="dialog" aria-label={t('knowledge.fillMenuTitle')} data-testid="fill-menu" className="absolute right-0 top-full z-40 mt-2 max-h-[70vh] w-[min(24rem,90vw)] overflow-y-auto shadow-[var(--shadow-high)]">
+        <Card id="fill-menu-panel" role="dialog" aria-label={t('knowledge.fillMenuTitle')} data-testid="fill-menu" floating>
           <CardContent className="grid gap-2 p-3">
-            <KLink href={WIKI_FILL} testId="fill-menu-choose" className="rounded-[var(--radius-control)] px-2 py-2 text-small text-ink hover:bg-[var(--surface-hover)]">{t('knowledge.fillChoose')}</KLink>
+            <KLink href={WIKI_FILL} testId="fill-menu-choose" className="rounded px-2 py-2 text-small text-ink hover:bg-chrome">{t('knowledge.fillChoose')}</KLink>
             {(authoring || filling) && (
               // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
               // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
@@ -702,7 +703,7 @@ export function KnowledgeApp(): ReactElement {
   }
   if (status === null) {
     return (
-      <div className="shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="wiki-loading">
+      <Stack layout="shell" data-testid="wiki-loading">
         <aside className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col gap-3 border-r border-line bg-chrome px-[14px] py-[18px] wide:px-[18px] md:flex" aria-hidden="true">
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-9 w-full" />
@@ -712,7 +713,7 @@ export function KnowledgeApp(): ReactElement {
           <header className="shell-toolbar min-h-[58px] border-b border-line" />
           <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
         </div>
-      </div>
+      </Stack>
     );
   }
   const currentFolder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? '')) || (products[0]?.folder ?? null);
@@ -766,10 +767,10 @@ export function KnowledgeApp(): ReactElement {
       <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
       <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
-      <div className="shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
+      <Stack layout="shell" data-testid="knowledge-app">
         {/* Navigation and page content have separate scroll areas within the viewport. */}
         <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 border-r border-line bg-chrome md:flex" aria-label={t('navigation.aria')}>
-          <div className="flex min-h-0 h-full w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
+          <Stack layout="navigation">{nav()}</Stack>
         </aside>
         <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
@@ -792,7 +793,7 @@ export function KnowledgeApp(): ReactElement {
             </div>
           </div>
         </div>
-      </div>
+      </Stack>
       </GlossaryContext.Provider>
       </RoleContext.Provider>
       </KindLabels.Provider>

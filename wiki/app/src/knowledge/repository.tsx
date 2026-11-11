@@ -1,3 +1,6 @@
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
+import { Button } from '@/components/ui/button.js';
+import { Stack, Text, PageSection, PageArticle, PageHeader, Paragraph, PlainList, ListItem, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 /**
  * The repository's entity-page blocks (madarch-hsqs stage A): a repository's facts, a folder's files and folders,
  * and one file's facts. They are blocks of the graph's own entity pages now — the separate repository, folder, file
@@ -208,85 +211,85 @@ export function FilePageView({ block, resolutions }: { block: FilePageBlock; res
     { face: 'history', label: t('knowledge.filePage.history') },
     { face: 'cochange', label: t('knowledge.filePage.cochange') },
   ];
-  const sourcePanel = block.source === undefined ? <p className="text-small text-muted" data-testid="file-no-text">{t('knowledge.filePage.noSource')}</p> : (
+  const sourcePanel = block.source === undefined ? <Paragraph className="text-small text-muted" data-testid="file-no-text">{t('knowledge.filePage.noSource')}</Paragraph> : (
     <>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-wrap" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>{t('knowledge.filePage.softWrap')}</button>
-      </div>
-      <div className="file-source overflow-x-auto" data-testid="file-source">
+      <Stack className="mb-2 flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" variant="default" data-testid="file-wrap" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>{t('knowledge.filePage.softWrap')}</Button>
+      </Stack>
+      <Stack className="file-source overflow-x-auto" data-testid="file-source">
         <CodeLines text={block.source.text} language={block.source.language} firstLine={1} wrap={wrap} />
-      </div>
+      </Stack>
     </>
   );
   const markdown = block.source !== undefined && block.markdown;
   return (
-    <article data-testid="file-page" className="file-page">
-      <header className="mb-6 max-w-[var(--measure)]">
-        <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small" data-testid="file-facts-header">
-          <dt className="text-muted">{t('knowledge.repository.language')}</dt><dd className="m-0" data-testid="file-header-language">{data.language ?? (/\.(md|markdown)$/iu.test(data.path) ? 'markdown' : data.candidates[0]) ?? '—'}</dd>
-          <dt className="text-muted">{t('knowledge.repository.lines')}</dt><dd className="m-0" data-testid="file-header-lines">{data.lines ?? '—'}</dd>
-          <dt className="text-muted">{t('knowledge.repository.bytes')}</dt><dd className="m-0" data-testid="file-header-size">{data.bytes === null ? '—' : bytesText(data.bytes)}</dd>
-          <dt className="text-muted">{t('knowledge.repository.created')}</dt><dd className="m-0" data-testid="file-header-created">{created}</dd>
-          <dt className="text-muted">{t('knowledge.repository.modified')}</dt><dd className="m-0" data-testid="file-header-modified">{modified}</dd>
-          <dt className="text-muted">{t('knowledge.repository.authors')}</dt><dd className="m-0" data-testid="file-header-authors">{data.authors.length === 0 ? '—' : data.authors.join(', ')}</dd>
-        </dl>
-      </header>
-      <div role="tablist" aria-label={t('knowledge.filePage.overview')} className="mb-4 flex flex-wrap gap-2" data-testid="file-tabs">
+    <PageArticle data-testid="file-page" className="file-page"><Tabs value={face} onValueChange={(value) => setFace(value as typeof face)}>
+      <PageHeader className="mb-6"><Stack layout="reading">
+        <DefinitionList columns data-testid="file-facts-header">
+          <DefinitionTerm className="text-muted">{t('knowledge.repository.language')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="file-header-language">{data.language ?? (/\.(md|markdown)$/iu.test(data.path) ? 'markdown' : data.candidates[0]) ?? '—'}</DefinitionValue>
+          <DefinitionTerm className="text-muted">{t('knowledge.repository.lines')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="file-header-lines">{data.lines ?? '—'}</DefinitionValue>
+          <DefinitionTerm className="text-muted">{t('knowledge.repository.bytes')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="file-header-size">{data.bytes === null ? '—' : bytesText(data.bytes)}</DefinitionValue>
+          <DefinitionTerm className="text-muted">{t('knowledge.repository.created')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="file-header-created">{created}</DefinitionValue>
+          <DefinitionTerm className="text-muted">{t('knowledge.repository.modified')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="file-header-modified">{modified}</DefinitionValue>
+          <DefinitionTerm className="text-muted">{t('knowledge.repository.authors')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="file-header-authors">{data.authors.length === 0 ? '—' : data.authors.join(', ')}</DefinitionValue>
+        </DefinitionList></Stack>
+      </PageHeader>
+      <TabsList aria-label={t('knowledge.filePage.overview')} className="mb-4 flex h-auto flex-wrap gap-2" data-testid="file-tabs">
         {tabs.map((tab) => (
-          <button key={tab.face} type="button" role="tab" aria-selected={face === tab.face} className="cursor-pointer rounded-[var(--radius-control)] border border-line px-3 py-1 text-small data-[on=true]:border-ink data-[on=true]:bg-ink data-[on=true]:text-page" data-on={face === tab.face} data-testid={`file-tab-${tab.face}`} onClick={() => setFace(tab.face)}>{tab.label}</button>
+          <TabsTrigger key={tab.face} value={tab.face} data-on={face === tab.face} data-testid={`file-tab-${tab.face}`}>{tab.label}</TabsTrigger>
         ))}
-      </div>
+      </TabsList>
       {face === 'overview' && (
-        <section data-testid="file-overview">
+        <TabsContent value="overview"><PageSection data-testid="file-overview">
           {markdown && (
-            <div className="mb-3 flex max-w-[var(--measure)] flex-wrap items-center gap-2">
-              <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-rendered" aria-pressed={view === 'rendered'} onClick={() => setView('rendered')}>{t('knowledge.filePage.rendered')}</button>
-              <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-source" aria-pressed={view === 'source'} onClick={() => setView('source')}>{t('knowledge.filePage.source')}</button>
+            <Stack layout="reading" className="mb-3 flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="default" data-testid="file-view-rendered" aria-pressed={view === 'rendered'} onClick={() => setView('rendered')}>{t('knowledge.filePage.rendered')}</Button>
+              <Button type="button" size="sm" variant="default" data-testid="file-view-source" aria-pressed={view === 'source'} onClick={() => setView('source')}>{t('knowledge.filePage.source')}</Button>
               <KLink href={addressOfDocument(data.repository, data.path)} testId="file-sources-page">{t('knowledge.filePage.sourcesPage')}</KLink>
-            </div>
+            </Stack>
           )}
           {markdown && view === 'rendered' && block.source !== undefined
-            ? <div className="max-w-[var(--measure)]"><KMarkdown text={block.source.text} resolutions={resolutions} /></div>
+            ? <Stack layout="reading"><KMarkdown text={block.source.text} resolutions={resolutions} /></Stack>
             : sourcePanel}
-        </section>
+        </PageSection></TabsContent>
       )}
       {face === 'history' && (
-        <section className="max-w-[var(--measure)]" data-testid="file-history">
-          {block.history.length === 0 ? <p className="text-small text-muted" data-testid="file-history-empty">{t('knowledge.filePage.noHistory')}</p> : (
-            <div className="table-wrap">
-              <table className="w-full border-collapse text-small">
-                <thead><tr className="border-b border-line text-left text-muted"><th className="py-1 font-normal">{t('knowledge.historyColWhen')}</th><th className="py-1 font-normal">{t('knowledge.historyColWho')}</th><th className="py-1 font-normal">{t('knowledge.historyColWhat')}</th><th className="py-1 font-normal">{t('knowledge.historyColFigures')}</th></tr></thead>
-                <tbody>
+        <TabsContent value="history"><PageSection data-testid="file-history"><Stack layout="reading">
+          {block.history.length === 0 ? <Paragraph className="text-small text-muted" data-testid="file-history-empty">{t('knowledge.filePage.noHistory')}</Paragraph> : (
+            <Stack className="table-wrap">
+              <Table className="w-full border-collapse text-small">
+                <TableHeader><TableRow className="border-b border-line text-left text-muted"><TableHead className="py-1 font-normal">{t('knowledge.historyColWhen')}</TableHead><TableHead className="py-1 font-normal">{t('knowledge.historyColWho')}</TableHead><TableHead className="py-1 font-normal">{t('knowledge.historyColWhat')}</TableHead><TableHead className="py-1 font-normal">{t('knowledge.historyColFigures')}</TableHead></TableRow></TableHeader>
+                <TableBody>
                   {block.history.map((row) => (
-                    <tr key={`${row.hash}-${row.when}`} className="border-b border-line align-top last:border-b-0" data-testid="file-history-row" data-commit={row.hash}>
-                      <td className="whitespace-nowrap py-1 pr-3">{row.when || '—'}</td>
-                      <td className="py-1 pr-3">{row.who ?? '—'}</td>
-                      <td className="py-1 pr-3 break-words">{row.href === null ? row.subject : <KLink href={row.href}>{row.subject}</KLink>}</td>
-                      <td className="whitespace-nowrap py-1">{row.added === null ? '' : t('knowledge.historyAdded', { count: row.added })} {row.removed === null ? '' : t('knowledge.historyRemoved', { count: row.removed })}</td>
-                    </tr>
+                    <TableRow key={`${row.hash}-${row.when}`} className="border-b border-line align-top last:border-b-0" data-testid="file-history-row" data-commit={row.hash}>
+                      <TableCell className="whitespace-nowrap py-1 pr-3">{row.when || '—'}</TableCell>
+                      <TableCell className="py-1 pr-3">{row.who ?? '—'}</TableCell>
+                      <TableCell className="py-1 pr-3 break-words">{row.href === null ? row.subject : <KLink href={row.href}>{row.subject}</KLink>}</TableCell>
+                      <TableCell className="whitespace-nowrap py-1">{row.added === null ? '' : t('knowledge.historyAdded', { count: row.added })} {row.removed === null ? '' : t('knowledge.historyRemoved', { count: row.removed })}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </Stack>
           )}
-        </section>
+        </Stack></PageSection></TabsContent>
       )}
       {face === 'cochange' && (
-        <section className="max-w-[var(--measure)]" data-testid="file-cochange">
-          {block.cochangeTotal > block.cochange.length && <p className="text-small text-muted">{t('knowledge.filePage.cochangeShown', { shown: block.cochange.length, total: block.cochangeTotal })}</p>}
-          {block.cochange.length === 0 ? <p className="text-small text-muted" data-testid="file-cochange-empty">{t('knowledge.filePage.noCochange')}</p> : (
-            <ul className="m-0 list-none p-0" data-testid="file-cochange-list">
+        <TabsContent value="cochange"><PageSection data-testid="file-cochange"><Stack layout="reading">
+          {block.cochangeTotal > block.cochange.length && <Paragraph className="text-small text-muted">{t('knowledge.filePage.cochangeShown', { shown: block.cochange.length, total: block.cochangeTotal })}</Paragraph>}
+          {block.cochange.length === 0 ? <Paragraph className="text-small text-muted" data-testid="file-cochange-empty">{t('knowledge.filePage.noCochange')}</Paragraph> : (
+            <PlainList className="m-0 list-none p-0" data-testid="file-cochange-list">
               {block.cochange.map((row) => (
-                <li key={row.path} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-1.5 last:border-b-0" data-testid="file-cochange-row" data-path={row.path}>
-                  <span className="min-w-0 break-all">{row.href === null ? row.path : <KLink href={row.href}>{row.path}</KLink>}</span>
-                  <span className="text-small text-muted">{t('knowledge.filePage.share', { both: row.both, total: block.commits, share: Math.round(row.share * 100) })}</span>
-                </li>
+                <ListItem key={row.path} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-1.5 last:border-b-0" data-testid="file-cochange-row" data-path={row.path}>
+                  <Text className="min-w-0 break-all">{row.href === null ? row.path : <KLink href={row.href}>{row.path}</KLink>}</Text>
+                  <Text className="text-small text-muted">{t('knowledge.filePage.share', { both: row.both, total: block.commits, share: Math.round(row.share * 100) })}</Text>
+                </ListItem>
               ))}
-            </ul>
+            </PlainList>
           )}
-        </section>
+        </Stack></PageSection></TabsContent>
       )}
-    </article>
+    </Tabs></PageArticle>
   );
 }
 

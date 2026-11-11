@@ -37,16 +37,6 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "2d5bf38e5231c7159e56#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "2d5bf38e5231c7159e56#2"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "333614366947505779d3#1"
   },
   {
@@ -68,11 +58,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "447692773d50d66b75a9#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "48fcf243b96b8845d29f#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -142,11 +127,6 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "ef602bbc004bb9180bee#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "f488a7db3b0f1b7fe6f8#1"
   },
   {
@@ -168,21 +148,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "f4ed193ea6a4bc9559e7#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "45087a1d9cf10313f34f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "7748a2a147064ecf903f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "f713a6620759a1820bf5#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -208,36 +173,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "93cf83cb7e00a8680f87#2"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "0e4fd2e37e4378cb96bd#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "26c4dab4cb07215c6549#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "26c4dab4cb07215c6549#2"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "45087a1d9cf10313f34f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "87a8e34666cd72c2dba7#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "a426032c75196c49a119#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -337,22 +272,12 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "1fcc14b94d0f5805b3ed#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "2cc94da7166937fc6eb7#1"
   },
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "84a4f67a3275ca40954f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "8f8eec1b852e651c4f6d#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -368,16 +293,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "cbe829110ce0dae8c930#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "cfb56e6289e0d41f068d#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "e6e1d261cc7698260afa#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -500,16 +415,6 @@
     "subject": "e343c164239cd6d9f80b#2"
   },
   {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "23fd8bb5da4c7bdc11dc#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "d127f71cf18351a63040#1"
-  },
-  {
     "rule": "inline-style",
     "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "9429b3295d1b0f37561e#1"
@@ -518,16 +423,6 @@
     "rule": "inline-style",
     "file": "wiki/app/src/knowledge/blocks.tsx",
     "subject": "29963980a94c5b1083bc#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "ef6229bf5cd33166d361#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "f7957480367a3553e7e5#1"
   },
   {
     "rule": "inline-style",
@@ -751,11 +646,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "DependencyPage#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/diagram-fence.tsx",
     "subject": "MermaidFence#1"
   },
@@ -833,11 +723,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "UnitRow#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "FillSidePanel#1"
   },
   {
     "rule": "local-styled-component",
@@ -997,11 +882,6 @@
   {
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "EntityPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "ExcerptView#1"
   },
   {
@@ -1018,11 +898,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "KindMap#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "KindPage#1"
   },
   {
     "rule": "local-styled-component",
@@ -1157,11 +1032,6 @@
   {
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "AgentChoice#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/writer.tsx",
     "subject": "WriterLine#1"
   },
   {
@@ -1172,27 +1042,12 @@
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "48b232fbbce93058b144#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "606ea3a9b10f99ab939d#1"
   },
   {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "79fbce36705991b38011#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "8b7082d05d39b628b528#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "8e1f493bf1ac38187c0b#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1243,16 +1098,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
     "subject": "ffbaafa6f1041afb53cd#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "7a07a8fec5c08c0bbacf#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/dependency-page.tsx",
-    "subject": "9bc6b7445d3bf7e088ec#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1416,41 +1261,6 @@
   },
   {
     "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "1effc60edeffe5fa174d#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "3f1598bdf3735a631ad2#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "63493c3a52c06c459617#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "751887bf0a25fb4e1128#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "abfc92d0e26ce7c1d8fe#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "dae6c183aa55d4b91ae1#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/fill-panel.tsx",
-    "subject": "f3d85b47021752970039#1"
-  },
-  {
-    "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/glossary.tsx",
     "subject": "44390fa2fcfdc9c8d8e1#1"
   },
@@ -1593,56 +1403,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/loop.tsx",
     "subject": "eb2339c19607296a5430#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "002c2d26e2d7a6526560#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "163c160cb30ca55ab949#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "1effc60edeffe5fa174d#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "232728d6b4bee48bbb3b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "5ca20feac38d6f27b889#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "73e7b313b6ac8fd1aa26#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "a373a0e87d1fd4e3aa15#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "b9493e96144e860588d6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "f3d85b47021752970039#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "f888605fef0167e6b685#1"
   },
   {
     "rule": "raw-ui-element",
@@ -1898,25 +1658,5 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/settings.tsx",
     "subject": "fde7b4f4fd631601e435#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "02ffdef7564c57b13b9b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "6f04ee2c6690c2b695ce#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "aba3972641ef0304e310#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "ca0866bd79541c251840#1"
   }
 ]

@@ -1,4 +1,5 @@
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink } from '@/components/ui/typography.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
@@ -57,7 +58,7 @@ function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null 
             {index > 0 && <span aria-hidden="true">/</span>}
             {last
               ? <span className="min-w-0 truncate font-medium text-ink" aria-current="page" data-testid="trail-current">{entity.label}</span>
-              : <span className="min-w-0 max-w-[12rem] truncate"><EntityName entity={entity} /></span>}
+              : <ClippedLabel><EntityName entity={entity} /></ClippedLabel>}
           </span>
         );
       })}
@@ -95,7 +96,7 @@ function RenderedEntityPage({ id, after = null, version }: { id: string; after?:
     return (
       <Alert variant="problem" data-testid="page-error">
         <AlertTitle>{t('knowledge.noSuchPage')}</AlertTitle>
-        <AlertDescription><p>{error}</p></AlertDescription>
+        <AlertDescription><Paragraph>{error}</Paragraph></AlertDescription>
       </Alert>
     );
   }
@@ -105,32 +106,32 @@ function RenderedEntityPage({ id, after = null, version }: { id: string; after?:
     statements: Object.fromEntries((page.planned?.statements ?? []).map((mark) => [sentenceKey(mark.sentence), { task: mark.task, how: mark.how }])),
   };
   return (
-    <article data-testid="entity-page" data-entity={page.id} data-kind={page.kind} data-planned={page.planned?.entity === null || page.planned?.entity === undefined ? 'false' : page.planned.entity.how}>
-      <header className="mb-6">
+    <PageArticle data-testid="entity-page" data-entity={page.id} data-kind={page.kind} data-planned={page.planned?.entity === null || page.planned?.entity === undefined ? 'false' : page.planned.entity.how}>
+      <PageHeader className="mb-6">
         <HistoryBar history={page.history} navigation={page.historyNavigation} absent={page.historicalAbsent} />
         <Trail trail={page.trail} />
-        <div className="mb-2 flex items-center gap-2">
+        <Stack className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
           {page.planned?.entity != null && <PlannedBadge mark={page.planned.entity} />}
-          {(page.problems ?? 0) > 0 && <span data-testid="page-problems"><KLink href={WIKI_PROBLEMS}><Badge variant="solid">{t('knowledge.pageProblems', { count: page.problems })}</Badge></KLink></span>}
-        </div>
-        <h1 data-testid="page-title">{page.title}</h1>
-        {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
-        {page.planned?.note !== undefined && <p className="text-small" role="alert" data-testid="page-planned-note">{page.planned.note}</p>}
+          {(page.problems ?? 0) > 0 && <Text data-testid="page-problems"><KLink href={WIKI_PROBLEMS}><Badge variant="solid">{t('knowledge.pageProblems', { count: page.problems })}</Badge></KLink></Text>}
+        </Stack>
+        <PageTitle data-testid="page-title">{page.title}</PageTitle>
+        {page.notes.map((note) => <Paragraph key={note} className="text-small text-muted" data-testid="page-note">{note}</Paragraph>)}
+        {page.planned?.note !== undefined && <Paragraph className="text-small" role="alert" data-testid="page-planned-note">{page.planned.note}</Paragraph>}
         {/* «Как агент писал эту страницу» only where the store holds a journal of it (madarch-m38l.23). */}
-        {page.journal !== undefined && <p className="text-small" data-testid="journal-link"><KLink href={addressOfJournal(page.id)}>{t('journal.title')}</KLink></p>}
-      </header>
+        {page.journal !== undefined && <Paragraph className="text-small" data-testid="journal-link"><KLink href={addressOfJournal(page.id)}>{t('journal.title')}</KLink></Paragraph>}
+      </PageHeader>
       <PlannedContext.Provider value={planned}>
       {page.blocks.map((block, index) => {
         const view = <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />;
         if (blockOpen(block, role, roles)) return view;
         // The role does not open this block: it stays on the page, collapsed under its title.
         const title = 'title' in block ? block.title : block.type;
-        return <details key={index} className="role-collapsed mb-4" data-testid="block-collapsed" data-block-type={block.type}><summary className="cursor-pointer text-secondary">{title}</summary>{view}</details>;
+        return <Disclosure key={index} className="role-collapsed mb-4" data-testid="block-collapsed" data-block-type={block.type}><DisclosureSummary className="cursor-pointer text-secondary">{title}</DisclosureSummary>{view}</Disclosure>;
       })}
       </PlannedContext.Provider>
       <Findings findings={page.findings} />
-    </article>
+    </PageArticle>
   );
 }
 
@@ -194,23 +195,23 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
     );
   };
   return (
-    <section data-testid="kind-page" data-kind={kind}>
-      <header className="mb-6">
-        <div className="mb-2 flex items-center gap-2"><Badge>{kindName(kind, 'one')}</Badge></div>
-        <h1>{kindName(kind, 'many')}</h1>
+    <PageSection data-testid="kind-page" data-kind={kind}>
+      <PageHeader className="mb-6">
+        <Stack className="mb-2 flex items-center gap-2"><Badge>{kindName(kind, 'one')}</Badge></Stack>
+        <PageTitle>{kindName(kind, 'many')}</PageTitle>
 
-      </header>
+      </PageHeader>
       <KindUsage kind={kind} version={version} />
       <KindDetails kind={kind} version={version} />
       <KindMap kind={kind} version={version} />
-      <h2>{t('knowledge.kindDetails.records')}</h2>
-      <div className="flex items-center gap-3">
-        <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="kind-filter" />
-        {listing !== null && <span className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</span>}
-      </div>
-      {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
+      <SectionTitle>{t('knowledge.kindDetails.records')}</SectionTitle>
+      <Stack className="flex items-center gap-3">
+        <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="w-96 max-w-full" data-testid="kind-filter" />
+        {listing !== null && <Text className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</Text>}
+      </Stack>
+      {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><Paragraph>{error ?? read.error}</Paragraph></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
-      {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{listing.agentFill === 'unconfigured' ? <>{t('knowledge.kindWaitingForAgent')} <KLink href={WIKI_FILL}>{t('knowledge.kindStartAgentFill')}</KLink></> : listing.agentFill === 'ready' ? <>{t('knowledge.kindWaitingForFill')} <KLink href={WIKI_FILL}>{t('knowledge.kindStartAgentFill')}</KLink></> : summary?.source === 'document' ? t('knowledge.noStageYet') : t('knowledge.nothingOfKind')}</p>}
+      {listing !== null && rows.length === 0 && <Paragraph className="text-muted" data-testid="kind-empty">{listing.agentFill === 'unconfigured' ? <>{t('knowledge.kindWaitingForAgent')} <KLink href={WIKI_FILL}>{t('knowledge.kindStartAgentFill')}</KLink></> : listing.agentFill === 'ready' ? <>{t('knowledge.kindWaitingForFill')} <KLink href={WIKI_FILL}>{t('knowledge.kindStartAgentFill')}</KLink></> : summary?.source === 'document' ? t('knowledge.noStageYet') : t('knowledge.nothingOfKind')}</Paragraph>}
       {rows.length > 0 && operations && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
       {rows.length > 0 && !operations && (
         <Table>
@@ -221,14 +222,14 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
             {rows.map((row) => (
               <TableRow key={row.id} data-entity={row.id}>
                 <TableCell className="break-words"><EntityName entity={row} /></TableCell>
-                <TableCell>{row.location !== undefined ? <CodePlace location={row.location} /> : <span className="text-muted">–</span>}</TableCell>
+                <TableCell>{row.location !== undefined ? <CodePlace location={row.location} /> : <Text className="text-muted">–</Text>}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
-      {next !== null && <div className="mt-4"><Button variant="default" size="default" onClick={load} data-testid="kind-more">{t('knowledge.more')}</Button></div>}
-    </section>
+      {next !== null && <Stack className="mt-4"><Button variant="default" size="default" onClick={load} data-testid="kind-more">{t('knowledge.more')}</Button></Stack>}
+    </PageSection>
   );
 }
 
@@ -709,7 +710,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</p>
       </header>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
-      <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_200px]">
+      <Stack layout="catalogue">
       <div className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
@@ -733,10 +734,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
       </Tabs>
       </div>
-      <aside className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-10rem)] md:overflow-y-auto" data-testid="catalogue-contents">
+      <ContentsSidebar data-testid="catalogue-contents">
         <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
-      </aside>
-      </div>
+      </ContentsSidebar>
+      </Stack>
     </section>
   );
 }

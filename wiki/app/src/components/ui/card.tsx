@@ -5,8 +5,8 @@
 import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils.js';
 
-export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function Card({ className, ...props }, ref) {
-  return <div ref={ref} className={cn('ui-card rounded-[var(--radius-card)] border border-line bg-[var(--surface-card)] text-ink shadow-[var(--shadow-low)]', className)} {...props} />;
+export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { floating?: boolean }>(function Card({ className, floating = false, ...props }, ref) {
+  return <div ref={ref} className={cn('ui-card rounded-[var(--radius-card)] border border-line bg-[var(--surface-card)] text-ink shadow-[var(--shadow-low)]', floating && 'absolute right-0 top-full z-40 mt-2 max-h-[70vh] w-[min(24rem,90vw)] overflow-y-auto shadow-[var(--shadow-high)]', className)} {...props} />;
 });
 
 export const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CardHeader({ className, ...props }, ref) {

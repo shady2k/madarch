@@ -1,3 +1,5 @@
+import { PageSection, Paragraph, Text } from '@/components/ui/typography.js';
+import { GraphViewport, GraphCanvas, GraphBox, GraphMetadata, GraphEdges, GraphEdge, graphLinkClass } from '@/components/ui/graph.js';
 /** Shared catalogue graph: manifest dependencies, fill states, and kind inspection. */
 import { useEffect, useRef, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -136,12 +138,12 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
     frame.scrollLeft = Math.max(0, chosenX + BOX_WIDTH / 2 - frame.clientWidth / 2);
   }, [chosen, chosenX]);
   return (
-    <section data-testid="kind-graph">
-      {cycles.length > 0 && <p className="m-0 text-small" role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</p>}
+    <PageSection data-testid="kind-graph">
+      {cycles.length > 0 && <Paragraph className="m-0 text-small" role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</Paragraph>}
       {/* The graph is its own frame: on a phone it scrolls sideways inside the page, and the page itself never does. */}
-      <div ref={viewport} className="overflow-x-auto" data-testid="dependencies-graph">
-        <div className="relative" style={{ width, height }}>
-          <svg width={width} height={height} aria-hidden="true" className="absolute inset-0">
+      <GraphViewport ref={viewport} data-testid="dependencies-graph">
+        <GraphCanvas width={width} height={height}>
+          <GraphEdges width={width} height={height}>
             {nodes.flatMap((node) => node.dependsOn.flatMap((dependency) => {
               const from = place.get(dependency);
               const to = place.get(node.kind.kind);
@@ -151,14 +153,13 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
               const x2 = to.x;
               const y2 = to.y + BOX_HEIGHT / 2;
               const middle = (x1 + x2) / 2;
-              return [<path key={`${dependency}\0${node.kind.kind}`} d={`M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`} data-active={String(active.has(dependency) && active.has(node.kind.kind))} className={active.has(dependency) && active.has(node.kind.kind) ? 'fill-none stroke-ink' : 'fill-none stroke-line'} strokeWidth={active.has(dependency) && active.has(node.kind.kind) ? 3 : 1.5} data-edge={`${dependency}->${node.kind.kind}`} />];
+              return [<GraphEdge key={`${dependency}\0${node.kind.kind}`} d={`M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`} data-active={String(active.has(dependency) && active.has(node.kind.kind))} active={active.has(dependency) && active.has(node.kind.kind)} data-edge={`${dependency}->${node.kind.kind}`} />];
             }))}
-          </svg>
+          </GraphEdges>
           {nodes.map((node) => (
-            <div
+            <GraphBox
               key={node.kind.kind}
-              className={`absolute rounded-[var(--radius-card)] border text-small ${active.has(node.kind.kind) ? 'border-ink bg-[var(--surface-active)]' : 'border-line bg-page'}`}
-              style={{ left: place.get(node.kind.kind)?.x, top: place.get(node.kind.kind)?.y, width: BOX_WIDTH, height: BOX_HEIGHT }}
+              active={active.has(node.kind.kind)} x={place.get(node.kind.kind)?.x} y={place.get(node.kind.kind)?.y} width={BOX_WIDTH} height={BOX_HEIGHT}
               data-testid="dependency-node"
               data-kind={node.kind.kind}
               data-state={graphStateOf(node.kind, filling)}
@@ -168,17 +169,17 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
               data-related={String(active.has(node.kind.kind))}
               data-highlighted={String(active.has(node.kind.kind))}
             >
-              <KLink href={addressOfKind(node.kind.kind)} testId={`dependency-link-${node.kind.kind}`} className="block h-full w-full rounded-[var(--radius-card)] px-2 py-1.5 text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-                <span className="block truncate">{name(node.kind)}</span>
-                <span className="flex items-center justify-between gap-2 text-[11px] text-muted">
-                  <span data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(node.kind, filling)}`)}</span>
+              <KLink href={addressOfKind(node.kind.kind)} testId={`dependency-link-${node.kind.kind}`} className={graphLinkClass}>
+                <Text className="block truncate">{name(node.kind)}</Text>
+                <GraphMetadata>
+                  <Text data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(node.kind, filling)}`)}</Text>
                   <Badge variant="outline" data-testid="dependency-count">{node.kind.count}</Badge>
-                </span>
+                </GraphMetadata>
               </KLink>
-            </div>
+            </GraphBox>
           ))}
-        </div>
-      </div>
-    </section>
+        </GraphCanvas>
+      </GraphViewport>
+    </PageSection>
   );
 }
