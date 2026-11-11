@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository, withoutEnrichmentKind } from './knowledge-fixture.js';
 import { localizableEntities, localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
 import { readerText } from './markdown-reader.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 
@@ -109,8 +110,17 @@ describe('madarch init', () => {
 
   test('the wiki it opens is empty, offers the agents and has run none', async () => {
     const status = await get('api/status');
-    // Init creates the starter manifest, but no fill has read it into the graph yet. The kinds appear after that press.
-    expect(status.body).toMatchObject({ manifest: 'not-filled', manifestFile: join(home, 'training-shop', 'madarch', 'kinds.yaml'), filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, kinds: [], repositories: [{ name: 'training-shop', filled: false }] });
+    // Startup publishes every validated kind; no entity has been filled or authored yet.
+    expect(status.status).toBe(200);
+    expect(status.body).toMatchObject({ manifest: 'not-filled', manifestFile: join(home, 'training-shop', 'madarch', 'kinds.yaml'), filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
+    const manifest = readKinds(join(home, 'training-shop'));
+    if (!manifest.present) throw new Error('init did not declare its fixture kinds');
+    expect(manifest.manifest.findings).toEqual([]);
+    const byCodePoint = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
+    const expectedKinds = [...manifest.manifest.kinds.keys()].sort(byCodePoint);
+    const actualKinds = status.body.kinds as { kind: string; count: number }[];
+    expect(actualKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
+    expect(actualKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
     const agents = await get('api/agents');
     // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
     // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
