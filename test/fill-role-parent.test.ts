@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -108,9 +109,17 @@ function processes(): Row[] {
   });
 }
 
-/** The fill role `serve` started: the child of that process whose command line says `--role fill`. */
+/** The fill role below `serve`, including the api role between the preparation owner and its fill child. */
 function fillRoleOf(server: number): Row | undefined {
-  return processes().find((row) => row.ppid === server && row.command.includes('--role fill'));
+  const rows = processes();
+  const parents = new Set([server]);
+  for (;;) {
+    const children = rows.filter((row) => parents.has(row.ppid) && !parents.has(row.pid));
+    if (children.length === 0) return undefined;
+    const fill = children.find((row) => row.command.includes('--role fill'));
+    if (fill !== undefined) return fill;
+    for (const child of children) parents.add(child.pid);
+  }
 }
 
 /** The store folders under this home's knowledge root, as the server made them. */
@@ -218,6 +227,7 @@ test('a fill role asked to stop with SIGTERM gives its stores up, and their Post
   try {
     // A pressed fill waits in the store's queue: the role claims it as soon as it opens the store, and its own owner is
     // the one that keeps the store up.
+    await prepareStore(owner);
     pressed = await openFillRunQueue(owner);
     await askFillRun(pressed, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
   } finally {

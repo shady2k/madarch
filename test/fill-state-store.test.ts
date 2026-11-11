@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import { type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fillStateSchema } from '../src/adapters/schemas/fill-state.js';
+import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillStateDatabase } from '../src/fill/state-store.js';
 import { FILL_STATE_TABLES, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
 import type { RunEvidence, UnitAdvanceEvent } from '../src/fill/fsm.js';
@@ -54,14 +58,21 @@ async function expectAsyncError(work: () => Promise<unknown>): Promise<Error> {
 
 describe('the fill state schema', () => {
   test('creates exactly its six tables, and can run again on a database that has them', async () => {
-    await createFillStateSchema(database);
-    const { rows } = await database.transaction('snapshot', async (executor) => executor.query<{ table_name: string }>(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
-    ));
-    const names = rows.map((row) => row.table_name);
-    // Exactly `FILL_STATE_TABLES` and nothing else: a state-machine step that wrote a row anywhere else
-    // — a page, a draft, a git object's bookkeeping — would show up here as a seventh table.
-    expect(names).toEqual([...FILL_STATE_TABLES].sort());
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-state-schema-'));
+    const owner = await createDatabaseOwner({ store: folder });
+    try {
+      await fillStateSchema.prepare(owner);
+      await fillStateSchema.prepare(owner);
+      const { rows } = await owner.transaction('snapshot', async (executor) => executor.query<{ table_name: string }>(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
+      ));
+      const names = rows.map((row) => row.table_name);
+      // A dedicated unprepared store tests this schema alone, not all schemas the shared fixture prepares.
+      expect(names).toEqual([...FILL_STATE_TABLES].sort());
+    } finally {
+      await owner.close();
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 });
 
