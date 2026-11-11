@@ -41,12 +41,12 @@ import { withHistoryLinks, type HistoryContext, type HistorySelection } from './
 import { readMarkdownEntitiesFrom, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillSelectionView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
-import { readTraceRun } from '../obs/trace-report.js';
+import { readTraceRun, readTraceSpans } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, documentAnchors, titleOfAnchor } from './anchors.js';
-import { adapterOf, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
+import { adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { WriterBounds } from './model.js';
 import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
@@ -91,7 +91,7 @@ import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { readProblemDismissalsIn, writeProblemDismissal } from '../loop/problem-files.js';
 import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
 import { readUnitStates } from '../fill/state-store.js';
-import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
+import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -886,6 +886,7 @@ export class KnowledgeProduct {
         storeFolder,
         runId,
         database: owner,
+        env: this.env,
         ...(asked.targets === undefined ? {} : { targets: asked.targets }),
         onPublish: () => { void this.published(undefined).catch(() => undefined); },
       });
@@ -1111,24 +1112,7 @@ export class KnowledgeProduct {
 
   /** The product's writer settings as stored, before they are read into roles and bounds (madarch-ztyq.9). */
   private settingsRecord(): Record<string, unknown> {
-    const file = this.choiceFile();
-    let text: string;
-    try {
-      text = readFileSync(file, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
-      throw new Error(`${file}: the product settings cannot be read: ${(error as Error).message}`);
-    }
-    let body: unknown;
-    try {
-      body = JSON.parse(text);
-    } catch (error) {
-      throw new Error(`${file}:1: the product settings are not JSON: ${(error as Error).message}; delete the file to choose again`);
-    }
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-      throw new Error(`${file}:1: the product settings are a JSON object with agent, roles and the writer's bounds`);
-    }
-    return body as Record<string, unknown>;
+    return readAgentSettings(this.choiceFile());
   }
 
   /** The most revision requests one page may receive in a pass: the stored setting, or the default when none is set. */
@@ -2675,10 +2659,35 @@ export class KnowledgeProduct {
     }
   }
 
+  /** The newest traced agent session for this kind; unreported token counts remain absent. */
+  private agentUsage(kind: string, plugins: readonly string[]): import('./model.js').EntityListing['agentUsage'] {
+    for (const trace of traceFiles(this.storeFolder()).filter((entry) => !entry.runId.startsWith('server-')).sort((a, b) => b.modifiedAt - a.modifiedAt)) {
+      const spans = readTraceSpans(trace.file).filter((span) => span.name === 'plugin.agent.run' && plugins.some((plugin) => { const unit = span.attributes['madarch.plugin.unit']; const base = pluginTurnUnitId(plugin, kind); return typeof unit === 'string' && (unit === base || unit.startsWith(`${base}@`)); }));
+      const attributes = spans.at(-1)?.attributes;
+      if (attributes === undefined) continue;
+      const model = attributes['madarch.agent.model'];
+      const tokens = attributes['madarch.agent.tokens'];
+      const inputTokens = attributes['madarch.agent.inputTokens'];
+      const outputTokens = attributes['madarch.agent.outputTokens'];
+      return {
+        model: typeof model === 'string' && model !== 'not reported' ? model : null,
+        ...(typeof tokens === 'number' ? { tokens } : {}),
+        ...(typeof inputTokens === 'number' ? { inputTokens } : {}),
+        ...(typeof outputTokens === 'number' ? { outputTokens } : {}),
+      };
+    }
+    return undefined;
+  }
+
   async list(kind: string, options: { q?: string; after?: string; limit: number }) {
     const context = await this.context();
     if ('absent' in context) return undefined;
-    return await listEntities(context.ctx, kind, options);
+    const listing = await listEntities(context.ctx, kind, options);
+    if (listing === undefined) return undefined;
+    const declared = context.manifest.kinds.get(kind);
+    const agentKind = declared !== undefined && [...(context.manifest.plugins?.values() ?? [])].some((plugin) => plugin.contract?.agent !== undefined && plugin.contract.vertices.some((vertex) => vertex.kind === declared.name));
+    const usage = agentKind ? this.agentUsage(kind, [...(context.manifest.plugins?.values() ?? [])].filter((plugin) => plugin.contract?.agent !== undefined).map((plugin) => plugin.id)) : undefined;
+    return agentKind ? { ...listing, agentFill: this.chosenAgent() === null ? 'unconfigured' as const : 'ready' as const, ...(usage === undefined ? {} : { agentUsage: usage }) } : listing;
   }
 
   /**

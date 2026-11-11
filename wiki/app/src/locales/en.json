@@ -1041,6 +1041,13 @@
     "pageProblems": "Problems on this page: {{count}}",
     "findingsWhere": "Open the problems",
     "findingsCount": "Findings: {{count}}",
+    "kindAgentModel": "Model: {{model}}",
+    "kindNotReported": "not reported",
+    "kindAgentTokens": "Tokens: {{count}}",
+    "kindTokensNotReported": "Token usage not reported",
+    "kindWaitingForAgent": "This kind waits for an agent fill. Choose an agent in the fill panel.",
+    "kindWaitingForFill": "This kind waits for an agent fill.",
+    "kindStartAgentFill": "Open the fill panel to start.",
     "noStageYet": "No fill stage writes this kind yet."
   },
   "loop": {

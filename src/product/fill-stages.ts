@@ -76,6 +76,7 @@ import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
 import type { DeclaredKinds } from '../graph/records.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
+import type { PluginAgentOptions } from '../plugin/agent.js';
 import { publishGraphWrites } from '../graph/claims.js';
 import { KINDS_FILE, readKindsFrom } from '../knowledge/kinds.js';
 import { snapshotFiles } from '../knowledge/product-files.js';
@@ -124,6 +125,8 @@ export interface StagesFillOptions {
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
   /** The plugin closures this fill trusts beside the release's. */
   readonly releaseHashes?: readonly string[];
+  /** The supervised ACP adapter available to this run's agent plugin turns. */
+  readonly pluginAgent?: PluginAgentOptions;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -187,7 +190,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const { files, kindsRead, lockRead } = await withSpan('fill.product-files', { 'madarch.product': identity.name }, async () => {
     const own = await snapshots.open(productRepositoryId(identity));
     const files = await snapshotFiles(own);
-    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
+    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json'))]);
     return {
       files,
       kindsRead: readKindsFrom(files, folder),
@@ -217,7 +220,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);

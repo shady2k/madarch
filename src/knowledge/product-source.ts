@@ -90,7 +90,7 @@ export class StoredProductFiles implements ProductFileSource {
       KINDS_FILE,
       WORKFLOWS_FILE,
       PLUGINS_LOCK_FILE,
-      ...this.paths().filter((path) => path.endsWith('/contract.json')),
+      ...this.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json')),
     ]);
   }
 

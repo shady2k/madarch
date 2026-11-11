@@ -1041,6 +1041,13 @@
     "pageProblems": "Проблем на странице: {{count}}",
     "findingsWhere": "Открыть проблемы",
     "findingsCount": "Находок: {{count}}",
+    "kindAgentModel": "Модель: {{model}}",
+    "kindNotReported": "не сообщена",
+    "kindAgentTokens": "Токены: {{count}}",
+    "kindTokensNotReported": "Расход токенов не сообщён",
+    "kindWaitingForAgent": "Этот вид ждёт заполнения агентом. Выберите агента в панели заполнения.",
+    "kindWaitingForFill": "Этот вид ждёт заполнения агентом.",
+    "kindStartAgentFill": "Открыть панель заполнения.",
     "noStageYet": "Ни один этап заполнения пока не пишет этот вид."
   },
   "loop": {

@@ -555,6 +555,9 @@ export interface KindSummary {
 }
 
 export interface EntityListing {
+  /** Agent kinds wait for a configured adapter until the reader presses fill. */
+  agentFill?: 'unconfigured' | 'ready';
+  agentUsage?: { model: string | null; tokens?: number; inputTokens?: number; outputTokens?: number };
   operations?: Record<string, import('./operation-catalogue.js').OperationMetadata>;
   kind: string;
   total: number;
