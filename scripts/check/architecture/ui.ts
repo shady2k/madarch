@@ -89,7 +89,7 @@ export function uiViolations(file: string, source: string): UiViolation[] {
           let arbitrary = false;
           function inspect(value: ts.Node): void {
             if ((ts.isStringLiteralLike(value) || ts.isTemplateHead(value) || ts.isTemplateMiddle(value) || ts.isTemplateTail(value)) &&
-              /(?:^|\s)[^\s]*\[/.test(value.text)) arbitrary = true;
+              (/(?:^|\s)[^\s]*\[/.test(value.text) || /(?:^|\s)(?:[\w-]+:)*max-w-(?:prose|xs|sm|md|lg|xl|[2-7]xl)(?=\s|$)/.test(value.text))) arbitrary = true;
             ts.forEachChild(value, inspect);
           }
           inspect(attr.initializer);

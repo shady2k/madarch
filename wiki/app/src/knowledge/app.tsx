@@ -680,7 +680,7 @@ export function TabBar(): ReactElement {
             key={tab.key}
             data-testid="tab"
             data-active={here ? 'true' : 'false'}
-            className={'tab group flex max-w-[16rem] min-w-[7rem] items-center rounded-t-[var(--radius-row)] border border-b-0 ' + (here ? 'border-line bg-page text-ink' : 'border-transparent text-secondary hover:bg-[var(--surface-hover)]')}
+            className={'tab group flex min-w-28 items-center rounded-t-md border border-b-0 ' + (here ? 'border-line bg-page text-ink' : 'border-transparent text-secondary hover:bg-chrome')}
           >
             <button
               type="button"

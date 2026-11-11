@@ -97,11 +97,6 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/app.tsx",
-    "subject": "7ecfabc79728b8631f31#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "88e6469d53dc5b42bd5e#1"
   },
   {
@@ -342,22 +337,12 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "11af8b21ef1ce119f55a#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "1fcc14b94d0f5805b3ed#1"
   },
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "2cc94da7166937fc6eb7#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "357b1c5a4257f36cb026#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -388,11 +373,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "cfb56e6289e0d41f068d#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "d41746dfd7815c15624e#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -433,11 +413,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/run-controls.tsx",
     "subject": "791838bbf7eed101dff3#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/search.tsx",
-    "subject": "06cdb4b0500e95211c00#1"
   },
   {
     "rule": "arbitrary-tailwind",

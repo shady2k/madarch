@@ -136,7 +136,7 @@ export function SearchBox(): ReactElement {
             else { setOpen(false); event.currentTarget.blur(); }
           }
         }}
-        className="shell-search-input max-w-[15rem]"
+        className="shell-search-input "
         data-testid="search-input"
       />
       {shown && (

@@ -15,7 +15,7 @@ describe('UI kit architecture', () => {
     expect(rules(`import { css } from 'styled-components/macro';`)).toContain('styled-components');
   });
   test('arbitrary Tailwind values in JSX strings and expressions are refused', () => {
-    for (const value of ['"w-[23px]"', `{active ? 'hover:bg-[#fff]' : 'p-2'}`, '{`w-[${width}px]`}', `{cn('grid-cols-[1fr_2fr]', extra)}`]) {
+    for (const value of ['"max-w-[70ch]"', '"max-w-prose"', '"md:max-w-lg"', '"w-[23px]"', `{active ? 'hover:bg-[#fff]' : 'p-2'}`, '{`w-[${width}px]`}', `{cn('grid-cols-[1fr_2fr]', extra)}`]) {
       expect(rules(`const node = <Panel className=${value} />`)).toContain('arbitrary-tailwind');
     }
   });

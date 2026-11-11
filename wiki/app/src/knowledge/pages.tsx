@@ -174,7 +174,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
         <div className="mb-2 flex items-center gap-2"><Badge>{kindName(kind, 'one')}</Badge></div>
         <h1>{kindName(kind, 'many')}</h1>
         <div className="flex items-center gap-3">
-          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="kind-filter" />
+          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} data-testid="kind-filter" />
           {listing !== null && <span className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</span>}
         </div>
       </header>
@@ -191,8 +191,8 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.id} data-entity={row.id}>
-                <TableCell className="max-w-[30rem] break-words"><EntityName entity={row} /></TableCell>
-                <TableCell className="max-w-[28rem]">{row.location !== undefined ? <CodePlace location={row.location} /> : <span className="text-muted">–</span>}</TableCell>
+                <TableCell className="break-words"><EntityName entity={row} /></TableCell>
+                <TableCell>{row.location !== undefined ? <CodePlace location={row.location} /> : <span className="text-muted">–</span>}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -519,7 +519,7 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
         <h1>{t('knowledge.documents')}</h1>
         <p className="text-secondary" data-testid="documents-intro">{t('knowledge.documentsIntro')}</p>
         <div className="flex items-center gap-3">
-          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filterSources')} aria-label={t('knowledge.filterSources')} className="max-w-sm" data-testid="documents-filter" />
+          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filterSources')} aria-label={t('knowledge.filterSources')} data-testid="documents-filter" />
           <span className="text-small text-muted" data-testid="documents-total">{t('knowledge.total', { count: shown.length })}</span>
         </div>
       </header>
@@ -1003,7 +1003,7 @@ function CorrectionBox({ page, name }: { page: string; name: string | null }): R
     <section data-testid="statement-correction">
       <h2>{t('knowledge.statementCorrection')}</h2>
       <p className="text-small text-muted">{name === null ? t('knowledge.statementCorrectionUnnamed') : t('knowledge.statementCorrectionNote')}</p>
-      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={name === null || sending} placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3 max-w-xl" data-testid="correction-text" />
+      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={name === null || sending} placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3" data-testid="correction-text" />
       <div><Button variant="default" size="default" disabled={name === null || sending || reason.trim() === ''} onClick={send} data-testid="correction-send">{t('knowledge.statementCorrectionSend')}</Button></div>
       {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="correction-refused">{refused}</p>}
       {done !== null && (
@@ -1062,7 +1062,7 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
               {statement.relying.map((other) => (
                 <TableRow key={`${other.page}:${other.line}:${other.text}`}>
                   <TableCell className="align-top"><KLink href={addressOfEntity(other.page)}>{other.pageTitle}</KLink></TableCell>
-                  <TableCell className="max-w-[30rem] align-top">{other.sentence === undefined ? other.text : <KLink href={addressOfStatement(other.page, other.sentence, other.turn ?? 0)}>{other.text}</KLink>}</TableCell>
+                  <TableCell className="align-top">{other.sentence === undefined ? other.text : <KLink href={addressOfStatement(other.page, other.sentence, other.turn ?? 0)}>{other.text}</KLink>}</TableCell>
                   <TableCell className="align-top">{other.ground}</TableCell>
                 </TableRow>
               ))}

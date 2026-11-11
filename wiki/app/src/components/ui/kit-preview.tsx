@@ -5,10 +5,10 @@ import { cn } from '@/lib/utils.js';
 type KitContentProps = { title: string; description?: string; children: ReactNode; className?: string };
 
 export function KitPageLayout({ title, description, children, className }: KitContentProps) {
-  return <main className={cn('mx-auto grid w-full max-w-[var(--measure)] gap-8 p-4 text-ink md:p-8', className)}>
+  return <main className={cn('ui-kit-page mx-auto grid w-full gap-8 p-4 text-ink md:p-8', className)}>
     <header className="grid gap-3">
       <h1 className="m-0 text-title font-semibold leading-tight">{title}</h1>
-      {description && <p className="m-0 max-w-prose text-body text-secondary">{description}</p>}
+      {description && <p className="m-0 text-body text-secondary">{description}</p>}
     </header>
     {children}
   </main>;

@@ -377,12 +377,12 @@ function RelationGroupTable({ group }: { group: RelatedGroup }): ReactElement {
         <TableBody>
           {group.rows.map((row) => (
             <TableRow key={row.entity.id} data-entity={row.entity.id}>
-              <TableCell className="max-w-md break-words">
+              <TableCell className="break-words">
                 <EntityName entity={row.entity} />{row.count > 1 && <span className="ml-1.5 text-muted">×{row.count}</span>}
                 {row.sources !== undefined && row.sources.length > 0 && <span className="ml-1.5 text-small text-muted" data-testid="relation-source">{t('knowledge.relationSource', { sources: row.sources.join(', ') })}</span>}
               </TableCell>
               <TableCell><Badge>{kindName(row.entity.kind, 'one')}</Badge></TableCell>
-              <TableCell className="max-w-sm">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+              <TableCell>{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -466,8 +466,8 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.entity.id} data-entity={row.entity.id}>
-              <TableCell className="max-w-md break-words"><EntityName entity={row.entity} /></TableCell>
-              <TableCell className="max-w-md">
+              <TableCell className="break-words"><EntityName entity={row.entity} /></TableCell>
+              <TableCell>
                 {block.type === 'callers' ? (row.site !== undefined ? <CodePlace location={row.site} /> : <span className="text-muted">–</span>) : (row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>)}
               </TableCell>
               <TableCell>{row.sites}</TableCell>
@@ -564,7 +564,7 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
           {block.rows.map((row) => (
             <TableRow key={row.name}>
               <TableCell className="whitespace-nowrap align-top font-mono text-small text-secondary">{row.label ?? (row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`))}</TableCell>
-              <TableCell className="max-w-2xl break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
+              <TableCell className="break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -634,7 +634,7 @@ function Members({ block }: { block: Extract<Block, { type: 'members' }> }): Rea
               <TableCell className="min-w-[9rem] align-top"><span className="font-[550]">{row.name ?? row.entity.label}</span></TableCell>
               {columns.map((column) => {
                 const value = row.values.find((entry) => entry.name === column.name);
-                return <TableCell key={column.name} className="max-w-md break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
+                return <TableCell key={column.name} className="break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
               })}
               {hasReaders && <TableCell className="align-top"><MemberRefs refs={row.readers} testId="member-readers" /></TableCell>}
               {hasWriters && <TableCell className="align-top"><MemberRefs refs={row.writers} testId="member-writers" /></TableCell>}
@@ -661,9 +661,9 @@ function Refs({ block }: { block: Extract<Block, { type: 'refs' }> }): ReactElem
           <TableBody>
             {block.rows.map((row) => (
               <TableRow key={row.entity.id} data-entity={row.entity.id}>
-                <TableCell className="max-w-md break-words"><EntityName entity={row.entity} />{row.note !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</span>}</TableCell>
+                <TableCell className="break-words"><EntityName entity={row.entity} />{row.note !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</span>}</TableCell>
                 <TableCell><Badge>{row.entity.kind === 'document' ? t('knowledge.documentBadge') : kindName(row.entity.kind, 'one')}</Badge></TableCell>
-                <TableCell className="max-w-sm">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+                <TableCell>{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -767,7 +767,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                 <TableRow key={row.entity?.id ?? `${section.role}-${String(index)}`} {...(row.entity === undefined ? {} : {'data-entity': row.entity.id})}>
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
-                  <TableCell className="max-w-lg break-words">
+                  <TableCell className="break-words">
                     {row.entity === undefined ? row.text : <><EntityName entity={row.entity} />{row.text !== row.entity.label && <span className="block break-all text-small text-muted">{row.text}</span>}</>}
                   </TableCell>
                   <TableCell>
@@ -832,7 +832,7 @@ function Overview({ block }: { block: Extract<Block, { type: 'overview' }> }): R
     <section data-block="overview" data-overview={block.section} className="mb-6" aria-label={block.title}>
       <h2>{block.title}</h2>
       {block.paragraphs?.map((paragraph, at) => (
-        <p key={at} className="max-w-prose break-words">
+        <p key={at} className="break-words">
           {paragraph.text}
           {paragraph.source !== undefined && <span className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={paragraph.source.href}>{paragraph.source.label}</KLink></span>}
         </p>
