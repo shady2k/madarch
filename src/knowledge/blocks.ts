@@ -28,7 +28,8 @@ export interface RenderContext {
   productFolder: string;
   /** The product repository's own files as the graph holds them: the manifest's templates and kinds are read here (stage C). */
   files: ProductFileSource;
-  manifest: KindsManifest;
+  /** The product's name, for the trail's first step; absent in a hand-built context. */
+  productName?: string;  manifest: KindsManifest;
   graph: GraphReader;
   /** The repository's history evidence, cached for the product's snapshot; the history block asks this, never the graph twice. */
   historyEvidence?: (scope: string) => Promise<HistoryEvidence>;

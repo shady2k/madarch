@@ -23,11 +23,13 @@ import { withSpan } from '../obs/trace.js';
 import type { GraphEntity } from './graph-read.js';
 import { linkedFromBlock } from './linked-from.js';
 import { overviewAbout, overviewData, overviewHow, overviewReading, overviewStatus, overviewTerms } from './overview.js';
+import { filePageBlock } from './file-page.js';
 import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
+import { HOME_ADDRESS } from './addresses.js';
 import { renderLiquidPage } from './liquid.js';
 import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
 import { kindNumbers } from './kind-numbers.js';
@@ -293,19 +295,42 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'overview-terms': return await overviewTerms(ctx, params, lang);
     case 'overview-status': return await overviewStatus(ctx, params, lang);
     case 'overview-reading': return overviewReading(ctx, params, lang);
+    case 'file-page': return await filePageBlock(ctx, subject, file, line);
     default: return { type: 'problem', block: name, file, line, message: `"${name}" is not a block of the library` };
   }
 }
 
 /** The way up: containers for a graph entity (nearest first, reversed to read from the top), the home page above a Markdown page. */
 async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[]> {
-  if (subject.source === 'graph') {
-    const up = await ctx.graph.containers(subject.entity, CONTAINS);
-    return up.reverse().map((entity) => refOfGraph(ctx, entity));
-  }
+  const parts: EntityRef[] = [];
+  const push = (ref: EntityRef): void => {
+    // The root folder's bare '/' is not a step: the repository below names the same place. No id is listed twice.
+    if (ref.label.trim() === '/' || parts.some((held) => held.id === ref.id)) return;
+    parts.push(ref);
+  };
   const home = homeKind(ctx.manifest);
-  const page = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name && entity.id !== subject.entity.id);
-  return page === undefined ? [] : [refOfMarkdown(ctx, page)];
+  const homePage = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name);
+  // The first step is the product's home, linked at the root address; a product with no name falls back to its home page.
+  if (ctx.productName !== undefined && ctx.productName !== '') push({ id: 'home', kind: 'product', label: ctx.productName, href: HOME_ADDRESS });
+  else if (homePage !== undefined) push(refOfMarkdown(ctx, homePage));
+  if (subject.source === 'markdown') {
+    if (homePage === undefined || subject.entity.id !== homePage.id) push(refOfMarkdown(ctx, subject.entity));
+    return parts;
+  }
+  const entity = subject.entity;
+  const repository = typeof entity.properties['repository'] === 'string'
+    ? entity.properties['repository']
+    : entity.kind === 'code.repository' && typeof entity.properties['name'] === 'string' ? entity.properties['name'] : '';
+  if (entity.kind !== 'code.repository' && repository !== '') {
+    const [repo] = await ctx.graph.find(`code.repository:${repository}`);
+    if (repo !== undefined) push(refOfGraph(ctx, repo));
+  }
+  for (const held of (await ctx.graph.containers(entity, CONTAINS)).reverse()) {
+    if (held.kind === 'code.repository') continue;
+    push(refOfGraph(ctx, held));
+  }
+  push(refOfGraph(ctx, entity));
+  return parts;
 }
 
 

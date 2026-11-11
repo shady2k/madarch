@@ -621,7 +621,8 @@ describe('the agent stage', () => {
     expect(container.querySelector('[data-testid=writer-message]')!.textContent).toContain('some pages were not written');
     (container.querySelector('[data-testid=writer-retry]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls.at(-1)).toBe('POST /api/fill {"agent":"codex"}');
+    // The agent choice's own `GET /api/agents` may settle after the press; the press is what this case proves.
+    expect(calls).toContain('POST /api/fill {"agent":"codex"}');
   });
 });
 
@@ -630,7 +631,7 @@ describe('after the run', () => {
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', findingCount: 0, kinds: [{ kind: 'domain', source: 'markdown', count: 4, single: false, origins: [] }, { kind: 'product', source: 'markdown', count: 1, single: true, origins: [] }], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written' }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
   });
 
-  test('the card of a finished run is gone: its outcome is a quiet status in the top bar that counts the pages', async () => {
+  test('the card of a finished run is gone: the top bar offers Sync', async () => {
     stubFetch([]);
     const card = into(createElement(WriterLine, { status: status(), refresh: () => undefined }));
     await new Promise((rest) => setTimeout(rest, 20));
@@ -639,33 +640,49 @@ describe('after the run', () => {
     document.body.innerHTML = '';
     const bar = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
-    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Filled Oct 23, 5 pages');
-    // A finished run has no count to keep alone: its whole sentence stays the badge, and its name is the sentence.
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Sync');
     expect(bar.querySelector('[data-testid=fill-chip]')!.className).not.toContain('fill-chip-writing');
-    expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Filled Oct 23, 5 pages');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Sync');
   });
 
-  test('a filled store no agent has written a page in says Sync, and its dot names the commit and the counts', async () => {
+  for (const language of ['en', 'ru'] as const) {
+    for (const pages of [0, 5]) {
+      test(`a filled store with ${pages} pages keeps only Sync and the dot in ${language}`, async () => {
+        await setWikiLanguage(language);
+        try {
+          stubFetch([]);
+          const read = status({
+            kinds: [{ kind: 'domain', source: 'markdown', count: pages, single: false, origins: [] }],
+            repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
+          });
+          const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
+          await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+          const chip = bar.querySelector('[data-testid=fill-chip]')!;
+          const label = language === 'en' ? 'Sync' : 'Синхронизировать';
+          expect(chip.textContent).toBe(label);
+          expect(chip.getAttribute('aria-label')).toBe(label);
+          const dot = chip.querySelector('[data-testid=fill-dot]')!;
+          expect(dot.getAttribute('data-state')).toBe('up-to-date');
+          const title = language === 'en'
+            ? `Up to date: the graph describes aaaaaaa · Files: 114 · Commits: 72 · Last fill: Oct 23 · Pages written: ${pages}`
+            : `Всё прочитано: граф описывает aaaaaaa · Файлов: 114 · Коммитов: 72 · Последнее заполнение: 23 окт. · Записано страниц: ${pages}`;
+          expect(dot.getAttribute('title')).toBe(title);
+          expect(dot.getAttribute('aria-label')).toBe(title);
+        } finally {
+          await setWikiLanguage('en');
+        }
+      });
+    }
+  }
+
+  test('a filled store without a finish date keeps the page count and rebuild notice in the tooltip', async () => {
     stubFetch([]);
-    const read = status({
-      kinds: [{ kind: 'domain', source: 'markdown', count: 0, single: false, origins: [] }],
-      writer: { state: 'idle', agent: null, units: [] },
-      repositories: [{ name: 'training', filled: true }],
-      filled: true,
-      repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
-    });
-    const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
+    const bar = into(createElement(FillMenu, { status: status({ fill: { state: 'done', rebuilt: 'extractors-changed' } }), refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
-    // The header keeps one word and one dot: the sentence "Заполнено · Файлов: — · Коммитов: —" is gone (the owner,
-    // 2026-11-10), and what the run read is the dot's tooltip.
     const chip = bar.querySelector('[data-testid=fill-chip]')!;
-    expect(chip.textContent).toContain('Sync');
+    expect(chip.textContent).toBe('Sync');
     expect(chip.getAttribute('aria-label')).toBe('Sync');
-    expect(chip.textContent).not.toContain('Files:');
-    expect(chip.textContent).not.toContain('pages');
-    const dot = chip.querySelector('[data-testid=fill-dot]')!;
-    expect(dot.getAttribute('data-state')).toBe('up-to-date');
-    expect(dot.getAttribute('title')).toBe('Up to date: the graph describes aaaaaaa · Files: 114 · Commits: 72');
+    expect(chip.querySelector('[data-testid=fill-dot]')!.getAttribute('title')).toBe('Up to date · Files: 0 · Commits: 0 · Pages written: 5 · Graph rebuilt: extractors changed');
   });
 
   test('the dot says stale when the graph is short of the checkouts, and failed when the last run failed', async () => {
@@ -674,10 +691,14 @@ describe('after the run', () => {
     const first = into(createElement(FillMenu, { status: stale, refresh: () => undefined }));
     await until(() => first.querySelector('[data-testid=fill-dot]') !== null, 'the dot');
     expect(first.querySelector('[data-testid=fill-dot]')!.getAttribute('data-state')).toBe('stale');
+    expect(first.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Sync');
+    expect(first.querySelector('[data-testid=fill-dot]')!.getAttribute('title')).toBe('Stale: the checkouts hold more than the graph · Files: 0 · Commits: 0 · Last fill: Oct 23 · Pages written: 5');
     const failed = status({ filled: true, repositories: [{ name: 'training', filled: true }], fill: { state: 'failed', message: 'x' } });
     const second = into(createElement(FillMenu, { status: failed, refresh: () => undefined }));
     await until(() => second.querySelector('[data-testid=fill-dot]') !== null, 'the dot of the failed run');
     expect(second.querySelector('[data-testid=fill-dot]')!.getAttribute('data-state')).toBe('failed');
+    expect(second.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Fill failed');
+    expect(second.querySelector('[data-testid=fill-dot]')!.getAttribute('title')).toBe('The last fill failed: open the button for what it said');
   });
 
   test('a failed run stays on the page until the reader dismisses it', async () => {
