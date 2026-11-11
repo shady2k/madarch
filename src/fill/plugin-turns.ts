@@ -23,6 +23,7 @@ import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type Eviden
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf } from '../plugin/closure.js';
 import { PluginHost, RequestLog, type GraphAnswerer } from '../plugin/host.js';
+import { canonicalKey } from '../plugin/results.js';
 import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from './snapshot.js';
@@ -271,20 +272,15 @@ function draftEvidence(evidence: { readonly repository?: string; readonly commit
 }
 
 /** One drafted vertex as the graph names the entity: `<kind>:<its key values in the contract's order, joined by /">`. */
-function entityIdOf(wiring: PluginTurnWiring, kind: string, key: Readonly<Record<string, string | number>>): string | undefined {
+function entityIdOf(wiring: PluginTurnWiring, kind: string, key: import('../plugin/protocol.js').PluginKeyValues): string | undefined {
   const vertex = wiring.contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) return undefined;
   const values = vertex.key.map((field) => String(key[field] ?? ''));
   return `${kind}:${values.join('/')}`;
 }
 
-/** The one key of a vertex, rendered one way everywhere: its key fields in code point order with their values. */
-function canonicalKey(key: Readonly<Record<string, string | number>>): string {
-  return JSON.stringify(Object.fromEntries(Object.keys(key).sort(byCodePoint).map((field) => [field, key[field]])));
-}
-
 /** One edge's identity inside one answer: its kind, both ends by kind and key, and its discriminator. */
-function edgeIdentity(kind: string, from: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }, to: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }, discriminator: string): string {
+function edgeIdentity(kind: string, from: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, to: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, discriminator: string): string {
   return JSON.stringify([kind, from.kind, canonicalKey(from.key), to.kind, canonicalKey(to.key), discriminator]);
 }
 
@@ -337,8 +333,13 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   let agentReport: PluginAgentReport | undefined;
   const catalogue = unit.plugin.contract?.agent?.catalogue === true;
   const outputs = {
-    vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => !catalogue || vertex.kind === unit.kind?.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.map((field) => ({ ...field })) })),
-    edges: (unit.plugin.contract?.edges ?? []).filter((edge) => !catalogue || (unit.plugin.contract!.vertices.some((vertex) => vertex.kind === edge.from) ? edge.from : edge.to) === unit.kind?.name).map((edge) => ({ ...edge, fields: edge.fields.map((field) => ({ ...field })) })),
+    vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => !catalogue || vertex.kind === unit.kind?.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.map((field) => {
+      const reference = wiring.manifest.kinds.get(vertex.kind)?.fields?.find((held) => held.name === field.name)?.reference;
+      return { ...field, ...(reference === undefined ? {} : { reference }) };
+    }) })),
+    // Both ends must exist at publication: the later producer turn owns the edge, or the sole agent end does.
+    // The later agent endpoint owns the relation: earlier endpoints have published before this serial turn.
+    edges: (unit.plugin.contract?.edges ?? []).filter((edge) => !catalogue || outputKindsOf(wiring.manifest, unit.plugin).filter((kind) => kind.name === edge.from || kind.name === edge.to).at(-1)?.name === unit.kind?.name).map((edge) => ({ ...edge, fields: edge.fields.map((field) => ({ ...field })) })),
   };
   const host = new PluginHost({
     ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
@@ -459,7 +460,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
   return {
     id: PLUGIN_TURN_STAGE_ID,
     // Agent units carry their effective per-kind contract and run in dependency order.
-    version: 3,
+    version: 4,
     maxConcurrency: 1,
     consumes: { required: [], optional: [] },
     produces: [{ kind: 'plugin-claim', schemaVersion: 1, scope: 'product' }],

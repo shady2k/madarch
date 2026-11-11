@@ -35,17 +35,15 @@ export const PROTOCOL_SCHEMA_ID = `https://github.com/shady2k/madarch/schema/v${
 const RpcId = Type.Union([Type.String({ minLength: 1 }), Type.Integer()]);
 
 /** A key's values: an entity is named by its kind and these, never by a node id the host hands out. */
-export const PluginKeyValues = Type.Record(Type.String({ minLength: 1 }), Type.Union([Type.String(), Type.Number()]), {
-  description: 'The key fields of one entity: field name to its value, as the kind\'s contract declares them.',
-});
+export const PluginKeyValues = Type.Cyclic({
+  Key: Type.Record(Type.String({ minLength: 1 }), Type.Union([Type.String(), Type.Number(), Type.Ref('Entity')])),
+  Entity: Type.Object({ kind: Type.String({ minLength: 1 }), key: Type.Ref('Key') }, { additionalProperties: false }),
+}, 'Key', { description: 'Natural key values, including referenced entities by kind and key.' });
 
 /** A reference inside a key: the kind and the key values of the entity it names. */
 export const PluginEntityRef = Type.Object(
-  {
-    kind: Type.String({ minLength: 1, description: 'The referenced kind, one of its contract\'s vertex kinds.' }),
-    key: PluginKeyValues,
-  },
-  { additionalProperties: false, description: 'One entity named by its kind and key values, the way a result names its ends.' },
+  { kind: Type.String({ minLength: 1 }), key: PluginKeyValues },
+  { additionalProperties: false, description: 'One entity named by its kind and key values.' },
 );
 
 /** Where a value came from: a repository, a commit or content digest, a path and the lines it was read at. */
@@ -133,6 +131,7 @@ export const PluginFieldDeclaration = Type.Object(
     ),
     meaning: Type.String({ minLength: 1, description: 'What the field is, in plain words, for the person binding it in the manifest.' }),
     example: Type.Unknown({ description: 'One value the field holds, as an example.' }),
+    reference: Type.Optional(Type.String({ minLength: 1, description: 'The kind a natural-key reference names.' })),
     required: Type.Boolean({ description: 'Whether the plugin cannot run without it: a kind\'s natural key and every field its reading needs.' }),
     evidence: Type.Optional(Type.Boolean({ description: 'Whether an opinion of this field must carry evidence (madarch-stm0.7.1): the host\'s unevidenced read reports an opinion of this field that states none, and a field that declares nothing is not reported.' })),
   },
@@ -449,7 +448,7 @@ export type PluginVertexResult = Static<typeof PluginVertexResult>;
 export type PluginEdgeResult = Static<typeof PluginEdgeResult>;
 export type PluginRemoval = Static<typeof PluginRemoval>;
 export type PluginEvidence = Static<typeof PluginEvidence>;
-export type PluginEntityRef = Static<typeof PluginEntityRef>;
+export interface PluginEntityRef { readonly kind: string; readonly key: PluginKeyValues; }
 export type PluginContractDeclaration = Static<typeof PluginContractDeclaration>;
 export type PluginVertexKindDeclaration = Static<typeof PluginVertexKindDeclaration>;
 export type PluginEdgeKindDeclaration = Static<typeof PluginEdgeKindDeclaration>;
@@ -464,7 +463,7 @@ export type PluginGraphUnresolvedReference = Static<typeof PluginGraphUnresolved
 export type PluginGraphRemovedEnd = Static<typeof PluginGraphRemovedEnd>;
 export type PluginGraphUnevidencedOpinion = Static<typeof PluginGraphUnevidencedOpinion>;
 export type PluginGraphRead = Static<typeof PluginGraphRead>;
-export type PluginKeyValues = Static<typeof PluginKeyValues>;
+export type PluginKeyValues = { readonly [field: string]: string | number | PluginEntityRef };
 export type PluginHeartbeat = Static<typeof PluginHeartbeat>;
 export type PluginProgress = Static<typeof PluginProgress>;
 export type PluginErrorReport = Static<typeof PluginErrorReport>;

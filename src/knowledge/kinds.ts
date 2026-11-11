@@ -135,6 +135,7 @@ export interface PluginFieldDecl {
   readonly meaning: string;
   readonly example: unknown;
   readonly required: boolean;
+  readonly reference?: string;
   /** Whether an opinion of this field must carry evidence (madarch-stm0.7.1, piece 4). */
   readonly evidence?: boolean;
 }
@@ -1605,15 +1606,17 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       && ![...plugins.values()].some((plugin) => plugin !== catalogueAgent && (plugin.outputs.includes(kind.name) || plugin.contract?.vertices.some((vertex) => vertex.kind === kind.name)))
       && (kind.capability === undefined || kind.capability === catalogueAgent.id)
       && !(kind.fields ?? []).some((field) => field.producers?.some((producer) => producer !== catalogueAgent.id))).sort((left, right) => byCodePoint(left.name, right.name));
-    const vertices: PluginOutputKind[] = candidates.map((kind) => ({ kind: kind.name, key: kind.key ?? [], fields: (kind.fields ?? []).map((field) => ({
+    for (const kind of candidates) if (kind.key === undefined || kind.key.length === 0) findings.push({ file, line: kind.line, source: isAbsolute(file) ? file : resolve(productFolder, file), message: `kind "${kind.name}": the catalogue agent "${catalogueAgent.id}" fills it, and the manifest declares no "key": a table is unique by its kind's natural key` });
+    const keyed = candidates.filter((kind) => kind.key !== undefined && kind.key.length > 0);
+    const vertices: PluginOutputKind[] = keyed.map((kind) => ({ kind: kind.name, key: kind.key!, fields: (kind.fields ?? []).map((field) => ({
       name: field.name, type: field.type, meaning: field.binding?.kind === 'agent' ? field.binding.description : field.name,
-      example: null, required: (kind.key ?? []).includes(field.name) || field.nullable !== true, evidence: field.evidence ?? true,
+      example: null, required: (kind.key ?? []).includes(field.name) || field.nullable !== true, evidence: field.evidence ?? true, ...(field.reference === undefined ? {} : { reference: field.reference }),
     })) }));
-    for (const kind of candidates) kinds.set(kind.name, { ...kind, fields: kind.fields!.map((field) => field.binding !== undefined ? field : { ...field, binding: { kind: 'agent', description: Object.values(kind.descriptions ?? {}).join(' ') || field.name } }) });
-    const names = new Set(candidates.map((kind) => kind.name));
+    for (const kind of keyed) kinds.set(kind.name, { ...kind, fields: kind.fields!.map((field) => field.binding !== undefined ? field : { ...field, binding: { kind: 'agent', description: Object.values(kind.descriptions ?? {}).join(' ') || field.name } }) });
+    const names = new Set(keyed.map((kind) => kind.name));
     for (const edge of edges.values()) if (edge.capability === catalogueAgent.id && (edge.from.length !== 1 || edge.to.length !== 1)) findings.push({ file, line: edge.line, message: `edge "${edge.name}": a catalogue agent edge must name one from kind and one to kind; union ends cannot be silently dropped` });
     const agentEdges: PluginOutputEdge[] = [...edges.values()].filter((edge) => edge.capability === catalogueAgent.id && edge.from.length === 1 && edge.to.length === 1 && (names.has(edge.from[0]!) || names.has(edge.to[0]!))).map((edge) => ({ kind: edge.name, from: edge.from[0]!, to: edge.to[0]!, fields: edge.fields.map((field) => ({ name: field.name, type: field.type, meaning: field.name, example: null, required: field.nullable !== true, evidence: field.evidence ?? true })) }));
-    plugins.set(catalogueAgent.id, { ...catalogueAgent, outputs: candidates.map((kind) => kind.name), contract: { ...catalogueAgent.contract, vertices, edges: agentEdges } });
+    plugins.set(catalogueAgent.id, { ...catalogueAgent, outputs: keyed.map((kind) => kind.name), contract: { ...catalogueAgent.contract, vertices, edges: agentEdges } });
   }
   // The plugin lock and the field bindings (decision 0035, items 17, 18, 19 and 20): the lock names each plugin's exact
   // version and closure, a field binds to a field its plugin declares, the type is the plugin's, and a required field

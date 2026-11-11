@@ -205,6 +205,11 @@
                             "example": {
                               "description": "One value the field holds, as an example."
                             },
+                            "reference": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The kind a natural-key reference names."
+                            },
                             "required": {
                               "type": "boolean",
                               "description": "Whether the plugin cannot run without it: a kind's natural key and every field its reading needs."
@@ -302,6 +307,11 @@
                             "example": {
                               "description": "One value the field holds, as an example."
                             },
+                            "reference": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The kind a natural-key reference names."
+                            },
                             "required": {
                               "type": "boolean",
                               "description": "Whether the plugin cannot run without it: a kind's natural key and every field its reading needs."
@@ -397,20 +407,47 @@
                   "description": "The kind of the vertex the unit is about."
                 },
                 "key": {
-                  "type": "object",
-                  "patternProperties": {
-                    "^.*$": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
+                  "$defs": {
+                    "Key": {
+                      "type": "object",
+                      "patternProperties": {
+                        "^.*$": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "$ref": "Entity"
+                            }
+                          ]
                         }
-                      ]
+                      },
+                      "$id": "Key"
+                    },
+                    "Entity": {
+                      "type": "object",
+                      "required": [
+                        "kind",
+                        "key"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "key": {
+                          "$ref": "Key"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "$id": "Entity"
                     }
                   },
-                  "description": "The key fields of one entity: field name to its value, as the kind's contract declares them."
+                  "$ref": "Key",
+                  "description": "Natural key values, including referenced entities by kind and key."
                 },
                 "inputs": {
                   "description": "What the host hands with the unit, a shape the plugin's contract names."
@@ -560,20 +597,47 @@
               "description": "The vertex kind, as the wiki names it (`code.file`)."
             },
             "key": {
-              "type": "object",
-              "patternProperties": {
-                "^.*$": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
+              "$defs": {
+                "Key": {
+                  "type": "object",
+                  "patternProperties": {
+                    "^.*$": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "Entity"
+                        }
+                      ]
                     }
-                  ]
+                  },
+                  "$id": "Key"
+                },
+                "Entity": {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "key"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "key": {
+                      "$ref": "Key"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "$id": "Entity"
                 }
               },
-              "description": "The key fields of one entity: field name to its value, as the kind's contract declares them."
+              "$ref": "Key",
+              "description": "Natural key values, including referenced entities by kind and key."
             },
             "field": {
               "type": "string",

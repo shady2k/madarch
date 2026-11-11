@@ -9,6 +9,27 @@ import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
 import { closureOf, readPluginManifest } from '../src/plugin/closure.js';
 
 describe('the bundled general agent producer', () => {
+  test('a catalogue kind without a natural key is refused at its manifest declaration', () => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-fill-key-'));
+    try {
+      seedStarterSet(root);
+      const file = join(root, 'madarch/kinds.yaml');
+      const text = `kinds:
+  example.keyless:
+    template: templates/entity.liquid
+    source: graph
+    fields:
+      - { name: title, type: text, binding: { agent: A title. } }
+plugins:
+  - { id: agent-fill, version: 1, path: plugins/agent-fill, inputs: [], outputs: [], closure: [plugins/agent-fill/contract.json, plugins/agent-fill/main.ts, plugins/agent-fill/plugin.json, plugins/agent-fill/prompt.md] }
+`;
+      const manifest = parseKinds(text, file, root);
+      expect(manifest.findings).toContainEqual(expect.objectContaining({ file, source: file, line: 2, message: expect.stringContaining('example.keyless') }));
+      expect(manifest.findings.some((finding) => finding.message.includes('"key"'))).toBe(true);
+      expect(manifest.plugins?.get('agent-fill')?.contract?.vertices.some((vertex) => vertex.kind === 'example.keyless')).toBe(false);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('manifest-derived outputs preserve contracts and omit kinds with deterministic producers', () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-fill-contract-'));
     try {
