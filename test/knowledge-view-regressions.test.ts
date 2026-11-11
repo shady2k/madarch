@@ -233,7 +233,7 @@ for (const mode of ['roots', 'one-group'] as const) test(`oversized deployment $
 
 test('a historical source block shows its structured opinion and never reads renamed HEAD paths', async () => {
   const { sourceBlock } = await import('../src/knowledge/blocks.js');
-  const location = { path: 'old.ts', byteStart: 0, byteEnd: 24, lineStart: 1, lineEnd: 1 };
+  const location = { repo: 'fixture', path: 'old.ts', href: '/source/fixture/old.ts#L1', byteStart: 0, byteEnd: 24, lineStart: 1, lineEnd: 1 };
   const source = { text: 'historical source bytes', language: 'typescript', truncated: false, location };
   const entity: GraphEntity = { key: 'code.file:old.ts', kind: 'code.file', label: 'old.ts', properties: { source }, nodeIds: ['1'], scope: 'scope-a', span: location };
   const ctx = {
