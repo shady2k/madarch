@@ -363,6 +363,17 @@ export async function readStoreStamp(database: FillStateDatabase): Promise<strin
   }, 'snapshot');
 }
 
+/** Whether this store has completed a successful fill, including products with no repository kind. */
+export async function hasSuccessfulFill(database: FillStateDatabase): Promise<boolean> {
+  const at = here();
+  return await run(at, database, 'hasSuccessfulFill', ['fill_run'], async (executor) => {
+    const { rows } = await executor.query<{ filled: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM fill_run WHERE state = 'succeeded') AS filled",
+    );
+    return rows[0]?.filled === true;
+  }, 'snapshot');
+}
+
 /**
  * The newest run of a store that is under way, or null: a fill a *different* process runs is this store's own state
  * (madarch-8bdc.9), and an api role that did not press it still answers how it is.

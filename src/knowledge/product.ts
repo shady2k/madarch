@@ -35,7 +35,7 @@ import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
-import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
+import { hasSuccessfulFill, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
@@ -2304,16 +2304,17 @@ export class KnowledgeProduct {
     // (`numbersOf`), because a snapshot moves them without moving a file.
     const loop = await this.loopCounts();
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
+    const filled = this.pins.size > 0 || await hasSuccessfulFill(await this.open());
     const body: WikiStatus = {
       ...common,
-      manifest: this.pins.size > 0 ? 'ok' : 'not-filled',
+      manifest: filled ? 'ok' : 'not-filled',
       manifestFile: context.manifest.file,
       language: context.manifest.language ?? 'en',
       findingCount: context.findings.length,
       kinds: await kindSummaries(context.ctx),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: this.pins.size > 0,
+      filled,
       incomplete,
       fill: this.statusFill(),
       writer: { ...this.writer, units: this.unitsOf(context.ctx) },
