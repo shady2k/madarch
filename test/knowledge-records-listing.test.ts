@@ -8,7 +8,7 @@ import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 import type { GraphEntity } from '../src/knowledge/graph-read.js';
 
-const decl = (name: string): KindsManifest['kinds'] extends ReadonlyMap<string, infer Decl> ? Decl : never => ({ name, source: 'graph' } as never);
+const decl = (name: string): KindsManifest['kinds'] extends ReadonlyMap<string, infer Decl> ? Decl : never => ({ name, source: 'graph', template: 'file.liquid', title: 'path', fields: [], relations: [], line: 1 });
 
 const entity = (repository: string, path: string): GraphEntity => ({
   key: `code.file:${repository}/${path}`, kind: 'code.file', label: path,
