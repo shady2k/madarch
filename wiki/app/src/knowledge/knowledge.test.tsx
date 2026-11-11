@@ -20,6 +20,7 @@ import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
 import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import { KindLabels } from './kind-names.js';
+import { syncFrontTabAddress } from './tabs.js';
 import { KindPage } from './pages.js';
 import { addressOfDocument, wikiRouteOf, kindPlural, kindWord } from './routes.js';
 import { kindNameOf } from './kind-names.js';
@@ -836,6 +837,30 @@ describe('there is one app', () => {
     // Nothing started the fill: the page only offers it.
     expect(calls.some((url) => url.includes('/api/fill'))).toBe(false);
   });
+
+  for (const route of ['/catalogue', '/dependencies']) {
+    test(`the never-filled product opens ${route} from the published graph`, async () => {
+      await setWikiLanguage('en');
+      const base = answer('not-filled');
+      (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+        if (String(url).endsWith('/api/catalog')) return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, language: 'en', groups: [], findings: [], kinds: [
+          { kind: 'upstream', subgroup: '', count: 0, page: false, filled: false, state: 'never', labels: { en: { one: 'Upstream', many: 'Upstreams' } } },
+          { kind: 'downstream', subgroup: '', count: 0, page: false, filled: false, state: 'never', dependsOn: ['upstream'], labels: { en: { one: 'Downstream', many: 'Downstreams' } } },
+        ] }));
+        return await base(String(url));
+      };
+      window.history.replaceState({}, '', route);
+      syncFrontTabAddress();
+      const container = into(createElement(AppRoot));
+      await until(() => container.querySelector('[data-testid=knowledge-app]') !== null, 'the app');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      await until(() => container.querySelector('[data-testid=knowledge-main]')?.textContent?.includes('Downstreams') === true, 'the graph catalogue');
+      expect(container.querySelector('[data-testid=not-filled]')).toBeNull();
+      expect(container.querySelector('[data-testid=knowledge-main]')!.textContent).toContain('Upstreams');
+      window.history.replaceState({}, '', '/');
+      syncFrontTabAddress();
+    });
+  }
 
   test('a product started from scratch names the file it lacks and links the guide that writes one', async () => {
     (globalThis as { fetch?: unknown }).fetch = answer('no-manifest');

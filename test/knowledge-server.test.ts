@@ -31,6 +31,12 @@ import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
 import { readKinds } from '../src/knowledge/kinds.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createRecordSchema } from '../src/graph/index.js';
+import { EMPTY_CONTRACT } from '../src/graph/contract.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -105,7 +111,7 @@ afterAll(async () => {
 });
 
 describe('an empty product', () => {
-  test('a product without a manifest is given nothing by the server, and before a fill it answers no kinds: the graph is the one source', async () => {
+  test('a product without a manifest is given nothing, while a validated manifest publishes kinds before any fill', async () => {
     const bare = await get('/products/bare/api/status');
     // The engine knows no entities: nothing was written into the folder, so the wiki shows no kind and says
     // which file it lacks (decision 0034, item 24).
@@ -117,12 +123,15 @@ describe('an empty product', () => {
     const refused = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(refused.status).toBe(409);
     expect(JSON.stringify(await refused.json())).toContain('madarch/kinds.yaml');
-    // Its manifest stands in the repository and no fill has read it: the second state, never `no-manifest`, and nothing
-    // was written to the graph to say so.
+    // Validated declarations are published to the graph without filling repository content.
     const tiny = await get('/products/tiny/api/status');
     expect(tiny.body).toMatchObject({ manifest: 'not-filled', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
     expect(String(tiny.body.manifestFile)).toBe(join(home, 'tiny', 'madarch', 'kinds.yaml'));
-    expect(tiny.body.kinds).toEqual([]);
+    expect(tiny.body.kinds.length).toBeGreaterThan(0);
+    const catalogue = await get('/products/tiny/api/catalog');
+    expect(catalogue.status).toBe(200);
+    expect(catalogue.body.kinds.length).toBeGreaterThan(0);
+    expect(catalogue.body.kinds.every((kind: { count: number; state: string }) => kind.count === 0 && kind.state === 'never')).toBe(true);
     const unconnected = await get('/products/unconnected/api/status');
     expect(unconnected.body.repositories).toEqual([]);
   });
@@ -189,10 +198,10 @@ describe('an empty product', () => {
   });
 
   test('a page that does not exist is a 404 that names why, and an id is required', async () => {
-    // Before its fill the product's kinds are not in the graph, and the answer names the file it lacks.
+    // Published declarations exist before a fill, but the requested content does not.
     const missing = await get(`/products/tiny/api/page?id=${encodeURIComponent('code.symbol:nothing')}`);
     expect(missing.status).toBe(404);
-    expect(missing.body.message).toBe(`the product has no ${join(home, 'tiny', 'madarch', 'kinds.yaml')}: the wiki shows the kinds that file declares`);
+    expect(missing.body.message).toBe(`no entity "code.symbol:nothing" in the graph or among the product's Markdown pages`);
     expect((await get('/products/tiny/api/page')).status).toBe(400);
     expect((await get('/products/tiny/api/entities?kind=nothing')).status).toBe(404);
   });

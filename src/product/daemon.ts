@@ -35,7 +35,8 @@ import {
   type RefusedFillRun,
 } from '../fill/orchestrator-host.js';
 import type { RunStatus } from '../fill/orchestrator.js';
-import { readChain, readRun } from '../fill/state-store.js';
+import { createFillStateSchema, readChain, readRun } from '../fill/state-store.js';
+import { createOrchestratorSchema } from '../fill/orchestrator-store.js';
 import { finishKnowledgeStore } from '../knowledge/fill-run.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
@@ -44,6 +45,10 @@ import { readProduct } from './manifest.js';
 import { runningVersion } from './version.js';
 import { runFill } from '../fill/run.js';
 import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
+import { createRecordSchema } from '../graph/records.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { publishValidatedManifests, validateProductManifests, type ValidatedManifests } from '../graph/manifest-publication.js';
+import { createManifestWatch } from './manifest-watch.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; /** The madarch version the server runs; a record written before versions were kept names none. */ version?: string; }
 const STATE_FILE = '.madarch-daemon.json';
@@ -498,9 +503,11 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
   if (childFault.message !== undefined) return { ok: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
   const why = startFailureWhy(state.pid, port, seen, { answered, tokenMissed });
+  let diagnostic = '';
+  try { diagnostic = `\n${readFileSync(logPath(home), 'utf8')}`; } catch { /* the child may have failed before writing */ }
   return survived
     ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
-    : { ok: false, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause` };
+    : { ok: false, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause${diagnostic}` };
 }
 
 export async function startDaemon(options: { home?: string; port?: number }): Promise<number> {
@@ -613,6 +620,8 @@ export function daemonStatus(options: { home?: string }): number {
  * stops it and takes its place.
  */
 export interface DaemonFills {
+  /** Publishes validated metadata without starting a fill. */
+  publishManifests(validated: ValidatedManifests): Promise<void>;
   /** Runs one product's fill through `runFill` and answers what the host answered. */
   run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun>;
   /** One run's status, or null when the store holds no such run. */
@@ -725,6 +734,13 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     return result;
   };
   return {
+    async publishManifests(validated: ValidatedManifests): Promise<void> {
+      const held = await store(validated.folder);
+      await createFillStateSchema(held.owner);
+      await createOrchestratorSchema(held.owner);
+      await createRecordSchema(held.owner, graphContractOf(validated.manifest));
+      await publishValidatedManifests(held.owner, validated);
+    },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {
       const held = await store(request.product.folder);
       // One run of a store at a time: a second start while the first is in flight is the chain's own refusal, and it
@@ -830,6 +846,20 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   const ownInstall = ownWikiOff() ? undefined : installOwnWiki({ env: process.env });
   if (ownInstall !== undefined && !ownInstall.ok) console.error(ownInstall.message);
   try {
+    const products = listProducts({ home });
+    if (products.outcome !== 'listed') throw new Error(products.message);
+    const findings = products.unreadable.map((one) => ({ file: one.file, line: one.line, message: one.message }));
+    const validated: ValidatedManifests[] = [];
+    const folders = products.products.map((one) => one.folder);
+    if (ownInstall?.ok && !folders.includes(ownInstall.folder)) folders.push(ownInstall.folder);
+    for (const folder of folders) {
+      const read = validateProductManifests(folder);
+      if (read.ok) validated.push(read.value);
+      else findings.push(...read.findings);
+    }
+    if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
+    for (const value of validated) await fills.publishManifests(value);
+    const manifests = createManifestWatch(folders, (value) => fills.publishManifests(value), (line) => console.error(line));
     const server = await startServer({
       productHome: home,
       knowledgeRoot: knowledgeRootOf(home),
@@ -868,6 +898,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       // to end is a stop nobody can use. The orchestrator's own recovery owns what a killed run leaves (decision
       // 0027's crash suite), and the pass that loses the database says so in the log through `watching`.
       watch?.stop();
+      manifests.stop();
       void watching;
     }
     await server.stop();

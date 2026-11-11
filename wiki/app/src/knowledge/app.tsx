@@ -767,6 +767,7 @@ export function KnowledgeApp(): ReactElement {
       </SheetContent>
     </Sheet>
   );
+  const contentPage = !['catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
   let view: ReactElement;
   // No store, no home page: until a fill runs the home is the introduction, even when the product repository holds a
   // page a later stage will read. Nothing of the product is parsed before the fill writes it.
@@ -818,7 +819,7 @@ export function KnowledgeApp(): ReactElement {
             <div className="shell-scroll min-w-0 flex-1">
               <div className="shell-document w-full">
                 <main data-testid="knowledge-main">
-                  {status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
+                  {contentPage && status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : contentPage && status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
                       {status.own !== true && showsProgress(route, status) && <FillCard status={status} refresh={refresh} />}
                       <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>
