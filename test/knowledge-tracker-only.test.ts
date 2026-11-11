@@ -133,8 +133,8 @@ describe('a product that is only a tracker', () => {
       expect(status.status).toBe(200);
       const body = (await status.json()) as { kinds?: { kind: string; count: number }[]; filled?: boolean };
       expect(body.filled).toBe(true);
-      expect(body.kinds?.some((kind) => kind.kind === 'idea' && kind.count === 1)).toBe(true);
-      expect(body.kinds?.some((kind) => kind.kind === 'task' && kind.count === 1)).toBe(true);
+      expect(body.kinds?.some((kind) => kind.kind === 'idea' && kind.count === 1), JSON.stringify({ body, made, errors })).toBe(true);
+      expect(body.kinds?.some((kind) => kind.kind === 'task' && kind.count === 1), JSON.stringify({ body, made, errors })).toBe(true);
       expect(body.kinds?.filter((kind) => kind.kind.startsWith('code.'))).toEqual([]);
 
       const tables = await owner.run((tx) => tx.query<{ table_name: string }>(
