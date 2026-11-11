@@ -3,16 +3,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
+import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf } from '../src/product/store.js';
 import { authoredEnv, authoredFixture } from './authored-fixture.js';
 
 let work: string;
 let server: StartedServer;
 let base: string;
+let home: string;
+let folder: string;
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'authored-http-'));
-  const home = join(work, 'products');
-  await authoredFixture(home);
+  home = join(work, 'products');
+  folder = await authoredFixture(home);
   await authoredFixture(home, 'empty', false);
   const app = join(work, 'app');
   mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
@@ -32,6 +35,8 @@ test('HTTP authors a kind from its contract, errors at the field, refuses cross-
   expect(made.entity.id).toStartWith('authored-');
   expect((await fetch(`${server.url}/products/authored/api/status`)).status).toBe(200);
   expect((await fetch(`${base}&uid=${made.entity.uid}`)).status).toBe(200);
+  const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home), env: authoredEnv });
+  try { expect(await product.reset()).toMatchObject({ ok: false, message: expect.stringContaining('person-authored history') }); } finally { await product.close(); }
   const changed = await send('PATCH', { values: { count: 2 } }, made.entity.uid);
   expect(changed.status).toBe(200);
   expect(await changed.json()).toMatchObject({ entity: { values: { title: 'A person said this', count: 2 } } });

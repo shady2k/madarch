@@ -12,3 +12,11 @@ export async function commitAuthoredImport(owner: DatabaseOwner, lock: string, w
     return true;
   }));
 }
+
+/** Authored history survives entity deletion and must never be discarded by a store reset. */
+export async function authoredHistoryPresent(owner: DatabaseOwner): Promise<boolean> {
+  return await withSpan('authored.history.present', {}, async () => await owner.transaction('snapshot', async (tx) => {
+    const result = await tx.query<{ present: boolean }>("SELECT EXISTS (SELECT 1 FROM operation WHERE author LIKE 'person:%') AS present");
+    return result.rows[0]!.present;
+  }));
+}

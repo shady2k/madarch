@@ -90,6 +90,7 @@ import { readFillSelection, writeFillSelection } from '../adapters/fill-selectio
 import { readUnitStates } from '../fill/state-store.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
+import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 
 /**
@@ -1580,6 +1581,7 @@ export class KnowledgeProduct {
     if ('message' in product) return { ok: false, message: product.message };
     let plan: ResetPlan;
     try {
+      if (await authoredHistoryPresent(await this.open())) return { ok: false, message: `${this.storeFolder()}:1: this store holds person-authored history. Start over is refused to preserve authored data and its journal; export a backup and use a preserving migration instead.` };
       plan = planReset(product.folder, this.storeFolder(), this.options.storeRoot);
       if (expected !== undefined && (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => JSON.stringify(expected[key]) !== JSON.stringify(plan[key]))) return { ok: false, message: `${product.folder}:1: reset inputs changed since the preview; request a new preview: nothing was removed` };
     } catch (error) {

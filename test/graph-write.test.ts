@@ -269,6 +269,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('Durable', 'A person wrote this')], removals: [] }, 1, { author: 'person:reader', words: 'Keep this exactly' }));
       const changed = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: [...kind.fields, { name: 'extra', type: 'text' as const, nullable: true }] })) };
       await expect(createOneGraphSchema(durable, changed)).rejects.toThrow('Export a backup and apply a preserving schema migration');
+      await expect(createOneGraphSchema(durable)).rejects.toThrow('automatic reset is refused');
       await durable.run((tx) => tx.query(`DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph-revision'`));
       await expect(createOneGraphSchema(durable, contract)).rejects.toThrow('automatic reset is refused');
       const rows = await durable.run((tx) => tx.query<{ definition: string }>(`SELECT definition FROM ${contract.vertex[0]!.table} WHERE state = 'open'`));

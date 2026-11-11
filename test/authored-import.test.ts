@@ -1,4 +1,6 @@
 import { afterAll, expect, test } from 'bun:test';
+import { authoredHistoryPresent } from '../src/adapters/authored-import.js';
+import { authoredEntity } from '../src/graph/authored.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -105,5 +107,22 @@ test('an archive link is refused without losing the committed source or writing 
     expect(result.errors[0]!.message).toContain('symbolic link');
     expect(existsSync(join(folder, 'old/kept.md'))).toBe(true);
     expect(existsSync(join(outside, 'imported-authored'))).toBe(false);
+  } finally { await owner.close(); }
+}, 15000);
+
+test('authored history guard is false before writing and remains true after deleting the entity', async () => {
+  const folder = fixture();
+  const parsed = readKinds(folder);
+  if (!parsed.present) throw new Error('fixture manifest missing');
+  const owner = await createTestDatabaseOwner();
+  try {
+    await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
+    expect(await authoredHistoryPresent(owner)).toBe(false);
+    const created = await owner.transaction('write', async (tx) =>
+      await authoredEntity(tx, parsed.manifest, '', 'person:reader', 'create', 'note', { values: { title: 'Kept' } }));
+    expect(await authoredHistoryPresent(owner)).toBe(true);
+    await owner.transaction('write', async (tx) =>
+      await authoredEntity(tx, parsed.manifest, '', 'person:reader', 'delete', 'note', { uid: created.entity!.uid }));
+    expect(await authoredHistoryPresent(owner)).toBe(true);
   } finally { await owner.close(); }
 }, 15000);
