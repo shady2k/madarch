@@ -146,10 +146,14 @@ describe('the tools this step serves', () => {
     const { isError, answer } = await call('get_file', { path: 'src/a.ts' });
     expect(isError).toBe(false);
     expect(answer).toMatchObject({
-      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'TypeScript',
+      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: null,
       commitCount: 2, authors: ['Ada Example'],
     });
-    expect(answer['candidates']).toEqual(['TypeScript']);
+    // Step 1 states the dataset's ambiguity; a later producer may publish a resolved language opinion.
+    expect(answer['candidates']).toEqual(['TypeScript', 'XML']);
+    expect(answer['blob']).toBe(git(REPOSITORY, 'rev-parse', `${third}:src/a.ts`));
+    expect(answer['historyShallow']).toBe(false);
+    expect(sourceOf(answer)).toMatchObject({ repository: REPOSITORY, commit: third, branch: 'main', changed: [], dirty: [] });
     expect((answer['created'] as Record<string, unknown>)['commit']).toBe(first);
     expect((answer['modified'] as Record<string, unknown>)['commit']).toBe(third);
     expect((answer['created'] as Record<string, unknown>)['author']).toBe('Ada Example');
