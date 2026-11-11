@@ -349,7 +349,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     } finally { await durable.close(); }
   });
 
-  test('schema reconciliation preserves scalar reference opinions on repeated preparation', async () => {
+  test('schema reconciliation preserves scalar reference opinions when adding a nullable field', async () => {
     const durable = await createTestDatabaseOwner();
     const table = generatedTableName('record', 'vertex');
     const graph: GraphContract = { vertex: [{ name: 'record', table, fields: [{ name: 'target', type: 'text', reference: 'task', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
@@ -358,8 +358,9 @@ describe('the manifest makes the table and the writer fills it', () => {
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: {}, values: { target: 'task:repair' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
       const before = await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`));
       expect(before.rows.map((row) => row['target'])).toEqual(['task:repair']);
-      expect(await prepareStore(durable, { contract: graph })).toEqual({ reset: false });
-      expect((await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`))).rows).toEqual(before.rows);
+      const extended: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => ({ ...kind, fields: [...kind.fields, { name: 'note', type: 'text' as const, nullable: true }] })) };
+      expect(await prepareStore(durable, { contract: extended })).toEqual({ reset: false });
+      expect((await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`))).rows).toEqual(before.rows.map((row) => ({ ...row, note: null })));
     } finally { await durable.close(); }
   });
 
