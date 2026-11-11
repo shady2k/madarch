@@ -82,7 +82,8 @@ afterAll(() => {
 
 describe('a product that is only a tracker', () => {
   test('opens, fills and serves with no code table in its store', async () => {
-    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const errors: string[] = [];
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
     let owner: DatabaseOwner | undefined;
     try {
       // Startup publishes the validated declarations; no entity exists before the fill or explicit authorship.
@@ -93,7 +94,7 @@ describe('a product that is only a tracker', () => {
       expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:00000000-0000-4000-8000-000000000001')}&full=1`, { headers: { accept: 'application/json' } });
-      expect(unopened.status, await unopened.text()).toBe(404);
+      expect(unopened.status, JSON.stringify({ body: await unopened.text(), errors })).toBe(404);
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
       owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
