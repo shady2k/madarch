@@ -52,9 +52,11 @@ const STORE_SCHEMA_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended('madarc
  * store is made again and filled. Revision 3: the store holds no table but the graph's and its mechanisms' —
  * `layer_entry`, `gap` and `knowledge_fill` are gone — and a store that still holds them is reset and filled once.
  * Revision 4: the product repository's files are mechanism state (`file_entry` beside its path and blob dictionaries),
- * so a store written under revision 3 holds no such table and is reset and filled once.
+ * so a store written under revision 3 holds no such table and is reset and filled once. Revision 5: a dangling edge's
+ * row carries its discriminator (`unresolved_reference.edge_discriminator`), so two dangling edges of one kind and one
+ * target are two rows; a store written under revision 4 is reset and filled once.
  */
-const SCHEMA_REVISION = 4;
+const SCHEMA_REVISION = 5;
 
 /** The tables a reset drops, in the order their foreign keys allow: the opinions and the catalogue before the nodes. */
 const GENERATED_PREFIXES = ['k_', 'e_', 'd_'] as const;

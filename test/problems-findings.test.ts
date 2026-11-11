@@ -11,6 +11,8 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
 import { collectProblems } from '../src/problems/index.js';
 import { defaultSettings } from '../src/problems/types.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
+import type { KindsManifest } from '../src/knowledge/kinds.js';
 
 const unusedOwner: DatabaseOwner = {
   location: 'unused findings fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false, hasVector: false,
@@ -48,6 +50,8 @@ describe('a findings kind of the manifest is read as problems, and no other kind
       ]) as unknown as GraphReader;
       const read = async (findingKinds?: readonly string[]) => await collectProblems({
         productFolder: product, owner: unusedOwner, graph,
+        files: workingTreeFiles(product),
+        manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
         ...(findingKinds === undefined ? {} : { findingKinds }),
         // A rule the manifest does not declare is a note, never a row (views.ts): the fixture declares the two.
         settings: { ...defaultSettings(), rules: {

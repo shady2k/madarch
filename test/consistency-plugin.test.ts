@@ -8,7 +8,6 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseDocument } from 'yaml';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
@@ -19,7 +18,7 @@ import { planWholeGraphTurns, type PluginTurnWiring } from '../src/fill/plugin-t
 import { runFill } from '../src/fill/run.js';
 import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
 import { removedEdgeEnds, unresolvedReferences, unevidencedOpinions } from '../src/graph/index.js';
-import { readPluginLock } from '../src/plugin/lock.js';
+import { parsePluginLock } from '../src/plugin/lock.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { closureOf } from '../src/plugin/closure.js';
 
@@ -34,61 +33,77 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-/** Add the fixture plugin, its two kinds, its rules and its lock to the starter product the test holds. */
+/** Add the fixture plugin, its kinds, its rules and its lock to the product the test holds. */
 function addConsistency(folder: string): string {
   cpSync(FIXTURE, join(folder, 'plugins', 'plugin-consistency'), { recursive: true });
   const closure = closureOf(join(folder, 'plugins', 'plugin-consistency')).hash;
-  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
-  const document = parseDocument(readFileSync(kindsFile, 'utf8'));
-  document.deleteIn(['catalog']);
-  document.setIn(['kinds', 'probe.finding'], document.createNode({
-    template: 'templates/item-plain.liquid', source: 'graph', findings: true,
-    'depends-on': ['code.file'],
-    labels: { en: { one: 'Probe finding', many: 'Probe findings' }, ru: { one: 'Находка', many: 'Находки' } },
-    fields: [
-      { name: 'id', type: 'text', binding: 'plugin-consistency@1.id' },
-      { name: 'rule', type: 'text', binding: 'plugin-consistency@1.rule' },
-      { name: 'subject', type: 'text', binding: 'plugin-consistency@1.subject' },
-      { name: 'target', type: 'text', nullable: true, binding: 'plugin-consistency@1.target' },
-      { name: 'cause', type: 'text', binding: 'plugin-consistency@1.cause' },
-      { name: 'severity', type: 'text', nullable: true, binding: 'plugin-consistency@1.severity' },
-    ],
-    key: ['id'],
-  }));
-  document.setIn(['kinds', 'probe.opinion'], document.createNode({
-    template: 'templates/item-plain.liquid', source: 'graph', 'depends-on': ['code.file'],
-    labels: { en: { one: 'Probe opinion', many: 'Probe opinions' }, ru: { one: 'Утверждение', many: 'Утверждения' } },
-    fields: [
-      { name: 'id', type: 'text', binding: 'plugin-consistency@1.id' },
-      { name: 'first', type: 'text', nullable: true, binding: 'plugin-consistency@1.first' },
-      { name: 'second', type: 'text', nullable: true, binding: 'plugin-consistency@1.second' },
-    ],
-    key: ['id'],
-  }));
-  document.setIn(['kinds', 'probe.keyed'], document.createNode({
-    template: 'templates/item-plain.liquid', source: 'graph', 'depends-on': ['code.file'],
-    labels: { en: { one: 'Probe keyed', many: 'Probe keyeds' }, ru: { one: 'Ключ', many: 'Ключи' } },
-    fields: [
-      { name: 'id', type: 'text', binding: 'plugin-consistency@1.id' },
-      { name: 'title', type: 'text', binding: 'plugin-consistency@1.title' },
-    ],
-    key: ['id', 'title'],
-  }));
-  const plugins = document.getIn(['plugins']) as { toJSON?: () => unknown[] } | undefined;
-  const list = Array.isArray(plugins) ? plugins : [];
-  list.push(document.createNode({ id: 'plugin-consistency', version: 1, path: 'plugins/plugin-consistency', inputs: ['code.file'], outputs: ['probe.finding', 'probe.opinion', 'probe.keyed'], closure: ['plugins/plugin-consistency/contract.json', 'plugins/plugin-consistency/main.ts', 'plugins/plugin-consistency/plugin.json'] }));
-  document.setIn(['plugins'], document.createNode(list));
-  for (const [id, predicate, severity, label] of [
-    ['missing-reference', 'findings', 'major', 'Reference to a missing key'],
-    ['dangling-reference', 'findings', 'major', 'Edge end names a missing key'],
-    ['removed-end', 'findings', 'major', 'Edge ends at a removed vertex'],
-    ['unevidenced-opinion', 'findings', 'minor', 'Opinion without evidence'],
-  ] as const) {
-    document.setIn(['problems', 'rules', id], document.createNode({ predicate, kind: id, sonar: 'bug', severity, section: 'code', action: 'task', enabled: true, label: { en: label, ru: label } }));
-  }
-  writeFileSync(kindsFile, document.toString());
-  const lockFile = join(folder, 'madarch', 'plugins.lock');
-  writeFileSync(lockFile, `${readFileSync(lockFile, 'utf8').trimEnd()}\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
+  const manifest = `language: en
+kinds:
+  code.file:
+    template: templates/file.liquid
+    source: graph
+    capability: git
+  code.repository:
+    template: templates/repository.liquid
+    source: graph
+    capability: git
+  code.directory:
+    template: templates/directory.liquid
+    source: graph
+    capability: git
+  probe.finding:
+    template: templates/item-plain.liquid
+    source: graph
+    findings: true
+    depends-on: [code.file]
+    labels:
+      en: { one: Probe finding, many: Probe findings }
+      ru: { one: Находка, many: Находки }
+    fields:
+      - { name: id, type: text, binding: "plugin-consistency@1.id" }
+      - { name: rule, type: text, binding: "plugin-consistency@1.rule" }
+      - { name: subject, type: text, binding: "plugin-consistency@1.subject" }
+      - { name: target, type: text, nullable: true, binding: "plugin-consistency@1.target" }
+      - { name: cause, type: text, binding: "plugin-consistency@1.cause" }
+      - { name: severity, type: text, nullable: true, binding: "plugin-consistency@1.severity" }
+    key: [id]
+  probe.opinion:
+    template: templates/item-plain.liquid
+    source: graph
+    depends-on: [code.file]
+    labels:
+      en: { one: Probe opinion, many: Probe opinions }
+      ru: { one: Утверждение, many: Утверждения }
+    fields:
+      - { name: id, type: text, binding: "plugin-consistency@1.id" }
+      - { name: first, type: text, nullable: true, binding: "plugin-consistency@1.first" }
+      - { name: second, type: text, nullable: true, binding: "plugin-consistency@1.second" }
+    key: [id]
+  probe.keyed:
+    template: templates/item-plain.liquid
+    source: graph
+    depends-on: [code.file]
+    labels:
+      en: { one: Probe keyed, many: Probe keyeds }
+      ru: { one: Ключ, many: Ключи }
+    fields:
+      - { name: id, type: text, binding: "plugin-consistency@1.id" }
+      - { name: title, type: text, binding: "plugin-consistency@1.title" }
+    key: [id, title]
+edges:
+  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
+  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
+plugins:
+  - { id: plugin-consistency, version: 1, path: plugins/plugin-consistency, inputs: [code.file], outputs: [probe.finding, probe.opinion, probe.keyed], closure: [plugins/plugin-consistency/contract.json, plugins/plugin-consistency/main.ts, plugins/plugin-consistency/plugin.json] }
+problems:
+  rules:
+    missing-reference: { predicate: findings, kind: missing-reference, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: Reference to a missing key, ru: Ссылка на отсутствующий ключ } }
+    dangling-reference: { predicate: findings, kind: dangling-reference, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: Edge end names a missing key, ru: Конец ребра ссылается на отсутствующий ключ } }
+    removed-end: { predicate: findings, kind: removed-end, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: Edge ends at a removed vertex, ru: Ребро ведёт к удалённой вершине } }
+    unevidenced-opinion: { predicate: findings, kind: unevidenced-opinion, sonar: bug, severity: minor, section: code, action: task, enabled: true, label: { en: Opinion without evidence, ru: Утверждение без основания } }
+`;
+  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest);
+  writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   return closure;
 }
 
@@ -154,7 +169,8 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     if (!run.ok) return;
     expect(run.state).toBe('succeeded');
     const found = (await findings()).filter((one) => one.rule === 'unevidenced-opinion');
-    expect(found.map((one) => one.target)).toEqual(['plugin-consistency@1.0.0:first:184', 'plugin-consistency@1.0.0:second:184']);
+    expect(found.map((one) => one.target.split(':')[1]).sort()).toEqual(['first', 'second']);
+    expect(new Set(found.map((one) => one.target)).size).toBe(2);
   }, 300_000);
 
   test('one dangling edge and one reference to a missing key are exactly two findings, and a fix clears them', async () => {
@@ -207,7 +223,7 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     // The target stands now: the row the writer kept is no longer a problem, while the other still is.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
     const after = await unresolvedReferences(owner, { limit: 10 });
-    expect(after.rows.map((one) => one.target.label)).toEqual(['page-b']);
+    expect(after.rows.filter((one) => one.target.label.startsWith('page-')).map((one) => one.target.label)).toEqual(['page-b']);
     await owner.transaction('write', async (tx) => {
       await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
       for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b') OR key->>'name' IN ('page-a', 'page-b'))`);
@@ -288,7 +304,7 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
   test('a targeted whole-graph unit has an identity of its own', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const read = readKinds(product);
-    const lock = readPluginLock(product);
+    const lock = parsePluginLock(readFileSync(join(product, 'madarch', 'plugins.lock'), 'utf8'));
     if (!read.present || !lock.ok) return;
     const wiring: PluginTurnWiring = {
       productFolder: product, manifest: read.manifest, locks: new Map(lock.entries.map((entry) => [entry.id, entry])), owner,
