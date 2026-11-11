@@ -979,8 +979,11 @@ export class GraphReader {
     // Every count is of rows a reader sees: the base context, a vertex no removal hides, and its `contains` or
     // `history` relation standing.
     if (this.holds(`${GIT_KINDS.repository}`)) parts.push(`SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM ${ofKind(GIT_KINDS.repository, 'r')} WHERE NOT r.removed AND r.context_id = 1`);
-    if (this.holds(`${GIT_KINDS.directory}`)) parts.push(`SELECT '${GIT_KINDS.directory}', count(*)::text FROM ${ofKind(GIT_KINDS.directory, 'd')} JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE NOT d.removed AND d.context_id = 1`);
-    if (this.holds(`${GIT_KINDS.file}`)) parts.push(`SELECT '${GIT_KINDS.file}', count(*)::text FROM ${ofKind(GIT_KINDS.file, 'f')} JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE NOT f.removed AND f.context_id = 1`);
+    for (const kind of [GIT_KINDS.directory, GIT_KINDS.file]) {
+      if (!this.holds(kind)) continue;
+      const membership = this.holds(GIT_KINDS.contains) ? ` AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}` : '';
+      parts.push(`SELECT '${kind}', count(*)::text FROM ${ofKind(kind, 'n')} WHERE NOT n.removed AND n.context_id = 1${membership}`);
+    }
     if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}', count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' JOIN node c ON c.id = e.to_node AND c.context_id = 1 AND NOT c.removed WHERE e.context_id = 1`);
     if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}', count(*)::text FROM ${ofKind(GIT_KINDS.signature, 's')} WHERE NOT s.removed AND s.context_id = 1 AND EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id AND e.context_id = 1)`);
     for (const decl of this.generated?.values() ?? []) parts.push(`SELECT ${quoteLiteral(decl.kind)} AS kind, count(DISTINCT n.id)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
@@ -1060,7 +1063,7 @@ export class GraphReader {
     if (graphKinds.length === 0) return [];
     const found = await tx.query<Raw>(
       `${entitySelectSql(this.scope ?? null, 'values', this.declared)} WHERE k.name = ANY($1::text[])
-       AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')})
+       ${this.holds(GIT_KINDS.contains) ? `AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')})` : ''}
        AND (k.name <> '${GIT_KINDS.commit}' OR ${EDGE_EXISTS('to_node', GIT_KINDS.history, 'n')})
        AND (k.name <> '${GIT_KINDS.signature}' OR ${EDGE_EXISTS('from_node', GIT_KINDS.authored, 'n')})
        ORDER BY n.id`,
