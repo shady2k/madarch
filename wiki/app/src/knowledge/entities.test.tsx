@@ -892,7 +892,7 @@ describe('every route names its tab', () => {
     // A filled home whose page the server names.
     { address: '/', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
     // A filled home that is its repository's page (the demo's shape).
-    { address: '/', selector: '[data-testid=entity-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
+    { address: '/', selector: '[data-testid=entity-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, historyShallow: false, steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
     { address: '/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
     { address: '/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
     { address: '/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },

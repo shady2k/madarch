@@ -316,7 +316,7 @@ export type RepositoryFactsView = {
   defaultBranch: string | null;
   asIsCommit: string | null;
   counts: RepositoryCounts;
-  gaps: { what: string; reason: string }[];
+  historyShallow: boolean | null;
   steps: { tree: boolean; history: boolean };
 };
 
@@ -535,7 +535,7 @@ export type RepositoryBlockData = {
   asIsCommit: string | null;
   asIsHref: string | null;
   counts: RepositoryCounts;
-  gaps: { what: string; reason: string }[];
+  historyShallow: boolean | null;
   steps: { tree: boolean; history: boolean };
 };
 

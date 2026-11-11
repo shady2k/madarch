@@ -144,14 +144,10 @@ export function RepositoryFactsBlock({ data, run, unread }: { data: RepositoryBl
           </AlertDescription>
         </Alert>
       )}
-      {data.gaps.length > 0 && (
-        <Alert className="mb-6" data-testid="repository-gaps">
-          <AlertTitle>{t('knowledge.repository.gapsTitle')}</AlertTitle>
-          <AlertDescription>
-            <PlainList className="mb-0 mt-1">
-              {data.gaps.map((gap) => <ListItem key={`${gap.what}\u0000${gap.reason}`} data-testid="repository-gap"><InlineCode className="break-all">{gap.what}</InlineCode> — {gap.reason}</ListItem>)}
-            </PlainList>
-          </AlertDescription>
+      {data.historyShallow === true && (
+        <Alert className="mb-6" data-testid="repository-shallow">
+          <AlertTitle>{t('knowledge.repository.shallowTitle')}</AlertTitle>
+          <AlertDescription>{t('knowledge.repository.shallowHistory')}</AlertDescription>
         </Alert>
       )}
       {!data.steps.tree && <Paragraph className="text-muted" data-testid="repository-empty">{t('knowledge.repository.notRun')}</Paragraph>}

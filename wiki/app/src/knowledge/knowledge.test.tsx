@@ -636,7 +636,7 @@ describe('after the run', () => {
           stubFetch([]);
           const read = status({
             kinds: [{ kind: 'domain', source: 'markdown', count: pages, single: false, origins: [] }],
-            repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
+            repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, historyShallow: false, steps: { tree: true, history: true } },
           });
           const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
           await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
