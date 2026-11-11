@@ -80,7 +80,7 @@ export async function graphMarkdownEntities(graph: Pick<GraphReader, 'list'>, ma
         const producer = fields['producer'] ?? null;
         if (producer !== null && typeof producer !== 'string') fail('producer');
         entities.push({
-          id: entity.key, kind: entity.kind, title: entity.label,
+          id: entity.key, kind: entity.kind, title: typeof fields['title'] === 'string' ? fields['title'] : entity.label,
           relates: lists('relates'), sources: lists('sources'), producer: producer as string | null,
           body: text('body'), bodyLine: line as number,
           file: text('file'), front: fields,

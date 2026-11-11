@@ -16,11 +16,12 @@ test('pages consume structured opinions across every result page, in code-point 
   const statement = { id: 'claim', text: 'A stated fact.', paragraph: 'A stated fact.', labels: ['claim'], line: 8, digest: 'sentence', mentions: [], grounds: ['code:one'] };
   const input = graph([
     entity('page:z', { body: '---not YAML---', statements: [statement], file: 'pages/z.md', digest: 'page', relates: ['code:one'] }),
-    entity('page:a', { body: 'plain body' }),
+    entity('page:a', { body: 'plain body', title: 'Page A' }),
     entity('page:code', { path: 'code.ts' }),
   ]);
   const read = await graphMarkdownEntities(input, manifest);
   expect(read.entities.map((page) => page.id)).toEqual(['page:a', 'page:z']);
+  expect(read.entities[0]!.title).toBe('Page A');
   expect(read.entities[1]!.statementReading.definitions.get('claim')).toEqual(['madarch:code:one']);
   const indexed = await graphKnowledgePages(input, manifest);
   expect(indexed.pages[1]!.statements).toEqual([statement]);
