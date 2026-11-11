@@ -890,7 +890,9 @@ function templatesUsedBy(kindTemplates: readonly string[]): Record<string, strin
     for (const match of content.matchAll(/["']\.\/([^"']+\.liquid)["']/g)) visit(match[1]!);
   };
   for (const template of kindTemplates) visit(template);
-  return Object.fromEntries([...wanted].sort().map((path) => [path, TEMPLATES[path]!]));
+  // In the starter set's own order (`TEMPLATES`), never sorted: the product's file list keeps the order `madarch new`
+  // has always written (the base page and the partials first, then the kinds' templates).
+  return Object.fromEntries(Object.keys(TEMPLATES).filter((path) => wanted.has(path)).map((path) => [path, TEMPLATES[path]!]));
 }
 
 /**
@@ -921,8 +923,8 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
   const workflows = chosen.some((kind) => kind.source === 'graph');
   return [
     { path: 'madarch/kinds.yaml', content: kindsManifest(kinds) },
-    ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),
     ...(plugins.length === 0 ? [] : [{ path: 'madarch/plugins.lock', content: pluginLockText(plugins) }]),
+    ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),
     ...bundledPluginFiles()
       .filter((file) => plugins.some((plugin) => file.path.startsWith(`${plugin.folder}/`)))
       .map((file) => ({ path: file.path, content: file.content, ...(file.bytes === undefined ? {} : { bytes: file.bytes }) })),

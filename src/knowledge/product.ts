@@ -2273,13 +2273,22 @@ export class KnowledgeProduct {
   private async statusNow(): Promise<StatusRead> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    const declared = this.repositories();
+    // A product nobody has filled has no store, and its whole answer is the folder's: the manifest's presence and the
+    // repositories the product manifest declares. Nothing is opened, so the first status after `madarch new` reads two
+    // paths (fast, and the same on every platform) and says `no-manifest` or `not-filled`; the graph is asked once a
+    // fill has made a store. A store that is there but unfilled keeps the read below, which is the graph's answer.
+    if (!existsSync(storeDatabasePath(this.storeFolder()))) {
+      const file = join(product.folder, KINDS_FILE);
+      const stands = existsSync(file);
+      return { body: { product: { name: product.name, id: product.id }, manifest: stands ? 'not-filled' : 'no-manifest', manifestFile: file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: 0 } }, ctx: undefined };
+    }
     // A publication of a fill this process did not run is taken before the body is made: the body reads the product's
     // files at the graph revision the store states, and a revision followed only after it would answer the last one.
     await this.followStoreFill();
     // A run a person paused before the server stopped stands as it was: its pages are named from the store it left.
     this.restorePause();
     const common = { product: { name: product.name, id: product.id } };
-    const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
       // Three states, never mixed: the file is absent (`no-manifest`), it stands in the repository but no fill has read

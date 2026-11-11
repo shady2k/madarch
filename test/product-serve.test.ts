@@ -601,11 +601,27 @@ describe('madarch new serving the draft it just created', () => {
     expect(stopDaemon({ home: base })).toBe(0);
   }, 30_000);
 
-  test('new with no terminal and no --template refuses, naming the flag and the templates, and makes no product', () => {
+  test('new with no terminal and no --template takes the first declared template and says so', async () => {
     const base = scratchFolder();
-    const run = runCommand(['new', '--home', base, '--no-open'], { MADARCH_HOME: base });
+    const built = builtApp(base);
+    const port = await freePort();
+    const serve = serveLive(['new', '--home', base, '--port', String(port), '--no-open'],
+      { MADARCH_HOME: base, MADARCH_APP: built });
+    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
+    const lines = serve.stdout.split('\n').filter((line) => line !== '');
+    // The default is the first entry of the declared list, and the line says which template was used and how to pick
+    // another: a script gets a product, and nothing about the choice is silent.
+    expect(lines.some((line) => line.includes('No terminal asks which template to use: using "Everything", the first declared'))).toBeTrue();
+    expect(lines.some((line) => line.includes('--template <id>') && line.includes('everything') && line.includes('none'))).toBeTrue();
+    expect(lines.some((line) => line.startsWith('✓ Template "Everything":'))).toBeTrue();
+    expect(stopDaemon({ home: base })).toBe(0);
+  }, 30_000);
+
+  test('new refuses a template no entry declares, naming the ids, and makes no product', () => {
+    const base = scratchFolder();
+    const run = runCommand(['new', '--home', base, '--template', 'nope', '--no-open'], { MADARCH_HOME: base });
     expect(run.status).toBe(2);
-    expect(run.stderr).toContain('--template');
+    expect(run.stderr).toContain('nope');
     for (const id of ['everything', 'none']) expect(run.stderr).toContain(id);
     const products = join(base, 'products');
     expect(existsSync(products) ? readdirSync(products) : []).toEqual([]);

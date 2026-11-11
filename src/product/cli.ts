@@ -123,7 +123,7 @@ function commandHelp(command: string): string {
   if (spec.flags.open) flags.push('  --no-open             Do not open a browser');
   if (spec.flags.template) {
     flags.push(`  --template <id>       The starter template the product is made from: ${STARTER_TEMPLATES.map((template) => `${template.id} (${template.title.en})`).join(', ')}`);
-    flags.push('                        Without it a terminal asks; a command with no terminal refuses rather than guess');
+    flags.push('                        Without it a terminal asks; a command with no terminal takes the first declared');
   }
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
   if (spec.flags.mode) flags.push('  --mode <mode>         link, move or clone the checkout');
@@ -553,17 +553,24 @@ export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined 
 const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
 
 /**
- * The template the command makes the product from: `--template` when given, else the menu a terminal gets. A command
- * with no terminal and no flag refuses, naming the flag and the ids: guessing would make a product nobody asked for.
+ * The template the command makes the product from: `--template` when given, else the menu a terminal gets, else the
+ * first declared template with `defaulted` set — a script that runs `madarch new` gets a product, and the command says
+ * which template it used and how to pick another. The note is the caller's to print, after the product was made and
+ * never into a `--json` line.
  */
-async function templateChoice(parsed: Parsed, command: string): Promise<string | number> {
-  if (parsed.template !== undefined) return parsed.template;
-  if (process.stdin.isTTY && process.stdout.isTTY) return await askTemplate();
-  console.error(`madarch ${command}: no terminal asks which template to use, and --template was not given: pass --template <id> — ${starterTemplateIds().join(', ')}`);
-  return 2;
+async function templateChoice(parsed: Parsed): Promise<{ id: string; defaulted: boolean }> {
+  if (parsed.template !== undefined) return { id: parsed.template, defaulted: false };
+  if (process.stdin.isTTY && process.stdout.isTTY) return { id: await askTemplate(), defaulted: false };
+  return { id: STARTER_TEMPLATES[0]!.id, defaulted: true };
 }
 
-/** The template menu of a terminal: every declared template, in its declared order, and the first one by default. */
+/** The line that says a command with no terminal took the first declared template, and how another is chosen. */
+function defaultTemplateNote(id: string): string {
+  const template = starterTemplateOf(id);
+  return `✓ No terminal asks which template to use: using "${template?.title.en ?? id}", the first declared. Pass --template <id> to choose another (${starterTemplateIds().join(', ')}).`;
+}
+
+/** The template menu of a terminal: every declared template, in their declared order, and the first one by default. */
 async function askTemplate(): Promise<string> {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -712,20 +719,21 @@ function productHomeOf(named: string | undefined): string {
   if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
-    const template = await templateChoice(parsed, 'init');
-    if (typeof template === 'number') return template;
+    const choice = await templateChoice(parsed);
+    const template = choice.id;
     const result = initLife({ cwd: process.cwd(), home, template });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
     const source = result.prints.find((line) => line.startsWith('source: '))?.slice('source: '.length);
     const facts = Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; }));
     if (!parsed.json) {
+      if (choice.defaulted) console.log(defaultTemplateNote(template));
       console.log(`✓ Created the product "${basename(folder)}" in ${displayPath(folder)}`);
       printTemplate(String(facts['template'] ?? template), Number(facts['kinds'] ?? 0));
       if (source !== undefined) console.log(`✓ Connected your repository ${displayPath(source)} (it stays where it is)`);
       else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(process.cwd())} (it stays where it is)`);
     }
-    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined);
+    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts, ...(choice.defaulted ? { templateNote: defaultTemplateNote(template) } : {}) } : undefined);
   }
   if (command === 'reset') return await resetCommand(parsed.words[0], home, parsed.yes);
   if (command === 'version') return versionCommand();
@@ -761,18 +769,19 @@ function productHomeOf(named: string | undefined): string {
   if (command !== 'new') return report(runWrapper(command, parsed), parsed.json);
 
   // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
-  const template = await templateChoice(parsed, 'new');
-  if (typeof template === 'number') return template;
+  const choice = await templateChoice(parsed);
+  const template = choice.id;
   const draft = createDraft({ ...(home === undefined ? {} : { home }), template });
   if (draft.outcome !== 'created') {
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
   }
   if (!parsed.json) {
+    if (choice.defaulted) console.log(defaultTemplateNote(template));
     console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
     printTemplate(draft.template, draft.kinds);
   }
-  return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name, template: draft.template, kinds: draft.kinds } : undefined);
+  return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name, template: draft.template, kinds: draft.kinds, ...(choice.defaulted ? { templateNote: defaultTemplateNote(template) } : {}) } : undefined);
 }
 
 /**

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -106,6 +106,10 @@ async function serveCheck(): Promise<void> {
   // `new` returns at once: the products home's background server serves the
   // draft, so the walk reads the address the command printed instead of
   // waiting on a foreground that no longer exists.
+  /** The daemon's log, for a failure that only the server's own words explain (the status answers a plain 500). */
+  const daemonTail = (): string => {
+    try { return `\nthe server's log at ${join(home, '.madarch-daemon.log')} said:\n${readFileSync(join(home, '.madarch-daemon.log'), 'utf8').split('\n').slice(-40).join('\n')}`; } catch { return ''; }
+  };
   const port = await freePort();
   let failure: Error | undefined;
   let product = '';
@@ -120,12 +124,27 @@ async function serveCheck(): Promise<void> {
     if (facts.reused !== false || facts.port !== port) throw new Error(`npx madarch new served on ${String(facts.port)} though the walk named the free port ${port}: ${line}`);
     if (!await waitForProduct(facts.url)) throw new Error(`npx madarch new did not serve the graph-backed draft at ${facts.url}`);
     // The draft's manifest stands in its repository, and no fill has read it into the graph: the wiki reads the second
-    // of its three states, `not-filled`, and nothing is written before the person presses Fill.
-    const status = await fetch(`${facts.url}api/status`).then(async (answer) => ({ ok: answer.ok, body: await answer.text() }));
-    if (!status.ok) throw new Error(`npx madarch new: the draft's status did not answer (HTTP ${status.ok ? '' : status.body})`);
-    const state = JSON.parse(status.body) as { manifest?: string; manifestFile?: string; fill?: { state?: string } };
-    if (state.manifest !== 'not-filled') throw new Error(`npx madarch new: the draft reads "${String(state.manifest)}", and a product whose manifest stands is not filled yet reads "not-filled": ${status.body}`);
-    if (!String(state.manifestFile ?? '').endsWith('madarch/kinds.yaml')) throw new Error(`npx madarch new: the draft's status names no madarch/kinds.yaml: ${status.body}`);
+    // of its three states, `not-filled`, and nothing is written before the person presses Fill. The first answer may
+    // fail while the product's store opens (a Windows runner installs the server on this first use), so the walk
+    // retries and, when it still fails, prints the server's own words.
+    let state: { manifest?: string; manifestFile?: string; fill?: { state?: string } } = {};
+    let last = '';
+    let answered = 0;
+    const untilStatus = Date.now() + 60_000;
+    while (Date.now() < untilStatus) {
+      const status = await fetch(`${facts.url}api/status`).catch(() => undefined);
+      if (status !== undefined) {
+        answered = status.status;
+        last = await status.text();
+        if (status.ok) {
+          const read = JSON.parse(last) as typeof state;
+          if (read.manifest === 'not-filled') { state = read; break; }
+        }
+      }
+      await new Promise((done) => setTimeout(done, 250));
+    }
+    if (state.manifest !== 'not-filled') throw new Error(`npx madarch new: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
+    if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/kinds.yaml')) throw new Error(`npx madarch new: the draft's status names no madarch/kinds.yaml: ${last}`);
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch new: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
     const entry = await fetch(facts.url);
     if (!entry.ok || !(await entry.text()).includes('<div id="root"')) throw new Error(`npx madarch new: ${facts.url} is not the wiki app's page (HTTP ${entry.status})`);
