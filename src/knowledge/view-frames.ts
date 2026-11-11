@@ -53,7 +53,12 @@ export function workspaceOf(view: GraphView) {
   // layout: a self reference is left out, and the view's own note names the engine that draws it (views.ts, the note of a
   // relation whose ends are one element).
   const drawable = { ...flat, edges: flat.edges.filter((edge) => edge.from !== edge.to) };
-  return diagramWorkspace(drawable, { pageAddress: (id) => view.elements.find((element) => element.id === id)?.href ?? '' });
+  // An ER view is already named above its frame ("Tables: madarch"), and LikeC4 draws a view's own title inside the
+  // canvas, over its first table: the ER canvas carries no title, and the page's caption is the one the reader sees.
+  return diagramWorkspace(drawable, {
+    pageAddress: (id) => view.elements.find((element) => element.id === id)?.href ?? '',
+    ...(view.spec.type === 'er' ? {} : { title: view.title }),
+  });
 }
 
 // ---- LikeC4 --------------------------------------------------------------------------------------------
@@ -220,7 +225,9 @@ export async function archifyFrame(view: GraphView, _env: Readonly<Record<string
     // Archify's fixed 30px boundary padding cannot be halved with LikeC4 geometry: a grouped child at x=40
     // would move to x=20 and put its boundary outside the canvas. Keep grouped views at their native scale.
     const layoutScale = view.spec.type === 'domain-map' || view.spec.type === 'deployment' ? 1 : view.spec.type === 'er' ? erScaleOf(layout.view.nodes, details) : 0.5;
-    const compact = { ...layout.view, nodes: layout.view.nodes.map((node) => ({ ...node, ...(details.has(node.id) ? { technology: details.get(node.id)! } : {}), x: node.x * layoutScale, y: node.y * layoutScale, width: node.width * layoutScale, height: node.height * layoutScale })), edges: layout.view.edges.map((edge) => ({ ...edge, ...(edge.labelAt ? { labelAt: [edge.labelAt[0] * layoutScale, edge.labelAt[1] * layoutScale] as const } : {}) })) };
+    // The page's title is the view's own: an ER workspace writes no title into the canvas, so the archify page takes
+    // the title the page's caption shows.
+    const compact = { ...layout.view, title: view.title, nodes: layout.view.nodes.map((node) => ({ ...node, ...(details.has(node.id) ? { technology: details.get(node.id)! } : {}), x: node.x * layoutScale, y: node.y * layoutScale, width: node.width * layoutScale, height: node.height * layoutScale })), edges: layout.view.edges.map((edge) => ({ ...edge, ...(edge.labelAt ? { labelAt: [edge.labelAt[0] * layoutScale, edge.labelAt[1] * layoutScale] as const } : {}) })) };
     document = archifyDocument(compact, { output: 'view.html', dashed });
   } catch (error) {
     return frameFailure(`the archify document of the ${view.spec.type} view could not be built: ${error instanceof Error ? error.message : String(error)}`);
@@ -255,6 +262,9 @@ export async function archifyFrame(view: GraphView, _env: Readonly<Record<string
   var contentX = Math.min.apply(null, nodes.map(function (n) { return n.getBBox().x; }));
   var contentY = Math.min.apply(null, nodes.map(function (n) { return n.getBBox().y; }));
   var fonts = titles.map(function (n) { return parseFloat(getComputedStyle(n).fontSize); }).filter(function (n) { return n > 0; });
+  // Every word the page draws, not its titles alone: a table's column line is the smallest text an ER picture holds,
+  // and the picture is scaled so that word reads at twelve pixels or more (AGENTS.md). It scrolls rather than shrink.
+  var words = Array.prototype.map.call(svg.querySelectorAll('text'), function (n) { return parseFloat(getComputedStyle(n).fontSize); }).filter(function (n) { return n > 0; });
   var initial = null, currentScale = 1;
   var container = svg.parentElement;
   function controls() {
@@ -304,7 +314,7 @@ export async function archifyFrame(view: GraphView, _env: Readonly<Record<string
   function fit() {
     var parent = svg.parentElement;
     var full = new URLSearchParams(location.search).get('fullscreen') === '1';
-    var floor = ${view.spec.type === 'relations' ? '(full ? 9 : 12.2)' : '(full ? 9 : 11)'} / (fonts.length ? Math.min.apply(null, fonts) : 11);
+    var floor = Math.max(${view.spec.type === 'relations' ? '(full ? 9 : 12.2)' : '(full ? 9 : 11)'} / (fonts.length ? Math.min.apply(null, fonts) : 11), words.length ? (full ? 9 : 12) / Math.min.apply(null, words) : 0);
     var availableWidth = parent.clientWidth - 24, availableHeight = parent.clientHeight - 24;
     var fitted = Math.min(availableWidth / box.width, availableHeight / box.height);
     var whole = fitted >= floor;

@@ -92,11 +92,15 @@ function NodeClicks({ links, onOpen, host, full, onReadable, titleFloor }: { lin
       let titlePairs: ReturnType<typeof diagramTitleNodes>;
       try { titlePairs = diagramTitleNodes(root, 'likec4', ''); } catch (error) { console.error(error); onReadable(false); return; }
       const titles = titlePairs.map(({ title, node }) => ({ ...local(title as Element), font: parseFloat(getComputedStyle(title as Element).fontSize), node: local(node as Element) }));
+      // Every other word the picture holds rides in the floor its own font asks for: a table's column line, an edge's label.
+      const labels = [...root.querySelectorAll('.likec4-element-technology, .react-flow__edge-text, .react-flow__edge-textwrapper')]
+        .map((element) => ({ ...local(element), font: parseFloat(getComputedStyle(element).fontSize) }))
+        .filter((one) => one.font > 0);
       if (!titles.length || !nodes.length) return;
       const x = (Math.min(...nodes.map((r) => r.left)) - origin.x - matrix.e) / matrix.a;
       const y = (Math.min(...nodes.map((r) => r.top)) - origin.y - matrix.f) / matrix.a;
       const bounds = { x, y, width: (Math.max(...nodes.map((r) => r.right)) - origin.x - matrix.e) / matrix.a - x, height: (Math.max(...nodes.map((r) => r.bottom)) - origin.y - matrix.f) / matrix.a - y };
-      const fit = firstView(bounds, titles, origin.width, origin.height, full, [], titleFloor);
+      const fit = firstView(bounds, titles, origin.width, origin.height, full, labels, titleFloor);
       void instance.setViewport({ x: fit.x, y: fit.y, zoom: fit.zoom }, { duration: 0 }).then((ok: boolean) => {
         element.setAttribute('data-viewport-result', String(ok));
         element.setAttribute('data-viewport-read', JSON.stringify(instance.getViewport()));
