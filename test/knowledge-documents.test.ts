@@ -24,7 +24,7 @@ let work: string;
 let folder: string;
 let product: KnowledgeProduct;
 
-quarantined('madarch-64o5.14', describe)('the documents of a repository larger than the listing bound', () => {
+quarantined('madarch-64o5.14', describe, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('the documents of a repository larger than the listing bound', () => {
   beforeAll(async () => {
     work = mkdtempSync(join(tmpdir(), 'madarch-documents-'));
     const draft = createDraft({ home: join(work, 'home'), name: 'bulk-shop', gitEnv: gitEnv(IDENTITY) });

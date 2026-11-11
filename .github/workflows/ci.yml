@@ -222,7 +222,14 @@ jobs:
       - name: Run only quarantined cases and summarize each result
         env:
           MADARCH_QUARANTINE: "1"
+          MADARCH_QUARANTINE_REPORT: ${{ runner.temp }}/quarantine-results.json
         run: scripts/plugin-sandbox-cgroup.sh bun run test:quarantine
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: quarantine-results
+          path: ${{ runner.temp }}/quarantine-results.json
+          if-no-files-found: error
 
   # Keep the stable "test" status required by branch protection. always() makes
   # this run after a failed, skipped, or cancelled dependency; none can go green.

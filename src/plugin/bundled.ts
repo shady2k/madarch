@@ -44,6 +44,15 @@ import dbSchemaParserPackage from '../../plugins/db-schema/node_modules/@babel/p
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import dbSchemaParserLicense from '../../plugins/db-schema/node_modules/@babel/parser/LICENSE' with { type: 'text' };
 
+// @ts-expect-error Bun's text loader returns source text.
+import testQuarantineMain from '../../plugins/test-quarantine/main.ts' with { type: 'text' };
+// @ts-expect-error Bun's text loader returns source text.
+import testQuarantineParser from '../../plugins/test-quarantine/parser.ts' with { type: 'text' };
+import testQuarantineContract from '../../plugins/test-quarantine/contract.json' with { type: 'text' };
+import testQuarantineManifest from '../../plugins/test-quarantine/plugin.json' with { type: 'text' };
+import testQuarantinePackage from '../../plugins/test-quarantine/package.json' with { type: 'text' };
+import testQuarantineLock from '../../plugins/test-quarantine/bun.lock' with { type: 'text' };
+
 /** One file of a bundled plugin: its text, or the bytes of a file the plugin loads as it is (a WebAssembly module). */
 export interface BundledFile {
   readonly path: string;
@@ -95,6 +104,20 @@ export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
       { path: 'contract.json', content: glossaryContract as unknown as string },
       { path: 'main.ts', content: glossaryMain as string },
       { path: 'plugin.json', content: glossaryManifest as unknown as string },
+    ],
+  },
+  {
+    id: 'test-quarantine', folder: 'plugins/test-quarantine', version: '1.0.0',
+    files: [
+      { path: 'bun.lock', content: testQuarantineLock as unknown as string },
+      { path: 'contract.json', content: testQuarantineContract as unknown as string },
+      { path: 'main.ts', content: testQuarantineMain as string },
+      { path: 'node_modules/@babel/parser/LICENSE', content: dbSchemaParserLicense as unknown as string },
+      { path: 'node_modules/@babel/parser/lib/index.js', content: dbSchemaParserIndex as unknown as string },
+      { path: 'node_modules/@babel/parser/package.json', content: dbSchemaParserPackage as unknown as string },
+      { path: 'package.json', content: testQuarantinePackage as unknown as string },
+      { path: 'parser.ts', content: testQuarantineParser as string },
+      { path: 'plugin.json', content: testQuarantineManifest as unknown as string },
     ],
   },
 ];

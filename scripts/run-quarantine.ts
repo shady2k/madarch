@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { quarantineInventory } from './check-quarantine.js';
@@ -7,7 +7,8 @@ import { quarantineInventory } from './check-quarantine.js';
 const PROCESS_TIMEOUT_MS = 900_000;
 const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const cell = (text: string): string => text.replace(/\|/g, '&#124;').replace(/[\r\n]/g, ' ');
-const results: string[] = ['## Quarantined tests', '', '| Task | File | Case | Result |', '| --- | --- | --- | --- |'];
+const results: string[] = ['## Quarantined tests', '', '| Task | File | Case | Reason | Since | Result |', '| --- | --- | --- | --- | --- | --- |'];
+const recorded: Record<string, unknown>[] = [];
 let failed = false;
 const folder = mkdtempSync(join(tmpdir(), 'madarch-quarantine-'));
 try {
@@ -40,16 +41,21 @@ try {
     } catch (error) {
       result = `FAIL (${error instanceof Error ? error.message : String(error)})`;
     }
+    recorded.push({ file: entry.file, name: entry.name, task: entry.task, since: entry.since,
+      result: result === 'PASS' ? 'PASS' : 'FAIL', commit: process.env.GITHUB_SHA ?? null,
+      ...(process.env.GITHUB_RUN_ID ? { runUrl: `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` } : {}),
+      finishedAt: new Date().toISOString() });
     failed ||= result !== 'PASS';
     console.log(`${result}: ${entry.name}`);
-    results.push(`| ${cell(entry.task)} | ${cell(entry.file)} | ${cell(entry.name)} | ${cell(result)} |`);
+    results.push(`| ${cell(entry.task)} | ${cell(entry.file)} | ${cell(entry.name)} | ${cell(entry.reason)} | ${cell(entry.since)} | ${cell(result)} |`);
   }
-  if (!cases.length) results.push('| — | — | No quarantined cases | — |');
+  if (!cases.length) results.push('| — | — | No quarantined cases | — | — | — |');
 } catch (error) {
   failed = true;
   results.push('', `Inventory failed: ${cell(error instanceof Error ? error.message : String(error))}`);
 } finally {
   rmSync(folder, { recursive: true, force: true });
+  if (process.env.MADARCH_QUARANTINE_REPORT) writeFileSync(process.env.MADARCH_QUARANTINE_REPORT, `${JSON.stringify({ cases: recorded }, null, 2)}\n`);
   const summary = `${results.join('\n')}\n`;
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);

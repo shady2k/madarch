@@ -48,7 +48,7 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-quarantined('madarch-64o5.14', test)('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
+quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
   const at = Date.now();
   const answer = await fetch(`${server!.url}/api/status`, { headers: { accept: 'application/json' } });
   const elapsed = Date.now() - at;

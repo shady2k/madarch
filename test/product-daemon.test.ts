@@ -141,7 +141,7 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
 }, 40_000);
 
-quarantined('madarch-64o5.14', test)('products-home mode lists products and routes each wiki under its folder', async () => {
+quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id'); product(home, 'beta', 'beta-id');

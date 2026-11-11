@@ -917,19 +917,11 @@ export class GraphReader {
     };
   }
 
-  /** The entities of one manifest-declared kind whose key values are the tail's, split on `/`. */
+  /** Look up the same rendered natural key the listing exposes; key values may themselves contain slashes. */
   private async generatedFind(tx: OuterTransaction, decl: GeneratedKindRead, tail: string): Promise<GraphEntity[]> {
-    const values: string[] = [];
-    let rest = tail;
-    for (let at = 0; at < decl.key.length - 1; at += 1) {
-      const cut = rest.indexOf('/');
-      if (cut < 0) return [];
-      values.push(rest.slice(0, cut));
-      rest = rest.slice(cut + 1);
-    }
-    values.push(rest);
-    const where = decl.key.map((column, at) => `n.key->>'${column.replaceAll("'", "''")}' = $${String(at + 1)}`).join(' AND ');
-    const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${where} ORDER BY node_id`, values);
+    const parts = decl.key.map((column) => `n.key->>'${column.replaceAll("'", "''")}'`);
+    const rendered = `concat_ws('/', ${parts.join(', ')})`;
+    const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${rendered} = $1 ORDER BY node_id`, [tail]);
     return await this.generatedEntities(tx, decl, found.rows);
   }
 
