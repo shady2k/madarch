@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { confinedAgentConnector } from '../src/plugin/agent-runner.js';
+import { connectAcpAgent } from '../src/fill/acp.js';
 import type { PluginAgentReport } from '../src/plugin/agent.js';
 import { parseDocument } from 'yaml';
 import { readKinds } from '../src/knowledge/kinds.js';
@@ -111,7 +111,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     try {
       const run = await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
-        connect: confinedAgentConnector({ workFolder: join(f.root, 'runner'), runtime: process.execPath, readOnlyMounts: [f.fake], cgroupParent: cgroupParent(), limits: { memoryBytes: 256 * 1_048_576, pids: 32, cpuQuotaMicros: 100_000, cpuPeriodMicros: 100_000 } }),
+        connect: connectAcpAgent,
         onSession: (session) => sessions.push(session),
       } });
       expect(run.ok).toBe(true);
@@ -154,7 +154,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     try {
       const run = await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
-        connect: confinedAgentConnector({ workFolder: join(f.root, 'runner'), runtime: process.execPath, readOnlyMounts: [f.fake], cgroupParent: cgroupParent(), limits: { memoryBytes: 256 * 1_048_576, pids: 32, cpuQuotaMicros: 100_000, cpuPeriodMicros: 100_000 } }),
+        connect: connectAcpAgent,
       } });
       expect(run.ok).toBe(true);
       if (!run.ok) return;

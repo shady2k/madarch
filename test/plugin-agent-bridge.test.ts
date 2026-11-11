@@ -17,8 +17,9 @@ function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promi
   const bridge = new PluginAgentBridge({ prompt: 'extract', roots, writeRoots }, {
     adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, ...extra,
     connect: async (spec, options) => {
-      expect(spec.env).toEqual(extra.environment ?? {});
-      expect(options.exactEnv).toBe(true);
+      expect(spec.env).toEqual({ SECRET: 'must not pass' });
+      expect(options.env).toEqual(extra.environment);
+      expect(options.exactEnv).toBeUndefined();
       const session = {
         sessionId: 'session', model: 'fake-model', configOptions: [], models: null,
         usage: () => ({ reported: false, turns: 1, reports: 0 }),

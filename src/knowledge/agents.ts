@@ -12,7 +12,7 @@
  * code.
  */
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { ACP_ADAPTERS, acpAdapterBinFolder, acpAgentFolder, acpInstallOffer, acpLaunchOf, acpLoginState, type AcpAdapterCatalogueEntry } from '../fill/acp-probe.js';
 import { installAcpAdapter } from '../fill/acp-install.js';
 import { resolveExecutable } from '../fill/acp.js';
@@ -28,8 +28,6 @@ import type { UnitAgent } from '../writer/units.js';
 import type { Journal } from '../writer/journal.js';
 import type { AgentOffer, WriterBounds } from './model.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
-import { confinedAgentConnector } from '../plugin/agent-runner.js';
-import { DEFAULT_HOST_LIMITS } from '../plugin/host.js';
 
 /** The ids of the agents the wiki offers. */
 export const WRITER_AGENTS: readonly string[] = ['claude-code', 'codex', 'opencode', 'omp', 'prime-agent'];
@@ -137,21 +135,15 @@ export function configuredPluginAgent(storeFolder: string, env: DraftEnv): Plugi
 /** Resolves the selected adapter for one pressed fill; constructing options starts no process. */
 export function pluginAgentOptions(id: string, env: DraftEnv, workFolder: string, preferences: AgentPreferences = {}, repositories: Readonly<Record<string, string>> = {}): PluginAgentOptions {
   const entry = adapterOf(id);
-  if (entry === undefined) throw new Error(`src/knowledge/agents.ts:1: unknown agent ${JSON.stringify(id)}`);
+  if (entry === undefined) throw new Error(`src/knowledge/agents.ts:1: ${import.meta.dir}/agents.ts: unknown agent ${JSON.stringify(id)}`);
   const launch = launchOf(entry, env);
   const command = launch === undefined ? undefined : resolveExecutable(launch.binary, searchPathOf(entry, env));
-  if (launch === undefined || command === undefined) throw new Error(`src/knowledge/agents.ts:1: ${entry.label} has no installed ACP adapter; install it in the wiki's agent settings before filling`);
-  const prepared = acpLaunchOf(entry, env, '/', {}, launch.args);
-  // Only the catalogue's named provider credential reaches the runner. Homes, daemon sockets and inherited PATH do not.
-  const environment: Record<string, string> = {};
-  if (entry.apiKeyEnv !== undefined && typeof env[entry.apiKeyEnv] === 'string') environment[entry.apiKeyEnv] = env[entry.apiKeyEnv]!;
-  for (const [name, value] of Object.entries(prepared.env)) {
-    if (name !== entry.apiKeyEnv) throw new Error(`src/knowledge/agents.ts:1: ${entry.label} requires ${name}, which its confined ACP runner does not allow`);
-    environment[name] = value;
-  }
+  if (launch === undefined || command === undefined) throw new Error(`src/knowledge/agents.ts:1: ${import.meta.dir}/agents.ts: ${entry.label} has no installed ACP adapter; install it in the wiki's agent settings before filling`);
+  mkdirSync(workFolder, { recursive: true });
+  const prepared = acpLaunchOf(entry, env, workFolder, { ...process.env, ...env, PATH: searchPathOf(entry, env) }, launch.args);
   return {
-    adapter: { id, command, args: prepared.args }, environment, repositories, preferences,
-    connect: confinedAgentConnector({ workFolder, runtime: process.execPath, limits: DEFAULT_HOST_LIMITS, environment: entry.apiKeyEnv === undefined ? [] : [entry.apiKeyEnv], env, ...(env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: env['MADARCH_PLUGIN_CGROUP'] }) }),
+    adapter: { id, command, args: prepared.args }, environment: prepared.env, cwd: workFolder, repositories, preferences,
+    connect: connectAcpAgent,
   };
 }
 

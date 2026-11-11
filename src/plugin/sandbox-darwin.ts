@@ -33,26 +33,20 @@ export interface DarwinSandboxSpec {
   readonly workFolder: string;
   readonly runtime: string;
   readonly entry: string;
-  readonly command?: readonly string[];
-  readonly readOnlyMounts?: readonly string[];
-  readonly network?: boolean;
-  readonly environment?: Readonly<Record<string, string>>;
   readonly limits: Pick<CgroupLimits, 'memoryBytes' | 'cpuPeriodMicros' | 'cpuQuotaMicros' | 'pids'>;
 }
 
 /** The deny-by-default profile: the closure and the repository may be read, /tmp written, and nothing else. */
 export function darwinProfile(spec: DarwinSandboxSpec): string {
-  const mounts = (spec.readOnlyMounts ?? []).map((path) => ` (subpath ${JSON.stringify(path)})`).join('');
   return [
     '(version 1)',
     '(deny default)',
     '(allow process-fork)',
-    `(allow process-exec (literal ${JSON.stringify(spec.runtime)}) (subpath ${JSON.stringify(spec.closureFolder)})${mounts})`,
-    ...(spec.network === true ? ['(allow network-outbound)'] : []),
+    `(allow process-exec (literal "${spec.runtime}") (subpath "${spec.closureFolder}"))`,
     '(allow sysctl-read)',
     '(allow mach-lookup (global-name "com.apple.system.logger"))',
     '(allow signal (target self))',
-    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library")${mounts})`,
+    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library"))`,
     '(allow file-read-metadata)',
     `(allow file-write* (subpath "${spec.workFolder}") (subpath "/private/tmp"))`,
     '(allow file-write-data (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))',
@@ -63,14 +57,12 @@ export function darwinProfile(spec: DarwinSandboxSpec): string {
 export function darwinWrapper(spec: DarwinSandboxSpec, profileFile: string): string {
   const memoryKb = Math.max(1, Math.floor(spec.limits.memoryBytes / 1024));
   const cpuSeconds = Math.max(1, Math.ceil((spec.limits.cpuPeriodMicros / spec.limits.cpuQuotaMicros) * 600));
-  const quote = (word: string): string => `'${word.replaceAll("'", "'\\''")}'`;
-  const command = spec.command ?? [spec.runtime, ...pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry))];
   return [
     '#!/bin/sh',
     `ulimit -v ${String(memoryKb)} 2>/dev/null || true`,
     `ulimit -t ${String(cpuSeconds)} 2>/dev/null || true`,
     `ulimit -u ${String(spec.limits.pids)} 2>/dev/null || true`,
-    `exec /usr/bin/sandbox-exec -f ${quote(profileFile)} -- ${command.map(quote).join(' ')}`,
+    `exec /usr/bin/sandbox-exec -f '${profileFile}' -- '${spec.runtime}' ${pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry)).map((word) => `'${word}'`).join(' ')}`,
     '',
   ].join('\n');
 }
@@ -91,7 +83,7 @@ export async function startDarwinSandbox(spec: DarwinSandboxSpec): Promise<Sandb
   const stderr = { bytes: 0, kept: Buffer.alloc(0), truncated: false };
   let child: ChildProcess;
   try {
-    child = spawn('/bin/sh', [wrapperFile], { detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: spec.workFolder, env: { PATH: '/usr/bin:/bin', HOME: spec.workFolder, TMPDIR: spec.workFolder, LANG: 'C.UTF-8', ...spec.environment } });
+    child = spawn('/bin/sh', [wrapperFile], { detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: spec.workFolder });
   } catch (error) {
     throw new Error(`${WHERE}:1: sandbox-exec could not be started for ${spec.closureFolder}: ${(error as Error).message}`);
   }

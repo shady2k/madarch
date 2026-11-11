@@ -24,10 +24,10 @@ test('pressed agent fills resolve only a saved choice, never start an adapter wh
     writeFileSync(adapter, '#!/bin/sh\nexit 99\n');
     chmodSync(adapter, 0o700);
     writeFileSync(file, JSON.stringify({ agent: 'codex', model: 'fixture-model' }));
-    const configured = configuredPluginAgent(folder, { PATH: folder, OPENAI_API_KEY: 'fixture-key', UNRELATED_SECRET: 'not-passed' });
+    const configured = configuredPluginAgent(folder, { PATH: folder, OPENAI_API_KEY: 'fixture-key', UNRELATED_SECRET: 'person-setting' });
     expect(configured?.adapter.command).toBe(adapter);
     expect(configured?.preferences).toEqual({ model: 'fixture-model' });
-    expect(configured?.environment).toEqual({ OPENAI_API_KEY: 'fixture-key' });
+    expect(configured?.environment).toEqual(expect.objectContaining({ OPENAI_API_KEY: 'fixture-key', UNRELATED_SECRET: 'person-setting' }));
     writeFileSync(file, JSON.stringify({ agent: 'codex', model: 42 }));
     expect(() => configuredPluginAgent(folder, { PATH: '' })).toThrow(`${file}:1: writing.model is not a string`);
     writeFileSync(file, '{');
