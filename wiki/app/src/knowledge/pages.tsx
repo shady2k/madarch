@@ -42,13 +42,18 @@ function message(failure: unknown): string {
 function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null {
   if (trail.length === 0) return null;
   return (
-    <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted" data-testid="trail">
-      {trail.map((entity, index) => (
-        <span key={entity.id} className="flex items-center gap-2">
-          {index > 0 && <span aria-hidden="true">/</span>}
-          <EntityName entity={entity} />
-        </span>
-      ))}
+    <nav aria-label="trail" className="mb-2 flex flex-nowrap items-center gap-x-2 overflow-hidden text-small text-muted" data-testid="trail">
+      {trail.map((entity, index) => {
+        const last = index === trail.length - 1;
+        return (
+          <span key={entity.id} className={`flex min-w-0 items-center gap-2 ${last ? 'shrink-0' : ''}`}>
+            {index > 0 && <span aria-hidden="true">/</span>}
+            {last
+              ? <span className="min-w-0 truncate font-medium text-ink" aria-current="page" data-testid="trail-current">{entity.label}</span>
+              : <span className="min-w-0 max-w-[12rem] truncate"><EntityName entity={entity} /></span>}
+          </span>
+        );
+      })}
     </nav>
   );
 }

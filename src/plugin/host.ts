@@ -20,12 +20,11 @@ import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
-import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
+import { closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
 import { graphReadsOf, PluginGraphFilesRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
-import { startSandbox, sandboxSetupProblem, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
-import { startDarwinSandbox } from './sandbox-darwin.js';
+import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
 import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
 
 /** Where a refusal stands. */
@@ -317,11 +316,6 @@ export class PluginHost {
     });
     this.snapshot = snapshot;
     const platform = this.options.platform ?? `${process.platform}-${process.arch}`;
-    const problem = await sandboxSetupProblem({ platform, cgroupParent: this.options.cgroupParent, ...(this.options.env === undefined ? {} : { env: this.options.env }) });
-    if (problem !== undefined) {
-      log.error('the sandbox cannot run here', { problem: problem.code }, problem.message);
-      throw new ClosureRefusal('sandbox-unavailable', problem.message, WHERE);
-    }
     // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
     // the files producer alone reads the source tree (decision 0035, item 9).
     const readsRepository = this.contractRights?.filesystem === true;
@@ -336,7 +330,7 @@ export class PluginHost {
       ...(this.options.env === undefined ? {} : { env: this.options.env }),
       platform,
     };
-    this.sandbox = platform.startsWith('darwin-') ? await startDarwinSandbox(spec) : await withSpan('plugin.spawn', { 'madarch.plugin.hash': snapshot.hash, 'madarch.sandbox': platform }, async () => await startSandbox(spec));
+    this.sandbox = await withSpan('plugin.spawn', { 'madarch.plugin.hash': snapshot.hash, 'madarch.sandbox': platform }, async () => await startPluginProcess(spec));
     log.info('plugin sandbox started', { pid: this.sandbox.pid, platform });
     this.timer = setInterval(() => this.checkDeadlines(), 25);
     const reader = lineReader(limits.maxMessageBytes);

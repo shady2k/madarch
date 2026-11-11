@@ -128,18 +128,7 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this module", title_ru="Страницы об этом модуле" %}{% endblock %}
 `,
   'file.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}\`{{ page.path }}\`{% endblock %}
-{% block details %}{% file title="Details" title-ru="Сведения" %}{% endblock %}
-{% block around %}{% render "./partials/around.liquid", title="Around this file", title_ru="Вокруг этого файла" %}{% endblock %}
-{% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
-{% block parts %}{% history title="Change history" title-ru="История изменений" %}
-{% members title="What the code readers found" title-ru="Что нашли читатели кода" kind="code.facet" relation="code.facet-of" direction="in" %}
-{% modules title="State machines" title-ru="Конечные автоматы" %}
-{% related title="Declares" title-ru="Объявляет" relation="code.contains" direction="out" kind="code.symbol" limit=60 %}
-{% related title="Imports" title-ru="Подключает" relation="code.imports" direction="out" %}
-{% related title="Imported by" title-ru="Кем подключается" relation="code.imports" direction="in" %}
-{% related title="Contained in" title-ru="Входит в" relation="code.contains" direction="in" %}{% endblock %}
-{% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this file", title_ru="Страницы об этом файле" %}{% endblock %}
+{% block lead %}{% file-page %}{% endblock %}
 `,
   'repository.liquid': `{% layout "./entity.liquid" %}
 {# The Files section: the map of the whole tree first, the table of every file below it. A reader drills the map into
