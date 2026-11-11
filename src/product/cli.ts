@@ -675,6 +675,8 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
       process.env.MADARCH_ROLE = 'api';
       const parent = Number(process.env.MADARCH_API_PARENT ?? '0');
       const watching = parent > 1 ? setInterval(() => {
+        // Reparenting detects a dead launcher even while its unreaped PID still answers signal 0.
+        if (process.ppid !== parent) { process.kill(process.pid, 'SIGTERM'); return; }
         try { process.kill(parent, 0); } catch { process.kill(process.pid, 'SIGTERM'); }
       }, 50) : undefined;
       watching?.unref();
