@@ -70,8 +70,9 @@ beforeAll(() => {
   mkdirSync(join(product, 'docs', 'ideas'), { recursive: true });
   mkdirSync(join(product, 'docs', 'tasks'), { recursive: true });
   const manifestFile = join(product, 'madarch', 'kinds.yaml');
-  const starter = parse(readFileSync(manifestFile, 'utf8')) as { kinds: Record<string, unknown> };
-  const manifest = parse(MANIFEST) as { kinds: Record<string, unknown> };
+  const starter = parse(readFileSync(manifestFile, 'utf8')) as { kinds: Record<string, unknown>; groups: Record<string, unknown> };
+  const manifest = parse(MANIFEST) as { kinds: Record<string, unknown>; groups: Record<string, unknown> };
+  manifest.groups = { ...starter.groups, ...manifest.groups };
   manifest.kinds['template'] = starter.kinds['template'];
   writeFileSync(manifestFile, stringify(manifest));
   writeFileSync(join(product, 'templates', 'entity.liquid'), '{% block lead %}{% endblock %}\n{% block details %}{% endblock %}\n{% block parts %}{% endblock %}\n');
