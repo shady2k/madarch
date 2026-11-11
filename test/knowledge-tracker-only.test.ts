@@ -1,3 +1,4 @@
+import { publishFixtureTemplate } from './structured-template-fixture.js';
 import { authoredEntity } from '../src/graph/authored.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
@@ -31,6 +32,12 @@ let product = '';
 const MANIFEST = `groups:
   tracker: { en: Tracker, ru: Трекер, short: { en: Tracker, ru: Трекер } }
 kinds:
+  template:
+    source: graph
+    key: [path]
+    fields:
+      - { name: path, type: text, binding: { agent: "Fixture template path." } }
+      - { name: template_parts, type: json, binding: { agent: "Fixture structured template parts." } }
   idea:
     template: templates/item.liquid
     source: graph
@@ -91,7 +98,7 @@ describe('a product that is only a tracker', () => {
       expect(before.status).toBe(200);
       const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
-      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
+      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:00000000-0000-4000-8000-000000000001')}&full=1`, { headers: { accept: 'application/json' } });
       expect(unopened.status, JSON.stringify({ body: await unopened.text(), errors })).toBe(404);
@@ -107,9 +114,10 @@ describe('a product that is only a tracker', () => {
       // capability stage, because the manifest binds no code kind.
       expect(filled.units.map((unit) => unit.stageId)).toEqual(['repository-tree']);
       const unimported = await (await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } })).json() as { kinds: { kind: string; count: number }[] };
-      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
+      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
       const manifest = readKinds(product);
       if (!manifest.present) throw new Error('the tracker manifest is absent');
+      await publishFixtureTemplate(owner, product, 'templates/item.liquid');
       const made = await owner.transaction('write', async (tx) => {
         const idea = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
         const task = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
@@ -135,7 +143,7 @@ describe('a product that is only a tracker', () => {
       expect(names).toContain('file_entry');
       expect(names.filter((name) => name.startsWith('d_path_'))).toHaveLength(1);
       expect(names.filter((name) => name.startsWith('d_blob_'))).toHaveLength(1);
-      // No code kind is declared, so no generated kind table stands: the product's opinion layer is empty.
+      // No code kind is declared: only the tracker and structured-template opinion tables stand.
       for (const generated of ['k_file_', 'k_repository_', 'k_directory_', 'k_commit_', 'k_signature_', 'e_contains_', 'e_as-is_', 'd_language_']) {
         expect({ table: generated, present: names.some((name) => name.startsWith(generated)) }).toEqual({ table: generated, present: false });
       }
@@ -146,7 +154,7 @@ describe('a product that is only a tracker', () => {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 
-      const page = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent(made.idea.id)}&full=1`, { headers: { accept: 'application/json' } });
+      const page = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent(`idea:${made.idea.uid}`)}&full=1`, { headers: { accept: 'application/json' } });
       expect(page.status).toBe(200);
     } finally {
       await owner?.close();

@@ -17,6 +17,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { fillInProcess } from './fill-inline.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -33,11 +34,12 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
   const file = join(draft.folder, 'madarch', 'kinds.yaml');
   const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'depends-on'?: string[] }>; plugins: unknown };
-  for (const kind of Object.keys(manifest.kinds)) if (!kinds.includes(kind)) delete manifest.kinds[kind];
+  const declared = [...kinds, 'template'];
+  for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
-    if (kind['depends-on'] !== undefined) kind['depends-on'] = kind['depends-on'].filter((dependency) => kinds.includes(dependency));
+    if (kind['depends-on'] !== undefined) kind['depends-on'] = kind['depends-on'].filter((dependency) => declared.includes(dependency));
     if (kind.fields !== undefined) for (const field of kind.fields) {
-      if (field.reference !== undefined && !kinds.includes(field.reference)) delete field.reference;
+      if (field.reference !== undefined && !declared.includes(field.reference)) delete field.reference;
     }
   }
   manifest.plugins = [];
@@ -50,6 +52,16 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   git(draft.folder, 'add', '-A');
   git(draft.folder, 'commit', '-qm', `the manifest declares ${kinds.join(', ')} and no other code kind`);
   return draft.folder;
+}
+
+async function publishPageTemplate(product: string, path: string): Promise<void> {
+  const store = productStoreFolder(product, knowledgeRootOf(home));
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
+  try {
+    await publishFixtureTemplate(owner, product, path);
+  } finally {
+    await owner.close();
+  }
 }
 
 async function tables(store: string): Promise<string[]> {
@@ -84,6 +96,7 @@ describe('a manifest declares one code kind and not the other', () => {
   test('code.file without code.repository fills: files are published, no repository table stands', async () => {
     const product = join(home, 'files-only');
     await fillInProcess(product, home);
+    await publishPageTemplate(product, 'templates/file.liquid');
     const status = await (await fetch(`${server!.url}/products/files-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
     expect(status.filled, JSON.stringify({ status, errors })).toBe(true);
     expect(status.kinds.some((kind) => kind.kind === 'code.file')).toBe(true);
@@ -106,6 +119,7 @@ describe('a manifest declares one code kind and not the other', () => {
   test('code.repository without code.file fills: the repository is published, no file table stands', async () => {
     const product = join(home, 'repos-only');
     await fillInProcess(product, home);
+    await publishPageTemplate(product, 'templates/repository.liquid');
     const status = await (await fetch(`${server!.url}/products/repos-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
     expect(status.filled).toBe(true);
     expect(status.kinds.find((kind) => kind.kind === 'code.repository')?.count).toBe(1);
