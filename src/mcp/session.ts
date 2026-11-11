@@ -1,13 +1,7 @@
 /**
- * One served repository (madarch-ztyq.10; madarch-8bdc.2.5, items 2 and 3): the store
- * the one fill published, the loop a tool call goes through, and the revision every
- * answer names.
- *
- * Every call re-reads the revision first. A commit that moved HEAD under the session
- * moves the store: the fill runs at the new commit through the same runner, and the
- * answers are read from it. A file the working tree changed without a commit is not
- * re-extracted: the answers name it as changed, and their facts stay the filled
- * commit's, which is the whole of what the store holds.
+ * A read session over the shared graph. A product's changed revision republishes manifest metadata;
+ * repository content remains at the commit the last explicit fill published. A bare repository retains
+ * the repository-tools fill workflow.
  */
 import { resolve } from 'node:path';
 import { readRevision, type Revision } from './git.js';
@@ -16,6 +10,8 @@ import type { FillProgress } from '../obs/progress.js';
 import { recordCall } from './journal.js';
 import { callRecordTool, isRecordTool, laterStepAnswer, type RecordContext } from './records.js';
 import type { UnitToolAnswer } from './types.js';
+import { fillFolderIdentity } from '../product/identity.js';
+import { publishValidatedManifests, validateProductManifests } from '../graph/manifest-publication.js';
 
 export interface SessionOptions {
   readonly repository: string;
@@ -76,14 +72,19 @@ export class RepositorySession {
     return this.revision;
   }
 
-  get filledCommit(): string {
+  get filledCommit(): string | null {
     return this.graph.commit;
   }
 
   private async catchUp(): Promise<Revision> {
     const revision = readRevision(this.absolute);
-    if (revision.commit !== this.graph.commit) {
-      this.log(`madarch mcp: HEAD moved to ${revision.commit.slice(0, 12)}; filling the store at it`);
+    if (fillFolderIdentity(this.absolute).product) {
+      // Validate before touching the live graph, including uncommitted manifest edits.
+      const validated = validateProductManifests(this.absolute);
+      if (!validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+      await publishValidatedManifests(this.graph.owner, validated.value);
+    } else if (revision.commit !== this.revision.commit) {
+      this.log(`madarch mcp: HEAD moved to ${revision.commit.slice(0, 12)}; refreshing the repository graph`);
       await this.graph.close();
       this.graph = await openRepositoryGraph({ repository: this.absolute, env: this.env, log: this.log });
     }

@@ -92,6 +92,7 @@ import { readProblemDismissalsIn, writeProblemDismissal } from '../loop/problem-
 import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
 import { readUnitStates } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
+import { readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -428,16 +429,20 @@ export class KnowledgeProduct {
     const seq = this.reader?.seq ?? 0;
     const held = this.manifestMemo;
     if (held !== undefined && held.seq === seq && held.folder === folder) return held.read;
-    return await this.manifestFrom(await this.productFiles(snapshot), folder);
+    return await this.manifestFrom(folder, snapshot);
   }
 
-  /** The manifest of a source already fetched: the text is fetched once and the parse stands for the revision. */
-  private async manifestFrom(files: StoredProductFiles, folder: string): Promise<ReturnType<typeof readKindsFrom>> {
+  /** The validated manifest metadata published at this graph revision. */
+  private async manifestFrom(folder: string, snapshot?: PageSnapshot): Promise<ReturnType<typeof readKindsFrom>> {
     const seq = this.reader?.seq ?? 0;
     const held = this.manifestMemo;
     if (held !== undefined && held.seq === seq && held.folder === folder) return held.read;
-    await files.ensureManifest();
-    const read = readKindsFrom(files, folder);
+    const manifest = snapshot === undefined
+      ? await (await this.open()).run(async (tx) => await readPublishedManifest(tx))
+      : await readPublishedManifest(snapshot.transaction);
+    const read: ReturnType<typeof readKindsFrom> = manifest === undefined
+      ? { present: false, file: join(folder, KINDS_FILE) }
+      : { present: true, manifest };
     this.manifestMemo = { seq, folder, read };
     return read;
   }
@@ -1698,7 +1703,7 @@ export class KnowledgeProduct {
     // The manifest, the Markdown and the templates are the product repository's files as the files producer stored them:
     // read once per graph revision (madarch-hsqs stage C), and never from the checkout.
     const files = await this.productFiles(snapshot);
-    const read = await this.manifestFrom(files, product.folder);
+    const read = await this.manifestFrom(product.folder, snapshot);
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
     const kinds = graphKindsOf(read.manifest);
@@ -1898,16 +1903,14 @@ export class KnowledgeProduct {
     const common = { product: { name: product.name, id: product.id } };
     const context = await this.context();
     if ('absent' in context) return { ...common, language: 'en', groups: [], kinds: [], findings: [] };
-    let ctx = context.ctx;
-    let generated: ReadonlyMap<string, unknown> | undefined;
-    try {
-      const owner = await this.open();
-      const kinds = graphKindsOf(context.manifest);
-      generated = kinds.generated;
-      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
-    } catch {
-      // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
-    }
+    const owner = await this.open();
+    const kinds = graphKindsOf(context.manifest);
+    const generated = kinds.generated;
+    const dependencies = await owner.run(async (tx) => await readPublishedDependencies(tx));
+    const declarations = new Map([...context.manifest.kinds].map(([name, kind]) => [name, {
+      ...kind, dependsOn: dependencies.filter((edge) => edge.workflow === undefined && edge.to === name).map((edge) => edge.from).sort(byCodePoint),
+    }]));
+    const ctx = { ...context.ctx, manifest: { ...context.manifest, kinds: declarations }, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
     // The state of each kind's newest turn: what the catalogue says is filled, partial, or never filled (madarch-stm0.6).
     const turns = await this.fillUnitStates();
     return {
@@ -2132,9 +2135,8 @@ export class KnowledgeProduct {
       ...(kinds === undefined ? {} : { kinds }),
       ...(repository === undefined ? {} : { repository }),
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      // The product's own repository is filled when its manifest is in the graph, even with no code repository declared:
-      // the what-to-do card offers the fill only while it is not (madarch-hsqs stage C).
-      filled: this.pins.size > 0 || ctx.files.has(KINDS_FILE),
+      // Manifest publication does not fill repository content.
+      filled: this.pins.size > 0,
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
     };
   }
@@ -2274,15 +2276,6 @@ export class KnowledgeProduct {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const declared = this.repositories();
-    // A product nobody has filled has no store, and its whole answer is the folder's: the manifest's presence and the
-    // repositories the product manifest declares. Nothing is opened, so the first status after `madarch new` reads two
-    // paths (fast, and the same on every platform) and says `no-manifest` or `not-filled`; the graph is asked once a
-    // fill has made a store. A store that is there but unfilled keeps the read below, which is the graph's answer.
-    if (!existsSync(storeDatabasePath(this.storeFolder()))) {
-      const file = join(product.folder, KINDS_FILE);
-      const stands = existsSync(file);
-      return { body: { product: { name: product.name, id: product.id }, manifest: stands ? 'not-filled' : 'no-manifest', manifestFile: file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: 0 } }, ctx: undefined };
-    }
     // A publication of a fill this process did not run is taken before the body is made: the body reads the product's
     // files at the graph revision the store states, and a revision followed only after it would answer the last one.
     await this.followStoreFill();
@@ -2305,16 +2298,14 @@ export class KnowledgeProduct {
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const body: WikiStatus = {
       ...common,
-      manifest: 'ok',
+      manifest: this.pins.size > 0 ? 'ok' : 'not-filled',
       manifestFile: context.manifest.file,
       language: context.manifest.language ?? 'en',
       findingCount: context.findings.length,
-      // A store the answer cannot read (a lock a writer holds, a connection gone) must not take the whole answer with
-      // it: the fill state and the files' reading stand, and the kinds stand as they were last read.
-      kinds: await kindSummaries(context.ctx).catch(() => this.statusMemo?.body.kinds ?? []),
+      kinds: await kindSummaries(context.ctx),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: this.pins.size > 0 || context.ctx.files.has(KINDS_FILE),
+      filled: this.pins.size > 0,
       incomplete,
       fill: this.statusFill(),
       writer: { ...this.writer, units: this.unitsOf(context.ctx) },
@@ -2519,7 +2510,7 @@ export class KnowledgeProduct {
     const product = this.product();
     if ('message' in product) return [];
     const files = await this.productFiles();
-    const read = await this.manifestFrom(files, product.folder);
+    const read = await this.manifestFrom(product.folder);
     if (!read.present) return [];
     const ordinaryKinds = new Map([...read.manifest.kinds].filter(([, decl]) => decl.source === 'markdown'));
     const paths: string[] = [];
@@ -2690,8 +2681,7 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     // The manifest is the graph's, at this revision: a product the graph holds no kinds file of has no pages of kinds and
     // no excluded files, and the read never writes the starter set (madarch-hsqs stage C).
-    const files = await this.productFiles();
-    const read = await this.manifestFrom(files, product.folder);
+    const read = await this.manifestFrom(product.folder);
     const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
     const context = await this.context();
     if ('absent' in context) return { documents: [], truncated: [] };
@@ -2841,7 +2831,7 @@ export class KnowledgeProduct {
     const owner = await this.open();
     const repositories = this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }));
     const files = await this.productFiles();
-    const read = await this.manifestFrom(files, product.folder);
+    const read = await this.manifestFrom(product.folder);
     if (!read.present) return NO_MARKS;
     const marks = await plannedMarks({
       owner, productFolder: this.options.productFolder, files, manifest: read.manifest,
@@ -2861,7 +2851,7 @@ export class KnowledgeProduct {
     const files = await this.productFiles();
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    const read = await this.manifestFrom(files, product.folder);
+    const read = await this.manifestFrom(product.folder);
     if (!read.present) throw new WikiReadError(`the product has no ${read.file}: the wiki shows the kinds that file declares`);
     return { owner, files, manifest: read.manifest };
   }

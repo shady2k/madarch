@@ -139,6 +139,11 @@ export function readPluginManifest(folder: string): PluginManifest {
   } catch {
     throw new ClosureRefusal('plugin-manifest', `${WHERE}:1: ${file} cannot be read: a plugin folder carries its ${PLUGIN_MANIFEST_FILE} (its name, version, entry and interpreter pin) beside its code`, file);
   }
+  return parsePluginManifest(text, file);
+}
+
+/** The same manifest check over pinned or working-tree bytes, without executing a plugin. */
+export function parsePluginManifest(text: string, file: string): PluginManifest {
   let value: unknown;
   try {
     value = JSON.parse(text);

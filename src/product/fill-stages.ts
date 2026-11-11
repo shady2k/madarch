@@ -93,6 +93,7 @@ import { MANIFEST_FILE, type ProductIdentity } from './manifest.js';
 import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
 import { raise } from '../model/raise.js';
+import { validateProductManifests, publishValidatedManifests } from '../graph/manifest-publication.js';
 import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type FirstFillRead } from '../knowledge/workflows.js';
 
 /**
@@ -187,7 +188,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const { files, kindsRead, lockRead } = await withSpan('fill.product-files', { 'madarch.product': identity.name }, async () => {
     const own = await snapshots.open(productRepositoryId(identity));
     const files = await snapshotFiles(own);
-    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
+    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json'))]);
     return {
       files,
       kindsRead: readKindsFrom(files, folder),
@@ -202,7 +203,10 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // The code entities this run may publish, by graph kind: only the manifest's own, whatever the git reader can fill.
   // The tree stores the product repository's files as mechanism state even when the run publishes no entity.
   const kinds = contract.vertex.length === 0 && contract.edge.length === 0 ? false : { vertex: contract.vertex.map((kind) => kind.name), edge: contract.edge.map((kind) => kind.name) };
+  const metadata = read.product ? validateProductManifests(folder, files, pins().find((one) => one.id === productRepositoryId(identity))?.commit) : undefined;
+  if (metadata !== undefined && !metadata.ok) throw new Error(metadata.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
   await createRecordSchema(options.database, contract);
+  if (metadata?.ok) await publishValidatedManifests(options.database, metadata.value);
   const records = options.records ?? {
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
     publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),

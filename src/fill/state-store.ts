@@ -452,9 +452,10 @@ export async function createRun(database: FillStateDatabase, options: { readonly
  */
 export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
   const at = here();
-  return await run(at, database, 'readStoreStamp', ['fill_publication', 'node', 'edge', 'entity'], async (executor) => {
+  return await run(at, database, 'readStoreStamp', ['fill_publication', 'node', 'edge', 'entity', 'operation'], async (executor) => {
     const { rows } = await executor.query<{ stamp: string }>(
       `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
+              || ':' || (SELECT coalesce(max(seq)::text, '-') FROM operation WHERE author = 'manifest')
               || ':' || (SELECT coalesce(string_agg(name || '=' || coalesce(commit_hash, ''), ',' ORDER BY name), '-')
                            FROM (SELECT (n.key->>'name') AS name,
                                         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash

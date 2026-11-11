@@ -1,16 +1,7 @@
 /**
- * The store `madarch mcp` serves (madarch-ztyq.10; madarch-8bdc.2.5, items 2 and 3): the
- * one store the wiki's button fills — `<products home>/.madarch/knowledge/<product id>`,
- * its graph at `<store>/graph` — read at the commit its records name as-is.
- *
- * The store is filled through the one fill: `runFill` over the checkout, the same runner
- * the button, `madarch fill` and `madarch fill-stages` use. A start that finds the store
- * holding no graph of the checkout's HEAD fills it at that commit; a start that finds the
- * commit already filled reads it. There is no second graph folder, no second extraction
- * and no runner of this module's own.
- *
- * The graph is derived data (decision 0023): a store that is missing, holds no graph of
- * this commit or cannot be read is filled again, never trusted.
+ * The one store served by MCP and the wiki. Product startup publishes validated manifest metadata only;
+ * repository content changes only through an explicit fill. A bare repository keeps the repository-tool
+ * workflow, which fills its tree and history before serving them.
  */
 import { randomBytes } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,6 +15,9 @@ import { fillFolderIdentity, productRepositoryId } from '../product/identity.js'
 import { productsHome, type DraftEnv } from '../product/home.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { headCommit } from './git.js';
+import { createRecordSchema } from '../graph/index.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { publishValidatedManifests, validateProductManifests } from '../graph/manifest-publication.js';
 
 /** What one start's fill left: the state it settled in, and every unit that did not publish, with its reason. */
 interface FillOutcome {
@@ -59,7 +53,7 @@ export interface RepositoryGraph {
   /** The store folder the graph is kept in (`<store>/graph` is the database). */
   readonly folder: string;
   /** The commit the graph is the graph of: the one its records name as-is. */
-  readonly commit: string;
+  readonly commit: string | null;
   /** Whether this start filled or moved the graph, and how long that took. */
   readonly filled: boolean;
   readonly fillMs: number;
@@ -183,9 +177,8 @@ async function fillRepositoryGraph(owner: DatabaseOwner, repository: string, fol
 }
 
 /**
- * Opens the store of one checkout at HEAD, filling it through the one fill when the store
- * holds no graph of that commit. The store is the one the wiki's button fills; a store that
- * already holds the commit is read, not filled again.
+ * Opens the shared store. Products publish manifest metadata without filling content; a bare
+ * repository runs its repository-tool workflow when HEAD has not yet been filled.
  */
 export async function openRepositoryGraph(options: {
   readonly repository: string;
@@ -198,6 +191,8 @@ export async function openRepositoryGraph(options: {
   const repository = resolve(options.repository);
   const env = options.env ?? process.env;
   const identity = fillFolderIdentity(repository);
+  const validated = identity.product ? validateProductManifests(repository) : undefined;
+  if (validated !== undefined && !validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
   // The store's name for the checkout's own repository: the id the fill pins it under, read from the
   // one function both sides call, so a product whose name a connected repository carries is served
   // from the store its fill wrote (`<name>-product`), never read under a name the store never held
@@ -216,8 +211,12 @@ export async function openRepositoryGraph(options: {
     const started = performance.now();
     let fill = readFillOutcome(folder);
     let filled = false;
+    if (validated?.ok === true) {
+      await createRecordSchema(openedOwner, graphContractOf(validated.value.manifest));
+      await publishValidatedManifests(openedOwner, validated.value);
+    }
     const heldCommit = await asIsCommitOf(openedOwner, productId);
-    if (heldCommit === commit) {
+    if (identity.product || heldCommit === commit) {
       // The store holds the graph of this commit already: it is served, never filled a second time.
     } else {
       const before = performance.now();
@@ -228,7 +227,7 @@ export async function openRepositoryGraph(options: {
       log(`madarch mcp: graph filled in ${((after - before) / 1000).toFixed(1)} s${fill.failed.length === 0 ? '' : `; ${fill.failed.length} ${fill.failed.length === 1 ? 'unit' : 'units'} did not publish (${fill.state})`}`);
     }
     const asIs = await asIsCommitOf(owner, productId);
-    if (asIs !== commit) {
+    if (!identity.product && asIs !== commit) {
       throw new Error(`${databasePath}:1: the fill of ${repository} left the store at ${asIs === null ? 'no commit' : asIs}, and the checkout stands at ${commit}: a graph of another commit is not served (src/mcp/graph.ts)`);
     }
     const opened = filled ? 0 : performance.now() - started;
@@ -236,7 +235,7 @@ export async function openRepositoryGraph(options: {
       owner: openedOwner,
       repositoryName: productId,
       folder,
-      commit,
+      commit: asIs,
       filled,
       fill,
       fillMs: filled ? performance.now() - started : opened,

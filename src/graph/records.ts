@@ -28,6 +28,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
+import { withManifestContract } from './manifest-contract.js';
 import { raise } from '../model/raise.js';
 import { createOneGraphSchema, FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
@@ -51,7 +52,7 @@ const PATH_OF = (alias: string): string => `(${alias}.key->>'path')`;
 
 /** Creates the one graph's tables and the kinds the fill writes; a second call changes nothing. */
 export async function createRecordSchema(owner: DatabaseOwner, contract: GraphContract = GIT_CONTRACT): Promise<void> {
-  await createOneGraphSchema(owner, contract);
+  await createOneGraphSchema(owner, withManifestContract(contract));
 }
 
 // ---- what one pass read ----------------------------------------------------
