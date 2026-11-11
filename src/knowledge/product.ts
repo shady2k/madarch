@@ -92,7 +92,8 @@ import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
-import { readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
+import { publishValidatedManifests, validateProductManifests, readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -390,9 +391,14 @@ export class KnowledgeProduct {
     this.lastUse = Date.now();
     this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
+      const manifests = validateProductManifests(this.folder);
+      if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+      const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
+      await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
       const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
       try {
         await owner.ready;
+        if (manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
         await this.ensureStoreTables(owner);
         await this.loadPins(owner);
         // The publication the pins were read at: the first answer does not read them again (followStoreFill).
@@ -2572,8 +2578,8 @@ export class KnowledgeProduct {
     if (block.type !== 'term') throw new Error('a graph glossary term must render a term block');
     return {
       id: entity.key,
-      title: entity.label,
-      definition: typeof entity.properties['definition'] === 'string' ? entity.properties['definition'] : '',
+      title: typeof entity.properties['title'] === 'string' ? entity.properties['title'] : entity.label,
+      definition: typeof entity.properties['definition'] === 'string' ? entity.properties['definition'] : typeof entity.properties['body'] === 'string' ? entity.properties['body'] : '',
       synonyms: Array.isArray(names) ? names.filter((one): one is string => typeof one === 'string') : [],
       code: Array.isArray(codeNames) ? codeNames.filter((one): one is string => typeof one === 'string') : [],
       definedIn: block.definedIn,

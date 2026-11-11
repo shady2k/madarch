@@ -12,6 +12,7 @@
  */
 import { installOwnWiki, ownWikiOff } from './own-wiki.js';
 import { readPinnedGraphContract } from './fill-stages.js';
+import { validateProductManifests } from '../graph/manifest-publication.js';
 import { prepareDaemonProduct, withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
@@ -642,8 +643,8 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
             if (args[0] !== 'daemon-serve') continue;
             throw new Error(`${read.file}:${read.line}: ${read.message}`);
           }
-          const store = productStoreFolder(folder, knowledgeRootOf(args[0] === 'daemon-serve' ? home : dirname(folder)));
-          await requestStorePreparation(storeDatabasePath(store), await readPinnedGraphContract(folder));
+          const manifests = validateProductManifests(folder);
+          if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
         }
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);

@@ -735,6 +735,8 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
   };
   return {
     async publishManifests(validated: ValidatedManifests): Promise<void> {
+      const folder = storeFolderOfProduct(validated.folder);
+      await requestStorePreparation(storeDatabasePath(folder), graphContractOf(validated.manifest));
       const held = await store(validated.folder);
       await createFillStateSchema(held.owner);
       await createOrchestratorSchema(held.owner);
@@ -849,16 +851,13 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     const products = listProducts({ home });
     if (products.outcome !== 'listed') throw new Error(products.message);
     const findings = products.unreadable.map((one) => ({ file: one.file, line: one.line, message: one.message }));
-    const validated: ValidatedManifests[] = [];
     const folders = products.products.map((one) => one.folder);
     if (ownInstall?.ok && !folders.includes(ownInstall.folder)) folders.push(ownInstall.folder);
     for (const folder of folders) {
       const read = validateProductManifests(folder);
-      if (read.ok) { if (read.value !== undefined) validated.push(read.value); }
-      else findings.push(...read.findings);
+      if (!read.ok) findings.push(...read.findings);
     }
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
-    for (const value of validated) await fills.publishManifests(value);
     const manifests = createManifestWatch(folders, (value) => fills.publishManifests(value), (line) => console.error(line));
     const server = await startServer({
       productHome: home,
