@@ -80,7 +80,7 @@ describe('the kinds manifest', () => {
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
       [6, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [7, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
       [9, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/kinds.yaml')).toBe(true);
@@ -124,7 +124,8 @@ describe('the starter set madarch new seeds', () => {
     expect(read.manifest.findings).toEqual([]);
     expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['product', 'domain']));
     expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['doc.use-case', 'doc.rule', 'doc.decision', 'doc.term', 'code.service', 'code.module', 'code.file', 'code.symbol', 'code.route', 'code.table', 'code.env-var', 'code.ci-job', 'code.test-case']));
-    expect(homeKind(read.manifest)!.name).toBe('product');
+    expect(homeKind(read.manifest)).toBeUndefined();
+    expect(read.manifest.kinds.get('product')?.source).toBe('graph');
 
   });
 

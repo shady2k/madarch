@@ -36,9 +36,11 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   for (const kind of Object.keys(manifest.kinds)) if (!kinds.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
     if (kind['depends-on'] !== undefined) kind['depends-on'] = kind['depends-on'].filter((dependency) => kinds.includes(dependency));
-    if (kind.fields !== undefined) kind.fields = kind.fields.filter((field) => field.reference === undefined || kinds.includes(field.reference));
+    if (kind.fields !== undefined) for (const field of kind.fields) {
+      if (field.reference !== undefined && !kinds.includes(field.reference)) delete field.reference;
+    }
   }
-  manifest.plugins = {};
+  manifest.plugins = [];
   writeFileSync(file, stringify(manifest));
   writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
