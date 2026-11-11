@@ -80,6 +80,13 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
   // A table made before opinions held one row per vertex: its shape is not this one, and its rows are derived from the
   // producers, so the fill writes them again in the opinion's shape.
   if (columns.size > 0 && !columns.has('said_by')) {
+    const authored = await tx.query<{ present: boolean }>(`SELECT EXISTS (
+      SELECT 1 FROM operation o WHERE o.author LIKE 'person:%' AND (
+        EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'vertices') event WHERE event->>'entity' = $1)
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'opinions') event WHERE event->>'entity' = $1)
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'edges') event WHERE event->>'entity' = $1)
+      )) AS present`, [kind]);
+    if (authored.rows[0]!.present) throw new Error(`${import.meta.path}:89: the kind ${JSON.stringify(kind)} table ${JSON.stringify(table)} holds person-authored history; replacing its legacy shape is refused: apply a preserving schema migration`);
     await tx.query(`DROP TABLE ${name}`);
     columns.clear();
   }
@@ -100,18 +107,18 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
       if (actual === undefined) {
         if (field.nullable !== true) {
           const history = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${name}`);
-          if (Number(history.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:103: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is required but absent from ${history.rows[0]!.n} historical opinions: the change is refused`);
+          if (Number(history.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:110: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is required but absent from ${history.rows[0]!.n} historical opinions: the change is refused`);
         }
         await tx.query(`ALTER TABLE ${name} ADD COLUMN ${quote(field.name, 'field')} ${sqlType(field)}`);
         continue;
       }
       if (field.reference !== undefined && sameType(actual, field)) {
         const incompatible = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${name} WHERE ${quote(field.name, 'field')} IS NOT NULL AND ${quote(field.name, 'field')}->>'kind' IS DISTINCT FROM $1`, [field.reference]);
-        if (Number(incompatible.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:110: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} has ${incompatible.rows[0]!.n} non-null values incompatible with reference ${JSON.stringify(field.reference)}: the change is refused`);
+        if (Number(incompatible.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:117: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} has ${incompatible.rows[0]!.n} non-null values incompatible with reference ${JSON.stringify(field.reference)}: the change is refused`);
       }
       if (!sameType(actual, field)) {
         const values = await valuesOf(tx, table, field.name);
-        if (values > 0) throw new Error(`${import.meta.path}:114: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is ${actual} in ${table} and ${sqlType(field)} in the contract; ${String(values)} non-null values would be lost: the change is refused`);
+        if (values > 0) throw new Error(`${import.meta.path}:121: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is ${actual} in ${table} and ${sqlType(field)} in the contract; ${String(values)} non-null values would be lost: the change is refused`);
         await tx.query(`ALTER TABLE ${name} ALTER COLUMN ${quote(field.name, 'field')} TYPE ${sqlType(field)} USING NULL::${sqlType(field)}`);
       }
     }
@@ -119,7 +126,7 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
     for (const column of [...columns.keys()].sort(byCodePoint)) {
       if (column === owner || (OPINION_FIELDS as readonly string[]).includes(column) || wanted.has(column)) continue;
       const values = await valuesOf(tx, table, column);
-      if (values > 0) throw new Error(`${import.meta.path}:122: the kind ${JSON.stringify(kind)} no longer declares the field ${JSON.stringify(column)}; ${String(values)} non-null values would be lost from ${table}: the change is refused`);
+      if (values > 0) throw new Error(`${import.meta.path}:129: the kind ${JSON.stringify(kind)} no longer declares the field ${JSON.stringify(column)}; ${String(values)} non-null values would be lost from ${table}: the change is refused`);
       await tx.query(`ALTER TABLE ${name} DROP COLUMN ${quote(column, 'column')}`);
     }
   }
@@ -182,6 +189,15 @@ async function preserveAuthoredKeys(tx: OuterTransaction, contract: GraphContrac
       WHERE e.name = $1 AND EXISTS (SELECT 1 FROM operation o WHERE o.author LIKE 'person:%'
         AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'vertices') event WHERE event->>'entity' = e.name AND event->>'uid' = n.uid::text))
       GROUP BY entry.key, entry.value`, [kind.name]);
+    const missing = await tx.query<{ field: string; n: string }>(`SELECT required.field, count(*)::text AS n
+      FROM node n JOIN entity e ON e.id = n.entity_id CROSS JOIN unnest($2::text[]) required(field)
+      WHERE e.name = $1 AND NOT (n.key ? required.field)
+        AND EXISTS (SELECT 1 FROM operation o WHERE o.author LIKE 'person:%'
+          AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'vertices') event WHERE event->>'entity' = e.name AND event->>'uid' = n.uid::text))
+      GROUP BY required.field`, [kind.name, kind.key]);
+    for (const row of missing.rows.sort((a, b) => byCodePoint(a.field, b.field))) {
+      throw new Error(`${import.meta.path}:199: the kind ${JSON.stringify(kind.name)} field ${JSON.stringify(row.field)} is absent from ${row.n} authored natural keys: the change is refused`);
+    }
     const incompatible = new Map<string, number>();
     for (const row of held.rows) {
       const field = kind.fields.find((one) => one.name === row.field);
@@ -194,7 +210,7 @@ async function preserveAuthoredKeys(tx: OuterTransaction, contract: GraphContrac
       if (!valid) incompatible.set(row.field, (incompatible.get(row.field) ?? 0) + Number(row.n));
     }
     for (const [field, count] of [...incompatible].sort(([a], [b]) => byCodePoint(a, b))) {
-      throw new Error(`${import.meta.path}:197: the kind ${JSON.stringify(kind.name)} field ${JSON.stringify(field)} has ${count} non-null natural-key values incompatible with the changed contract: the change is refused`);
+      throw new Error(`${import.meta.path}:213: the kind ${JSON.stringify(kind.name)} field ${JSON.stringify(field)} has ${count} non-null natural-key values incompatible with the changed contract: the change is refused`);
     }
   }
 }
@@ -283,12 +299,12 @@ async function pruneKinds(tx: OuterTransaction, contract: GraphContract): Promis
       for (const column of [...columns.keys()].sort(byCodePoint)) {
         if (column === 'node_id' || column === 'edge_id' || (OPINION_FIELDS as readonly string[]).includes(column)) continue;
         const values = await valuesOf(tx, table, column);
-        if (values > 0) throw new Error(`${import.meta.path}:286: the removed kind ${JSON.stringify(row.name)} field ${JSON.stringify(column)} holds ${String(values)} non-null values that would be lost: the change is refused`);
+        if (values > 0) throw new Error(`${import.meta.path}:302: the removed kind ${JSON.stringify(row.name)} field ${JSON.stringify(column)} holds ${String(values)} non-null values that would be lost: the change is refused`);
       }
       // Key-only opinions and entity identities are history too, even when no attribute holds a value.
       const identity = row.sort === 'node' ? 'node' : 'edge';
       const count = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${identity} WHERE entity_id IN (SELECT id FROM entity WHERE name = $1)`, [row.name]);
-      if (Number(count.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:291: the removed kind ${JSON.stringify(row.name)} field "identity" holds ${count.rows[0]!.n} non-null values that would be lost: the change is refused`);
+      if (Number(count.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:307: the removed kind ${JSON.stringify(row.name)} field "identity" holds ${count.rows[0]!.n} non-null values that would be lost: the change is refused`);
     }
     if (row.sort === 'node') await dropVertexKind(tx, row.name);
     else await dropEdgeKind(tx, row.name);

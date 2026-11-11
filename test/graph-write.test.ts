@@ -319,6 +319,36 @@ describe('the manifest makes the table and the writer fills it', () => {
     } finally { await durable.close(); }
   });
 
+  test('schema reconciliation refuses added authored key fields, including random identities', async () => {
+    for (const key of [[], ['name']]) {
+      const durable = await createTestDatabaseOwner();
+      const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'name', type: 'text', nullable: true }], key, capability: 'fixture' }], edge: [], dictionary: [] };
+      try {
+        await prepareStore(durable, { contract: graph });
+        await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: key.length === 0 ? {} : { name: 'Kept' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+        const before = await durable.run((tx) => tx.query('SELECT uid, key FROM node ORDER BY id'));
+        const changed: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => ({ ...kind, key: [...key, 'extra'], fields: [...kind.fields, { name: 'extra', type: 'text' as const }] })) };
+        await expect(prepareStore(durable, { contract: changed })).rejects.toThrow(new RegExp(`${join(import.meta.dir, '../src/adapters/schemas/graph-contract.ts').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}:\\d+:.*kind "record" field "extra" is absent from 1 authored natural keys`));
+        expect((await durable.run((tx) => tx.query('SELECT uid, key FROM node ORDER BY id'))).rows).toEqual(before.rows);
+      } finally { await durable.close(); }
+    }
+  });
+
+  test('legacy opinion replacement refuses authored history without dropping the table', async () => {
+    const durable = await createTestDatabaseOwner();
+    const table = generatedTableName('record', 'vertex');
+    const graph: GraphContract = { vertex: [{ name: 'record', table, fields: [{ name: 'value', type: 'text', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
+    try {
+      await prepareStore(durable, { contract: graph });
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: {}, values: { value: 'Keep legacy history' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      await durable.run((tx) => tx.query(`ALTER TABLE ${table} DROP COLUMN said_by CASCADE`));
+      const before = await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`));
+      const changed: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => ({ ...kind, fields: [...kind.fields, { name: 'extra', type: 'text' as const, nullable: true }] })) };
+      await expect(prepareStore(durable, { contract: changed })).rejects.toThrow(new RegExp(`${join(import.meta.dir, '../src/adapters/schemas/graph-contract.ts').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}:\\d+:.*kind "record" table "${table}" holds person-authored history`));
+      expect((await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`))).rows).toEqual(before.rows);
+    } finally { await durable.close(); }
+  });
+
   test('schema reconciliation refuses required additions and changed reference targets with history', async () => {
     const durable = await createTestDatabaseOwner();
     const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'target', type: 'json', reference: 'alpha', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
