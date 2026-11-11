@@ -45,6 +45,7 @@ let product: KnowledgeProduct;
 let folder: string;
 
 beforeAll(async () => {
+  if (skippedSuite !== undefined) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-knowledge-vertical-'));
   repository = generateTrainingRepository(join(work, 'repo'));
   mkdirSync(join(work, 'home'));
@@ -60,6 +61,7 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  if (skippedSuite !== undefined) return;
   await product.close();
   rmSync(work, { recursive: true, force: true });
 });
