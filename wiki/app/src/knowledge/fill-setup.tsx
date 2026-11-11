@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
-import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Checkbox } from '@/components/ui/checkbox.js';
@@ -10,7 +9,7 @@ import { Select } from '@/components/ui/select.js';
 import { fillSelected, getAgents, getCatalog } from './api.js';
 import { areaOf } from './catalog-area.js';
 import { KindSources } from './kind-sources.js';
-import { dependencySplit } from './dependency-page.js';
+import { KindGraph } from './kind-graph.js';
 import { addedByDependency, estimateOf } from './fill-selection.js';
 import { useRead } from './live.js';
 import { fillWithOf } from './producers.js';
@@ -67,12 +66,6 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
       (error: unknown) => { setBusy(false); setFailure(error instanceof Error ? error.message : String(error)); },
     );
   };
-  const { nodes, layers, independent } = dependencySplit(all);
-  const boxWidth = 176, boxHeight = 52, columnWidth = 224, rowHeight = 68;
-  const positions = new Map(nodes.map((node) => [node.kind.kind, { x: node.depth * columnWidth + 8, y: layers[node.depth]!.indexOf(node.kind.kind) * rowHeight + 8 }]));
-  const width = Math.max(layers.length, 1) * columnWidth;
-  const height = Math.max(...layers.map((layer) => layer.length), 1) * rowHeight + 16;
-  const state = (id: string): string => checked.has(id) ? 'selected' : added.has(id) ? 'dependency' : 'unselected';
   return (
     <Card className="mb-8" data-testid="fill-setup">
       <CardHeader><CardTitle>{t('knowledge.fillSetup.title')}</CardTitle><p className="mb-0 text-small text-muted">{t('knowledge.fillSetup.intro')}</p><p className="mb-0 text-small text-muted" data-testid="fill-setup-total">{t('knowledge.catalogueKinds', { count: all.length })} · {t('knowledge.catalogueEntities', { count: all.reduce((sum, kind) => sum + kind.count, 0) })}</p></CardHeader>
@@ -92,23 +85,9 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
           </div>
           <section className="min-w-0" aria-label={t('knowledge.fillSetup.graph')}>
             <h3 className="mt-0 text-small">{t('knowledge.fillSetup.graph')}</h3>
-            <p className="text-small text-muted">{t('knowledge.fillSetup.legend')}</p>
             <div className="max-h-[32rem] overflow-auto" data-testid="fill-setup-graph">
-              <div className="relative" style={{ width, height }}>
-                <svg width={width} height={height} aria-hidden="true" className="absolute inset-0">
-                  {nodes.flatMap((node) => node.dependsOn.flatMap((dependency) => {
-                    const from = positions.get(dependency), to = positions.get(node.kind.kind);
-                    if (from === undefined || to === undefined) return [];
-                    const highlighted = active.has(node.kind.kind) && active.has(dependency);
-                    return [<path key={`${dependency}->${node.kind.kind}`} data-edge={`${dependency}->${node.kind.kind}`} data-active={String(highlighted)} d={`M ${from.x + boxWidth} ${from.y + boxHeight / 2} L ${to.x} ${to.y + boxHeight / 2}`} className={highlighted ? 'fill-none stroke-ink' : 'fill-none stroke-line'} strokeWidth={highlighted ? 3 : 1} />];
-                  }))}
-                </svg>
-                {nodes.map((node) => <div key={node.kind.kind} data-testid="fill-setup-node" data-kind={node.kind.kind} data-selection={state(node.kind.kind)} className={`absolute rounded-[var(--radius-card)] border px-2 py-1 text-small ${active.has(node.kind.kind) ? 'border-ink bg-[var(--surface-active)] text-ink' : 'border-line bg-page text-muted'} ${added.has(node.kind.kind) ? 'border-dashed' : ''}`} style={{ left: positions.get(node.kind.kind)!.x, top: positions.get(node.kind.kind)!.y, width: boxWidth, height: boxHeight }}>
-                  <span className="block truncate">{name(node.kind)}</span>{active.has(node.kind.kind) && <span className="text-[11px]">{t(`knowledge.fillSetup.${state(node.kind.kind)}`)}</span>}
-                </div>)}
-              </div>
+              <KindGraph catalog={data} highlighted={active} />
             </div>
-            {independent.length > 0 && <details className="mt-3 text-small"><summary>{t('knowledge.fillSetup.independent', { count: independent.length })}</summary><div className="mt-2 flex flex-wrap gap-2">{independent.map((kind) => <Badge key={kind.kind} data-testid="fill-setup-node" data-kind={kind.kind} data-selection={state(kind.kind)} variant={active.has(kind.kind) ? 'solid' : 'outline'}>{name(kind)}</Badge>)}</div></details>}
           </section>
         </div>
         <div className="mt-4 flex flex-wrap items-end gap-4 border-t border-line pt-4">

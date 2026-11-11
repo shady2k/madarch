@@ -1004,6 +1004,14 @@
     "kindSources": {
       "standards": "Стандарты и документы",
       "declaration": "Объявлено в"
+    },
+    "catalogueViews": {
+      "label": "Вид каталога",
+      "table": "Таблица",
+      "graph": "Граф",
+      "filter": "Найти виды",
+      "relations": "Зависимости",
+      "choose": "Показать зависимости и зависимые виды: {{kind}}"
     }
   },
   "loop": {

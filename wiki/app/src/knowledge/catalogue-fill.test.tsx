@@ -64,6 +64,34 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
+  test('Table and Graph share the filter, chosen kind and dependency highlights', async () => {
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'table kinds');
+    const kinds = [...page.querySelectorAll('[data-kind]')].map((row) => row.getAttribute('data-kind')).sort();
+    (page.querySelector('[data-kind="code.file"] button') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-kind="doc.term"]')?.getAttribute('data-related') === 'true', 'dependent highlight');
+    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
+    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph kinds');
+    expect([...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')].map((row) => row.getAttribute('data-kind')).sort()).toEqual(kinds);
+    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]')!.getAttribute('data-chosen')).toBe('true');
+    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="doc.term"]')!.getAttribute('data-related')).toBe('true');
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
+    const input = page.querySelector('input[type="search"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+    input.focus();
+    setter.call(input, 'Source files');
+    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 's' }));
+    await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered graph');
+    const tableTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Table')!;
+    tableTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table');
+    expect(page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')).toHaveLength(1);
+    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]')!.getAttribute('data-chosen')).toBe('true');
+    expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"] a')!.getAttribute('href')).toContain('code.file');
+  });
+
   test('shows standards and the product declaration file together with navigable source line', async () => {
     await setWikiLanguage('en');
     stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, sources: ['https://example.test/standard'], declaration: { repo: 'shop', path: 'madarch/kinds.yaml', line: 42 } }] });
@@ -93,7 +121,7 @@ describe('the catalogue as a browse-only view', () => {
     expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('never');
     expect(page.querySelector('[data-subgroup="vocabulary"] [data-kind="doc.term"]')).not.toBeNull();
     expect(page.querySelectorAll('th')).toHaveLength(15);
-    expect(page.querySelector('input, select, button, [role="checkbox"], [data-testid="catalogue-panel"], [data-testid="catalogue-waiting"], [data-testid="catalogue-no-translation"]')).toBeNull();
+    expect(page.querySelector('select, [role="checkbox"], [data-testid="fill-setup-run"], [data-testid="catalogue-panel"], [data-testid="catalogue-waiting"], [data-testid="catalogue-no-translation"]')).toBeNull();
     expect(calls).toHaveLength(1);
     expect(calls[0]!.method).toBe('GET');
     expect(calls[0]!.url).toContain('/api/catalog');

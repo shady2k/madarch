@@ -21,6 +21,7 @@
     "wiki/app/src/**/*.test.ts",
     "wiki/app/test/**/*.test.ts",
     "wiki/app/test/deadline.ts",
+    "wiki/app/test/browser-modules.ts",
     "wiki/app/test/run-scratch.ts",
     "wiki/app/vite.config.ts"
   ],

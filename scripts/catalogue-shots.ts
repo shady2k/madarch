@@ -292,61 +292,27 @@ try {
         process.exitCode = 1;
       }
       if (sizes.document > sizes.viewport) console.log(`horizontal scroll at ${String(width)} px: document ${String(sizes.document)} > viewport ${String(sizes.viewport)}`);
-      // The dependency graph is the third surface: the same product's entities in the order their declarations give.
-      page.on('pageerror', (error) => console.error(`the dependency page raised in the browser: ${String(error).slice(0, 400)}`));
-      // A page of its own for the graph: a reload of the app on one page proved flaky on this box (the catalogue's first
-      // read and its panel raced the second load).
-      const graphPage = await browser.newPage();
-      await graphPage.setViewport({ width, height: width >= 1000 ? 900 : 844, deviceScaleFactor: 1 });
-      await graphPage.evaluateOnNewDocument(() => { try { localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* a private context still renders */ } });
-      graphPage.on('pageerror', (error) => console.error(`the dependency page raised in the browser: ${String(error).slice(0, 400)}`));
-      await graphPage.goto(`${server.url}/products/${draft.name}/dependencies`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
-      try {
-        await graphPage.waitForSelector('[data-testid="dependency-page"]', { timeout: 120_000 });
-        await graphPage.waitForSelector('[data-testid="dependency-node"]', { timeout: 120_000 });
-      } catch (error) {
-        console.error(`the dependency page drew no entity: ${String((await graphPage.evaluate(() => document.body.innerText)).slice(0, 600))}`);
-        throw error;
-      }
-      await new Promise((rest) => setTimeout(rest, 300));
-      await new Promise((rest) => setTimeout(rest, 300));
-      const graphShot = await graphPage.screenshot({ fullPage: false });
-      const graphFile = join(out, `dependencies-${String(width)}.png`);
+      await page.evaluate(() => {
+        const graph = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Граф');
+        if (graph === undefined) throw new Error('the catalogue graph tab is absent');
+        graph.click();
+      });
+      await page.waitForSelector('[data-testid="kind-graph"]', { timeout: 120_000 });
+      await page.waitForSelector('[data-testid="dependency-node"]', { timeout: 120_000 });
+      const graphShot = await page.screenshot({ fullPage: false });
+      const graphFile = join(out, `catalogue-graph-${String(width)}.png`);
       writeFileSync(graphFile, graphShot);
-      const graphText = await graphPage.evaluate(() => {
-        const part = (title: string, selector: string): string => `## ${title}\n${(document.querySelector(selector)?.innerText ?? '(absent)').trim()}`;
-        return [part('top bar', '[data-testid="shell-fixed"]'), part('page', '[data-testid="dependency-page"]')].join('\n\n');
-      });
-      writeFileSync(join(out, `dependencies-${String(width)}.txt`), `${graphText}\n`);
-      const graphSize = await graphPage.evaluate(() => {
-        const frame = document.querySelector('[data-testid="dependencies-graph"]');
-        const heading = document.querySelector('[data-testid="dependency-page"] h1')?.getBoundingClientRect();
-        const nodes = [...document.querySelectorAll('[data-testid="dependency-node"]')];
-        const states: Record<string, number> = {};
-        for (const node of nodes) states[node.getAttribute('data-state') ?? 'none'] = (states[node.getAttribute('data-state') ?? 'none'] ?? 0) + 1;
-        return {
-          viewport: window.innerWidth,
-          document: document.documentElement.scrollWidth,
-          roleCard: document.querySelector('[data-testid="role-card"]') !== null,
-          headingVisible: heading !== undefined && heading !== null && heading.top >= 0 && heading.bottom <= window.innerHeight && heading.height > 0,
-          nodes: nodes.length,
-          independentSections: document.querySelectorAll('[data-testid="dependencies-independent-section"]').length,
-          independentOpen: [...document.querySelectorAll('[data-testid="dependencies-independent-section"]')].filter((node) => (node as HTMLDetailsElement).open).length,
-          states,
-          visible: nodes.filter((node) => { const rect = node.getBoundingClientRect(); return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth; }).slice(0, 10).map((node) => `${node.getAttribute('data-kind')}:${node.getAttribute('data-state')}`),
-          total: document.querySelector('[data-testid="dependencies-total"]')?.textContent ?? null,
-          russian: /[А-Яа-я]/u.test(document.querySelector('[data-testid="dependency-page"] h1')?.textContent ?? ''),
-          frame: frame === null ? null : { scroll: frame.scrollWidth, client: frame.clientWidth },
-          text: (document.body.innerText ?? '').length,
-        };
-      });
+      const graphSize = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        document: document.documentElement.scrollWidth,
+        nodes: document.querySelectorAll('[data-testid="dependency-node"]').length,
+      }));
       const graphInk = inkOf(graphShot);
-      console.log(`dependencies at ${String(width)} px: ${JSON.stringify({ ...graphSize, pixels: graphInk })} → ${graphFile}`);
-      if (graphSize.document > graphSize.viewport || graphSize.roleCard || !graphSize.headingVisible || !graphSize.russian || graphSize.nodes < 3 || graphSize.independentSections < 1 || graphSize.independentOpen > 0 || Object.keys(graphSize.states).length < 1 || graphInk.distinct < 20 || graphInk.inkFraction < 0.01) {
-        console.error(`the dependency page's shot at ${String(width)} px is not the graph it should be: ${JSON.stringify({ ...graphSize, pixels: graphInk })}`);
+      console.log(`catalogue graph at ${String(width)} px: ${JSON.stringify({ ...graphSize, pixels: graphInk })} → ${graphFile}`);
+      if (graphSize.document > graphSize.viewport || graphSize.nodes < 3 || graphInk.distinct < 20 || graphInk.inkFraction < 0.01) {
+        console.error(`the catalogue graph's shot at ${String(width)} px is not the graph it should be: ${JSON.stringify({ ...graphSize, pixels: graphInk })}`);
         process.exitCode = 1;
       }
-      await graphPage.close();
       await page.close();
     }
   } finally {

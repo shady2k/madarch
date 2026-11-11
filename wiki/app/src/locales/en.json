@@ -1004,6 +1004,14 @@
     "kindSources": {
       "standards": "Standards and documents",
       "declaration": "Declared in"
+    },
+    "catalogueViews": {
+      "label": "Catalogue view",
+      "table": "Table",
+      "graph": "Graph",
+      "filter": "Filter kinds",
+      "relations": "Dependencies",
+      "choose": "Show dependencies and dependents of {{kind}}"
     }
   },
   "loop": {

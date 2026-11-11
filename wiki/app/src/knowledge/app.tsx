@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -23,14 +23,13 @@ import { Card, CardContent } from '@/components/ui/card.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, NewHome, SourcePage, StatementPage, Overview } from './pages.js';
-import { DependencyPage } from './dependency-page.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -263,10 +262,6 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         <a href={appPath(WIKI_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
-        </a>
-        <a href={appPath(WIKI_DEPENDENCIES)} className={link(route.name === 'dependencies')} aria-current={route.name === 'dependencies' ? 'page' : undefined} data-testid="nav-dependencies" {...pick(WIKI_DEPENDENCIES)}>
-          <Share2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.dependencies.title')}</span>
         </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
@@ -538,7 +533,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'dependencies' ? t('knowledge.dependencies.title') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -678,6 +673,7 @@ export function KnowledgeApp(): ReactElement {
   const route = useMemo<WikiRoute>(() => routeOfAddress(frontAddress), [frontAddress]);
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const content = useRef<HTMLDivElement>(null);
   const { status, error, version, refresh } = useWikiStatus();
   const settings = useSettings();
   const { glossary } = useGlossary(version);
@@ -698,7 +694,7 @@ export function KnowledgeApp(): ReactElement {
   }, [status?.product.name, t]);
   // A page opened by a link starts at its top; a source page scrolls to its line itself.
   useEffect(() => {
-    if (route.name !== 'source' && route.name !== 'doc') window.scrollTo?.(0, 0);
+    if (route.name !== 'source' && route.name !== 'doc') content.current?.scrollTo?.(0, 0);
   }, [route]);
 
   if (error !== null && status === null) {
@@ -706,15 +702,15 @@ export function KnowledgeApp(): ReactElement {
   }
   if (status === null) {
     return (
-      <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="wiki-loading">
+      <div className="shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="wiki-loading">
         <aside className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col gap-3 border-r border-line bg-chrome px-[14px] py-[18px] wide:px-[18px] md:flex" aria-hidden="true">
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-9 w-full" />
           {[70, 55, 62, 48].map((width, index) => <Skeleton key={index} className="h-5" style={{ width: `${width}%` }} />)}
         </aside>
-        <div className="shell-main flex min-w-0 flex-1 flex-col">
+        <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="shell-toolbar min-h-[58px] border-b border-line" />
-          <div className="shell-scroll min-w-0 flex-1"><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
+          <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
         </div>
       </div>
     );
@@ -757,7 +753,6 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
-  else if (route.name === 'dependencies') view = <DependencyPage version={version} status={status} />;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;
@@ -768,20 +763,19 @@ export function KnowledgeApp(): ReactElement {
       <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
       <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
-      <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
-        {/* The menu's ground spans the page, not one window: the column stretches to the shell's height, and only the
-            list inside it stays in view (sticky, one window tall) as the reader scrolls (madarch-u3vw.6). */}
+      <div className="shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
+        {/* Navigation and page content have separate scroll areas within the viewport. */}
         <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 border-r border-line bg-chrome md:flex" aria-label={t('navigation.aria')}>
-          <div className="sticky top-0 flex h-dvh w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
+          <div className="flex min-h-0 h-full w-full flex-col px-[14px] wide:px-[18px]">{nav()}</div>
         </aside>
-        <div className="shell-main flex min-w-0 flex-1 flex-col">
+        <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
-          <div className="shell-fixed sticky top-0 z-30" data-testid="shell-fixed">
+          <div className="shell-fixed z-30 shrink-0" data-testid="shell-fixed">
             <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
             <TabBar />
           </div>
-          <div className="shell-row flex flex-1">
-            <div className="shell-scroll min-w-0 flex-1">
+          <div className="shell-row flex min-h-0 flex-1 overflow-hidden">
+            <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}>
               <div className="shell-document w-full">
                 <main data-testid="knowledge-main">
                   {status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (

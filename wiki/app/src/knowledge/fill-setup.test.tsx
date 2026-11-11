@@ -71,12 +71,12 @@ test('selection highlights transitive dependencies and edges, warns only for cho
   const page = render(calls, () => { refreshed = true; });
   await until(() => page.querySelector('[data-testid="fill-setup-check-leaf"]') !== null);
   page.querySelector<HTMLInputElement>('[data-testid="fill-setup-check-leaf"]')!.click();
-  await until(() => page.querySelector('[data-testid="fill-setup-node"][data-kind="base"]')?.getAttribute('data-selection') === 'dependency');
+  await until(() => page.querySelector('[data-testid="dependency-node"][data-kind="base"]')?.getAttribute('data-highlighted') === 'true');
   for (const id of ['base', 'middle']) {
     const input = page.querySelector<HTMLInputElement>(`[data-testid="fill-setup-check-${id}"]`)!;
     expect(input.checked).toBe(true); expect(input.disabled).toBe(true);
   }
-  expect(page.querySelector('[data-testid="fill-setup-node"][data-kind="leaf"]')?.getAttribute('data-selection')).toBe('selected');
+  expect(page.querySelector('[data-testid="dependency-node"][data-kind="leaf"]')?.getAttribute('data-highlighted')).toBe('true');
   for (const edge of ['base->middle', 'middle->leaf']) expect(page.querySelector(`[data-edge="${edge}"]`)?.getAttribute('data-active')).toBe('true');
   expect(page.querySelectorAll('[data-testid="fill-setup-agent-warning"]').length).toBe(1);
   expect(page.querySelector('[data-testid="fill-setup-agent-warning"]')!.textContent).toContain('Bases');

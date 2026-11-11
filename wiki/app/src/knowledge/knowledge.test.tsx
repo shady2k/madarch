@@ -10,6 +10,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { appPath } from '../app-base.js';
+import { frontTab, openInNewTab } from './tabs.js';
 import { setWikiLanguage } from '../i18n.js';
 import { BlockView, Findings, KMarkdown } from './blocks.js';
 import { highlight } from './highlight.js';
@@ -752,16 +753,51 @@ describe('there is one app', () => {
     expect(window.location.pathname).toBe('/');
   });
 
-  test('the top bar and the tab bar stand in one sticky block, so only the page below them scrolls', async () => {
+  test('the page scrolls in a bounded region below the toolbar and tab bar', async () => {
     (globalThis as { fetch?: unknown }).fetch = answer('ok');
     window.history.replaceState({}, '', '/');
     const container = into(createElement(AppRoot));
-    await until(() => container.querySelector('[data-testid=shell-fixed]') !== null, 'the fixed block');
-    const fixed = container.querySelector('[data-testid=shell-fixed]')!;
-    expect(fixed.className).toContain('sticky');
+    await until(() => container.querySelector('[data-testid=knowledge-main]') !== null, 'the page');
+    const shell = container.querySelector('[data-testid=knowledge-app]')!;
+    const fixed = shell.querySelector('[data-testid=shell-fixed]')!;
+    const content = shell.querySelector('[data-testid=shell-content]')!;
+    const row = content.parentElement!;
+    const main = shell.querySelector('[data-testid=knowledge-main]')!;
+    for (const name of ['h-dvh', 'overflow-hidden']) expect(shell.classList.contains(name)).toBe(true);
+    for (const name of ['flex-1', 'min-h-0', 'overflow-hidden']) expect(row.classList.contains(name)).toBe(true);
+    for (const name of ['flex-1', 'min-h-0', 'min-w-0', 'overflow-auto']) expect(content.classList.contains(name)).toBe(true);
+    expect(row.parentElement!.classList.contains('min-h-0')).toBe(true);
+    expect(fixed.nextElementSibling).toBe(row);
+    expect(fixed.classList.contains('shrink-0')).toBe(true);
+    expect(fixed.classList.contains('sticky')).toBe(false);
     expect(fixed.querySelector('.shell-toolbar')).not.toBeNull();
     expect(fixed.querySelector('[data-testid=tab-bar]')).not.toBeNull();
-    expect(container.querySelector('[data-testid=knowledge-main]')!.closest('[data-testid=shell-fixed]')).toBeNull();
+    expect(content.contains(main)).toBe(true);
+    expect(content.querySelector('.shell-toolbar, [data-testid=tab-bar]')).toBeNull();
+    expect(fixed.contains(main)).toBe(false);
+
+    const scrolls: unknown[][] = [];
+    (content as HTMLElement).scrollTo = (...args: unknown[]) => { scrolls.push(args); };
+    content.scrollTop = 250;
+    const destination = frontTab().address === '/catalogue' ? '/fill' : '/catalogue';
+    openInNewTab(destination);
+    await until(() => scrolls.length > 0, 'the new page resetting its own scroll region');
+    expect(scrolls.at(-1)).toEqual([0, 0]);
+  });
+
+  test('the loading shell also confines scrolling below its toolbar', async () => {
+    (globalThis as { fetch?: unknown }).fetch = () => new Promise<Response>(() => undefined);
+    const container = into(createElement(AppRoot));
+    await until(() => container.querySelector('[data-testid=wiki-loading]') !== null, 'the loading shell');
+    const shell = container.querySelector('[data-testid=wiki-loading]')!;
+    const content = shell.querySelector('[data-testid=shell-content]')!;
+    expect(shell.classList.contains('h-dvh')).toBe(true);
+    expect(shell.classList.contains('overflow-hidden')).toBe(true);
+    expect(content.classList.contains('overflow-auto')).toBe(true);
+    expect(content.classList.contains('min-h-0')).toBe(true);
+    expect(content.querySelector('[data-testid=page-loading]')).not.toBeNull();
+    expect(content.querySelector('.shell-toolbar')).toBeNull();
+    expect(content.previousElementSibling?.classList.contains('shell-toolbar')).toBe(true);
   });
 
   test('the old address /?documents opens the knowledge wiki too: no other app stands anywhere', async () => {

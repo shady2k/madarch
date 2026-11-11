@@ -196,12 +196,9 @@ describe('the menu', () => {
     const home = app.querySelector('[data-testid=nav-home]')!;
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     const catalogue = app.querySelector('[data-testid=nav-catalogue]')!;
-    const dependencies = app.querySelector('[data-testid=nav-dependencies]')!;
-    // The catalogue and the dependency graph wait for nobody: they are places of the product beside Home, not rows of
-    // the waiting group.
+    expect(app.querySelector('[data-testid=nav-dependencies]')).toBeNull();
     expect(home.nextElementSibling).toBe(catalogue);
-    expect(catalogue.nextElementSibling).toBe(dependencies);
-    expect(dependencies.nextElementSibling).toBe(waiting);
+    expect(catalogue.nextElementSibling).toBe(waiting);
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();

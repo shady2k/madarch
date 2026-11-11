@@ -1,5 +1,7 @@
 import { Operations } from './operations.js';
 import { KindSources } from './kind-sources.js';
+import { KindGraph, relatedKinds } from './kind-graph.js';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -582,11 +584,16 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   useTabTitle(t('knowledge.catalogue'));
   const { data, error } = useRead<CatalogView>('catalogue', version, getCatalog);
+  const [filter, setFilter] = useState('');
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [view, setView] = useState('table');
   if (error !== null && data === null) {
     return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   }
   if (data === null) return <PageSkeleton testId="catalogue-loading" />;
-  const all = data.kinds;
+  const query = filter.trim().toLocaleLowerCase(language);
+  const all = data.kinds.filter((kind) => [kind.kind, kind.labels?.[language]?.many, kind.labels?.[language]?.one, kind.descriptions?.[language]].some((text) => text?.toLocaleLowerCase(language).includes(query)));
+  const highlighted = relatedKinds(data.kinds, chosen);
   const known = new Set(data.groups.map((group) => group.group));
   const top = data.groups.filter((group) => group.parent === undefined || !known.has(group.parent));
   const children = data.groups.filter((group) => group.parent !== undefined && known.has(group.parent));
@@ -629,9 +636,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
       </TableHeader>
       <TableBody>
         {rows.map((kind) => (
-          <TableRow key={kind.kind} data-kind={kind.kind} data-filled={String(kind.filled)}>
+          <TableRow key={kind.kind} data-kind={kind.kind} data-filled={String(kind.filled)} data-chosen={String(chosen === kind.kind)} data-related={String(highlighted.has(kind.kind))} className={highlighted.has(kind.kind) ? "bg-pill" : undefined}>
             <TableCell className="whitespace-nowrap align-top">
               {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}
+              <Button variant="ghost" size="default" className="ml-2" aria-label={t('knowledge.catalogueViews.choose', { kind: nameOf(kind) })} aria-pressed={chosen === kind.kind} onClick={() => setChosen(chosen === kind.kind ? null : kind.kind)}>{t('knowledge.catalogueViews.relations')}</Button>
             </TableCell>
             <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} /></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
@@ -654,6 +662,13 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <p className="mb-1" data-testid="catalogue-intro">{t('knowledge.catalogueIntro')}</p>
         <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</p>
       </header>
+      <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <Tabs value={view} onValueChange={setView}>
+        <TabsList aria-label={t('knowledge.catalogueViews.label')}>
+          <TabsTrigger value="table">{t('knowledge.catalogueViews.table')}</TabsTrigger>
+          <TabsTrigger value="graph">{t('knowledge.catalogueViews.graph')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="table">
       {sections.map((section) => (
         <section key={section.key} className="mb-8" data-testid="catalogue-group" data-group={section.key}>
           <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</span></h2>
@@ -666,6 +681,9 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
           ))}
         </section>
       ))}
+        </TabsContent>
+        <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} chosen={chosen} onChoose={setChosen} highlighted={highlighted} /></TabsContent>
+      </Tabs>
     </section>
   );
 }
