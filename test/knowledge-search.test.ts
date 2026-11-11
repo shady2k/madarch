@@ -1,8 +1,8 @@
 import { publishSamplePageOpinions } from './knowledge-page-opinions.js';
 /**
  * The wiki's search over HTTP (madarch-o0d): pages and entities by title and text, grouped by kind, read from the same
- * product read as the pages — the Markdown the manifest declares, and the store the graph lives in. The product is a
- * fixture of its own: the starter set seeds its manifest, and two sample pages stand in its repository.
+ * graph store as the pages. The product is a fixture of its own: the starter set seeds its manifest, and two sample
+ * pages are published as explicit graph opinions without running a fill.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -50,14 +50,7 @@ beforeAll(async () => {
   const seeded = await fetch(`${server.url}/api/status`);
   expect(seeded.status).toBe(200);
   writeSamplePages(product);
-  // The pages and the manifest are the graph's for a reader: a fill reads the product repository into it.
-  const started = await fetch(`${server.url}/api/fill`, { method: 'POST' });
-  expect(started.status).toBe(202);
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    const state = (await (await fetch(`${server.url}/api/status`)).json() as { fill: { state: string } }).fill.state;
-    if (state !== 'running') break;
-    await new Promise((rest) => setTimeout(rest, 250));
-  }
+  // Status published the manifest metadata; explicit graph opinions supply the searchable pages.
   await publishSamplePageOpinions(product, join(work, 'store'));
 }, 300_000);
 
