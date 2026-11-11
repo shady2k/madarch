@@ -59,7 +59,7 @@ function readFixture(lines: readonly string[], name: string): KindsManifest {
   return read.manifest;
 }
 
-const SERVICE: GraphEntity = { key: 'code.service:payments', kind: 'code.service', label: 'payments', properties: { path: 'src/pay.ts', language: 'TypeScript' }, scope: '1', nodeIds: [] };
+const SERVICE: GraphEntity = { key: 'code.service:payments', kind: 'code.service', label: 'payments', properties: { path: 'src/pay.ts', language: 'TypeScript', source: { text: 'export class Pay {}\n', language: 'typescript', truncated: false } }, scope: '1', nodeIds: [] };
 const FILE: GraphEntity = { key: 'code.file:src/pay.ts', kind: 'code.file', label: 'src/pay.ts', properties: { path: 'src/pay.ts' }, scope: '1', nodeIds: [] };
 const AUTHOR: GraphEntity = { key: 'code.author:fixture', kind: 'code.author', label: 'Fixture Author', properties: {}, scope: '1', nodeIds: [] };
 const COMMIT: GraphEntity = { key: 'code.commit:abc123', kind: 'code.commit', label: 'Charge the card', properties: { effectiveAt: '2026-01-02T00:00:00Z', merge: false }, scope: '1', nodeIds: [] };
@@ -70,6 +70,12 @@ const PAGE = {
   id: 'domain:payment', kind: 'domain', title: 'Payment', relates: [] as string[], producer: 'agent', sources: [] as string[], bodyLine: 1,
   file: 'docs/domains/payment.md', front: {},
   body: 'Checkout charges the card through the payments service.[^1]\n\n[^1]: [payments](madarch:code.service:payments)\n',
+  reading: { links: [{ url: 'madarch:code.service:payments', line: 3 }], findings: [], ungrounded: [], statements: 1 },
+  statementReading: {
+    statements: [{ text: 'Checkout charges the card through the payments service.', paragraph: 'Checkout charges the card through the payments service.[^1]', notes: ['1'], line: 1 }],
+    definitions: new Map([['1', ['madarch:code.service:payments']]]),
+  },
+  indexedStatements: [], mentions: [], digest: 'fixture',
 };
 const SENTENCE = 'Checkout charges the card through the payments service.';
 
