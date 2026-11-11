@@ -33,7 +33,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
   const file = join(draft.folder, 'madarch', 'kinds.yaml');
-  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'depends-on'?: string[] }>; plugins: unknown };
+  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'depends-on'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: unknown };
   const declared = [...kinds, 'template'];
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
@@ -42,6 +42,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
       if (field.reference !== undefined && !declared.includes(field.reference)) delete field.reference;
     }
   }
+  manifest.edges = (manifest.edges ?? []).filter((edge) => edge.from.every((kind) => declared.includes(kind)) && edge.to.every((kind) => declared.includes(kind)));
   manifest.plugins = [];
   writeFileSync(file, stringify(manifest));
   writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
