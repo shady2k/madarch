@@ -80,7 +80,7 @@ describe('the home page is the product overview (madarch-47vw.5)', () => {
     const data = sections.find((block) => block.section === 'data')!;
     expect(data.absent).toBeDefined();
     const reading = sections.find((block) => block.section === 'reading')!;
-    expect(reading.links!.map((link) => link.href)).toEqual(expect.arrayContaining(['/', '/docs', '/catalogue', '/problems', '/fill']));
+    expect(reading.links!.map((link) => link.href)).toEqual(expect.arrayContaining(['/docs', '/catalogue', '/problems', '/fill']));
   });
 
   test('the section titles are in the reader’s language: Russian for a Russian reader', async () => {

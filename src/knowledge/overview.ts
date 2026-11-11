@@ -10,7 +10,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { attributeOf, type RenderContext, type Subject } from './blocks.js';
-import { entityAddress, FILL_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, GLOSSARY_ADDRESS, PROBLEMS_ADDRESS, HOME_ADDRESS, kindAddress, sourceAddress } from './addresses.js';
+import { entityAddress, FILL_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, GLOSSARY_ADDRESS, PROBLEMS_ADDRESS, kindAddress, sourceAddress } from './addresses.js';
 import type { GraphEntity } from './graph-read.js';
 import { homeKind, listingFormOf, systemKindsOf } from './kinds.js';
 import { kindNumbers } from './kind-numbers.js';
@@ -29,8 +29,8 @@ const WORDS = {
     about: 'Что это за продукт', how: 'Как он работает', data: 'Данные', terms: 'Ключевые термины', status: 'Где он сейчас', reading: 'С чего начать читать',
     tables: 'Таблиц', schema: 'Вся схема', problems: 'Открытые проблемы', lastFill: 'Последнее заполнение', commit: 'Коммит',
     home: 'Главная продукта', documents: 'Документы', catalogue: 'Каталог', glossary: 'Глоссарий', fill: 'Заполнение и его ход',
-    openFill: 'Открыть заполнение', vision: 'видение', readme: 'README', termsOf: 'ключевые термины', dataOf: 'схему данных',
-    howOf: 'системный вид', statusOf: 'вехи и результаты', aboutOf: 'то, что это за продукт',
+    openFill: 'Открыть заполнение', vision: 'видение', readme: 'README', termsOf: 'ключевые термины', dataOf: 'схема данных',
+    howOf: 'схема системы', statusOf: 'вехи и результаты', aboutOf: 'то, что это за продукт',
   },
 } as const;
 
@@ -43,8 +43,10 @@ const titleOf = (params: Readonly<Record<string, string>>, section: OverviewSect
 /** A kind's name in the reader's language, from the manifest alone. */
 function kindLabel(ctx: RenderContext, kind: string, lang: string | undefined): string {
   const decl = ctx.manifest.kinds.get(kind);
+  const entry = ctx.manifest.catalog?.kinds.get(kind);
   const language = langOf(lang);
-  return decl?.labels?.[language]?.many ?? decl?.labels?.['en']?.many ?? kind;
+  return decl?.labels?.[language]?.many ?? decl?.labels?.['en']?.many
+    ?? entry?.labels?.[language]?.many ?? entry?.labels?.['en']?.many ?? kind;
 }
 
 /** A Markdown page's source: the file and the line its body starts at. */
@@ -86,10 +88,10 @@ function excerpt(text: string, max = 600): string {
 function absent(lang: string | undefined, kinds: readonly string[], what: string): NonNullable<OverviewBlockShape['absent']> {
   const w = words(lang);
   const labels = kinds.map((kind) => kind);
-  const named = labels.length === 0 ? '' : `: ${labels.join(', ')}`;
+  const named = labels.length === 0 ? null : labels.join(', ');
   const message = langOf(lang) === 'ru'
-    ? `Это появится после заполнения${named}: ${what}.`
-    : `This appears after the fill${named}: ${what}.`;
+    ? named === null ? 'Это появится после заполнения.' : `Это появится после заполнения: ${named} — ${what}.`
+    : named === null ? 'This appears after a fill.' : `This appears after a fill of ${named}: ${what}.`;
   return { message, href: FILL_ADDRESS, label: w.openFill };
 }
 
@@ -150,9 +152,10 @@ export async function overviewHow(ctx: RenderContext, subject: Subject, params: 
   const title = titleOf(params, 'how', lang);
   const view: ViewContext = { ctx, lang, productTitle: productTitle(ctx) };
   const diagrams = await diagramsBlock(view, subject, 'system', { ...params, title: '' }, { product: ctx.manifest.diagram, env: process.env }, { file, line });
-  if (diagrams.type === 'problem') return block('how', title, { absent: absent(lang, systemKindsOf(ctx.manifest, 'container'), words(lang).howOf) });
+  const kinds = systemKindsOf(ctx.manifest, 'container').map((kind) => kindLabel(ctx, kind, lang));
+  if (diagrams.type === 'problem') return block('how', title, { absent: absent(lang, kinds, words(lang).howOf) });
   const drawn = diagrams.views.some((one) => one.empty === null || one.elements.length > 0 || one.mermaidSource !== '');
-  if (!drawn) return block('how', title, { absent: absent(lang, systemKindsOf(ctx.manifest, 'container'), words(lang).howOf) });
+  if (!drawn) return block('how', title, { absent: absent(lang, kinds, words(lang).howOf) });
   return block('how', title, { diagrams });
 }
 
@@ -248,8 +251,8 @@ export function overviewReading(ctx: RenderContext, params: Readonly<Record<stri
   const title = titleOf(params, 'reading', lang);
   const w = words(lang);
   const glossary = [...ctx.manifest.kinds.values()].some((decl) => listingFormOf(ctx.manifest, decl.name) === 'glossary');
+  // The page the reader is on is not a place to start reading from: no self-link.
   const links: OverviewItem[] = [
-    { label: w.home, href: HOME_ADDRESS },
     { label: w.documents, href: DOCS_ADDRESS },
     { label: w.catalogue, href: CATALOGUE_ADDRESS },
     ...(glossary ? [{ label: w.glossary, href: GLOSSARY_ADDRESS }] : []),

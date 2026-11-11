@@ -45,6 +45,12 @@ const MANIFEST = [
   '    listing: glossary',
   '    group: area',
   '    labels: { en: { one: Term, many: Terms }, ru: { one: Термин, many: Термины } }',
+  '  code.service:',
+  '    template: templates/entity.liquid',
+  '    source: graph',
+  '    system: container',
+  '    group: area',
+  '    labels: { en: { one: Service, many: Services }, ru: { one: Сервис, many: Сервисы } }',
   '  milestone:',
   '    template: templates/entity.liquid',
   '    source: graph',
@@ -119,7 +125,15 @@ describe('the overview blocks (madarch-47vw.5)', () => {
     expect(block.section).toBe('how');
     expect(block.absent).toBeDefined();
     expect(block.absent!.href).toBe('/fill');
-    expect(block.absent!.message).toContain('system view');
+    // The entity is named by its catalogue name, never by its id; the Russian says «сущность»/«схема», not «вид».
+    expect(block.absent!.message).toContain('Services');
+    expect(block.absent!.message).not.toContain('code.service');
+    const ru = await overviewHow(ctx, product(ctx), {}, 'templates/product.liquid', 1, 'ru');
+    if (ru.type !== 'overview') throw new Error('not an overview');
+    expect(ru.absent!.message).toContain('Сервисы');
+    expect(ru.absent!.message).toContain('схема системы');
+    expect(ru.absent!.message).not.toContain('code.service');
+    expect(ru.absent!.message).not.toContain('системный вид');
   });
 
   test('data says which entity’s fill brings the tables when no ER entity stands', async () => {
@@ -157,7 +171,7 @@ describe('the overview blocks (madarch-47vw.5)', () => {
   test('reading links to the surfaces a newcomer starts from, in both languages', () => {
     const en = overviewReading(context(), {}, 'en');
     if (en.type !== 'overview') throw new Error('not an overview');
-    expect(en.links!.map((link) => link.href)).toEqual(['/', '/docs', '/catalogue', '/glossary', '/problems', '/fill']);
+    expect(en.links!.map((link) => link.href)).toEqual(['/docs', '/catalogue', '/glossary', '/problems', '/fill']);
     const ru = overviewReading(context(), {}, 'ru');
     if (ru.type !== 'overview') throw new Error('not an overview');
     expect(ru.title).toBe('С чего начать читать');
