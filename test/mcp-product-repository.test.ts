@@ -103,9 +103,16 @@ describe("the server over a product's own repository", () => {
     expect(answer['asIsCommit']).toBe(productCommit);
     expect((answer['source'] as Record<string, unknown>)['repository']).toBe(PRODUCT);
     expect((answer['source'] as Record<string, unknown>)['commit']).toBe(productCommit);
-    const files = await session.call('list_files', {});
-    expect(files.isError).toBe(false);
-    expect(((files.answer as Record<string, unknown>)['files'] as { path: string }[]).map((file) => file.path)).toEqual([...new Set([...STARTER_FILES.map((file) => file.path), 'madarch/workflows.yaml', 'src/total.ts', 'workspace.yaml'])].sort());
+    const paths: string[] = [];
+    let after: string | undefined;
+    do {
+      const files = await session.call('list_files', { limit: 200, ...(after === undefined ? {} : { after }) });
+      expect(files.isError).toBe(false);
+      const page = files.answer as { files: { path: string }[]; next: string | null };
+      paths.push(...page.files.map((file) => file.path));
+      after = page.next ?? undefined;
+    } while (after !== undefined);
+    expect(paths).toEqual([...new Set([...STARTER_FILES.map((file) => file.path), 'madarch/workflows.yaml', 'src/total.ts', 'workspace.yaml'])].sort());
   }, 600_000);
 
   test('the store holds both repositories under their own ids and commits, never one for the other', async () => {
