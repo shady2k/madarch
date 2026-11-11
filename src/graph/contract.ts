@@ -26,6 +26,7 @@
  * never drops data in silence.
  */
 import { createHash } from 'node:crypto';
+import { byCodePoint } from '../model/order.js';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 
 /** The sort of table a generated name belongs to: a vertex's opinions, an edge's, or a dictionary. */
@@ -209,7 +210,7 @@ function sqlType(field: FieldContract): string {
 const NAME = /^[a-z][a-z0-9_]*$/u;
 
 function quote(name: string, what: string): string {
-  if (!NAME.test(name)) throw new Error(`src/graph/contract.ts: the ${what} ${JSON.stringify(name)} is not a lower-case identifier (a letter, then letters, digits and underscores)`);
+  if (!NAME.test(name)) throw new Error(`${import.meta.path}:213: the ${what} ${JSON.stringify(name)} is not a lower-case identifier (a letter, then letters, digits and underscores)`);
   return `"${name}"`;
 }
 
@@ -227,10 +228,10 @@ async function columnsOf(tx: OuterTransaction, table: string): Promise<Map<strin
   return new Map(found.rows.map((row) => [row.column_name, row.data_type]));
 }
 
-/** The rows a table holds, for a change that must not lose them. */
-async function rowsOf(tx: OuterTransaction, table: string): Promise<number> {
-  const found = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${quote(table, 'table')}`);
-  return Number(found.rows[0]?.n ?? '0');
+/** Historical non-null values, including closed opinions and removed entities. */
+async function valuesOf(tx: OuterTransaction, table: string, field: string): Promise<number> {
+  const found = await tx.query<{ n: string }>(`SELECT count(${quote(field, 'field')})::text AS n FROM ${quote(table, 'table')}`);
+  return Number(found.rows[0]!.n);
 }
 
 /** One column's PostgreSQL type as information_schema names it, for a comparison with a field's map. */
@@ -291,20 +292,28 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
     for (const field of columnsOfKind) {
       const actual = columns.get(field.name);
       if (actual === undefined) {
+        if (field.nullable !== true) {
+          const history = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${name}`);
+          if (Number(history.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:297: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is required but absent from ${history.rows[0]!.n} historical opinions: the change is refused`);
+        }
         await tx.query(`ALTER TABLE ${name} ADD COLUMN ${quote(field.name, 'field')} ${sqlType(field)}`);
         continue;
       }
+      if (field.reference !== undefined && sameType(actual, field)) {
+        const incompatible = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${name} WHERE ${quote(field.name, 'field')} IS NOT NULL AND ${quote(field.name, 'field')}->>'kind' IS DISTINCT FROM $1`, [field.reference]);
+        if (Number(incompatible.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:304: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} has ${incompatible.rows[0]!.n} non-null values incompatible with reference ${JSON.stringify(field.reference)}: the change is refused`);
+      }
       if (!sameType(actual, field)) {
-        const rows = await rowsOf(tx, table);
-        if (rows > 0) throw new Error(`src/graph/contract.ts: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is ${actual} in ${table} and ${sqlType(field)} in the contract, and ${String(rows)} rows hold it: the change is refused rather than dropping them`);
-        await tx.query(`ALTER TABLE ${name} ALTER COLUMN ${quote(field.name, 'field')} TYPE ${sqlType(field)} USING ${quote(field.name, 'field')}::${sqlType(field)}`);
+        const values = await valuesOf(tx, table, field.name);
+        if (values > 0) throw new Error(`${import.meta.path}:308: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} is ${actual} in ${table} and ${sqlType(field)} in the contract; ${String(values)} non-null values would be lost: the change is refused`);
+        await tx.query(`ALTER TABLE ${name} ALTER COLUMN ${quote(field.name, 'field')} TYPE ${sqlType(field)} USING NULL::${sqlType(field)}`);
       }
     }
     const wanted = new Set(columnsOfKind.map((field) => field.name));
-    for (const column of columns.keys()) {
+    for (const column of [...columns.keys()].sort(byCodePoint)) {
       if (column === owner || (OPINION_FIELDS as readonly string[]).includes(column) || wanted.has(column)) continue;
-      const rows = await rowsOf(tx, table);
-      if (rows > 0) throw new Error(`src/graph/contract.ts: the kind ${JSON.stringify(kind)} no longer declares the field ${JSON.stringify(column)}, and ${table} holds ${String(rows)} rows: the change is refused rather than dropping them`);
+      const values = await valuesOf(tx, table, column);
+      if (values > 0) throw new Error(`${import.meta.path}:316: the kind ${JSON.stringify(kind)} no longer declares the field ${JSON.stringify(column)}; ${String(values)} non-null values would be lost from ${table}: the change is refused`);
       await tx.query(`ALTER TABLE ${name} DROP COLUMN ${quote(column, 'column')}`);
     }
   }
@@ -356,6 +365,31 @@ async function makeDictionary(tx: OuterTransaction, table: string, dictionary: D
   }
   for (const one of dictionary.indexes ?? []) {
     await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(one.name, 'index')} ON ${name} (${one.columns.map((column) => quote(column, 'column')).join(', ')})`);
+  }
+}
+
+/** Authored natural keys cannot be reinterpreted by changing their field declarations. */
+async function preserveAuthoredKeys(tx: OuterTransaction, contract: GraphContract): Promise<void> {
+  for (const kind of contract.vertex) {
+    const held = await tx.query<{ field: string; value: unknown; n: string }>(`SELECT entry.key AS field, entry.value AS value, count(*)::text AS n
+      FROM node n JOIN entity e ON e.id = n.entity_id CROSS JOIN LATERAL jsonb_each(n.key) entry
+      WHERE e.name = $1 AND EXISTS (SELECT 1 FROM operation o WHERE o.author LIKE 'person:%'
+        AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'vertices') event WHERE event->>'entity' = e.name AND event->>'uid' = n.uid::text))
+      GROUP BY entry.key, entry.value`, [kind.name]);
+    const incompatible = new Map<string, number>();
+    for (const row of held.rows) {
+      const field = kind.fields.find((one) => one.name === row.field);
+      const valid = field !== undefined && kind.key.includes(row.field) && (field.reference !== undefined
+        ? typeof row.value === 'object' && row.value !== null && 'kind' in row.value && row.value.kind === field.reference
+        : field.type === 'text' ? typeof row.value === 'string'
+        : field.type === 'integer' ? typeof row.value === 'number' && Number.isInteger(row.value) && row.value >= -2147483648 && row.value <= 2147483647
+        : field.type === 'bigint' ? (typeof row.value === 'number' && Number.isSafeInteger(row.value)) || (typeof row.value === 'string' && /^-?\d+$/u.test(row.value) && BigInt(row.value) >= -9223372036854775808n && BigInt(row.value) <= 9223372036854775807n)
+        : false);
+      if (!valid) incompatible.set(row.field, (incompatible.get(row.field) ?? 0) + Number(row.n));
+    }
+    for (const [field, count] of [...incompatible].sort(([a], [b]) => byCodePoint(a, b))) {
+      throw new Error(`${import.meta.path}:391: the kind ${JSON.stringify(kind.name)} field ${JSON.stringify(field)} has ${count} non-null natural-key values incompatible with the changed contract: the change is refused`);
+    }
   }
 }
 
@@ -428,9 +462,30 @@ async function pruneKinds(tx: OuterTransaction, contract: GraphContract): Promis
   const declaredVertex = new Set(contract.vertex.map((kind) => kind.name));
   const declaredEdge = new Set(contract.edge.map((kind) => kind.name));
   const held = await tx.query<{ name: string; sort: 'node' | 'edge' }>('SELECT name, sort FROM entity ORDER BY name');
-  for (const row of held.rows) {
-    if (row.sort === 'node' && !declaredVertex.has(row.name)) await dropVertexKind(tx, row.name);
-    else if (row.sort === 'edge' && !declaredEdge.has(row.name)) await dropEdgeKind(tx, row.name);
+  for (const row of held.rows.sort((a, b) => byCodePoint(a.name, b.name))) {
+    const removed = row.sort === 'node' ? !declaredVertex.has(row.name) : !declaredEdge.has(row.name);
+    if (!removed) continue;
+    const authored = await tx.query<{ present: boolean }>(`SELECT EXISTS (
+      SELECT 1 FROM operation o WHERE o.author LIKE 'person:%' AND (
+        EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'opinions') event WHERE event->>'entity' = $1)
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'vertices') event WHERE event->>'entity' = $1)
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(o.change->'edges') event WHERE event->>'entity' = $1)
+      )) AS present`, [row.name]);
+    if (authored.rows[0]!.present) {
+      const table = generatedTableName(row.name, row.sort === 'node' ? 'vertex' : 'edge');
+      const columns = await columnsOf(tx, table);
+      for (const column of [...columns.keys()].sort(byCodePoint)) {
+        if (column === 'node_id' || column === 'edge_id' || (OPINION_FIELDS as readonly string[]).includes(column)) continue;
+        const values = await valuesOf(tx, table, column);
+        if (values > 0) throw new Error(`${import.meta.path}:480: the removed kind ${JSON.stringify(row.name)} field ${JSON.stringify(column)} holds ${String(values)} non-null values that would be lost: the change is refused`);
+      }
+      // Key-only opinions and entity identities are history too, even when no attribute holds a value.
+      const identity = row.sort === 'node' ? 'node' : 'edge';
+      const count = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${identity} WHERE entity_id IN (SELECT id FROM entity WHERE name = $1)`, [row.name]);
+      if (Number(count.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:485: the removed kind ${JSON.stringify(row.name)} field "identity" holds ${count.rows[0]!.n} non-null values that would be lost: the change is refused`);
+    }
+    if (row.sort === 'node') await dropVertexKind(tx, row.name);
+    else await dropEdgeKind(tx, row.name);
   }
 }
 
@@ -441,6 +496,7 @@ async function pruneKinds(tx: OuterTransaction, contract: GraphContract): Promis
  * in one transaction, so a crash leaves one shape, never half of one.
  */
 export async function createContractTablesIn(tx: OuterTransaction, contract: GraphContract): Promise<void> {
+  await preserveAuthoredKeys(tx, contract);
   for (const dictionary of contract.dictionary) await makeDictionary(tx, tableOf(dictionary, 'dictionary'), dictionary);
   for (const vertex of contract.vertex) await makeTable(tx, tableOf(vertex, 'vertex'), vertex.fields, vertex.key, 'node_id', vertex.name, vertex.checks ?? [], vertex.indexes ?? []);
   // Every edge kind's table holds its opinions, with or without fields: the evidence of an edge has its home there too.

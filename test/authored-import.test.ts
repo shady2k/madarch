@@ -126,3 +126,62 @@ test('authored history guard is false before writing and remains true after dele
     expect(await authoredHistoryPresent(owner)).toBe(true);
   } finally { await owner.close(); }
 }, 15000);
+
+test('changed source after a committed archive failure edits the receipt uid and retains both byte versions', async () => {
+  const folder = fixture();
+  const parsed = readKinds(folder);
+  if (!parsed.present) throw new Error('fixture manifest missing');
+  const original = Buffer.from('---\nid: note:kept\nkind: note\ntitle: Original\n---\nFirst body\n');
+  const changed = Buffer.from('---\r\nid: note:kept\r\nkind: note\r\ntitle: Changed\r\n---\r\nSecond body\r\n');
+  writeFileSync(join(folder, 'old/kept.md'), original);
+  writeFileSync(join(folder, '.madarch'), 'blocked');
+  const owner = await createTestDatabaseOwner();
+  try {
+    await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
+    const first = await importAuthored(folder, owner, parsed.manifest, '', 'first-reader');
+    expect(first.imported).toEqual(['old/kept.md']);
+    expect(first.archived).toEqual([]);
+    const uid = await owner.transaction('snapshot', async (tx) => (await tx.query<{ uid: string }>('SELECT uid::text AS uid FROM node')).rows[0]!.uid);
+    writeFileSync(join(folder, 'old/kept.md'), changed);
+    rmSync(join(folder, '.madarch'));
+    const retry = await importAuthored(folder, owner, parsed.manifest, '', 'second-reader');
+    expect(retry.errors).toEqual([]);
+    expect(retry.imported).toEqual(['old/kept.md']);
+    expect(retry.archived).toEqual(['old/kept.md']);
+    const nodes = await owner.transaction('snapshot', async (tx) => (await tx.query<{ uid: string }>('SELECT uid::text AS uid FROM node')).rows);
+    expect(nodes).toEqual([{ uid }]);
+    const held = await owner.transaction('snapshot', async (tx) => await authoredEntity(tx, parsed.manifest, '', 'second-reader', 'read', 'note', { uid }));
+    expect(held.entity!.opinions).toHaveLength(2);
+    expect(held.entity!.opinions.map((opinion) => opinion['said_by']).sort()).toEqual(['first-reader@1', 'second-reader@1']);
+    const receipts = await owner.transaction('snapshot', async (tx) => (await tx.query<{ words: string }>('SELECT words FROM operation ORDER BY seq')).rows.map((row) => JSON.parse(row.words)));
+    expect(receipts.map((receipt) => Buffer.from(receipt.bytes, 'base64'))).toEqual([original, changed]);
+    expect(receipts.map((receipt) => [receipt.path, receipt.legacyId])).toEqual([['old/kept.md', 'note:kept'], ['old/kept.md', 'note:kept']]);
+    // A second interrupted retry of the changed bytes must not publish them twice.
+    writeFileSync(join(folder, 'old/kept.md'), changed);
+    expect((await importAuthored(folder, owner, parsed.manifest, '', 'second-reader')).imported).toEqual([]);
+  } finally { await owner.close(); }
+}, 15000);
+
+test('byte-only retry retains the changed exact source once without another opinion', async () => {
+  const folder = fixture();
+  const parsed = readKinds(folder);
+  if (!parsed.present) throw new Error('fixture manifest missing');
+  const original = Buffer.from('---\nid: note:kept\nkind: note\ntitle: Kept\n---\nBody\n');
+  const changed = Buffer.from('---\n# Imported source comment\nid: note:kept\nkind: note\ntitle: Kept\n---\nBody\n');
+  writeFileSync(join(folder, 'old/kept.md'), original);
+  writeFileSync(join(folder, '.madarch'), 'blocked');
+  const owner = await createTestDatabaseOwner();
+  try {
+    await createOneGraphSchema(owner, graphContractOf(parsed.manifest));
+    await importAuthored(folder, owner, parsed.manifest, '', 'reader');
+    writeFileSync(join(folder, 'old/kept.md'), changed);
+    const retry = await importAuthored(folder, owner, parsed.manifest, '', 'reader');
+    expect(retry.imported).toEqual(['old/kept.md']);
+    const receipts = await owner.transaction('snapshot', async (tx) => (await tx.query<{ words: string }>('SELECT words FROM operation ORDER BY seq')).rows.map((row) => JSON.parse(row.words)));
+    expect(receipts.map((receipt) => Buffer.from(receipt.bytes, 'base64'))).toEqual([original, changed]);
+    expect((await importAuthored(folder, owner, parsed.manifest, '', 'reader')).imported).toEqual([]);
+    const held = await owner.transaction('snapshot', async (tx) => await authoredEntity(tx, parsed.manifest, '', 'reader', 'list', 'note'));
+    expect(held.entities).toHaveLength(1);
+    expect(held.entities![0]!.opinions).toHaveLength(1);
+  } finally { await owner.close(); }
+}, 15000);

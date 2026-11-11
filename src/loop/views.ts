@@ -13,7 +13,7 @@ import type { ProductFileSource } from '../knowledge/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
-import { parseStatementRef, readCorrectionsIn, readQuestionsIn, type Author, type Correction, type Question } from './entities.js';
+import type { Author, Question } from './entities.js';
 import { type TaskImpact } from './impact.js';
 import { type PlaceView, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
@@ -269,14 +269,6 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;
-  const corrections = await readCorrectionsIn(input.files);
-  for (const correction of corrections.items) add(correctionProblem(correction, byId, input.settings, notes));
-  for (const problem of corrections.problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
-    ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
-  }, input.settings, notes));
-  for (const problem of (await readQuestionsIn(input.files)).problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
-    ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
-  }, input.settings, notes));
   // Every finding is kept: two passages of one table row stand on the same line, and one message would hide the other
   // (the twelfth review). Only an exact repeat — the same kind, message and place — is dropped.
   const seenFinding = new Set<string>();
@@ -364,15 +356,6 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   return { problems: kept, categories, sections, open: kept.filter((p) => !p.closed).length, closed: kept.filter((p) => p.closed).length, dismissed: out.filter((problem) => dismissed.has(problem.id)).length, notes };
 }
 
-function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>, settings: ProblemSettings, notes: ProblemNote[]): Problem | undefined {
-  const ref = parseStatementRef(correction.about);
-  const page = ref === undefined ? undefined : pages.get(ref.page);
-  return wikiProblem('correction', correction.slug, {
-    fixer: 'agent', closed: correction.status === 'applied', page: ref?.page ?? null, pageTitle: page?.title ?? null, statement: ref?.statement ?? null, sentence: correction.statement,
-    target: correction.slug, reason: correction.reason, file: correction.file, line: null, by: correction.by, at: correction.at,
-    evidence: [{ label: correction.statement, href: null, key: null }],
-  }, settings, notes);
-}
 // ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
 
 /** One scope of a task, as it is stored and as a reader says it. */

@@ -100,3 +100,41 @@ test('product MCP exposes four authored operations and persists across calls wit
   expect(responses[6].result.isError).toBe(false);
   expect(responses[7].result.isError).toBe(true);
 }, 60_000);
+
+test.each(['123', '"Queue"', 'null'])('CLI text fields preserve raw %s exactly like MCP', async (title) => {
+    const created = await cli('create', 'note', '--title', title);
+    expect(created.exit).toBe(0);
+    expect(created.body.entity.values.title).toBe(title);
+    expect((await cli('show', 'note', created.body.entity.uid)).body.entity.values.title).toBe(title);
+    let output = '';
+    await mcpCommand(['--product', folder, '--home', home], { env,
+      input: (async function* () { yield JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_entity', arguments: { kind: 'note', values: { title } } } }) + '\n'; })(),
+      stdout: { write: (text) => { output += text; } },
+    });
+    const response = JSON.parse(output.trim());
+    expect(response.result.isError).toBe(false);
+    expect(JSON.parse(response.result.content[0].text).entity.values.title).toBe(title);
+}, 60_000);
+
+test('CLI and MCP forward revision conflicts without losing current values or authors', async () => {
+  const created = await cli('create', 'note', '--title', 'Before');
+  const { uid, revision } = created.body.entity;
+  expect(typeof revision).toBe('string');
+  const updated = await cli('update', 'note', uid, '--title', 'Current', '--if-revision', revision);
+  expect(updated.exit).toBe(0);
+  const refused = await cli('update', 'note', uid, '--title', 'Stale', '--if-revision', revision);
+  expect(refused.exit).toBe(2);
+  expect(refused.body.error.field).toBe('title');
+  expect(refused.body.error.conflict.current).toBe('Current');
+  expect(refused.body.error.conflict.author).toContain('person:');
+  expect((await cli('show', 'note', uid)).body.entity.revision).toBe(updated.body.entity.revision);
+  let output = '';
+  await mcpCommand(['--product', folder, '--home', home], { env,
+    input: (async function* () { yield JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'update_entity', arguments: { kind: 'note', uid, values: { title: 'Stale MCP' }, ifRevision: revision } } }) + '\n'; })(),
+    stdout: { write: (text) => { output += text; } },
+  });
+  const response = JSON.parse(output.trim());
+  expect(response.result.isError).toBe(true);
+  expect(JSON.parse(response.result.content[0].text).error).toEqual(refused.body.error);
+  expect((await cli('show', 'note', uid)).body.entity.values.title).toBe('Current');
+}, 60_000);

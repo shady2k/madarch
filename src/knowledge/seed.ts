@@ -6,6 +6,7 @@ import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } fro
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
+import { byCodePoint } from '../model/order.js';
 import type { RuleSpec } from '../problems/types.js';
 
 /**
@@ -726,7 +727,7 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
     // product without user stories or quality requirements says so instead of showing a smaller wiki (decision 0032, section 4).
-    `  expect: [${['doc.use-case', 'doc.rule', 'doc.requirement', 'doc.decision'].filter((kind) => names.has(kind)).join(', ')}]`,
+    `  expect: [${chosen.filter((kind) => kind.source === 'document').map((kind) => kind.name).sort(byCodePoint).join(', ')}]`,
     // A fence, an html comment, a rule line and a link definition are a document's furniture: the product names them as
     // blocks that hold no meaning of their own, so the reader can ignore them by a rule instead of guessing (decision
     // 0032 section 4; the review of the eighth pass).

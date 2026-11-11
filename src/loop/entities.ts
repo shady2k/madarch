@@ -22,7 +22,6 @@
 import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { readWrittenAt, type WrittenAt } from '../knowledge/index/page.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
 import { groundLinks } from '../writer/sentences.js';
 
 export const QUESTIONS_FOLDER = 'docs/questions';
@@ -295,5 +294,3 @@ export interface Read<T> { readonly items: T[]; readonly problems: LoopFileError
 function retired(): never { throw new Error('Markdown authored entity reading is retired; use the authored entity service'); }
 export const readQuestions = (_folder: string): Read<Question> => retired();
 export const readCorrections = (_folder: string): Read<Correction> => retired();
-export async function readQuestionsIn(_files: ProductFileSource): Promise<Read<Question>> { return retired(); }
-export async function readCorrectionsIn(_files: ProductFileSource): Promise<Read<Correction>> { return retired(); }

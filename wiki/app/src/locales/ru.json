@@ -1,5 +1,8 @@
 {
   "authored": {
+    "reload": "Загрузить заново",
+    "missingEntity": "Сервер не вернул объект.",
+    "conflict": "{{field}} теперь {{current}} ({{author}}).",
       "new": "Создать",
       "edit": "Изменить",
       "delete": "Удалить",

@@ -131,7 +131,7 @@ export function createKnowledgePart(
     try {
       return await work(request);
     } catch (error) {
-      if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }) });
+      if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }), ...('conflict' in error && error.conflict !== undefined ? { conflict: error.conflict as { field: string; current: unknown; author: string } } : {}) });
       if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
       if (error instanceof WikiReadError) {
         errorLog(`the knowledge wiki could not ${what}: ${error.message}`);
@@ -181,22 +181,27 @@ export function createKnowledgePart(
       const uid = url.searchParams.get('uid') ?? undefined;
       const methods = { GET: uid === undefined ? 'list' : 'show', POST: 'create', PATCH: 'update', DELETE: 'delete' } as const;
       const action = methods[request.method as keyof typeof methods];
-      if (action === undefined) return refused(405, { message: 'use GET, POST, PATCH or DELETE' });
+      if (action === undefined) return refused(405, { message: `${import.meta.path}:1: use GET, POST, PATCH or DELETE` });
       let body: { values?: Readonly<Record<string, unknown>>; words?: string } = {};
       if (request.method !== 'GET') {
         const outside = foreign(request);
-        if (outside !== undefined) return refused(403, { message: outside });
+        if (outside !== undefined) return refused(403, { message: `${import.meta.path}:1: ${outside}` });
         const plain = notJson(request);
-        if (plain !== undefined) return refused(415, { message: plain });
+        if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
         let raw: unknown;
-        try { raw = await request.json(); } catch { return refused(400, { message: 'the request body must be JSON' }); }
-        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: 'the body is {values?, words?}' });
+        try { raw = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON` }); }
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: `${import.meta.path}:1: the body is {values?, words?}` });
         const held = raw as Record<string, unknown>;
-        if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: 'words must be text, kept verbatim' });
-        if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: 'values must be an object keyed by field' });
+        if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: `${import.meta.path}:1: words must be text, kept verbatim` });
+        if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: `${import.meta.path}:1: values must be an object keyed by field` });
         body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };
       }
-      return { response: json(action === 'create' ? 201 : 200, await product.authored(action, kind, { ...body, ...(uid === undefined ? {} : { uid }) })) };
+      const match = request.headers.get('if-match');
+      if (match !== null && !/^"[0-9]+"$/u.test(match)) return refused(400, { field: 'if-match', message: `${import.meta.path}:1: If-Match must contain one quoted entity revision from ETag` });
+      const answer = await product.authored(action, kind, { ...body, ...(uid === undefined ? {} : { uid }), ...(match === null ? {} : { ifRevision: match.slice(1, -1) }) });
+      const response = json(action === 'create' ? 201 : 200, answer);
+      if (answer.entity !== undefined && 'revision' in answer.entity) response.headers.set('ETag', `"${String(answer.entity.revision)}"`);
+      return { response };
     }),
     identity: guarded('read the product', async () => {
       const identity = product.product();

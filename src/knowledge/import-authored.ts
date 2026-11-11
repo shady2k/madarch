@@ -60,11 +60,12 @@ export async function importAuthored(productFolder: string, owner: Parameters<ty
       try {
         const bytes = readFileSync(join(root, file));
         const digest = createHash('sha256').update(bytes).digest('hex');
-        const words = JSON.stringify({ migration: MIGRATION, path: file, sha256: digest, bytes: bytes.toString('base64') });
         const findings: Finding[] = [];
         const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
         const entity = readMarkdownEntity(text, file, decl, findings);
         if (entity === null) { result.errors.push(...findings); continue; }
+        const identity = { migration: MIGRATION, path: file, legacyId: entity.id };
+        const words = JSON.stringify({ ...identity, sha256: digest, bytes: bytes.toString('base64') });
         const values: Record<string, unknown> = {};
         for (const field of decl.fields ?? []) {
           if (field.name === 'legacy_id') values[field.name] = entity.id;
@@ -73,8 +74,8 @@ export async function importAuthored(productFolder: string, owner: Parameters<ty
           else if (field.name === 'title') values[field.name] = entity.title;
           else if (field.name in entity.front) values[field.name] = entity.front[field.name];
         }
-        const imported = await commitAuthoredImport(owner, `${MIGRATION}:${file}`, words, async (tx) => {
-          await authoredEntity(tx, manifest, prefix, person, 'create', decl.name, { values, words });
+        const imported = await commitAuthoredImport(owner, identity, words, async (tx, uid) => {
+          await authoredEntity(tx, manifest, prefix, person, uid === undefined ? 'create' : 'edit', decl.name, { values, words, ...(uid === undefined ? {} : { uid, recordUnchanged: true }) });
         });
         if (imported) result.imported.push(file);
         // Compare immediately before removal; an edited source is never discarded after importing its older bytes.
@@ -92,11 +93,14 @@ export async function importAuthored(productFolder: string, owner: Parameters<ty
         unlinkSync(join(root, file));
         result.archived.push(file);
       } catch (error) {
-        result.errors.push({ file, line: 1, message: `${join(root, file)}: ${String(error)}` });
+        result.errors.push({ file, line: 1, message: `${join(root, file)}:1: ${String(error)}` });
       }
     }
   }
-  result.errors = result.errors.map((error) => ({ ...error, file: resolve(root, error.file) }));
+  result.imported.sort(byCodePoint);
+  result.archived.sort(byCodePoint);
+  result.errors = result.errors.map((error) => ({ ...error, file: resolve(root, error.file) }))
+    .sort((a, b) => byCodePoint(a.file, b.file) || a.line - b.line || byCodePoint(a.message, b.message));
   return await withSpan('authored.import.result', { 'imported': result.imported.length, 'archived': result.archived.length, 'errors': result.errors.length }, async () => result);
   });
 }

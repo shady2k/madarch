@@ -322,7 +322,7 @@ export class KnowledgeProduct {
 
 
   /** A person's explicit entity action never fills the product or installs a manifest. */
-  async authored(action: 'create' | 'show' | 'update' | 'delete' | 'list' | 'schema', kind: string, args: { uid?: string; values?: Readonly<Record<string, unknown>>; words?: string } = {}) {
+  async authored(action: 'create' | 'show' | 'update' | 'delete' | 'list' | 'schema', kind: string, args: { uid?: string; values?: Readonly<Record<string, unknown>>; words?: string; ifRevision?: string } = {}) {
     return await withSpan('authored.action', { 'authored.action': action, 'authored.kind': kind }, async () => {
       const owner = await this.open();
       await this.followStoreFill();
@@ -3159,10 +3159,10 @@ export class KnowledgeProduct {
   async dismissProblem(id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> {
     const listing = await this.problems();
     const problem = listing.problems.find((candidate) => candidate.id === id);
-    if (problem === undefined) throw new LoopRefusal(404, `docs/problems:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
+    if (problem === undefined) throw new LoopRefusal(404, `${join(this.folder, 'docs/problems')}:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
     const [rule, ...rest] = id.split('\u0000');
     const identity = rest.join('\u0000');
-    if (rule === undefined || identity === '') throw new LoopRefusal(400, `docs/problems:1: the problem id ${JSON.stringify(id)} is not <rule>\\0<identity>`);
+    if (rule === undefined || identity === '') throw new LoopRefusal(400, `${join(this.folder, 'docs/problems')}:1: the problem id ${JSON.stringify(id)} is not <rule>\\0<identity>`);
     const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
     const at = (this.options.now?.() ?? new Date()).toISOString();
     let written: ReturnType<typeof writeProblemDismissal>;

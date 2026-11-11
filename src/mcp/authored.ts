@@ -15,6 +15,7 @@ const tool = (action: string, description: string, required: readonly string[]):
     uid: { type: 'string', description: 'Stable uid returned by create or read; not a display id' },
     values: { type: 'object', description: 'Declared field names and their values' },
     words: { type: 'string', description: 'Exact original words to keep with the operation' },
+    ifRevision: { type: 'string', description: 'Edit only the revision returned by a read' },
   }, required, additionalProperties: false },
 });
 
@@ -33,10 +34,12 @@ export async function callAuthoredTool(product: KnowledgeProduct, name: string, 
     if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Error('arguments must be an object');
     const args = input as Record<string, unknown>;
     if (typeof args['kind'] !== 'string' || args['kind'].trim() === '') throw new Error('kind must be a nonempty string');
-    if (Object.keys(args).some((key) => !['kind', 'uid', 'values', 'words'].includes(key))) throw new Error('the arguments are kind, uid, values and words');
+    if (Object.keys(args).some((key) => !['kind', 'uid', 'values', 'words', 'ifRevision'].includes(key))) throw new Error('the arguments are kind, uid, values, words and ifRevision');
     if (args['uid'] !== undefined && (typeof args['uid'] !== 'string' || args['uid'].trim() === '')) throw new Error('uid must be a nonempty string');
     if (args['values'] !== undefined && (typeof args['values'] !== 'object' || args['values'] === null || Array.isArray(args['values']))) throw new Error('values must be an object of field names and values');
     if (args['words'] !== undefined && typeof args['words'] !== 'string') throw new Error('words must be a string');
+    if (args['ifRevision'] !== undefined && typeof args['ifRevision'] !== 'string') throw new Error('ifRevision must be a string');
+    if (args['ifRevision'] !== undefined && name !== 'update_entity') throw new Error(`${name} takes no ifRevision`);
     if ((name === 'update_entity' || name === 'delete_entity') && args['uid'] === undefined) throw new Error(`${name} requires uid`);
     if (name === 'create_entity' && args['uid'] !== undefined) throw new Error('create_entity takes no uid');
     if (name === 'read_entity' && (args['values'] !== undefined || args['words'] !== undefined)) throw new Error(`${name} takes no values or words`);
@@ -45,11 +48,14 @@ export async function callAuthoredTool(product: KnowledgeProduct, name: string, 
     const answer = await product.authored(action, args['kind'], {
       ...(args['uid'] === undefined ? {} : { uid: args['uid'] as string }),
       ...(args['words'] === undefined ? {} : { words: args['words'] as string }),
+      ...(args['ifRevision'] === undefined ? {} : { ifRevision: args['ifRevision'] as string }),
       ...(args['values'] === undefined ? {} : { values: args['values'] as Record<string, unknown> }),
     });
     return { answer: { ...answer, guidance: await entityGuidance(product) }, isError: false };
   } catch (error) {
-    return { answer: { error: { message: error instanceof Error ? error.message : String(error), ...(error instanceof Error && 'field' in error ? { field: error.field } : {}) }, guidance: await entityGuidance(product) }, isError: true };
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = /^\/.+:\d+:/u.test(rawMessage) ? rawMessage : `${import.meta.path}:1: ${rawMessage}`;
+    return { answer: { error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance: await entityGuidance(product) }, isError: true };
   }
   });
 }

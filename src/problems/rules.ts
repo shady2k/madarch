@@ -59,11 +59,6 @@ export function unimplementedRuleNotes(settings: ProblemSettings): ProblemNote[]
     : [{ message: `the rule ${rule.id} names the predicate "${rule.predicate}", which the engine does not implement: the rule is not run`, textKey: 'ruleUnimplemented', textArgs: { rule: rule.id, predicate: rule.predicate } } satisfies ProblemNote]);
 }
 
-/** The rules one predicate finds with, in id order; a disabled rule is not among them. */
-export function rulesOf(settings: ProblemSettings, predicate: string): RuleSpec[] {
-  return ruleSpecs(settings).filter((rule) => rule.predicate === predicate && rule.enabled !== false);
-}
-
 /**
  * The wiki rule of a finding kind. The kind is the engine's name for what it found; the rule is the
  * product's, so a manifest that declares no rule for the kind says nothing about it (undefined).

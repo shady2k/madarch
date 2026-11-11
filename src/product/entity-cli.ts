@@ -18,6 +18,7 @@ const HELP = [
   '  --field name=value   Set a declared field; repeat for several fields',
   '  --<field> <value>    Set a declared field by its own name',
   '  --words <text>       Keep these exact words with the operation',
+  '  --if-revision <id>   Edit only the revision returned by a read',
   '  --json               Print one JSON object',
   '',
   'Run madarch entity schema <kind> to see fields. Use uid from a list or create response.',
@@ -67,11 +68,11 @@ export async function entityCommand(args: readonly string[], options: {
     let folder: string | undefined;
     let home: string | undefined;
     let words: string | undefined;
-    const values: Record<string, unknown> = {};
+    let ifRevision: string | undefined;
+    const rawValues: Record<string, string> = {};
     const setField = (name: string, value: string): void => {
-      if (name === '' || Object.hasOwn(values, name)) throw new Error(`field ${JSON.stringify(name)} must be named once`);
-      // JSON values allow numbers, booleans, arrays and explicit null without losing strings.
-      try { values[name] = JSON.parse(value); } catch { values[name] = value; }
+      if (name === '' || Object.hasOwn(rawValues, name)) throw new Error(`field ${JSON.stringify(name)} must be named once`);
+      rawValues[name] = value;
     };
     const seen = new Set<string>();
     for (let at = 1; at < args.length; at++) {
@@ -87,6 +88,7 @@ export async function entityCommand(args: readonly string[], options: {
       if (name === 'product') folder = value;
       else if (name === 'home') home = value;
       else if (name === 'words') words = value;
+      else if (name === 'if-revision') ifRevision = value;
       else if (name === 'field') {
         const equals = value.indexOf('=');
         if (equals <= 0) throw new Error('--field needs name=value');
@@ -99,18 +101,34 @@ export async function entityCommand(args: readonly string[], options: {
     if (positional.length > 2) throw new Error('too many arguments: give a kind and, for show/update/delete, one uid');
     if (['show', 'update', 'delete'].includes(action) && uid === undefined) throw new Error(`${action} needs the uid from a create or list response`);
     if (['create', 'list', 'schema'].includes(action) && uid !== undefined) throw new Error(`${action} takes no uid`);
-    if (action !== 'create' && action !== 'update' && Object.keys(values).length > 0) throw new Error(`${action} takes no field values`);
+    if (action !== 'create' && action !== 'update' && Object.keys(rawValues).length > 0) throw new Error(`${action} takes no field values`);
     if (!['create', 'update', 'delete'].includes(action) && words !== undefined) throw new Error(`${action} takes no --words`);
+    if (ifRevision !== undefined && action !== 'update') throw new Error(`${action} takes no --if-revision`);
     const env = options.env ?? process.env;
     const productFolder = entityProductFolder(folder, options.cwd ?? process.cwd());
     product = new KnowledgeProduct({ productFolder, storeRoot: knowledgeRootOf(productsHome(env, home)), env });
-    const answer = action === 'import' ? await product.importAuthored() : await product.authored(action, kind!, { ...(uid === undefined ? {} : { uid }), ...(words === undefined ? {} : { words }), values });
+    const values: Record<string, unknown> = {};
+    if (action === 'create' || action === 'update') {
+      const schema = await product.authored('schema', kind!);
+      for (const [name, raw] of Object.entries(rawValues)) {
+        const field = schema.fields.find((held) => held.name === name);
+        if (field === undefined) throw new Error(`field ${JSON.stringify(name)}: not declared by this kind`);
+        if (field.type !== 'text' && field.nullable === true && raw === 'null') values[name] = null;
+        else if (field.reference === undefined && ['text', 'timestamp', 'bigint'].includes(field.type)) values[name] = raw;
+        else {
+          try { values[name] = JSON.parse(raw); }
+          catch { throw new Error(`field ${JSON.stringify(name)}: expected ${field.reference === undefined ? field.type : `a reference to ${field.reference}`}`); }
+        }
+      }
+    }
+    const answer = action === 'import' ? await product.importAuthored() : await product.authored(action, kind!, { ...(uid === undefined ? {} : { uid }), ...(words === undefined ? {} : { words }), ...(ifRevision === undefined ? {} : { ifRevision }), values });
     stdout.write(`${JSON.stringify({ ...answer, guidance: await entityGuidance(product) }, null, json ? undefined : 2)}\n`);
     return 'errors' in answer && answer.errors.length > 0 ? 2 : 0;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = /^\/.+:\d+:/u.test(rawMessage) ? rawMessage : `${import.meta.path}:1: ${rawMessage}`;
     const guidance = await entityGuidance(product);
-    if (json) stdout.write(`${JSON.stringify({ error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : {}) }, guidance, help: 'madarch entity --help' })}\n`);
+    if (json) stdout.write(`${JSON.stringify({ error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : /^field "([^"]+)"/u.test(rawMessage) ? { field: /^field "([^"]+)"/u.exec(rawMessage)![1] } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance, help: 'madarch entity --help' })}\n`);
     else stderr.write(`${message}\n${JSON.stringify(guidance)}\nRun madarch entity --help for examples and options.\n`);
     return 2;
   } finally { await product?.close(); }

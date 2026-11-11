@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { authoredEntity, shortestUid } from '../src/graph/authored.js';
+import { AuthoredRefusal, authoredEntity, shortestUid } from '../src/graph/authored.js';
 import type { KindsManifest } from '../src/knowledge/kinds.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -13,6 +13,9 @@ const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/kinds.yaml
     { name: 'title', type: 'text' }, { name: 'count', type: 'integer', nullable: true }, { name: 'flag', type: 'boolean', nullable: true },
   ] }],
   ['derived', { name: 'derived', template: 'derived.liquid', source: 'graph', origin: 'agent', title: 'title', relations: [], line: 2 }],
+  ['link', { name: 'link', template: 'link.liquid', source: 'graph', origin: 'person', title: 'target', relations: [], line: 3,
+    fields: [{ name: 'target', type: 'json', reference: 'note' }],
+  }],
 ]) };
 const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader <reader@example.invalid>', action, 'note', args));
 beforeAll(async () => { owner = await createTestDatabaseOwner(); await createOneGraphSchema(owner, graphContractOf(manifest)); });
@@ -58,4 +61,62 @@ test('another person clears a nullable value while retaining the displayed field
 
 test('prefixes distinguish colliding and withdrawn graph identities', () => {
   expect(shortestUid('abc00000-0000-4000-8000-000000000000', ['abc00000-0000-4000-8000-000000000000', 'abd00000-0000-4000-8000-000000000000'])).toBe('abc');
+});
+
+
+test('withdrawn identities keep old prefixes ambiguous within their kind', async () => {
+  const first = (await call('create', { values: { title: 'First collision' } })).entity!;
+  const second = (await call('create', { values: { title: 'Second collision' } })).entity!;
+  const uids = ['a0000000-0000-4000-8000-000000000000', 'ab000000-0000-4000-8000-000000000000'];
+  await owner.transaction('write', async (tx) => {
+    await tx.query('UPDATE node SET uid = $2::uuid WHERE uid = $1::uuid', [first.uid, uids[0]]);
+    await tx.query('UPDATE node SET uid = $2::uuid WHERE uid = $1::uuid', [second.uid, uids[1]]);
+  });
+  await call('delete', { uid: uids[0] });
+  await expect(call('read', { uid: 'fixture-a' })).rejects.toThrow(`ambiguous prefix: ${uids.map((uid) => `fixture-${uid.replaceAll('-', '')}`).join(', ')}`);
+  await expect(call('read', { uid: uids[0] })).rejects.toThrow('entity was deleted');
+  expect((await call('read', { uid: uids[1] })).entity!.id).toBe('fixture-ab');
+  await call('delete', { uid: uids[1] });
+});
+
+test('reference fields require the declared kind and an object key on create and edit', async () => {
+  const link = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6]) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader', action, 'link', args));
+  const made = (await link('create', { values: { target: { kind: 'note', key: {} } } })).entity!;
+  for (const target of [{ kind: 'wrong', key: {} }, { kind: 'note', key: null }, { kind: 'note', key: [] }, { kind: 'note', key: 'bad' }]) {
+    await expect(link('create', { values: { target } })).rejects.toThrow('field "target": expected a reference to note');
+    await expect(link('edit', { uid: made.uid, values: { target } })).rejects.toThrow('field "target": expected a reference to note');
+  }
+});
+
+test('revision rejects changed fields but merges unchanged fields against complete closed history', async () => {
+  const made = (await call('create', { values: { title: 'Baseline', count: 1 } })).entity!;
+  expect(made.revision).toMatch(/^[0-9]+$/u);
+  const changed = (await call('edit', { uid: made.uid, values: { title: 'Changed by first reader' }, ifRevision: made.revision })).entity!;
+  expect(BigInt(changed.revision)).toBeGreaterThan(BigInt(made.revision));
+  const merged = (await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Second reader', 'edit', 'note', {
+    uid: made.uid, values: { count: 2 }, ifRevision: made.revision,
+  }))).entity!;
+  expect(merged.values).toEqual({ title: 'Changed by first reader', count: 2, flag: null });
+  try {
+    await call('edit', { uid: made.uid, values: { title: 'Stale overwrite' }, ifRevision: made.revision });
+    throw new Error('expected a conflict');
+  } catch (error) {
+    expect(error).toBeInstanceOf(AuthoredRefusal);
+    const refusal = error as AuthoredRefusal;
+    expect(refusal.status).toBe(412);
+    expect(refusal.conflict).toEqual({ field: 'title', current: 'Changed by first reader', author: 'Reader <reader@example.invalid>' });
+  }
+  await call('edit', { uid: made.uid, values: { title: 'Baseline' }, ifRevision: merged.revision });
+  await expect(call('edit', { uid: made.uid, values: { title: 'Stale after restoration' }, ifRevision: made.revision })).rejects.toThrow('changed since revision');
+  const restored = (await call('read', { uid: made.uid })).entity!;
+  const same = (await call('edit', { uid: made.uid, values: { count: 2 }, ifRevision: restored.revision })).entity!;
+  expect((await call('read', { uid: made.uid })).entity!.revision).toBe(same.revision);
+  expect((await call('list')).entities!.find((entity) => entity.uid === made.uid)!.revision).toBe(same.revision);
+  for (const ifRevision of ['0', 'no revision', '999999999999999999999999', changed.revision + '0']) {
+    await expect(call('edit', { uid: made.uid, values: { count: 3 }, ifRevision })).rejects.toThrow('revision');
+  }
+  const unrelated = (await call('create', { values: { title: 'Another entity' } })).entity!;
+  await expect(call('edit', { uid: made.uid, values: { count: 3 }, ifRevision: unrelated.revision })).rejects.toThrow('revision');
+  await call('delete', { uid: made.uid });
+  await call('delete', { uid: unrelated.uid });
 });

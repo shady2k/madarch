@@ -1,5 +1,8 @@
 {
   "authored": {
+    "reload": "Reload",
+    "missingEntity": "The entity was not returned.",
+    "conflict": "{{field}} is now {{current}} ({{author}}).",
       "new": "New",
       "edit": "Edit",
       "delete": "Delete",

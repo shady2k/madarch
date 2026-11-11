@@ -51,3 +51,22 @@ test('before first permitted fill the newcomer is told what to press and no enti
   expect(response.status).toBe(409);
   expect(JSON.stringify(await response.json())).toContain('press Fill first');
 });
+
+test('conditional HTTP edits preserve intervening fields and report conflicts with the current author', async () => {
+  const madeResponse = await send('POST', { values: { title: 'Alice title', count: 1 } });
+  const made = await madeResponse.json() as { entity: { uid: string; revision: string } };
+  const read = await fetch(`${base}&uid=${made.entity.uid}`);
+  const etag = read.headers.get('etag');
+  expect(etag).toBe(`"${made.entity.revision}"`);
+  await send('PATCH', { values: { title: 'Bob title' } }, made.entity.uid);
+  const patch = (values: Record<string, unknown>) => fetch(`${base}&uid=${made.entity.uid}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json', 'if-match': etag! }, body: JSON.stringify({ values }),
+  });
+  const unrelated = await patch({ count: 2 });
+  expect(unrelated.status).toBe(200);
+  expect(await unrelated.json()).toMatchObject({ entity: { values: { title: 'Bob title', count: 2 } } });
+  const conflict = await patch({ title: 'Alice stale title' });
+  expect(conflict.status).toBe(412);
+  expect(await conflict.json()).toMatchObject({ error: { field: 'title', conflict: { field: 'title', current: 'Bob title', author: expect.stringContaining('person:') } } });
+  await send('DELETE', {}, made.entity.uid);
+}, 30000);

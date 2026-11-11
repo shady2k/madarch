@@ -2,13 +2,19 @@
 import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner, OuterTransaction } from './database-owner.js';
 
-/** A source's receipt and entity publication commit together; retries publish nothing twice. */
-export async function commitAuthoredImport(owner: DatabaseOwner, lock: string, words: string, publish: (tx: OuterTransaction) => Promise<void>): Promise<boolean> {
+/** A source's path and legacy id retain its uid even when its bytes change before archiving. */
+export async function commitAuthoredImport(owner: DatabaseOwner, identity: { migration: string; path: string; legacyId: string }, words: string, publish: (tx: OuterTransaction, uid: string | undefined) => Promise<void>): Promise<boolean> {
   return await withSpan('authored.import.commit', {}, async () => await owner.transaction('write', async (tx) => {
-    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lock]);
-    const receipt = await tx.query<{ words: string }>('SELECT words FROM operation WHERE words = $1 LIMIT 1', [words]);
-    if (receipt.rows.length > 0) return false;
-    await publish(tx);
+    const receiptPrefix = `${JSON.stringify(identity).slice(0, -1)},`;
+    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [receiptPrefix]);
+    const receipts = await tx.query<{ words: string; change: { vertices: { uid: string; state: string }[] } }>(
+      'SELECT words, change FROM operation WHERE left(words, length($1)) = $1 ORDER BY seq', [receiptPrefix],
+    );
+    if (receipts.rows.at(-1)?.words === words) return false;
+    const first = receipts.rows[0];
+    const uid = first?.change.vertices.find((vertex) => vertex.state === 'declared')?.uid;
+    if (first !== undefined && uid === undefined) throw new Error(`${import.meta.path}:1: the authored import receipt has no declared entity uid`);
+    await publish(tx, uid);
     return true;
   }));
 }

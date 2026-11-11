@@ -67,6 +67,17 @@ describe('the templates madarch new offers', () => {
     expect(STARTER_TEMPLATES.map((template) => template.id)).toEqual(['everything', 'none']);
   });
 
+  test('document expectations name only document-source kinds in generated templates', () => {
+    for (const template of STARTER_TEMPLATES) {
+      const read = readKinds(folders.get(template.id)!);
+      if (!read.present) continue;
+      expect(read.manifest.findings.filter((finding) => finding.message.includes('documents.expect'))).toEqual([]);
+      for (const entry of read.manifest.expect ?? []) {
+        expect(read.manifest.kinds.get(entry.kind)?.source).toBe('document');
+      }
+    }
+  });
+
   test('each template writes exactly its kinds, and nothing when it declares none', () => {
     for (const template of STARTER_TEMPLATES) {
       const folder = folders.get(template.id)!;

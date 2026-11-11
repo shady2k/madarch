@@ -158,6 +158,7 @@ export interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
+  conflict?: { field: string; current: unknown; author: string };
   /**
    * The refusal's own machine-readable name, when the route has one (`graph-pages/no-such-node`),
    * so a client can branch on what went wrong instead of reading the words. It rides in the

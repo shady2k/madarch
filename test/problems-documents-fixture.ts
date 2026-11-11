@@ -1,19 +1,22 @@
 /**
- * The documents section of the Problems page (madarch-m38l.19): what the
+ * Historical document-rule fixture (madarch-m38l.19): what the
  * questions people and the agent already asked say about the documents — two
  * sources contradicting each other, a statement whose ground no longer
  * resolves, behaviour no document describes, a term with two meanings. The
  * rules read the questions the loop wrote (`docs/questions/*.md`); they never
  * read a document's text themselves and never keep a word list.
  */
-import { byCodePoint } from '../model/order.js';
-import { questionAddress } from '../knowledge/addresses.js';
-import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
-import type { Question } from '../loop/entities.js';
-import { ruleSpecs, rulesOf } from './rules.js';
-import type { ProblemDraft, ProblemNote, ProblemLink, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
+import { byCodePoint } from '../src/model/order.js';
+import { questionAddress } from '../src/knowledge/addresses.js';
+import { entityAddress, sourceAddress, type Resolution } from '../src/knowledge/resolve.js';
+import type { Question } from './loop-entities-fixture.js';
+import { ruleSpecs } from '../src/problems/rules.js';
+import type { ProblemDraft, ProblemNote, ProblemLink, ProblemSettings, ProblemSeverity, RuleSpec } from '../src/problems/types.js';
 
 type Rule = RuleSpec;
+
+const rulesOf = (settings: ProblemSettings, predicate: string): RuleSpec[] =>
+  ruleSpecs(settings).filter((rule) => rule.predicate === predicate && rule.enabled !== false);
 
 export interface DocumentInput {
   readonly questions: readonly Question[];

@@ -8,7 +8,7 @@ import { useRead } from './live.js';
 import { useKindName } from './kind-names.js';
 import { useTabTitle } from './tabs.js';
 import { addressOfKind } from './routes.js';
-import { AuthoredError, readAuthored, readAuthoredSchema, writeAuthored, type AuthoredEntity, type AuthoredField, type AuthoredView } from './authored-api.js';
+import { AuthoredError, readAuthored, readAuthoredSchema, writeAuthored, type AuthoredConflict, type AuthoredEntity, type AuthoredField, type AuthoredView } from './authored-api.js';
 
 export const addressOfAuthored = (kind: string, uid: string): string => `/authored?${new URLSearchParams({ kind, uid })}`;
 const words = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
@@ -17,15 +17,28 @@ const titleOf = (entity: AuthoredEntity): string => String(entity.values['title'
 export function AuthoredForm({ kind, entity, saved, cancel }: { kind: string; entity?: AuthoredEntity; saved: (entity?: AuthoredEntity) => void; cancel: () => void }): ReactElement {
   const { t } = useTranslation();
   const schema = useRead<AuthoredView>(kind, 0, (signal) => readAuthoredSchema(kind, signal));
+  const [loaded, setLoaded] = useState(entity);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [error, setError] = useState<{ message: string; field?: string } | null>(null);
+  const [error, setError] = useState<{ message: string; field?: string; conflict?: AuthoredConflict } | null>(null);
   const [busy, setBusy] = useState(false);
-  const valueOf = (field: AuthoredField): string => draft[field.name] ?? (entity?.values[field.name] == null ? '' : field.type === 'json' || field.reference !== undefined ? JSON.stringify(entity.values[field.name], null, 2) : String(entity.values[field.name]));
+  const initialValue = (field: AuthoredField): string => loaded?.values[field.name] == null ? '' : field.type === 'json' || field.reference !== undefined ? JSON.stringify(loaded.values[field.name], null, 2) : String(loaded.values[field.name]);
+  const valueOf = (field: AuthoredField): string => draft[field.name] ?? initialValue(field);
+  const reload = async (): Promise<void> => {
+    if (loaded === undefined) return;
+    setBusy(true);
+    try {
+      const answer = await readAuthored(kind, loaded.uid);
+      if (answer.entity === undefined) throw new Error(t('authored.missingEntity'));
+      setLoaded(answer.entity); setDraft({}); setError(null);
+    } catch (failure) { setError({ message: words(failure) }); }
+    finally { setBusy(false); }
+  };
   const submit = async (): Promise<void> => {
     setError(null);
     const values: Record<string, unknown> = {};
     for (const field of schema.data?.fields ?? []) {
       const raw = valueOf(field);
+      if (loaded !== undefined && raw === initialValue(field)) continue;
       if (raw === '') { values[field.name] = null; continue; }
       try {
         if (field.type === 'json' || field.reference !== undefined) values[field.name] = JSON.parse(raw);
@@ -35,8 +48,8 @@ export function AuthoredForm({ kind, entity, saved, cancel }: { kind: string; en
       } catch { setError({ field: field.name, message: t(field.type === 'json' || field.reference !== undefined ? 'authored.invalidJson' : 'authored.invalidInteger') }); return; }
     }
     setBusy(true);
-    try { const answer = await writeAuthored(kind, entity === undefined ? 'POST' : 'PATCH', entity?.uid, values); saved(answer.entity); }
-    catch (failure) { setError({ message: words(failure), field: failure instanceof AuthoredError ? failure.field : undefined }); }
+    try { const answer = await writeAuthored(kind, loaded === undefined ? 'POST' : 'PATCH', loaded?.uid, values, loaded?.revision); saved(answer.entity); }
+    catch (failure) { setError({ message: words(failure), field: failure instanceof AuthoredError ? failure.field : undefined, conflict: failure instanceof AuthoredError ? failure.conflict : undefined }); }
     finally { setBusy(false); }
   };
   return <form className="my-4 space-y-4 max-w-2xl" data-testid="authored-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
@@ -49,9 +62,10 @@ export function AuthoredForm({ kind, entity, saved, cancel }: { kind: string; en
       const props = { id, value: valueOf(field), disabled: busy, required: !field.nullable, 'aria-invalid': invalid, 'aria-describedby': invalid ? `${id}-error` : undefined, onChange: (event: { target: { value: string } }) => setDraft({ ...draft, [field.name]: event.target.value }) };
       return <div key={field.name}><label htmlFor={id} className="block mb-1">{field.name}{!field.nullable && <span aria-hidden="true"> *</span>} <span className="text-small text-muted">{field.type}</span></label>
         {field.type === 'boolean' ? <select {...props} className="rounded border border-line bg-transparent p-2"><option value="">—</option><option value="true">{t('authored.true')}</option><option value="false">{t('authored.false')}</option></select> : field.type === 'json' || field.type === 'text' || field.reference !== undefined ? <Textarea {...props} rows={field.type === 'json' || field.reference !== undefined ? 6 : 3} /> : <Input {...props} type="text" inputMode={field.type === 'integer' || field.type === 'bigint' ? 'numeric' : undefined} />}
-        {invalid && <p id={`${id}-error`} role="alert" className="text-small">{error.message}</p>}</div>;
+        {invalid && <p id={`${id}-error`} role="alert" className="text-small">{error.message}{error.conflict !== undefined && <> {t('authored.conflict', { field: error.conflict.field, current: JSON.stringify(error.conflict.current), author: error.conflict.author })}</>}</p>}</div>;
     })}
     {error !== null && <p role="alert">{error.message}</p>}
+    {error?.conflict !== undefined && <Button type="button" size="default" disabled={busy} onClick={() => void reload()}>{t('authored.reload')}</Button>}
     <div className="flex gap-2"><Button type="submit" size="default" variant="default" disabled={busy || schema.data === null}>{t(busy ? 'authored.saving' : 'authored.save')}</Button><Button type="button" size="default" disabled={busy} onClick={cancel}>{t('authored.cancel')}</Button></div>
   </form>;
 }

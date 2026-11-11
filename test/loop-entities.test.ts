@@ -16,9 +16,8 @@ import { LoopFileError, parseQuestion, type Question } from './loop-entities-fix
 import { renderQuestion } from './loop-entities-fixture.js';
 import { questionFootnoteId } from './loop-ids-fixture.js';
 import { decide } from '../src/loop/plan.js';
-import { readQuestionsIn } from '../src/loop/entities.js';
+import { readQuestions } from '../src/loop/entities.js';
 import { gitEnv } from './git-env.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const folders: string[] = [];
 const scratch = (): string => {
@@ -96,8 +95,8 @@ describe('a question file', () => {
   });
 
   
-  test('the retired Markdown listing fails explicitly', async () => {
-    await expect(readQuestionsIn(workingTreeFiles(product()))).rejects.toThrow('retired');
+  test('the retired Markdown listing fails explicitly', () => {
+    expect(() => readQuestions(product())).toThrow('retired');
   });
 });
 

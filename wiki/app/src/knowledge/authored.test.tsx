@@ -19,7 +19,7 @@ afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = '
 function mount(element: ReturnType<typeof createElement>): void { const div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div); root.render(element); }
 async function until(predicate: () => boolean): Promise<void> { for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error(document.body.innerHTML); }
 const fields = [{ name: 'title', type: 'text', nullable: true }, { name: 'enabled', type: 'boolean', nullable: true }, { name: 'data', type: 'json', nullable: true }];
-const entity = { id: 'note:u1', uid: 'u1', values: { title: 'A note', enabled: false, data: { count: 3 } } };
+const entity = { id: 'note:u1', uid: 'u1', revision: '10', values: { title: 'A note', enabled: false, data: { count: 3 } } };
 function respond(body: unknown, status = 200): Response { return Response.json(body, { status }); }
 
 test('the manifest contract makes fields, preserves false and nested values, and renders a server refusal beside its field', async () => {
@@ -33,7 +33,7 @@ test('the manifest contract makes fields, preserves false and nested values, and
   expect((document.querySelector('#authored-field-enabled') as HTMLSelectElement).value).toBe('false');
   document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await until(() => document.querySelector('#authored-field-title-error') !== null);
-  expect(sent).toEqual({ values: entity.values });
+  expect(sent).toEqual({ values: {} });
   expect(document.querySelector('#authored-field-title')!.getAttribute('aria-invalid')).toBe('true');
   expect(document.querySelector('#authored-field-title-error')!.textContent).toBe('Title refused');
 });
@@ -92,4 +92,68 @@ test('person origin routes custom kinds to authored lists and entity reads', asy
   root!.render(createElement(KindLabels.Provider, { value: kinds }, createElement(EntityPage, { id: 'custom.memo:u1', version: 0 })));
   await until(() => document.querySelector('[data-testid="authored-page"] h1') !== null);
   expect(calls.some((url) => url.includes('uid=u1'))).toBe(true);
+});
+
+async function changeField(name: string, value: string): Promise<void> {
+  const input = document.querySelector(`#authored-field-${name}`) as HTMLTextAreaElement;
+  input.focus();
+  Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value);
+  input.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+  input.dispatchEvent(new window.KeyboardEvent('keyup', { bubbles: true, key: 'a' }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+test('Alice saves only her changed body with the loaded revision after Bob changes the title', async () => {
+  const loaded = { id: 'note:u1', uid: 'u1', revision: '10', values: { title: 'Old title', body: 'Old body' } };
+  let sent: unknown;
+  const headers = { match: null as string | null };
+  let saved = false;
+  globalThis.fetch = (async (_url: unknown, options?: RequestInit) => {
+    if (options?.method === 'PATCH') {
+      sent = JSON.parse(String(options.body)); headers.match = new Headers(options.headers).get('if-match');
+      return respond({ kind: 'note', fields: [], entity: { ...loaded, revision: '12', values: { title: 'Bob title', body: 'Alice body' } } });
+    }
+    return respond({ kind: 'note', fields: [{ name: 'title', type: 'text' }, { name: 'body', type: 'text' }] });
+  }) as unknown as typeof fetch;
+  mount(createElement(AuthoredForm, { kind: 'note', entity: loaded, saved: () => { saved = true; }, cancel: () => {} }));
+  await until(() => document.querySelector('#authored-field-body') !== null);
+  await changeField('body', 'Alice body');
+  await until(() => (document.querySelector('#authored-field-body') as HTMLTextAreaElement).value === 'Alice body');
+  document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await until(() => saved);
+  expect(sent).toEqual({ values: { body: 'Alice body' } });
+  expect(headers.match).toBe('"10"');
+});
+
+test('conflict names the field, current value and author; Reload fetches latest values and revision', async () => {
+  const loaded = { id: 'note:u1', uid: 'u1', revision: '10', values: { title: 'Old title', body: 'Old body' } };
+  const fields = [{ name: 'title', type: 'text' }, { name: 'body', type: 'text' }];
+  let reads = 0;
+  const patches: { values: unknown; match: string | null }[] = [];
+  globalThis.fetch = (async (url: unknown, options?: RequestInit) => {
+    if (options?.method === 'PATCH') {
+      patches.push({ values: JSON.parse(String(options.body)).values, match: new Headers(options.headers).get('if-match') });
+      if (patches.length === 1) return respond({ error: { message: 'Entity changed', field: 'title', conflict: { field: 'title', current: 'Bob title', author: 'Bob' } } }, 412);
+      return respond({ kind: 'note', fields, entity: loaded });
+    }
+    if (String(url).includes('/api/authored?')) { reads++; return respond({ kind: 'note', fields, entity: { ...loaded, revision: '11', values: { title: 'Bob title', body: 'Old body' } } }); }
+    return respond({ kind: 'note', fields });
+  }) as unknown as typeof fetch;
+  mount(createElement(AuthoredForm, { kind: 'note', entity: loaded, saved: () => {}, cancel: () => {} }));
+  await until(() => document.querySelector('#authored-field-body') !== null);
+  await changeField('body', 'Alice body');
+  document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await until(() => document.querySelector('#authored-field-title-error') !== null);
+  expect(document.querySelector('#authored-field-title-error')!.textContent).toContain('Bob title');
+  expect(document.querySelector('#authored-field-title-error')!.textContent).toContain('Bob');
+  const reload = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Reload');
+  expect(reload).toBeDefined(); reload!.click();
+  await until(() => (document.querySelector('#authored-field-title') as HTMLTextAreaElement).value === 'Bob title');
+  expect(reads).toBe(1);
+  expect((document.querySelector('#authored-field-body') as HTMLTextAreaElement).value).toBe('Old body');
+  expect(document.querySelector('#authored-field-title-error')).toBeNull();
+  await changeField('body', 'Alice revised body');
+  document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await until(() => patches.length === 2);
+  expect(patches[1]).toEqual({ values: { body: 'Alice revised body' }, match: '"11"' });
 });
