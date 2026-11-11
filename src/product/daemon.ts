@@ -20,18 +20,17 @@ import { productsHome, type DraftEnv } from './home.js';
 import { listProducts } from './list.js';
 import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
-import {
-  fillProgressOf,
+import type {
   openFillDatabase,
-  type FillActivity,
-  type FillOrchestratorService,
-  type FillProduct,
-  type FillProgressAnswer,
-  type FillRunControl,
-  type FillRunControlAnswer,
-  type FillRunRequest,
-  type FillRunResult,
-  type RefusedFillRun,
+  FillActivity,
+  FillOrchestratorService,
+  FillProduct,
+  FillProgressAnswer,
+  FillRunControl,
+  FillRunControlAnswer,
+  FillRunRequest,
+  FillRunResult,
+  RefusedFillRun,
 } from '../fill/orchestrator-host.js';
 import type { RunStatus } from '../fill/orchestrator.js';
 import { createFillStateSchema, readChain, readRun } from '../fill/state-store.js';
@@ -669,6 +668,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const made = (async (): Promise<HeldStore> => {
       mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
       await requestStorePreparation(storeDatabasePath(storeFolder));
+      const { openFillDatabase } = await import('../fill/orchestrator-host.js');
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
       await owner.ready;
       const one: HeldStore = { storeFolder, owner };
@@ -766,6 +766,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       if (held.service !== undefined) return await held.service.progress(folder);
       const read = readProduct(resolve(folder));
       if (!read.ok) throw new Error(`the fill progress of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
+      const { fillProgressOf } = await import('../fill/orchestrator-host.js');
       return await fillProgressOf(held.owner, read.product.name);
     },
     async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
