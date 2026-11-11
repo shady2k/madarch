@@ -40,6 +40,21 @@
               "fillRun"
             ],
             "required": false
+          },
+          {
+            "name": "usages",
+            "type": "json",
+            "meaning": "Mentions outside the term's own definitions, with repository, path, lines and count.",
+            "example": [
+              {
+                "repository": "app",
+                "path": "README.md",
+                "lineStart": 3,
+                "lineEnd": 3,
+                "count": 2
+              }
+            ],
+            "required": true
           }
         ]
       }

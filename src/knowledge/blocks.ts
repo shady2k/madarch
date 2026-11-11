@@ -529,8 +529,18 @@ export function termBlock(ctx: Pick<RenderContext, 'repositories' | 'ownReposito
   const where = evidence !== undefined && evidence.path !== null
     ? `[${repository === null ? '' : `${repository}/`}${evidence.path}${evidence.lineStart === null ? '' : `:${String(evidence.lineStart)}${evidence.lineEnd === null || evidence.lineEnd === evidence.lineStart ? '' : `-${String(evidence.lineEnd)}`}`}](${sourceAddress(repository, evidence.path, evidence.lineStart ?? undefined)})`
     : null;
-  const usedIn = where === null ? null : (params['lang'] === 'ru' ? `Где определено: ${where}` : `Stated in: ${where}`);
-  return { type: 'term', title, definition, synonyms, code, usedIn, ambiguous: null };
+  const usages = termUsages(ctx, entity.properties[params['usages'] ?? 'usages']);
+  return { type: 'term', title, definition, synonyms, code, definedIn: where, usages, usageCount: usages.reduce((total, one) => total + one.count, 0), ambiguous: null };
+}
+
+/** The mentions the plugin published, linked to the graph-held source at each line. */
+export function termUsages(ctx: Pick<RenderContext, 'repositories' | 'ownRepository'>, value: unknown): { location: string; count: number }[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((one: { repository: string; path: string; lineStart: number; lineEnd: number; count: number }) => {
+    const repository = one.repository === ctx.ownRepository ? null : one.repository;
+    const range = one.lineEnd === one.lineStart ? String(one.lineStart) : `${one.lineStart}-${one.lineEnd}`;
+    return { location: `[${repository === null ? '' : `${repository}/`}${one.path}:${range}](${sourceAddress(repository, one.path, one.lineStart)})`, count: one.count };
+  });
 }
 
 /** One property's value as the text a reader sees. */

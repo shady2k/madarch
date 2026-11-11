@@ -35,7 +35,7 @@ import { startKnowledgeFill } from './fill-run.js';
 import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
 import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
-import { locationOf, type RenderContext } from './blocks.js';
+import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { readMarkdownEntitiesFrom, type MarkdownEntity } from './markdown.js';
@@ -113,7 +113,9 @@ export interface GlossaryTermView {
   readonly definition: string;
   readonly synonyms: readonly string[];
   readonly code: readonly string[];
-  readonly usedIn: string | null;
+  readonly definedIn: string | null;
+  readonly usages: readonly { location: string; count: number }[];
+  readonly usageCount: number;
   readonly ambiguous: string | null;
   readonly repo: string | null;
   readonly path: string;
@@ -2591,14 +2593,17 @@ export class KnowledgeProduct {
     const endLine = evidence?.lineEnd ?? line;
     const names = entity.properties['synonyms'];
     const codeNames = entity.properties['code'];
+    const block = termBlock({ ownRepository: own ?? '', repositories: this.repositories().map((one) => one.name) }, { source: 'graph', entity }, {}, '', 1);
+    if (block.type !== 'term') throw new Error('a graph glossary term must render a term block');
     return {
       id: entity.key,
       title: entity.label,
       definition: typeof entity.properties['definition'] === 'string' ? entity.properties['definition'] : '',
       synonyms: Array.isArray(names) ? names.filter((one): one is string => typeof one === 'string') : [],
       code: Array.isArray(codeNames) ? codeNames.filter((one): one is string => typeof one === 'string') : [],
-      // The listing's place column already states where the definition stands; the term's own place is not said twice.
-      usedIn: null,
+      definedIn: block.definedIn,
+      usages: block.usages,
+      usageCount: block.usageCount,
       ambiguous: null,
       repo: productRepository ? null : repository,
       path,

@@ -20,6 +20,20 @@ const page = (over: Partial<PageModel> = {}): PageModel => ({
 const home = { state: 'ok' as const, target: 'madarch:domain:home', kind: 'domain', label: 'Home', href: entityAddress('domain:home'), entity: 'domain:home' };
 
 describe('a page written for an agent keeps every address it holds', () => {
+  test('term exports keep definition and counted usage source links at the product mount', () => {
+    const model = page({ blocks: [{ type: 'term', title: 'Definition', definition: 'A run.', synonyms: [], code: [],
+      definedIn: '[glossary.md:3](/src?path=glossary.md&line=3)',
+      usages: [{ location: '[src/run.ts:7](/src?path=src%2Frun.ts&line=7)', count: 2 }], usageCount: 2, ambiguous: null,
+    }] });
+    const written = pageFileMarkdown(model, prefix);
+    expect(written).toContain('[glossary.md:3](/products/shop/src?path=glossary.md&line=3)');
+    expect(written).toContain('[src/run.ts:7](/products/shop/src?path=src%2Frun.ts&line=7) (2)');
+    expect(pageFileDocument(model, prefix).sections[0]!.links).toEqual([
+      { title: 'glossary.md:3', url: '/products/shop/src?path=glossary.md&line=3' },
+      { title: 'src/run.ts:7', url: '/products/shop/src?path=src%2Frun.ts&line=7' },
+    ]);
+  });
+
   test('an ordinary wiki link is written at the product mount, and the Markdown and the JSON name the same address', () => {
     const model = page({
       blocks: [{ type: 'markdown', markdown: 'See [Home](/e/domain%3Ahome) and [Shop](https://example.com/shop).' }],

@@ -12,6 +12,7 @@
  * is no term, and a term whose definition is empty is answered as it stands.
  */
 import { definePlugin, type ExtractContext, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
+import { usagesOf } from './usages.js';
 
 /** The kind the plugin fills. */
 const TERM_KIND = 'doc.term';
@@ -198,21 +199,25 @@ const DEFAULT_PATTERN = '**/glossary*.md';
 async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const inputs = (unit.inputs ?? {}) as GlossaryInputs;
   const pattern = typeof inputs.pattern === 'string' ? inputs.pattern : DEFAULT_PATTERN;
-  const files = await context.graph.files(pattern);
-  const vertices: VertexResult[] = [];
+  const definitions = await context.graph.files(pattern);
+  const files = await context.graph.files('**/*');
+  const sources: { repository: string; path: string; text: string }[] = [];
   for (const file of files) {
-    const repository = String(file.key['repository'] ?? '');
-    const path = String(file.key['path'] ?? '');
     const text = await context.graph.value<string | null>(file.kind, file.key, 'content');
-    if (typeof text !== 'string' || text === '') continue;
-    for (const term of termsOf(text)) {
-      vertices.push({
-        kind: TERM_KIND,
-        key: { name: term.name },
-        values: { definition: term.definition, synonyms: term.synonyms, code: term.code },
-        evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
-      });
-    }
+    if (typeof text === 'string') sources.push({ repository: String(file.key['repository'] ?? ''), path: String(file.key['path'] ?? ''), text });
+  }
+  const definitionKeys = new Set(definitions.map((file) => JSON.stringify([String(file.key['repository'] ?? ''), String(file.key['path'] ?? '')])));
+  const declared = sources.flatMap((source) => definitionKeys.has(JSON.stringify([source.repository, source.path]))
+    ? termsOf(source.text).map((term) => ({ ...source, term })) : []);
+  const vertices: VertexResult[] = [];
+  for (const { repository, path, term } of declared) {
+    const usages = usagesOf(term, sources.map((source) => ({ ...source, definitions: declared.filter((one) => one.repository === source.repository && one.path === source.path && one.term.name === term.name).map((one) => one.term) })));
+    vertices.push({
+      kind: TERM_KIND,
+      key: { name: term.name },
+      values: { definition: term.definition, synonyms: term.synonyms, code: term.code, usages },
+      evidence: { repository, path, lineStart: term.lineStart, lineEnd: term.lineEnd },
+    });
   }
   return { vertices, end: { state: 'complete' } };
 }
@@ -232,6 +237,7 @@ await definePlugin({
           { name: 'definition', type: 'text', meaning: 'What the term means, as the glossary defines it.', example: 'The one run that reads a product and writes its graph.', required: true },
           { name: 'synonyms', type: 'json', meaning: 'The other names the glossary gives the term.', example: ['run'], required: false },
           { name: 'code', type: 'json', meaning: 'The names the code uses for the thing the term means.', example: ['fillRun'], required: false },
+          { name: 'usages', type: 'json', meaning: "Mentions outside the term's own definitions, with repository, path, lines and count.", example: [{ repository: 'app', path: 'README.md', lineStart: 3, lineEnd: 3, count: 2 }], required: true },
         ],
       },
     ],

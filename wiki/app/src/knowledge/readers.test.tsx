@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 const term = (title: string, extra: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
-  id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
+  id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null,
   repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false, href: `/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...extra,
 });
 
@@ -189,10 +189,22 @@ describe('the links from the text to the glossary', () => {
   });
 });
 
+function checkLocations(container: Element): void {
+  const definition = container.querySelector('[data-testid=term-defined-in]')!;
+  const usages = container.querySelector('[data-testid=term-usages]')!;
+  expect(definition.textContent).toBe('Defined inthe reference');
+  expect(definition.querySelector('a')!.getAttribute('href')).toBe('/doc?path=docs%2Freference.md#manifest');
+  expect(definition.contains(usages)).toBe(false);
+  expect(definition.nextElementSibling).toBe(usages);
+  expect(usages.textContent).toContain('Usages (5)');
+  expect([...usages.querySelectorAll('[data-testid=term-usage]')].map((entry) => entry.textContent)).toEqual(['the usage3', 'another usage2']);
+  expect([...usages.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toEqual(['/doc?path=docs%2Freference.md#question', '/doc?path=docs%2Freference.md#manifest']);
+}
+
 describe('the glossary page and a term\'s block', () => {
   const glossary: Glossary = {
     terms: [
-      term('Manifest', { definition: 'The file that lists the kinds.', synonyms: ['manifests'], code: ['madarch/kinds.yaml'], usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)', source: { original: 'The glossary defines the manifest as the file listing kinds.', document: 'docs/glossary.md', line: 3, endLine: 4 } }),
+      term('Manifest', { definition: 'The file that lists the kinds.', synonyms: ['manifests'], code: ['madarch/kinds.yaml'], definedIn: '[the reference](madarch:doc:docs/reference.md#manifest)', usages: [{ location: '[the usage](madarch:doc:docs/reference.md#question)', count: 3 }, { location: '[another usage](madarch:doc:docs/reference.md#manifest)', count: 2 }], usageCount: 5, source: { original: 'The glossary defines the manifest as the file listing kinds.', document: 'docs/glossary.md', line: 3, endLine: 4 } }),
       term('Payment token', { definition: 'The proof a provider returns.', ambiguous: 'also the vault reference; see [the question](madarch:doc:docs/reference.md#question)', line: 7 }),
     ],
     resolutions: {
@@ -218,6 +230,9 @@ describe('the glossary page and a term\'s block', () => {
     // The place stands once in the row, in the ground; the original opens without repeating it.
     expect(source.textContent).not.toContain('docs/glossary.md:3–4');
     expect(items[0]!.textContent!.split('docs/glossary.md:3').length - 1).toBe(1);
+    checkLocations(items[0]!);
+    expect(items[1]!.querySelector('[data-testid=term-defined-in]')).toBeNull();
+    expect(items[1]!.querySelector('[data-testid=term-usages]')!.textContent).toBe('Usages (0)None found');
     expect(items[0]!.getAttribute('data-ambiguous')).toBe('false');
     expect(items[0]!.querySelector('[data-testid=term-ambiguous-badge]')).toBeNull();
     expect(items[1]!.getAttribute('data-ambiguous')).toBe('true');
@@ -255,13 +270,29 @@ describe('the glossary page and a term\'s block', () => {
   });
 
   test('a term\'s block shows the definition, the names, the ambiguity and where it is used', async () => {
-    const container = into(createElement(TermBlockView, { pageId: 'doc:docs/glossary.md#payment-token', resolutions: glossary.resolutions, block: { definition: 'The proof a provider returns.', synonyms: ['proof'], code: ['PaymentToken'], usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)', ambiguous: 'also the vault reference' } }));
+    const container = into(createElement(TermBlockView, { pageId: 'doc:docs/glossary.md#payment-token', resolutions: glossary.resolutions, block: { definition: 'The proof a provider returns.', synonyms: ['proof'], code: ['PaymentToken'], definedIn: '[the reference](madarch:doc:docs/reference.md#manifest)', usages: [{ location: '[the usage](madarch:doc:docs/reference.md#question)', count: 3 }, { location: '[another usage](madarch:doc:docs/reference.md#manifest)', count: 2 }], usageCount: 5, ambiguous: 'also the vault reference' } }));
     await until(() => container.querySelector('[data-block=term]') !== null, 'the block');
     expect(container.textContent).toContain('The proof a provider returns.');
     expect(container.querySelector('[data-testid=term-names]')!.textContent).toContain('PaymentToken');
     expect(container.querySelector('[data-testid=term-ambiguous]')!.textContent).toContain('also the vault reference');
+    checkLocations(container);
     expect(container.querySelector('a[href="/doc?path=docs%2Freference.md#manifest"]')).not.toBeNull();
   });
+});
+
+test('a term block reports no mentions explicitly in English and Russian', async () => {
+  for (const [language, label] of [['en', 'Usages (0)None found'], ['ru', 'Упоминания (0)Не найдены']] as const) {
+    await setWikiLanguage(language);
+    const container = into(createElement(TermBlockView, { pageId: 'doc:docs/glossary.md#unused', resolutions: {}, block: { definition: 'An unused term.', synonyms: [], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null } }));
+    await until(() => container.querySelector('[data-testid=term-usages]') !== null, 'empty usages');
+    expect(container.querySelector('[data-testid=term-usages]')!.textContent).toBe(label);
+    expect(container.querySelector('[data-testid=term-defined-in]')).toBeNull();
+    expect(container.querySelector('[data-testid=term-usages] a')).toBeNull();
+    rendered?.unmount();
+    rendered = undefined;
+    document.body.innerHTML = '';
+  }
+  await setWikiLanguage('en');
 });
 
 describe('the role of the reader', () => {

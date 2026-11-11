@@ -17,6 +17,8 @@ import { closureHashOf, sdkClosureFiles } from './closure.js';
 
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
 import glossaryMain from '../../plugins/glossary/main.ts' with { type: 'text' };
+// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
+import glossaryUsages from '../../plugins/glossary/usages.ts' with { type: 'text' };
 import glossaryContract from '../../plugins/glossary/contract.json' with { type: 'text' };
 import glossaryManifest from '../../plugins/glossary/plugin.json' with { type: 'text' };
 // @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
@@ -95,6 +97,7 @@ export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
       { path: 'contract.json', content: glossaryContract as unknown as string },
       { path: 'main.ts', content: glossaryMain as string },
       { path: 'plugin.json', content: glossaryManifest as unknown as string },
+      { path: 'usages.ts', content: glossaryUsages as string },
     ],
   },
 ];
