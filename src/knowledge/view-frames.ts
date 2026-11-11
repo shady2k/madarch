@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { diagramWorkspace } from '../product-wiki/graph-workspace.js';
 import { renderArchifyPage } from '../wiki/archify-page.js';
 import { archifyDocument, archifyPageLinks, type ArchifyDocument, type ArchifyLayoutedView } from '../wiki/archify.js';
-import { LikeC4 } from 'likec4';
+import type { LikeC4 } from 'likec4';
 import { shapeOf, type GraphView } from './views.js';
 import { diagramTitleNodes } from './diagram-titles.js';
 
@@ -67,6 +67,7 @@ export function workspaceOf(view: GraphView) {
 export async function likec4Model(view: GraphView): Promise<{ ok: true; model: unknown; elementLinks: Record<string, string> } | { ok: false; message: string }> {
   const held = workspaceOf(view);
   try {
+    const { LikeC4 } = await import('likec4');
     const likec4 = await LikeC4.fromSource(held.workspace, { logger: false, printErrors: false, throwIfInvalid: true });
     try {
       const model = await likec4.layoutedModel();
@@ -142,6 +143,7 @@ function layoutOfModel(model: unknown, viewId: string): { ok: true; view: Archif
 async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; view: ArchifyLayoutedView } | { ok: false; message: string }> {
   let likec4: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
   try {
+    const { LikeC4 } = await import('likec4');
     likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
     const diagrams = await likec4.diagrams();
     const view = diagrams.find((diagram) => diagram.id === viewId);
