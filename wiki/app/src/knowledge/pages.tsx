@@ -1,4 +1,5 @@
 import { Operations } from './operations.js';
+import { AuthoredKindPage, AuthoredPage } from './authored.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -59,7 +60,14 @@ function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null 
 }
 
 /** One entity's page. A page read again after a commit keeps showing the old one until the new one arrives. */
-export function EntityPage({ id, after = null, version }: { id: string; after?: string | null; version: number }): ReactElement {
+export function EntityPage(props: { id: string; after?: string | null; version: number }): ReactElement {
+  const kinds = useContext(KindLabels);
+  const kind = kinds.filter((entry) => entry.origins.includes('person') && props.id.startsWith(`${entry.kind}:`)).sort((a, b) => b.kind.length - a.kind.length)[0];
+  if (kind !== undefined) return <AuthoredPage key={props.id} kind={kind.kind} uid={props.id.slice(kind.kind.length + 1)} version={props.version} />;
+  return <RenderedEntityPage {...props} />;
+}
+
+function RenderedEntityPage({ id, after = null, version }: { id: string; after?: string | null; version: number }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -131,7 +139,13 @@ function KindMap({ kind, version }: { kind: string; version: number }): ReactEle
 }
 
 /** A kind's entities: filtered by text, a hundred at a time. */
-export function KindPage({ kind, version }: { kind: string; version: number }): ReactElement {
+export function KindPage(props: { kind: string; version: number }): ReactElement {
+  const summary = useContext(KindLabels).find((entry) => entry.kind === props.kind);
+  if (summary?.origins.includes('person')) return <AuthoredKindPage key={props.kind} {...props} />;
+  return <RenderedKindPage {...props} />;
+}
+
+function RenderedKindPage({ kind, version }: { kind: string; version: number }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const summary = useContext(KindLabels).find((entry) => entry.kind === kind);

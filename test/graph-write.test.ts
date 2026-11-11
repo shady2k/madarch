@@ -262,6 +262,78 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(cleared.rows[0]?.n).toBe('0');
   });
 
+  test('nullable additions and new kinds preserve person-authored history; changed revisions refuse resets', async () => {
+    const durable = await createTestDatabaseOwner();
+    try {
+      await createOneGraphSchema(durable, contract);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('Durable', 'A person wrote this')], removals: [] }, 1, { author: 'person:reader', words: 'Keep this exactly' }));
+      const changed = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: [...kind.fields, { name: 'extra', type: 'text' as const, nullable: true }] })) };
+      const extended: GraphContract = { ...changed, vertex: [...changed.vertex, { name: 'doc.note', table: generatedTableName('doc.note', 'vertex'), fields: [], key: [], capability: 'glossary' }] };
+      expect(await createOneGraphSchema(durable, extended)).toEqual({ reset: false });
+      const added = await durable.run((tx) => tx.query<{ extra: string | null }>(`SELECT extra FROM ${contract.vertex[0]!.table}`));
+      expect(added.rows).toEqual([{ extra: null }]);
+      // An unrelated derived kind remains removable despite another kind's person history.
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, extended, { vertices: [{ kind: 'doc.note', key: {}, producer: 'glossary', producerVersion: '1' }], removals: [] }, 1, { author: 'glossary@1' }));
+      expect(await createOneGraphSchema(durable, changed)).toEqual({ reset: false });
+      await durable.run((tx) => tx.query(`DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph-revision'`));
+      await expect(createOneGraphSchema(durable, contract)).rejects.toThrow('automatic reset is refused');
+      const rows = await durable.run((tx) => tx.query<{ definition: string }>(`SELECT definition FROM ${contract.vertex[0]!.table} WHERE state = 'open'`));
+      expect(rows.rows).toEqual([{ definition: 'A person wrote this' }]);
+      const operations = await durable.run((tx) => tx.query<{ author: string; words: string }>('SELECT author, words FROM operation ORDER BY seq'));
+      expect(operations.rows).toEqual([{ author: 'person:reader', words: 'Keep this exactly' }, { author: 'glossary@1', words: '' }]);
+    } finally { await durable.close(); }
+  });
+
+  test('destructive changes name historical non-null value counts and retain closed removed opinions', async () => {
+    const durable = await createTestDatabaseOwner();
+    const table = contract.vertex[0]!.table;
+    try {
+      await createOneGraphSchema(durable, contract);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('History', 'first')], removals: [] }, 1, { author: 'person:reader' }));
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('History', 'second')], removals: [] }, 1, { author: 'person:reader' }));
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [], removals: [{ kind: 'doc.term', key: { name: 'History' }, producer: 'glossary', withdrawAll: true }] }, 1, { author: 'person:reader' }));
+      const dropped = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.filter((field) => field.name !== 'definition') })) };
+      const retyped = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.map((field) => field.name === 'definition' ? { ...field, type: 'integer' as const } : field) })) };
+      for (const changed of [dropped, retyped, { ...contract, vertex: [] }]) {
+        await expect(createOneGraphSchema(durable, changed)).rejects.toThrow(/\/work\/madarch\/src\/graph\/contract.ts:\d+:.*kind "doc.term".*field "definition".*2 non-null values/);
+        const kept = await durable.run((tx) => tx.query<{ definition: string; state: string; removed: boolean }>(`SELECT o.definition, o.state, n.removed FROM ${table} o JOIN node n ON n.id = o.node_id ORDER BY o.id`));
+        expect(kept.rows).toEqual([{ definition: 'first', state: 'closed', removed: true }, { definition: 'second', state: 'closed', removed: true }]);
+      }
+      // An all-null historical field can be removed or retyped without losing a value.
+      const withoutEmpty = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.filter((field) => field.name !== 'strict') })) };
+      expect(await createOneGraphSchema(durable, withoutEmpty)).toEqual({ reset: false });
+    } finally { await durable.close(); }
+  });
+
+  test('schema reconciliation refuses removal of authored natural-key history', async () => {
+    const durable = await createTestDatabaseOwner();
+    const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'name', type: 'text' }, { name: 'value', type: 'text', nullable: true }], key: ['name'], capability: 'fixture' }], edge: [], dictionary: [] };
+    try {
+      await createOneGraphSchema(durable, graph);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: { name: 'Kept' }, values: { value: 'preserve' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: { name: 'AlsoKept' }, values: { value: 'preserve' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      const changed: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => ({ ...kind, key: [], fields: kind.fields.filter((field) => field.name !== 'name') })) };
+      await expect(createOneGraphSchema(durable, changed)).rejects.toThrow(/kind "record" field "name".*2 non-null/);
+      const held = await durable.run((tx) => tx.query<{ key: unknown }>('SELECT key FROM node ORDER BY id'));
+      expect(held.rows).toEqual([{ key: { name: 'Kept' } }, { key: { name: 'AlsoKept' } }]);
+    } finally { await durable.close(); }
+  });
+
+  test('schema reconciliation refuses required additions and changed reference targets with history', async () => {
+    const durable = await createTestDatabaseOwner();
+    const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'target', type: 'json', reference: 'alpha', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
+    try {
+      await createOneGraphSchema(durable, graph);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: {}, values: { target: { kind: 'alpha', key: {} } }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      const changedRef: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => ({ ...kind, fields: kind.fields.map((field) => ({ ...field, reference: 'beta' })) })) };
+      await expect(createOneGraphSchema(durable, changedRef)).rejects.toThrow(/kind "record" field "target".*1 non-null values/);
+      const required: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => ({ ...kind, fields: [...kind.fields, { name: 'required', type: 'text' as const }] })) };
+      await expect(createOneGraphSchema(durable, required)).rejects.toThrow(/kind "record" field "required".*1 historical opinions/);
+      const held = await durable.run((tx) => tx.query<{ target: unknown }>(`SELECT target FROM ${graph.vertex[0]!.table}`));
+      expect(held.rows).toEqual([{ target: { kind: 'alpha', key: {} } }]);
+    } finally { await durable.close(); }
+  });
+
   test('a store whose graph predates this shape resets as one and needs a fill; the journal is kept', async () => {
     const old = await createTestDatabaseOwner();
     try {
@@ -351,6 +423,59 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(nodes.rows.map((row) => row.key)).toEqual([{}, {}]);
     expect(new Set(nodes.rows.map((row) => row.uid)).size).toBe(2);
   });
+
+  test('withdrawing a vertex removes all incident edges atomically and journals every producer opinion', async () => {
+    const durable = await createTestDatabaseOwner();
+    const vertexTable = generatedTableName('record', 'vertex');
+    const edgeTable = generatedTableName('links', 'edge');
+    const graph: GraphContract = {
+      vertex: [{ name: 'record', table: vertexTable, fields: [{ name: 'name', type: 'text' }], key: ['name'], capability: 'fixture' }],
+      edge: [{ name: 'links', table: edgeTable, from: ['record'], to: ['record'], repeats: false, fields: [], capability: 'fixture' }], dictionary: [],
+    };
+    const ref = (name: string) => ({ kind: 'record', key: { name } });
+    const removal = { kind: 'record', key: { name: 'Center' }, producer: 'person:reader', withdrawAll: true };
+    const snapshot = async () => await durable.run(async (tx) => ({
+      edges: (await tx.query<{ id: string }>('SELECT id::text AS id FROM edge ORDER BY id')).rows,
+      opinions: (await tx.query<{ id: string; state: string }>(`SELECT id::text AS id, state FROM ${edgeTable} ORDER BY id`)).rows,
+      vertices: (await tx.query<{ removed: boolean }>('SELECT removed FROM node ORDER BY id')).rows,
+      operations: (await tx.query<{ seq: string }>('SELECT seq::text AS seq FROM operation ORDER BY seq')).rows,
+    }));
+    try {
+      await createOneGraphSchema(durable, graph);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, {
+        vertices: ['Center', 'Left', 'Right'].map((name) => ({ ...ref(name), producer: 'source', producerVersion: '1' })), removals: [],
+        edges: [['Left', 'Center'], ['Center', 'Right'], ['Left', 'Right']].map(([from, to]) => ({ kind: 'links', from: ref(from!), to: ref(to!), producer: 'first', producerVersion: '1' })),
+      }));
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [], edges: [
+        { kind: 'links', from: ref('Left'), to: ref('Center'), producer: 'second', producerVersion: '2' },
+      ] }));
+      const before = await snapshot();
+      await expect(durable.transaction('write', async (tx) => {
+        await publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] });
+        throw new Error('rollback incident withdrawal');
+      })).rejects.toThrow('rollback incident withdrawal');
+      expect(await snapshot()).toEqual(before);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }));
+      const after = await snapshot();
+      expect(after.edges).toEqual([before.edges[2]!]);
+      expect(after.vertices).toEqual([{ removed: true }, { removed: false }, { removed: false }]);
+      expect(after.opinions).toEqual([before.opinions[2]!]);
+      const vertexHistory = await durable.run((tx) => tx.query<{ name: string; state: string }>(`SELECT n.key->>'name' AS name, o.state FROM ${vertexTable} o JOIN node n ON n.id = o.node_id ORDER BY n.id`));
+      expect(vertexHistory.rows).toEqual([{ name: 'Center', state: 'closed' }, { name: 'Left', state: 'open' }, { name: 'Right', state: 'open' }]);
+      const history = await durable.run((tx) => tx.query<{ change: { edges: { edge: string; from: string; to: string; state: string }[]; opinions: { id: string; state: string }[] } }>('SELECT change FROM operation ORDER BY seq'));
+      const declared = history.rows.flatMap((one) => one.change.edges).filter((one) => one.state === 'declared');
+      const opened = history.rows.flatMap((one) => one.change.opinions).filter((one) => one.state === 'opened');
+      expect(before.opinions.every((opinion) => opened.some((one) => one.id === opinion.id))).toBe(true);
+      const entry = await durable.run((tx) => tx.query<{ change: { edges: { edge: string; state: string }[]; opinions: { id: string; state: string; said_by: string }[] } }>('SELECT change FROM operation ORDER BY seq DESC LIMIT 1'));
+      expect(entry.rows[0]!.change.edges.map((one) => [one.edge, one.state])).toEqual(before.edges.slice(0, 2).map((one) => [one.id, 'removed']));
+      expect(history.rows.at(-1)!.change.edges).toEqual(declared.slice(0, 2).map((one) => ({ ...one, state: 'removed' })));
+      const closed = entry.rows[0]!.change.opinions.filter((one) => one.state === 'closed');
+      expect(closed.map((one) => one.said_by).sort()).toEqual(['first@1', 'first@1', 'second@2', 'source@1']);
+      expect(closed.filter((one) => before.opinions.some((opinion) => opinion.id === one.id))).toHaveLength(3);
+      expect(await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }))).toBe(0);
+      expect(await snapshot()).toEqual(after);
+    } finally { await durable.close(); }
+  }, 120_000);
 
   test('an edge end no vertex holds is recorded once per producer and cleared when the edge publishes', async () => {
     const graph: GraphContract = {

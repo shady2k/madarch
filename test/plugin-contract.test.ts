@@ -40,6 +40,7 @@ const MANIFEST = [
   '  doc.term:',
   '    template: templates/t.liquid',
   '    source: document',
+  '    origin: person',
   '    terms: ["**/glossary*.md"]',
   '    semantics: term',
   '    fields:',

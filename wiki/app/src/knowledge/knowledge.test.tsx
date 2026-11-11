@@ -365,8 +365,6 @@ function stubFetch(calls: string[], others: (url: string, init?: RequestInit) =>
 }
 
 /** The kinds a page lists: one kind's row as the status sends it, and the listing an empty layer answers. */
-const emptyListing = (kind: string): Response => new Response(JSON.stringify({ kind, total: 0, rows: [], next: null }), { status: 200 });
-
 describe('the empty home', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
@@ -392,13 +390,14 @@ describe('the empty home', () => {
     expect(container.textContent).not.toContain('problems');
   });
 
-  test('a document kind says plainly that no fill stage writes it yet', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/entities') ? emptyListing('doc.use-case') : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }));
+  test('a person-authored document kind offers New even when its list is empty', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/authored?') ? Response.json({ kind: 'doc.use-case', fields: [{ name: 'title', type: 'text' }], entities: [] }) : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }));
     const kind: KindSummary = { kind: 'doc.use-case', source: 'document', single: false, count: 0, origins: ['person'] };
     // The kind's page asks for the agent spend too; this kind's answer is the empty one an unfilled kind gives.
     const container = into(createElement(KindLabels.Provider, { value: [kind] }, createElement(KindPage, { kind: 'doc.use-case', version: 1 })));
-    await until(() => container.querySelector('[data-testid=kind-empty]') !== null, 'the empty kind');
-    expect(container.querySelector('[data-testid=kind-empty]')!.textContent).toBe('No fill stage writes this kind yet.');
+    await until(() => container.querySelector('[data-testid=authored-kind-page]') !== null, 'the authored kind');
+    expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'New')).toBe(true);
+    expect(container.textContent).not.toContain('No fill stage writes this kind yet.');
   });
 });
 

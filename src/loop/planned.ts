@@ -14,10 +14,8 @@
  * marks nothing: its change already happened.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { byCodePoint } from '../model/order.js';
-import { closingCommit, type RepositoryRef } from './closure.js';
-import { impactOf, type ImpactedStatement } from './impact.js';
-import { readTasksIn, scopePath, type PlannedTask, type TaskScope } from './tasks.js';
+import { type RepositoryRef } from './closure.js';
+import { type TaskScope } from './tasks.js';
 import type { ProductFileSource } from '../knowledge/product-files.js';
 import type { KindsManifest } from '../knowledge/kinds.js';
 
@@ -66,79 +64,8 @@ export interface PlannedMarks {
 
 export const NO_MARKS: PlannedMarks = { sections: [], statements: [], entities: [], tasks: [], notes: [] };
 
-const refOf = (task: PlannedTask): PlannedTaskRef => ({ id: task.id, slug: task.slug, title: task.title, file: task.file });
-
-/**
- * The marks of a product's open tasks. `repositories` are read to see which
- * tasks a commit has closed; `productFiles` are the product's own documents,
- * which belong to no code repository.
- */
-export async function plannedMarks(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly files: ProductFileSource; readonly manifest: KindsManifest; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[]; readonly pageFiles: ReadonlyMap<string, string> }): Promise<PlannedMarks> {
-  const read = await readTasksIn(input.files);
-  const notes: string[] = read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`);
-  const repositoriesOf = (path: string): string | null => (input.productFiles.includes(path) ? null : input.repositories.length === 1 ? input.repositories[0]!.name : null);
-  const sections = new Map<string, PlannedSection>();
-  const statements = new Map<string, PlannedStatement>();
-  const entities = new Map<string, PlannedEntity>();
-  const tasks: PlannedTaskRef[] = [];
-  for (const task of read.tasks) {
-    if (task.status === 'closed') continue;
-    try {
-      if (closingCommit(task, input.repositories, { pageFiles: input.pageFiles }) !== undefined) continue;
-    } catch (error) {
-      notes.push((error as Error).message);
-      continue;
-    }
-    tasks.push(refOf(task));
-    const how = 'scope' as const;
-    for (const scope of task.scope) {
-      const path = scopePath(scope);
-      if (path !== undefined) {
-        if (scope.type === 'section') sections.set(`${scope.path}#${scope.anchor}`, { repo: repositoriesOf(scope.path), path: scope.path, anchor: scope.anchor.toLowerCase(), lines: null, task: refOf(task), how });
-        else if (scope.type === 'lines') sections.set(`${scope.path}:${scope.start}-${scope.end}`, { repo: repositoriesOf(scope.path), path: scope.path, anchor: null, lines: { start: scope.start, end: scope.end }, task: refOf(task), how });
-        else if (scope.type === 'file') sections.set(`${scope.path}`, { repo: repositoriesOf(scope.path), path: scope.path, anchor: null, lines: null, task: refOf(task), how });
-      }
-      if (scope.type === 'symbol') entities.set(scope.key, { id: scope.key, task: refOf(task), how });
-      if (scope.type === 'statement') {
-        const page = scope.key.slice(0, scope.key.indexOf('#'));
-        statements.set(scope.key, { page, statement: scope.key.slice(scope.key.indexOf('#') + 1), task: refOf(task), how });
-      }
-      // A place the scope names is also an entity of the graph: its page says a change is planned.
-      for (const key of groundsOfScope(scope)) entities.set(key, { id: key, task: refOf(task), how });
-    }
-    // What the task's own scope reaches through the graph: a section the reader removed marks nothing, and one added marks what it reaches.
-    const impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task), { files: input.files, manifest: input.manifest });
-    for (const statement of impact.statements) markStatement(statements, statement, refOf(task));
-    for (const key of impact.entities) if (!entities.has(key)) entities.set(key, { id: key, task: refOf(task), how });
-    for (const page of impact.pages) if (!entities.has(page.id)) entities.set(page.id, { id: page.id, task: refOf(task), how: 'impact' });
-  }
-  return {
-    sections: [...sections.values()].sort((a, b) => byCodePoint(a.path, b.path) || byCodePoint(a.anchor ?? '', b.anchor ?? '') || (a.lines?.start ?? 0) - (b.lines?.start ?? 0)),
-    statements: [...statements.values()].sort((a, b) => byCodePoint(a.page, b.page) || byCodePoint(a.statement, b.statement)),
-    entities: [...entities.values()].sort((a, b) => byCodePoint(a.id, b.id)),
-    tasks: tasks.sort((a, b) => byCodePoint(a.id, b.id)),
-    notes,
-  };
-}
-
-function markStatement(marks: Map<string, PlannedStatement>, statement: ImpactedStatement, task: PlannedTaskRef): void {
-  // Only a statement that stands on the ground has a basis that will change; one that merely names it is not marked.
-  if (statement.how !== 'grounds') return;
-  const key = `${statement.page}#${statement.statement}`;
-  const held = marks.get(key);
-  // A statement the task's own scope names stays worded as the scope's; the graph's ground mark never overrides it.
-  if (held !== undefined && held.how === 'scope') return;
-  marks.set(key, { page: statement.page, statement: statement.statement, task, how: 'impact' });
-}
-
-/**
- * The grounds a task's impact is computed from: the places its scope names, and its own grounds when they name no place.
- * A person edits the scope before confirming, and the impact follows it, not the answer it came from.
- */
-export function impactGroundsOf(task: PlannedTask): string[] {
-  const keys = new Set<string>();
-  for (const scope of task.scope) for (const key of groundsOfScope(scope)) keys.add(key);
-  return keys.size === 0 ? [...task.grounds] : [...keys].sort(byCodePoint);
+export async function plannedMarks(_input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly files: ProductFileSource; readonly manifest: KindsManifest; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[]; readonly pageFiles: ReadonlyMap<string, string> }): Promise<PlannedMarks> {
+  return { ...NO_MARKS, notes: ['Markdown planned-change tracking is retired; authored entities are stored in the database'] };
 }
 
 /** The graph keys a scope names, as the entity page of each is addressed. */

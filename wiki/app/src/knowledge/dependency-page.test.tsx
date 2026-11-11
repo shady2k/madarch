@@ -129,6 +129,7 @@ describe('the dependency graph page', () => {
     // A failed turn says so in its own entity, and the run's failure is at the page's head.
     const failed: CatalogView = { ...catalog, kinds: [kind({ kind: 'code.file', turn: 'failed', dependsOn: ['nowhere'] })] };
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/catalog') ? json(failed) : json({ message: 'not here' }, 404);
+    rendered?.unmount();
     const after = into(createElement(DependencyPage, { version: 0, status: status({ fill: { state: 'failed', message: 'the run ended failed' } }) }));
     await until(() => after.querySelector('[data-testid="dependency-node"]') !== null, 'the failed graph');
     expect(after.querySelector('[data-kind="code.file"]')!.getAttribute('data-state')).toBe('failed');

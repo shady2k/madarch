@@ -234,32 +234,6 @@ export function findAnchor(text: string, anchor: string): number | null {
  * The lines a node covers: a heading covers its whole section (its blocks and its sub-sections), a list item or a
  * paragraph covers itself and only what stands under it, never the sibling that follows it.
  */
-export function extentOfNode(tree: DocTree, node: DocNode): { start: number; end: number } {
-  if (node.type !== 'heading') return { start: node.line, end: node.endLine };
-  const section = tree.sections.find((candidate) => candidate.heading === node);
-  return { start: node.line, end: section?.endLine ?? node.endLine };
-}
-
-/**
- * The lines an anchor's part covers, or undefined when the document has no such anchor: the extent of the node the
- * anchor names. A task scoped to `br-1` closes on a commit that changes `br-1` and not on one that changes its sibling
- * `br-2`, because a list item covers only its own lines (madarch-ztyq.3, the review of finding 4).
- */
-export function anchorExtent(text: string, anchor: string): { start: number; end: number } | undefined {
-  const tree = readDocTree({ repo: null, path: '', text });
-  const reading = anchorsOfTree(tree);
-  const name = anchor.toLowerCase();
-  const direct = reading.nodes.get(name);
-  if (direct !== undefined) return extentOfNode(tree, direct);
-  let cut = name.lastIndexOf('.');
-  while (cut > 0) {
-    const node = reading.nodes.get(name.slice(0, cut));
-    if (node !== undefined && name.slice(cut + 1) !== '' && [...name.slice(cut + 1)].every((char) => DIGIT(char.codePointAt(0)!))) return extentOfNode(tree, node);
-    cut = name.slice(0, cut).lastIndexOf('.');
-  }
-  return undefined;
-}
-
 /**
  * What a reader calls the part an anchor names: a heading's text (its explicit `{#anchor}` aside), a bold item's phrase,
  * or nothing when the part has no name of its own. A place a task names is read this way, from the tree, so a label is

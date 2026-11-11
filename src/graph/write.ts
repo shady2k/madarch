@@ -618,23 +618,31 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   journal = heldJournal(executor, journal);
   const vertex = vertexOf(contract, draft.kind);
   const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-  const uid = keyUid(vertex.name, [JSON.stringify(key)]);
-  const node = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
+  if (vertex.key.length === 0 && draft.uid === undefined) throw new Error(`${WHERE}:1: withdrawing a keyless entity requires its uid`);
+  const uid = draft.uid ?? keyUid(vertex.name, [JSON.stringify(key)]);
+  const node = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = $3::bigint FOR UPDATE OF n`, [uid, vertex.name, String(contextId)]);
   const nodeId = node.rows[0]?.id;
   if (nodeId === undefined) return false;
   const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    `UPDATE ${vertex.table} SET "state" = 'closed' WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
-    [nodeId, draft.producer, String(contextId)],
+    `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
+    [nodeId, draft.producer, String(contextId), draft.withdrawAll === true],
   );
   // A withdrawal that withdrew nothing states nothing: no close, and no removal of a vertex that stands (codex, stage 2
   // review, item 4). A repeated ineffective withdrawal is not a change and writes no row.
   if (closed.rows.length === 0) return false;
   for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
-  const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" = 'open' AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
+  const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
   const removed = Number(open.rows[0]?.n ?? '0') === 0;
   // The vertex is journaled as removed only where no open opinion of any producer remains: a producer that withdraws
   // while another's opinion stands closed its own opinion and removed nothing.
-  if (removed) journal?.removedVertex(vertex.name, uid, nodeId);
+  if (removed) {
+    const incident = await executor.query<{ id: string; kind: string }>(
+      `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
+       WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
+    );
+    for (const edge of incident.rows) await removeEdgeById(executor, contract, edge.kind, edge.id, journal);
+    journal?.removedVertex(vertex.name, uid, nodeId);
+  }
   await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, removed]);
   return true;
 }

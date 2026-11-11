@@ -71,19 +71,16 @@ import { buildStatement, type StatementResult } from './statement.js';
 import { documentAddress, entityAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument } from './doc-sources.js';
-import { readCorrectionsIn } from '../loop/entities.js';
-import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
-import { readScope, readTasks, renderTask, scopeWords, TASKS_FOLDER, taskSlug, writeTask, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
+import { scopeWords, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
-import { impactGroundsOf } from '../loop/planned.js';
-import { closingCommit, type RepositoryRef } from '../loop/closure.js';
 import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
-import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
+import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { readKnowledgePagesFrom, type IndexedPage } from './index/index.js';
 import { StoredProductFiles } from './product-source.js';
 import { warmRenderWorker } from './liquid.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
-import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type Problem, type ProblemCategories, type ProblemItems, type ProblemListing, type ProblemSources, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
+import { type Problem, type ProblemCategories, type ProblemItems, type ProblemListing, type ProblemSources, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
@@ -92,6 +89,9 @@ import { readProblemDismissalsIn, writeProblemDismissal } from '../loop/problem-
 import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { readUnitStates } from '../fill/state-store.js';
+import { authoredEntity } from '../graph/authored.js';
+import { importAuthored } from './import-authored.js';
+import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
 
 /**
@@ -131,14 +131,6 @@ const execFileAsync = promisify(execFile);
 const LOCALIZED_SOURCE_UNIT = 'localized-source:';
 
 /** The scopes of a confirmed task, each once, in the order the reader sent them. */
-const dedupeScopes = (scopes: readonly TaskScope[]): TaskScope[] => {
-  const byKey = new Map<string, TaskScope>();
-  for (const scope of scopes) byKey.set(JSON.stringify(scope), scope);
-  return [...byKey.values()];
-};
-
-
-
 /**
  * The page an archify frame answers when the renderer could not draw: one sentence in the reader's language, and a
  * message to the app, which then shows the same view under a renderer that did draw.
@@ -319,6 +311,62 @@ export class KnowledgeProduct {
 
   get folder(): string {
     return this.options.productFolder;
+  }
+
+
+  private singleRepository(): { name: string; path: string; commit: string } | undefined {
+    const repositories = this.repositories().filter((repo) => repo.present);
+    if (repositories.length !== 1) return undefined;
+    const pin = this.pins.get(repositories[0]!.name);
+    return pin === undefined || pin.head === '' ? undefined : { name: repositories[0]!.name, path: repositories[0]!.path, commit: pin.head };
+  }
+
+
+  /** A person's explicit entity action never fills the product or installs a manifest. */
+  async authored(action: 'create' | 'show' | 'update' | 'delete' | 'list' | 'schema', kind: string, args: { uid?: string; values?: Readonly<Record<string, unknown>>; words?: string; ifRevision?: string } = {}) {
+    return await withSpan('authored.action', { 'authored.action': action, 'authored.kind': kind }, async () => {
+      const owner = await this.open();
+      await this.followStoreFill();
+      const read = await this.manifestRead(this.options.productFolder);
+      if (!read.present) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no manifest yet. Open the catalogue, select its kinds and press Fill first.`);
+      if (read.manifest.findings.length > 0) {
+        const first = read.manifest.findings[0]!;
+        throw new LoopRefusal(409, `${resolve(this.folder, first.file)}:${first.line}: ${first.message}`);
+      }
+      const identity = this.product();
+      if ('message' in identity) throw new LoopRefusal(409, identity.message);
+      const writing = action === 'create' || action === 'update' || action === 'delete';
+      const by = writing ? await localIdentity(this.folder, { ...process.env, ...this.options.env }) : undefined;
+      const person = by === undefined ? '' : `person:${by.name} <${by.email}>`;
+      const answer = await owner.transaction(writing ? 'write' : 'snapshot', async (tx) => await authoredEntity(tx, read.manifest, identity.name, person, action === 'show' ? 'read' : action === 'update' ? 'edit' : action, kind, args));
+      if (writing) {
+        this.generation += 1;
+        if (this.reader !== undefined) this.reader.seq = this.generation;
+        this.filesMemo = undefined;
+        this.manifestMemo = undefined;
+        this.notify();
+      }
+      return answer;
+    });
+  }
+
+  /** Explicitly migrate the retired sources; a fill and a normal CRUD call never import them. */
+  async importAuthored() {
+    return await withSpan('authored.import', {}, async () => {
+      const owner = await this.open();
+      const read = await this.manifestRead(this.folder);
+      if (!read.present) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
+      const identity = this.product();
+      if ('message' in identity) throw new LoopRefusal(409, identity.message);
+      const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
+      const result = await importAuthored(this.folder, owner, read.manifest, identity.name, `person:${by.name} <${by.email}>`);
+      this.generation += 1;
+      if (this.reader !== undefined) this.reader.seq = this.generation;
+      this.filesMemo = undefined;
+      this.manifestMemo = undefined;
+      this.notify();
+      return result;
+    });
   }
 
   /** The product as its manifest reads; refused when it cannot be. */
@@ -1518,6 +1566,7 @@ export class KnowledgeProduct {
     if ('message' in product) return { ok: false, message: product.message };
     let plan: ResetPlan;
     try {
+      if (await authoredHistoryPresent(await this.open())) return { ok: false, message: `${this.storeFolder()}:1: this store holds person-authored history. Start over is refused to preserve authored data and its journal; export a backup and use a preserving migration instead.` };
       plan = planReset(product.folder, this.storeFolder(), this.options.storeRoot);
       if (expected !== undefined && (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => JSON.stringify(expected[key]) !== JSON.stringify(plan[key]))) return { ok: false, message: `${product.folder}:1: reset inputs changed since the preview; request a new preview: nothing was removed` };
     } catch (error) {
@@ -2370,14 +2419,8 @@ export class KnowledgeProduct {
    * them at this revision: the same files the Questions and Tasks pages draw from (madarch-hsqs stage C).
    */
   private async loopCounts(): Promise<WikiStatus['loop']> {
-    const files = await this.productFiles();
-    const questions = await listQuestions(files);
-    const correctionsOpen = (await readCorrectionsIn(files)).items.filter((correction) => correction.status === 'open').length;
-    // The menu says what the Tasks page says: the closure of each task, not the status its file still carries.
-    const tasksOpen = await openTasks(files, this.taskRepositories(), await this.pageFiles());
-    // Until the Problems page can be read, an open correction is the count that is known from the graph alone; the
-    // status replaces it with the page's own open count once that page can be built (openProblems).
-    return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen, tasksOpen, problemsOpen: correctionsOpen };
+    // The specialized Markdown lifecycle is retired. Authored kind counts are in `numbersOf`.
+    return { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: 0 };
   }
 
   /**
@@ -2822,34 +2865,18 @@ export class KnowledgeProduct {
 
   /** The questions of the product as the graph holds them; a question's file is read once per graph revision. */
   async questions(): Promise<QuestionListing> {
-    return await listQuestions(await this.productFiles());
+    throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: use the catalogue kind listing or madarch entity list; Markdown questions have been retired.`);
   }
 
-  async question(slug: string): Promise<QuestionDetail | undefined> {
-    const context = await this.context();
-    const resolve = 'absent' in context
-      ? async (url: string) => ({ state: 'broken' as const, target: url, reason: `the product has no ${context.file}` })
-      : (url: string) => context.ctx.resolver.resolve(url);
-    return await questionDetail(await this.productFiles(), slug, resolve);
+  async question(_slug: string): Promise<QuestionDetail | undefined> {
+    throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: use an authored entity uid; Markdown questions have been retired.`);
   }
 
   /** A person's answer: written into the question's file and committed with the person as author. */
-  async answer(slug: string, text: string): Promise<Answered> {
-    const done = await answerQuestion({ productFolder: this.options.productFolder, slug, text, ...(this.options.now === undefined ? {} : { now: this.options.now }), env: { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv });
-    this.notify();
-    return done;
+  async answer(_slug: string, _text: string): Promise<Answered> {
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
-  // ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
-
-  /** The repositories a commit may close a task in: the product's own, then each code repository checked out. */
-  private taskRepositories(): RepositoryRef[] {
-    const product = this.product();
-    if ('message' in product) return [];
-    return [{ name: '', path: product.folder }, ...this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }))];
-  }
-
-  /** Where planned changes show now, read once per revision of the product's files and its graph. */
   private async marks(): Promise<PlannedMarks> {
     const key = await this.marksKey();
     const held = this.marksMemo;
@@ -2874,44 +2901,16 @@ export class KnowledgeProduct {
   }
 
   /** The task reading's inputs: the product's own files as the graph holds them, and the manifest they declare. */
-  private async taskRead(): Promise<{ owner: DatabaseOwner; files: StoredProductFiles; manifest: KindsManifest }> {
-    const owner = await this.open();
-    const files = await this.productFiles();
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    const read = await this.manifestFrom(files, product.folder);
-    if (!read.present) throw new WikiReadError(`the product has no ${read.file}: the wiki shows the kinds that file declares`);
-    return { owner, files, manifest: read.manifest };
-  }
-
-  /** The product's tasks, open first, each with what its change reaches through the graph. */
   async tasks(): Promise<TaskListing> {
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    // A product the graph holds no kinds manifest of holds no task it can read: the page says so by answering none.
-    if (!(await this.manifestRead(product.folder)).present) return { tasks: [], open: 0, closed: 0, problems: [], notes: [] };
-    const { owner, files, manifest } = await this.taskRead();
-    return await listTasks({ productFolder: this.options.productFolder, owner, files, manifest, repositories: this.taskRepositories(), pageFiles: await this.pageFiles(), placeOf: (scope) => this.placeOf(scope) });
+    throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: use the catalogue kind listing or madarch entity list; Markdown tasks have been retired.`);
   }
 
-  /** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
-  async task(id: string): Promise<TaskDetail | undefined> {
-    const product = this.product();
-    if ('message' in product) throw new WikiReadError(product.message);
-    if (!(await this.manifestRead(product.folder)).present) return undefined;
-    const { owner, files, manifest } = await this.taskRead();
-    return await taskDetail({ productFolder: this.options.productFolder, owner, files, manifest, repositories: this.taskRepositories(), pageFiles: await this.pageFiles(), placeOf: (scope) => this.placeOf(scope) }, id, await this.marks());
+  async task(_id: string): Promise<TaskDetail | undefined> {
+    throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: use an authored entity uid; Markdown tasks have been retired.`);
   }
 
-  /** The task an answer proposes: the scope its grounds name and its impact through the graph, before anything is written. */
-  async proposeTask(question: string, choice: TaskChoice, asked?: 'en' | 'ru'): Promise<TaskProposal> {
-    const owner = await this.open();
-    const read = await this.manifestRead(this.options.productFolder);
-    // The reader's interface language when it says one, else the language the product's pages are written in.
-    const language = asked ?? (read.present && read.manifest.language === 'ru' ? 'ru' : 'en');
-    const proposal = await proposeTask({ owner, productFolder: this.options.productFolder, question, choice, language });
-    // The places as a reader says them: a section's heading and its document's title, never a `doc:` key.
-    return { ...proposal, places: await Promise.all(proposal.scope.map((scope) => this.placeOf(scope))) };
+  async proposeTask(_question: string, _choice: TaskChoice, _asked?: 'en' | 'ru'): Promise<TaskProposal> {
+    throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: create an authored entity from its kind instead. Task lifecycle commands are not available.`);
   }
 
   /**
@@ -2954,48 +2953,10 @@ export class KnowledgeProduct {
   }
 
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
-  async createTask(input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    const question = (await this.questions()).rows.find((row) => row.slug === input.question);
-    if (question === undefined || question.state === 'open') throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: a task needs a saved answer to an existing question`);
-    const detail = await this.question(input.question);
-    if (detail?.answer === null || detail?.answer === undefined) throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: the saved answer cannot be read`);
-    if (input.title.trim() === '') throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a title');
-    if (input.scope.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a scope: the section, lines, symbol or statement it changes');
-    if (input.grounds.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs its grounds: what the change stands on');
-    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    // A scope the wiki cannot read back is refused now: a task file it cannot parse would vanish into findings.
-    const scopes = dedupeScopes(input.scope);
-    const bad = scopes.findIndex((scope) => readScope(JSON.parse(JSON.stringify(scope))) === undefined);
-    if (bad >= 0) throw new LoopRefusal(400, `docs/tasks:1: scope[${bad}] is ${JSON.stringify(scopes[bad])}, and a scope is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }`);
-    const title = input.title.trim();
-    const existing = readTasks(this.options.productFolder);
-    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
-    const wanted = taskSlug(title, scopes);
-    const collided = existing.tasks.find((candidate) => candidate.slug === wanted);
-    let slug = wanted;
-    if (collided !== undefined && taskSlug(collided.title, collided.scope) !== wanted) {
-      for (let n = 2; ; n += 1) {
-        const candidate = `${wanted}-${n}`;
-        if (!existing.tasks.some((task) => task.slug === candidate)) { slug = candidate; break; }
-      }
-    }
-    const file = `docs/tasks/${slug}.md`;
-    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
-    const task = { slug, title, status: 'open' as const, question: `question:${input.question}`, answer: `answer:${input.question}`, grounds: [...new Set(input.grounds)].sort(byCodePoint), scope: scopes, by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null };
-    try {
-      writeTask(this.options.productFolder, file, task);
-    } catch (error) {
-      throw new LoopRefusal(409, `${file}:1: the task could not be written: ${(error as Error).message}`);
-    }
-    const committed = await commitFiles(this.options.productFolder, [file], `Plan the task ${slug}\n\nTask: ${slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    this.notify();
-    return { task: { ...task, id: `task:${slug}`, file }, state: 'created', ...committed };
+  async createTask(_input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
-  /**
-   * What a scope reaches through the graph, read while the reader edits it: the preview follows the scope, not the answer.
-   * A scope that names nothing refuses with its scopes rather than answering an empty list.
-   */
   async scopeImpact(scope: readonly TaskScope[]): Promise<TaskImpact> {
     const keys = [...new Set(scope.flatMap((one) => groundsOfScope(one)))].sort(byCodePoint);
     if (keys.length === 0) throw new WikiReadError('docs/tasks:1: this scope names no place of the product, so the change reaches nothing: name a section, a file, a symbol or a statement');
@@ -3004,76 +2965,19 @@ export class KnowledgeProduct {
   }
 
   /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
-  async closeTask(id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
-    const read = readTasks(this.options.productFolder);
-    const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
-    if (task === undefined) throw new LoopRefusal(404, `docs/tasks:1: there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository`);
-    if (task.status === 'closed') throw new LoopRefusal(409, `${task.file}:1: the task ${task.slug} is already closed`);
-    let closing: ReturnType<typeof closingCommit>;
-    try {
-      closing = closingCommit(task, this.taskRepositories(), { pageFiles: await this.pageFiles() });
-    } catch (error) {
-      throw new LoopRefusal(409, (error as Error).message);
-    }
-    if (closing !== undefined) throw new LoopRefusal(409, `${task.file}:1: the task ${task.slug} is already closed by the commit ${closing.commit} of ${closing.repository || 'the product'}`);
-    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    const at = (this.options.now?.() ?? new Date()).toISOString();
-    const closed: PlannedTask = { ...task, status: 'closed', closedBy: 'person', closedAt: at };
-    // The file is replaced whole: a half-written task is a task the wiki cannot read.
-    writeFileSync(join(this.options.productFolder, task.file), renderTask(closed), 'utf8');
-    const committed = await commitFiles(this.options.productFolder, [task.file], `Close the task ${task.slug} by hand\n\nTask: ${task.slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    this.notify();
-    return { task: closed, state: 'closed', ...committed };
+  async closeTask(_id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
-  /**
-   * «Поправить страницы сейчас»: a refresh limited to exactly the pages the task's impact lists. The plan the agent is
-   * given is that list, computed here, so the run cannot widen it; a task that reaches no page of the product refuses
-   * with its grounds rather than writing something else.
-   */
-  async runTask(id: string): Promise<{ ok: true; task: TaskRow; pages: readonly string[]; fill: FillState } | { ok: false; message: string }> {
-    const read = readTasks(this.options.productFolder);
-    const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
-    if (task === undefined) return { ok: false, message: `there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository` };
-    const owner = await this.open();
-    // A task a commit already closed writes nothing: its change is in the history.
-    try {
-      const closing = closingCommit(task, this.taskRepositories(), { pageFiles: await this.pageFiles() });
-      if (closing !== undefined) return { ok: false, message: `the task ${task.slug} is closed by the commit ${closing.commit} of ${closing.repository || 'the product'}, so its pages are not written again` };
-    } catch (error) {
-      return { ok: false, message: (error as Error).message };
-    }
-    let impact: TaskImpact;
-    try {
-      impact = await impactOf(owner, this.options.productFolder, impactGroundsOf(task));
-    } catch (error) {
-      return { ok: false, message: (error as Error).message };
-    }
-    if (impact.writable.length === 0) {
-      return { ok: false, message: `the task ${task.slug} reaches no page of the product that the agent writes (${impact.pages.map((page) => page.file).join(', ') || 'no page at all'}): its grounds are ${impact.grounds.join(', ')}` };
-    }
-    // The task press limited the *writer* to the pages the task reaches; this build runs no writer (the owner:
-    // "Старый код, старый цикл разбора мы удаляем" — the agent stage is a later task's, decision 0033 item 1), so the
-    // press is refused by name rather than reported as a run that wrote nothing.
-    return { ok: false, message: `the task ${task.slug} reaches the pages ${impact.writable.join(', ')}, and writing them needs the agent stage, which this build does not run: a later task builds it (decision 0033, item 1)` };
+  async runTask(_id: string): Promise<{ ok: true; task: TaskRow; pages: readonly string[]; fill: FillState } | { ok: false; message: string }> {
+    return { ok: false, message: `${join(this.folder, KINDS_FILE)}:1: authored task lifecycle commands are not available. CRUD never starts an agent or fill.` };
   }
 
   /** A person's correction of a statement: a new file, committed with the person as author. */
-  async correct(statement: string, reason: string): Promise<Corrected> {
-    const done = await recordCorrection({ productFolder: this.options.productFolder, statement, reason, ...(this.options.now === undefined ? {} : { now: this.options.now }), env: { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv });
-    this.notify();
-    return done;
+  async correct(_statement: string, _reason: string): Promise<Corrected> {
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
-  /** The single code repository the pages are written from, and the commit the graph describes of it; absent otherwise. */
-  private singleRepository(): { name: string; path: string; commit: string } | undefined {
-    const repositories = this.repositories().filter((repo) => repo.present);
-    if (repositories.length !== 1) return undefined;
-    const pin = this.pins.get(repositories[0]!.name);
-    return pin === undefined || pin.head === '' ? undefined : { name: repositories[0]!.name, path: repositories[0]!.path, commit: pin.head };
-  }
-
-  /** The corrections people made and what the engine found itself, each with who fixes it. */
   async problems(): Promise<ProblemListing> {
     return await this.problemListing();
   }
@@ -3273,10 +3177,10 @@ export class KnowledgeProduct {
   async dismissProblem(id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> {
     const listing = await this.problems();
     const problem = listing.problems.find((candidate) => candidate.id === id);
-    if (problem === undefined) throw new LoopRefusal(404, `docs/problems:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
+    if (problem === undefined) throw new LoopRefusal(404, `${join(this.folder, 'docs/problems')}:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
     const [rule, ...rest] = id.split('\u0000');
     const identity = rest.join('\u0000');
-    if (rule === undefined || identity === '') throw new LoopRefusal(400, `docs/problems:1: the problem id ${JSON.stringify(id)} is not <rule>\\0<identity>`);
+    if (rule === undefined || identity === '') throw new LoopRefusal(400, `${join(this.folder, 'docs/problems')}:1: the problem id ${JSON.stringify(id)} is not <rule>\\0<identity>`);
     const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
     const at = (this.options.now?.() ?? new Date()).toISOString();
     let written: ReturnType<typeof writeProblemDismissal>;
@@ -3294,48 +3198,10 @@ export class KnowledgeProduct {
    * «Создать задачу»: a task scoped to exactly the place the problem names (madarch-m38l.14's task format).
    * A problem that names no place a person can change says why instead of opening an empty task.
    */
-  async createProblemTask(id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    const listing = await this.problems();
-    const problem = listing.problems.find((candidate) => candidate.id === id);
-    if (problem === undefined) throw new LoopRefusal(404, `docs/problems:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
-    if (problem.scope === undefined) throw new LoopRefusal(409, `docs/problems:1: the problem ${JSON.stringify(id)} names no place a change can reach, so no task is opened for it`);
-    const title = `Fix ${problem.rule} in ${problem.place.label}`;
-    const wanted = taskSlug(title, [problem.scope]);
-    const existing = readTasks(this.options.productFolder);
-    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
-    // A different task whose 12-character hash collides takes the next free suffix; the same one keeps its file.
-    const collided = existing.tasks.find((candidate) => candidate.slug === wanted);
-    let slug = wanted;
-    if (collided !== undefined && taskSlug(collided.title, collided.scope) !== wanted) {
-      for (let n = 2; ; n += 1) {
-        const candidate = `${wanted}-${n}`;
-        if (!existing.tasks.some((task) => task.slug === candidate)) { slug = candidate; break; }
-      }
-    }
-    const file = `${TASKS_FOLDER}/${slug}.md`;
-    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
-    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    const task: Omit<PlannedTask, 'id' | 'file'> = {
-      slug, title, status: 'open',
-      // A problem is not a person's answer: the task names the finding it came from, and the reason is the problem's own.
-      question: '', answer: '', problem: problem.id,
-      grounds: problem.entity?.key != null ? [problem.entity.key] : [problem.file],
-      scope: [problem.scope], by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null,
-    };
-    try {
-      writeTask(this.options.productFolder, file, task);
-    } catch (error) {
-      throw new LoopRefusal(409, `${file}:1: the task could not be written: ${(error as Error).message}`);
-    }
-    const committed = await commitFiles(this.options.productFolder, [file], `Plan the task ${slug}\n\nTask: ${slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
-    this.notify();
-    return { task: { ...task, id: `task:${slug}`, file }, state: 'created', ...committed };
+  async createProblemTask(_id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
-  /**
-   * Which pages a refresh would touch and why, computed from what the wiki holds now and shown before the press. The
-   * commits the fill has not read yet are counted but cannot be judged until they are read.
-   */
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {
     const context = await this.context();
     // A product with no publication yet is said so by the one sentence a reader can act on: start the fill once.

@@ -67,6 +67,7 @@ const SHORT_HELP = [
   '  clone     Clone a product',
   "  bootstrap Clone a product's code repositories",
   '  demo      Open the Madarch demo wiki',
+  '  entity    Create, show, update, delete or list authored entities',
   '  fill      Fill this product wiki from its connected code repositories',
   '  fill-stages  Run the eight deterministic stages over this product',
   '',
@@ -615,6 +616,10 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   // The MCP server is a program of its own that happens to be reached through this command: it reads its own flags
   // (`--repo`, `--store`, `--journal`) and must start even in a folder that is no product, so it is dispatched before
   // the command table is consulted.
+  if (args[0] === 'entity') {
+    const { entityCommand } = await import('./entity-cli.js');
+    return await entityCommand(args.slice(1));
+  }
   if (args[0] === 'mcp') {
     const { mcpCommand } = await import('../mcp/cli.js');
     return await mcpCommand(args.slice(1));

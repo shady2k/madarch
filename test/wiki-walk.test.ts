@@ -153,7 +153,7 @@ function startStub(options: { pages: Pages; fail?: string; documents?: unknown }
       if (!url.pathname.startsWith(base)) return new Response('not found', { status: 404 });
       const route = url.pathname.slice(base.length);
       if (route === '/api/status') return Response.json(STATUS);
-      if (route === '/api/questions') return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
+      if (route === '/api/questions') return new Response('retired', { status: 410 });
       if (route === '/api/documents') return Response.json(stub.documents ?? { documents: [], truncated: [] });
       if (route === '/api/entities') {
         const kind = url.searchParams.get('kind') ?? '';
@@ -294,7 +294,6 @@ describe('the walk fails instead of reporting fewer pages', () => {
       fetch(request): Response {
         const url = new URL(request.url);
         if (url.pathname.endsWith('/api/status')) return Response.json(STATUS);
-        if (url.pathname.endsWith('/api/questions')) return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
         if (url.pathname.endsWith('/api/entities')) return Response.json({ kind: KIND_SERVICE, total: 3, rows: ROWS[KIND_SERVICE], next: null });
         return new Response('no', { status: 404 });
       },

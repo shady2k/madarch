@@ -158,6 +158,7 @@ export interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
+  conflict?: { field: string; current: unknown; author: string };
   /**
    * The refusal's own machine-readable name, when the route has one (`graph-pages/no-such-node`),
    * so a client can branch on what went wrong instead of reading the words. It rides in the
@@ -659,6 +660,11 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.statement, handle: (request: Request) => dependencies.knowledge!.statement(request) },
         { method: 'GET', path: API.entities, handle: (request: Request) => dependencies.knowledge!.entities(request) },
         { method: 'GET', path: API.kindUsage, handle: (request: Request) => dependencies.knowledge!.kindUsage(request) },
+        { method: 'GET', path: API.authoredSchema, handle: (request: Request) => dependencies.knowledge!.authoredSchema(request) },
+        { method: 'GET', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
+        { method: 'POST', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
+        { method: 'PATCH', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
+        { method: 'DELETE', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
         { method: 'GET', path: API.neighborhood, handle: (request: Request) => dependencies.knowledge!.neighborhood(request) },
         { method: 'GET', path: API.view, handle: (request: Request) => dependencies.knowledge!.view(request) },
         { method: 'GET', path: API.viewFrame, handle: (request: Request) => dependencies.knowledge!.viewFrame(request) },

@@ -1,4 +1,24 @@
 {
+  "authored": {
+    "reload": "Загрузить заново",
+    "missingEntity": "Сервер не вернул объект.",
+    "conflict": "{{field}} теперь {{current}} ({{author}}).",
+      "new": "Создать",
+      "edit": "Изменить",
+      "delete": "Удалить",
+      "save": "Сохранить",
+      "saving": "Сохранение…",
+      "cancel": "Отмена",
+      "loading": "Загрузка…",
+      "true": "Да",
+      "false": "Нет",
+      "invalidJson": "Введите корректный JSON.",
+      "invalidInteger": "Введите целое число в допустимом диапазоне.",
+      "confirmDelete": "Удалить «{{title}}»? Открытые мнения о сущности будут закрыты.",
+      "confirm": "Удалить сущность",
+      "deleted": "Сущность удалена",
+      "back": "К списку"
+  },
   "brand": {
     "product": "Madarch",
     "concept": "вики",

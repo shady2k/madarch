@@ -1,8 +1,4 @@
-/**
- * The menu's counts of the loop (the owner's review of madarch-m38l.24): the tasks entry counts what the Tasks page
- * shows as open — a task a commit of a default branch closed is not open — and the problems entry follows the files the
- * Problems page reads, so a manifest edit shows at once instead of waiting for another revision.
- */
+/** The menu problems count follows a committed manifest edit without another server start. */
 import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
 import { execFileSync } from 'node:child_process';
@@ -10,7 +6,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { writeTask } from '../src/loop/tasks.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
@@ -21,10 +16,6 @@ const git = (cwd: string, args: string[], extra: Record<string, string> = {}): s
 
 const SHOP = 'orders-shop';
 const CODE = 'orders-code';
-const READER = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' };
-/** The task's own moment, before the commit that closes it. */
-const AT = '2026-10-24T09:00:00.000Z';
-
 let work: string;
 let home: string;
 let folder: string;
@@ -100,8 +91,8 @@ afterAll(async () => {
 describe('the problems entry of the menu', () => {
   test('a manifest edit changes the count on the next poll, without another revision of the product', async () => {
     // The count is collected beside the status answer (`statusWithCount`), so the first answers of a product may be pending.
-    const before = await statusWithCount();
     const problemsBefore = await get('/api/problems');
+    const before = await statusWithCount();
     expect(problemsBefore.status).toBe(200);
     // The menu already follows the Problems page: the fresh product has findings of its own (its documents lack the kinds
     // the starter manifest expects), so the count is read rather than assumed.
@@ -123,42 +114,6 @@ describe('the problems entry of the menu', () => {
     // lands — and the count they then carry is the new one, never the old one (a listing of other inputs is not answered).
     const after = await statusWithCount();
     expect(after.body.loop.problemsOpen).toBe(problems.body.open);
-  }, 60_000);
-});
-
-describe('the tasks entry of the menu', () => {
-  test('a task a commit of the default branch closed is not open in the menu, as the Tasks page says', async () => {
-    writeFileSync(join(folder, 'docs/product.md'), '# Shop\n\nA shop.\n');
-    git(folder, ['add', '--', 'docs/product.md']);
-    git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Document the shop']);
-    writeTask(folder, 'docs/tasks/fix-price.md', {
-      slug: 'fix-price', title: 'Fix the price', status: 'open', question: 'question:price', answer: 'answer:price',
-      grounds: ['code.file\u003asrc/a.ts'], scope: [{ type: 'file', path: 'docs/product.md' }], by: { ...READER }, at: AT,
-      closedBy: null, closedAt: null,
-    });
-    // The planning commit names the task but touches none of its scope: the task is still open after it.
-    git(folder, ['add', '--', 'docs/tasks/fix-price.md']);
-    git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Plan the task fix-price']);
-    await fill();
-    const stillOpen = await get('/api/tasks');
-    expect([stillOpen.body.open, stillOpen.body.closed]).toEqual([1, 0]);
-
-    // The commit that closes it: it names the task and changes the file its scope names, on the product's default branch.
-    writeFileSync(join(folder, 'docs/product.md'), '# Shop\n\nA shop with prices.\n');
-    const dated = { GIT_AUTHOR_DATE: '2026-10-24T09:01:00.000Z', GIT_COMMITTER_DATE: '2026-10-24T09:01:00.000Z' };
-    git(folder, ['add', '--', 'docs/product.md'], dated);
-    git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Fix the price\n\nTask: fix-price'], dated);
-    await fill();
-
-    const tasks = await get('/api/tasks');
-    expect(tasks.status).toBe(200);
-    expect([tasks.body.open, tasks.body.closed]).toEqual([0, 1]);
-    expect(tasks.body.tasks[0].status).toBe('closed');
-
-    const status = await get('/api/status');
-    expect(status.status).toBe(200);
-    // The menu's tasks entry counts what the Tasks page shows, by the same closure calculation (product.ts loopCounts).
-    expect(status.body.loop.tasksOpen).toBe(0);
   }, 60_000);
 });
 

@@ -285,6 +285,9 @@ export interface KindDecl {
   /** Markdown kinds: the folder (many entities) or the file (one entity) the Markdown lives in. */
   folder?: string;
   file?: string;
+  /** Retired authored Markdown location, read only by the one-time importer. */
+  importFolder?: string;
+  importFile?: string;
   /** The attribute that names a page. */
   title: string;
   attributes?: readonly string[];
@@ -549,7 +552,7 @@ export type KindsRead =
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
-  'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
@@ -1309,6 +1312,12 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       if (liquid !== undefined && files.has(liquid)) template = liquid;
       else problem(['template'], `the template "${String(named)}" does not exist in the product repository`);
     }
+    const importFolder = decl['import-folder'];
+    const importFile = decl['import-file'];
+    for (const [field, path] of [['import-folder', importFolder], ['import-file', importFile]] as const) {
+      if (path !== undefined && (typeof path !== 'string' || !insideFolder(productFolder, path))) problem([field], `"${field}" is a path inside the product repository`);
+    }
+    if (importFolder !== undefined && importFile !== undefined) problem(['import-folder'], 'an import location names either a folder or a file, not both');
     const folder = decl['folder'];
     const single = decl['file'];
     if (source === 'markdown') {
@@ -1492,7 +1501,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     };
     const fields = parseFields(decl['fields'], 'fields');
     const key = decl['key'];
-    if (key !== undefined && (!Array.isArray(key) || key.length === 0 || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
+    if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
     const capability = decl['capability'];
     if (capability !== undefined && (typeof capability !== 'string' || !/^[a-z][a-z0-9-]*$/.test(capability))) problem(['capability'], '"capability" is the name of the capability that fills the kind');
     const dependsOn = decl['depends-on'];
@@ -1531,6 +1540,8 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       ...(typeof semantics === 'string' && isSemanticKind(semantics) ? { semantics } : {}),
       ...(names2(structure) ? { structure: structure as string[] } : {}),
       ...(typeof folder === 'string' ? { folder } : {}),
+      ...(typeof importFolder === 'string' ? { importFolder } : {}),
+      ...(typeof importFile === 'string' ? { importFile } : {}),
       ...(typeof single === 'string' ? { file: single } : {}),
       title: typeof title === 'string' ? title : 'label',
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),

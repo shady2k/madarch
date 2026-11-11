@@ -6,8 +6,8 @@
  * in this module.
  *
  * **One transaction, and a reset when the shape moved.** A store whose graph predates this shape cannot be
- * translated in place: every graph row is derived from a producer, and nothing writes an agent's or a person's
- * opinion yet. Such a store drops its graph tables and makes them again in one transaction, keeps the journal
+ * translated in place. A store with person-authored history refuses a reset; same-revision contracts reconcile
+ * without discarding authored values. A derived-only reset makes its graph tables again in one transaction, keeps the journal
  * (`operation`), and is marked as needing a fill in the store's own metadata. A crash leaves the old store or the
  * new one, never a half-migrated graph (the review of stage 1, findings 1 and 2).
  *
@@ -266,10 +266,18 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
     const stampStands = held.rows.find((row) => row.name === 'one-graph')?.stamp === stamp;
     const revisionStands = held.rows.find((row) => row.name === 'one-graph-revision')?.stamp === String(SCHEMA_REVISION);
     if (stampStands && revisionStands && await graphShapeStands(tx)) return { reset: false };
+    // Same-revision contracts reconcile in place; only a reset would discard the whole authored graph.
+    const reset = !revisionStands || !await graphShapeStands(tx);
+    const authorColumn = await tx.query<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'operation' AND column_name = 'author'`,
+    );
+    if (reset && authorColumn.rows[0]?.data_type === 'text') {
+      const authored = await tx.query<{ present: boolean }>(`SELECT EXISTS (SELECT 1 FROM operation WHERE author LIKE 'person:%') AS present`);
+      if (authored.rows[0]?.present === true) throw new Error(`${import.meta.path}:276: the graph schema changed and this store holds person-authored history; automatic reset is refused to preserve authored data. Export a backup and apply a preserving schema migration before opening this changed schema.`);
+    }
     // The revision is not a shape the store can be migrated into: a store written under another meaning of its rows is
     // reset as a whole — the graph's tables are made again, the journal is kept, and the store says it needs a fill
     // (codex, stage 2 review, P1). A store with this revision whose stamp moved is reset by its shape alone.
-    const reset = !revisionStands || !await graphShapeStands(tx);
     if (reset) await resetGraph(tx);
     for (const statement of SCHEMA) await tx.query(statement);
     // The journal's durable order: a store made before it gains the column, once, and its rows take their numbers in

@@ -3,6 +3,7 @@ import { appRoute } from '../app-base.js';
 /** The knowledge wiki's routes, at the root (decision 0029, amended by madarch-q6mx: no `/k` segment). */
 export type WikiRoute =
   | { name: 'home' }
+  | { name: 'authored'; kind: string; uid: string }
   | { name: 'entity'; id: string; after: string | null }
   | { name: 'kind'; kind: string }
   | { name: 'source'; repo: string | null; path: string; line: number | null }
@@ -133,6 +134,12 @@ export const API = {
 export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
   const path = appRoute(pathname);
   if (path === '/' || path === '') return { name: 'home' };
+  if (path === '/authored') {
+    const query = new URLSearchParams(search);
+    const kind = query.get('kind');
+    const uid = query.get('uid');
+    return kind && uid ? { name: 'authored', kind, uid } : { name: 'home' };
+  }
   if (path === '/questions' || path === '/questions/') return { name: 'questions' };
   if (path.startsWith('/questions/')) {
     try {

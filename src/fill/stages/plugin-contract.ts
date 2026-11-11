@@ -20,7 +20,7 @@ import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
   const binding = field.binding;
-  if (binding === undefined) return undefined;
+  if (binding === undefined) return kind.origin === 'person' ? { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) } : undefined;
   if (binding.kind === 'agent') return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
   const plugin = manifest.plugins?.get(binding.plugin);
   const declared = plugin?.contract?.vertices.find((vertex) => vertex.kind === kind.name)?.fields.find((one) => one.name === binding.field);
