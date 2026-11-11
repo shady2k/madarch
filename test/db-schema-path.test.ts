@@ -157,6 +157,7 @@ describe.skipIf(sandboxProblem !== undefined)('declared SQL scope and explicit p
     const sources: Record<string, string> = {
       'src/a.ts': "const META = 'madarch_meta'; export const sql = `CREATE TABLE ${META}.schema_stamp (id bigint PRIMARY KEY); CREATE TABLE sample (a text, b text, UNIQUE (a,b), CHECK (a <> b)); CREATE INDEX expression_idx ON sample ((lower(a))); CREATE INDEX opclass_idx ON sample (a text_pattern_ops); CREATE INDEX method_idx ON sample USING hash (a);`;",
       'src/b.ts': 'export const sql = `CREATE TABLE sample (fixture_only boolean)`;',
+      'src/shadow.ts': "const S = 'incorrect'; function ddl(S: string) { return `CREATE TABLE ${S}.shadowed (id bigint)`; }",
       'test/fixture.ts': 'export const sql = `CREATE TABLE unwanted (id bigint)`;',
     };
     const requested: string[] = [];
@@ -225,6 +226,10 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     const code = join(folder, 'repos', 'app');
     mkdirSync(join(code, 'src'), { recursive: true });
     writeFileSync(join(code, 'src', 'schema.ts'), SOURCE);
+    mkdirSync(join(code, 'fixtures'), { recursive: true });
+    writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
+    const kindsPath = join(folder, 'madarch', 'kinds.yaml');
+    writeFileSync(kindsPath, readFileSync(kindsPath, 'utf8').replaceAll('terms: ["**/*.ts", "**/*.tsx"]', 'terms: ["src/**/*.ts"]'));
     git(code, 'init', '--quiet', '--initial-branch=main');
     git(code, 'add', '-A');
     git(code, 'commit', '--quiet', '-m', 'First commit');
