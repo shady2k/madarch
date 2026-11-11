@@ -252,6 +252,10 @@ them, as label.
 {% block relations %}{% render "./partials/relations.liquid", title="Relations", title_ru="Связи" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this table", title_ru="Страницы об этой таблице" %}{% endblock %}
 `,
+  'test-quarantine.liquid': `{% layout "./entity.liquid" %}
+{% block details %}{% properties title="Quarantine" title-ru="Карантин" %}{% endblock %}
+{% block source %}{% source title="Test" title-ru="Тест" %}{% endblock %}
+`,
   'entity-text.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}
 {% block relations %}{% stated title="Stated in" title-ru="Где описано" %}
@@ -309,6 +313,10 @@ interface PropertyLabel {
 }
 
 const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
+  task: { en: 'Repair task', ru: 'Задача исправления' },
+  quarantine_reason: { en: 'Reason', ru: 'Причина' },
+  since: { en: 'Quarantined since commit', ru: 'Коммит введения карантина' },
+  latest_result: { en: 'Latest quarantine CI result', ru: 'Последний результат CI карантина' },
   language: { en: "Language", ru: "Язык", format: "text" },
   frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
   infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
@@ -541,6 +549,7 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.newcomer-command": ["command", "folder", "purpose", "order"],
   "code.newcomer-prerequisites": ["tools"],
   "code.newcomer-failure": ["symptom", "command", "fix", "port"],
+  "code.test-quarantine": ["test", "task", "quarantine_reason", "since", "latest_result"],
   "code.test-case": ["name", "testKind", "framework", "language", "path", "skipped", "skipReason", "cases", "suite"],
   "code.commit": ["author", "authorEmail", "subject", "authoredAt", "committedAt", "merge", "mergedBranch"],
   "code.snapshot": ["commit"],
@@ -755,6 +764,8 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
     { ends: ['code.file'], line: "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }" },
     // The data entities the db-schema plugin fills: a table holds its columns and its indexes, a column references a
     // column, and a table is declared in the file that holds its SQL (task madarch-47vw.3).
+    { ends: ['code.test-quarantine', 'code.test-case'], line: "  - { name: quarantines, from: [code.test-quarantine], to: [code.test-case], capability: test-quarantine }" },
+    { ends: ['code.test-quarantine', 'task'], line: "  - { name: fixedBy, from: [code.test-quarantine], to: [task], capability: test-quarantine }" },
     { ends: ['code.table', 'code.column'], line: "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }" },
     { ends: ['code.table', 'code.index'], line: "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }" },
     { ends: ['code.column'], line: "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }" },
@@ -818,7 +829,7 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
         // A field bound to a plugin states the binding; the plugin's own contract states its type.
         lines.push(field.binding === undefined
           ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
-          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: "${field.binding}" }`);
+          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: "${field.binding}"${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
       }
     }
     if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);

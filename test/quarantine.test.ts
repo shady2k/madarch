@@ -25,7 +25,7 @@ test('quarantine skips by default and only enables on the exact opt-in, preservi
   for (const value of [undefined, '', '0', 'true', '1']) {
     if (value === undefined) delete process.env.MADARCH_QUARANTINE;
     else process.env.MADARCH_QUARANTINE = value;
-    selectRegistrar('madarch-64o5.14', active)('case', body, 321);
+    selectRegistrar('madarch-64o5.14', active, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('case', body, 321);
     expect(calls.at(-1)).toEqual([value === '1' ? 'run' : 'skip', 'case', body, 321]);
   }
 });
@@ -33,6 +33,12 @@ test('quarantine skips by default and only enables on the exact opt-in, preservi
 test('quarantine refuses missing or malformed repair task ids even when disabled', () => {
   const { active } = registrar();
   for (const task of ['', 'madarch-', 'other-64o5.14', 'madarch-64o5.', 'madarch-64o5.fix', 'madarch-64o5.14\n']) {
-    expect(() => selectRegistrar(task, active)).toThrow('tracker task id');
+    expect(() => selectRegistrar(task, active, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')).toThrow('tracker task id');
   }
+});
+
+test('quarantine requires a reason and a full introducing commit hash', () => {
+  const { active } = registrar();
+  expect(() => selectRegistrar('madarch-64o5.14', active, 'flaky', 'HEAD')).toThrow('introducing commit');
+  expect(() => selectRegistrar('madarch-64o5.14', active, 'unknown' as 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')).toThrow('requires a reason');
 });

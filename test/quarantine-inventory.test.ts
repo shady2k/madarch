@@ -16,7 +16,7 @@ function fixture(source: string): string {
 test('inventory expands a quarantined suite into leaf cases without executing its hook', () => {
   const root = fixture(`
     describe('outer', () => {
-      quarantined('madarch-64o5.14', describe)('slow', () => {
+      quarantined('madarch-64o5.14', describe, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('slow', () => {
         beforeAll(() => { throw new Error('never execute'); });
         test('first', () => {});
         describe('nested', () => { test('second', () => {}); });
@@ -32,8 +32,16 @@ test('inventory expands a quarantined suite into leaf cases without executing it
 
 test('inventory rejects missing, malformed and computed repair ids', () => {
   for (const id of ["''", "'other-14'", "'madarch-'", "'madarch-id.bad'", 'undefined', 'repairTask']) {
-    const root = fixture(`quarantined(${id}, test)('slow', () => {});`);
+    const root = fixture(`quarantined(${id}, test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('slow', () => {});`);
     expect(() => quarantineInventory(root)).toThrow('literal task');
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('inventory refuses missing reason or ungrounded since metadata', () => {
+  for (const metadata of ["'slow'", "'flaky', 'HEAD'", "'unknown', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8'"]) {
+    const root = fixture(`quarantined('madarch-64o5.14', test, ${metadata})('slow', () => {});`);
+    expect(() => quarantineInventory(root)).toThrow('quarantined requires');
     rmSync(root, { recursive: true, force: true });
   }
 });

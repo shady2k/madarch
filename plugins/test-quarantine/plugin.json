@@ -1,0 +1,10 @@
+{
+  "name": "test-quarantine",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "Reads explicit quarantined test markers from graph file content."
+}

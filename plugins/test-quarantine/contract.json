@@ -1,0 +1,105 @@
+{
+  "id": "test-quarantine",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "code.test-quarantine",
+        "key": [
+          "repository",
+          "path",
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "Repository holding the test.",
+            "example": "madarch",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "text",
+            "meaning": "Test source path.",
+            "example": "test/example.test.ts",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "Qualified test name.",
+            "example": "suite example",
+            "required": true
+          },
+          {
+            "name": "test",
+            "type": "json",
+            "meaning": "Test reference and exact source location.",
+            "example": {
+              "kind": "code.test-case",
+              "key": {
+                "repository": "madarch",
+                "path": "test/example.test.ts",
+                "name": "suite example"
+              },
+              "file": "test/example.test.ts",
+              "name": "suite example",
+              "lineStart": 3,
+              "lineEnd": 5
+            },
+            "required": true
+          },
+          {
+            "name": "task",
+            "type": "text",
+            "meaning": "Repair task named by the marker.",
+            "example": "madarch-64o5.17",
+            "required": true
+          },
+          {
+            "name": "quarantine_reason",
+            "type": "text",
+            "meaning": "Reason explicitly named by the marker.",
+            "example": "slow",
+            "required": true
+          },
+          {
+            "name": "since",
+            "type": "text",
+            "meaning": "Introducing commit explicitly named by the marker.",
+            "example": "3ec0f2b1d7923fa81901d0293e2e92d34df300a8",
+            "required": true
+          },
+          {
+            "name": "latest_result",
+            "type": "json",
+            "meaning": "Latest quarantine CI result when supplied by the graph.",
+            "example": {
+              "state": "passed"
+            },
+            "required": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "kind": "quarantines",
+        "from": "code.test-quarantine",
+        "to": "code.test-case",
+        "fields": []
+      },
+      {
+        "kind": "fixedBy",
+        "from": "code.test-quarantine",
+        "to": "task",
+        "fields": []
+      }
+    ]
+  },
+  "rights": {
+    "network": "none",
+    "graph": true
+  }
+}

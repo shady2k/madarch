@@ -433,7 +433,7 @@ function propertyText(value: unknown, decl: PropertyDecl, lang: string): { value
     valueKind = 'boolean';
   } else if (format === 'commands') {
     const parsed = typeof value === 'string' && value.trim().startsWith('[') ? (() => { try { const held: unknown = JSON.parse(value); return Array.isArray(held) ? held : undefined; } catch { return undefined; } })() : undefined;
-    text = parsed === undefined ? (Array.isArray(value) ? words(value) : String(value)) : parsed.map(String).join(' ');
+    text = parsed === undefined ? (Array.isArray(value) ? words(value) : typeof value === 'object' ? objectWords(value as Record<string, unknown>, lang, decl.fields) : String(value)) : parsed.map(String).join(' ');
   } else if (format === 'ports') {
     text = Array.isArray(value) ? words(value) : portWords(value);
   } else if (format === 'build') {
