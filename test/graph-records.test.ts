@@ -124,8 +124,8 @@ describe('the two passes over one fixture', () => {
     // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
     // a replay names no local id of this store.
     expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
-    // The tree entry's author is the tree, and the event of the language dataset says its own producer.
-    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toContain('linguist');
+    // Git inventory and history publish only their own facts; language needs a separate producer.
+    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['git-tree', 'git-history']));
     // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
     const opened = opinions.filter((one) => one.state === 'opened');
     expect(opened.length).toBeGreaterThan(5);
@@ -163,16 +163,13 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // The language is the opinion's field `language` (never its `lang`, which is a text's natural language): blob.bin is
-    // one language (`unknown`). A `.ts` file is TypeScript and XML in the dataset, and GitHub Linguist's rules decide it
-    // from its text — TypeScript. A `.h` may be C, C++ or Objective-C, and this one's words say C. The text decides; no
-    // language is picked by the reader.
-    expect(byPath.get('blob.bin')?.language).toBe('unknown');
-    expect(byPath.get('src/a.ts')?.language).toBe('TypeScript');
-    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript']);
+    // Inventory does not infer language from text or extension. A separate producer supplies that opinion.
+    expect(byPath.get('blob.bin')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.candidates).toEqual([]);
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBe('C');
-    expect(header.candidates).toEqual(['C']);
+    expect(header.language).toBeNull();
+    expect(header.candidates).toEqual([]);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.fileCount).toBe(files.rows.length);
@@ -205,14 +202,12 @@ describe('the two passes over one fixture', () => {
 
   test('a file\'s language is an opinion field: a changed language closes the old opinion, and the filter reads the field', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    // The language dataset reads a `.ts` file as TypeScript or XML, so the tree pass states no one language, and it
-    // states what it read as a field, never as the opinion's `lang`: that column is a text value's natural language
-    // (madarch-stm0.5 translations) and stands null for a language name (madarch-64o5.2, the files worker's finding).
+    // No language producer has run: the inventory must not publish a language opinion itself.
     const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'linguist'`,
     ));
-    expect(stored.rows[0]?.lang).toBeNull();
+    expect(stored.rows).toEqual([]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'fixture' } }, path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
@@ -226,6 +221,7 @@ describe('the two passes over one fixture', () => {
       `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'linguist' ORDER BY "id"`, [node.nodeId],
     ));
     expect(states.rows.filter((row) => row.state === 'open')).toHaveLength(1);
+    expect(states.rows.every((row) => row.lang === null)).toBe(true);
     expect(states.rows.filter((row) => row.state === 'open')[0]).toMatchObject({ language: 'JavaScript', lang: null });
     expect(states.rows.some((row) => row.state === 'closed' && row.language === 'TypeScript')).toBe(true);
     // The language filter reads the field: the new language finds the file and the one it superseded does not.
