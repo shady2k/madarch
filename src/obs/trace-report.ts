@@ -225,15 +225,34 @@ function coveredMs(intervals: readonly Interval[]): number {
   return union(intervals).reduce((sum, one) => sum + (one.end - one.start), 0);
 }
 
-/** What the spans say: the one function the command and the wiki's page both call. */
-export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
-  const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
-  const byId = new Map(spans.map((span) => [span.spanId, span]));
+interface SpanIndex {
+  readonly byId: ReadonlyMap<string, TraceSpan>;
+  readonly childMs: ReadonlyMap<string, number>;
+}
+
+function indexSpans(spans: readonly TraceSpan[]): SpanIndex {
+  const byId = new Map<string, TraceSpan>();
+  for (const span of spans) byId.set(span.spanId, span);
   const children = new Map<string, TraceSpan[]>();
   for (const span of spans) {
     if (span.parentSpanId === undefined || !byId.has(span.parentSpanId)) continue;
-    const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
+    const held = children.get(span.parentSpanId) ?? [];
+    held.push(span);
+    children.set(span.parentSpanId, held);
   }
+  const childMs = new Map<string, number>();
+  for (const [spanId, spans] of children) childMs.set(spanId, coveredMs(spans));
+  return { byId, childMs };
+}
+
+/** What the spans say: the one function the command and the wiki's page both call. */
+export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
+  return traceReportFrom(spans, file, indexSpans(spans));
+}
+
+function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanIndex): TraceReport {
+  const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
+  const { byId, childMs } = index;
   // The wall clock runs from the earliest span of the run to the last: the trace of one run is one window.
   const from = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
   const to = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
@@ -241,9 +260,7 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
 
   const selfBy = new Map<string, { count: number; selfMs: number }>();
   for (const span of spans) {
-    const childSpans = children.get(span.spanId);
-    const childMs = childSpans === undefined ? 0 : coveredMs(childSpans);
-    const selfMs = Math.max(0, span.end - span.start - childMs);
+    const selfMs = Math.max(0, span.end - span.start - (childMs.get(span.spanId) ?? 0));
     const held = selfBy.get(span.name) ?? { count: 0, selfMs: 0 };
     selfBy.set(span.name, { count: held.count + 1, selfMs: held.selfMs + selfMs });
   }
@@ -264,8 +281,7 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
   // The run's own span covers everything by construction, so it is the one span that does not count as
   // coverage: it is the interval whose inside must be accounted for. Every other span — a phase, a
   // statement, a child process, a library's own operation — covers the time it was open.
-  const ids = new Set(spans.map((span) => span.spanId));
-  const roots = spans.filter((span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId));
+  const roots = spans.filter((span) => span.parentSpanId === undefined || !byId.has(span.parentSpanId));
   const rootStart = roots.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
   const rootEnd = roots.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   const runSpan = roots.find((span) => span.start === rootStart && span.end === rootEnd);
@@ -327,12 +343,11 @@ const STEP_NAMES = 5;
  * numbers are the spans' own: nothing here reads a store or a second record.
  */
 export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
-  const byId = new Map(spans.map((span) => [span.spanId, span]));
-  const children = new Map<string, TraceSpan[]>();
-  for (const span of spans) {
-    if (span.parentSpanId === undefined || !byId.has(span.parentSpanId)) continue;
-    const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
-  }
+  return stepReportsFrom(spans, indexSpans(spans));
+}
+
+function stepReportsFrom(spans: readonly TraceSpan[], index: SpanIndex): StepReport[] {
+  const { byId, childMs } = index;
   const namedStep = (span: TraceSpan): string | undefined => {
     const named = span.attributes['madarch.step'] ?? span.attributes['madarch.stage'];
     return typeof named === 'string' && named !== '' ? named : undefined;
@@ -363,9 +378,7 @@ export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
   for (const [step, held] of steps) {
     const selfBy = new Map<string, { count: number; selfMs: number }>();
     for (const one of held.spans) {
-      const childSpans = children.get(one.spanId);
-      const childMs = childSpans === undefined ? 0 : coveredMs(childSpans);
-      const selfMs = Math.max(0, one.end - one.start - childMs);
+      const selfMs = Math.max(0, one.end - one.start - (childMs.get(one.spanId) ?? 0));
       const known = selfBy.get(one.name) ?? { count: 0, selfMs: 0 };
       selfBy.set(one.name, { count: known.count + 1, selfMs: known.selfMs + selfMs });
     }
@@ -422,13 +435,14 @@ export function readTraceRun(options: { readonly store: string; readonly runId?:
   const chosen = options.runId === undefined ? files[0]! : files.find((one) => one.runId === options.runId || one.file.endsWith(`/${traceFileNameOf(options.runId!)}`));
   if (chosen === undefined) raise(`the store holds no trace of run ${JSON.stringify(options.runId)}; its runs are ${files.map((one) => JSON.stringify(one.runId)).join(', ')}`);
   const spans = withSpanSync('trace.read', {}, () => readTraceSpans(chosen.file));
+  const index = withSpanSync('trace.index', {}, () => indexSpans(spans));
   const startedAt = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
   const endedAt = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   return {
     file: chosen.file,
     runId: chosen.runId,
-    report: withSpanSync('trace.report', {}, () => traceReportOf(spans, chosen.file)),
-    steps: withSpanSync('trace.steps', {}, () => stepReportsOf(spans)),
+    report: withSpanSync('trace.report', {}, () => traceReportFrom(spans, chosen.file, index)),
+    steps: withSpanSync('trace.steps', {}, () => stepReportsFrom(spans, index)),
     startedAtMs: startedAt,
     endedAtMs: endedAt,
   };

@@ -5,7 +5,7 @@
  * the fill is the same fixture the fill tests use.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
@@ -164,4 +164,30 @@ test('root coverage excludes a containing root but not separate roots', () => {
   expect(separate.uncoveredMs).toBe(2);
   expect(separate.gaps).toEqual([{ atMs: 2, ms: 2 }]);
   expect(traceReportOf([], 'fixture.jsonl').wallMs).toBe(0);
+});
+
+
+test('one trace read gives the same report and steps as the public builders', () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-trace-shared-'));
+  try {
+    mkdirSync(join(root, 'traces'));
+    const file = join(root, 'traces', 'shared.jsonl');
+    const span = (spanId: string, parentSpanId: string | undefined, start: number, end: number, step?: string) => ({
+      traceId: 'trace', spanId, parentSpanId, name: spanId,
+      startTimeUnixNano: start * 1_000_000, endTimeUnixNano: end * 1_000_000,
+      attributes: step === undefined ? [] : [{ key: 'madarch.step', value: { stringValue: step } }],
+    });
+    writeFileSync(file, [
+      span('run', undefined, 0, 30), span('plan', 'run', 2, 25, 'tree'),
+      span('child-a', 'plan', 3, 15), span('child-b', 'plan', 10, 20),
+      span('other', undefined, 27, 30, 'other'), span('missing-parent', 'absent', 26, 28),
+    ].map((one) => JSON.stringify(one)).join('\n'));
+    const spans = readTraceSpans(file);
+    const read = readTraceRun({ store: root });
+    expect(read.report).toEqual(traceReportOf(spans, file));
+    expect(read.steps).toEqual(stepReportsOf(spans));
+    expect(read.steps.find((step) => step.step === 'tree')?.slowest.find((name) => name.name === 'plan')?.selfMs).toBe(6);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
