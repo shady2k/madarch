@@ -212,7 +212,6 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     git(repositoryFolder, 'add', '-A');
     git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
-    const preparedOwner = owner;
     const fixed = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(fixed.ok).toBe(true);
     if (!fixed.ok) return;
