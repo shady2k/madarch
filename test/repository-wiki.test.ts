@@ -307,10 +307,25 @@ git(folder,'commit','-qm','the nested file moves');
       const emptyStatus = await json(server, 'half', '/api/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
-      // Before the fill the graph holds no manifest and no listing: the unanswered pages say so, and nothing is a finding.
+      // Validated metadata makes the unread checkout visible before any fill, without reading documents.
       const before = await json(server, 'half', '/api/problems');
       expect(before.status).toBe(200);
-      expect(before.body['categories']).toEqual([]);
+      expect(before.body['categories']).toMatchObject([{ rule: 'wiki.unreadable-file', count: 1, open: 1, closed: 0 }]);
+      expect((before.body['categories'] as unknown[]).length).toBe(1);
+      const emptyPath = join(folder, 'repos', 'empty-code');
+      const problemRoute = `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptyPath)}`;
+      const beforeSources = await json(server, 'half', '/api/problems?rule=wiki.unreadable-file');
+      expect(beforeSources.status).toBe(200);
+      expect((beforeSources.body['sources'] as { key: string }[]).map((source) => source.key)).toEqual([emptyPath]);
+      const beforeItems = await json(server, 'half', problemRoute);
+      expect(beforeItems.status).toBe(200);
+      const initialProblems = beforeItems.body['problems'] as { identity: string; reason: string; source?: string }[];
+      expect(initialProblems).toMatchObject([{
+        source: emptyPath,
+        reason: 'the repository "empty-code" holds no commit yet: nothing is read from it until it does',
+      }]);
+      expect(initialProblems.length).toBe(1);
+      expect(typeof initialProblems[0]!.identity).toBe('string');
       // The fill reads the committed repository and says what it did for the empty one.
       const ended = await press(server, 'half');
       const fill = ended['fill'] as Record<string, unknown>;
@@ -319,14 +334,15 @@ git(folder,'commit','-qm','the nested file moves');
       // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
       const categories = await json(server, 'half', '/api/problems');
       expect(categories.status).toBe(200);
-      const unreadable = (categories.body['categories'] as { rule: string }[]).find((category) => category.rule === 'wiki.unreadable-file');
-      expect(unreadable).toBeDefined();
+      expect(categories.body['categories']).toEqual(before.body['categories']);
       const sources = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
       expect(sources.status).toBe(200);
       const emptySource = (sources.body['sources'] as { key: string }[]).find((source) => source.key === join(folder, 'repos', 'empty-code'));
       expect(emptySource).toBeDefined();
+      expect((sources.body['sources'] as { key: string }[]).map((source) => source.key)).toEqual([emptyPath]);
       const items = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
       expect(items.status).toBe(200);
+      expect((items.body['problems'] as { identity: string }[]).map((problem) => problem.identity)).toEqual([initialProblems[0]!.identity]);
       const item = (items.body['problems'] as { reason: string; source?: string }[]).find((problem) => problem.reason.includes('holds no commit yet'));
       expect(item).toBeDefined();
       expect(item!.reason).toContain('holds no commit yet');
