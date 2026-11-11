@@ -3345,6 +3345,10 @@ export class KnowledgeProduct {
     await this.writerAgent?.close().catch(() => undefined);
     await this.fillRun?.control('stop').catch(() => undefined);
     await this.running?.catch(() => undefined);
+    // The graph verdicts own a connection of their own for their snapshot, and a close that returned before they ended
+    // left it open under a store a caller then removed: an unhandled postmaster-exit error between tests
+    // (madarch-8bdc.2.9).
+    await this.verdictRun?.catch(() => undefined);
     await this.opening?.catch(() => undefined);
     await this.swapping.catch(() => undefined);
     this.listeners.clear();
