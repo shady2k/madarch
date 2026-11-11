@@ -8,8 +8,8 @@
  * it from the paths the ELF states: on a distribution those are `/lib64/...`
  * and `/lib/...`, on NixOS they are a store path or the nix-ld shim, and on a
  * machine whose loader lives elsewhere they are wherever they are. So the
- * interpreter's own folder, every resolved library's folder (both the path the
- * loader opens and the real file a symlink names), and the folders
+ * interpreter's own folder, every resolved library's folder (each symlink hop
+ * through to the real file, including directory links), and the folders
  * `DT_RUNPATH`/`DT_RPATH` state are bound read-only at their own paths.
  *
  * A nix-ld shim is an interpreter that is not a loader: it reads `NIX_LD` and
@@ -18,7 +18,7 @@
  * from the host and what they point at is bound too — nothing else of the
  * host's environment reaches the plugin.
  */
-import { closeSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, lstatSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 
@@ -251,6 +251,32 @@ function realOf(file: string): string | undefined {
   }
 }
 
+/** Every path the kernel visits, including links in parent folders and relative link targets. */
+function linkChain(file: string): string[] {
+  const paths: string[] = [];
+  let current = resolve(file);
+  try {
+    // Validate the whole chain first: dangling links and cycles are errors, not partial binds.
+    realpathSync(current);
+    for (;;) {
+      paths.push(current);
+      const parts = current.split('/').filter((part) => part !== '');
+      let prefix = '/';
+      let linked = false;
+      for (let at = 0; at < parts.length; at += 1) {
+        prefix = join(prefix, parts[at]!);
+        if (!lstatSync(prefix).isSymbolicLink()) continue;
+        current = resolve(dirname(prefix), readlinkSync(prefix), ...parts.slice(at + 1));
+        linked = true;
+        break;
+      }
+      if (!linked) return paths;
+    }
+  } catch (error) {
+    throw new Error(`${WHERE}:1: cannot resolve loader path ${JSON.stringify(resolve(file))} at ${JSON.stringify(current)}: ${(error as Error).message}`);
+  }
+}
+
 /** A folder that stands and is a folder, or undefined. */
 function folderOf(file: string): string | undefined {
   try {
@@ -286,17 +312,23 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
   const addFolder = (folder: string): void => {
     if (bindableFolder(folder)) mounts.add(folder);
   };
-  const addFile = (file: string): void => {
-    addFolder(dirname(file));
-    const real = realOf(file);
-    if (real !== undefined && real !== file) addFolder(dirname(real));
+  const addPath = (file: string, directory = false): void => {
+    try {
+      for (const hop of linkChain(file)) addFolder(directory ? hop : dirname(hop));
+    } catch (error) {
+      const problem = (error as Error).message;
+      problems.push(problem);
+      refusal = refusal ?? problem;
+    }
   };
+  const addFile = (file: string): void => { addPath(file); };
   const hostPaths = (env['LD_LIBRARY_PATH'] ?? '').split(':').map((one) => one.trim()).filter((one) => one !== '');
   let dynamic: ElfDynamic;
   try {
     dynamic = readElfDynamic(runtime);
   } catch (error) {
-    return { mounts: [], environment: {}, nixLd: false, problems: [(error as Error).message], refusal: (error as Error).message };
+    const problem = `${WHERE}:1: cannot read runtime ${JSON.stringify(resolve(runtime))}: ${(error as Error).message}`;
+    return { mounts: [], environment: {}, nixLd: false, problems: [problem], refusal: problem };
   }
   const interpreter = dynamic.interpreter;
   let resolvedInterpreter: string | undefined;
@@ -304,7 +336,7 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
   if (interpreter !== undefined) {
     const real = realOf(interpreter);
     if (real === undefined) {
-      const problem = `the runtime ${JSON.stringify(runtime)} names the interpreter ${JSON.stringify(interpreter)}, and no such file stands on this machine: the sandbox could not start it`;
+      const problem = `${WHERE}:1: the runtime ${JSON.stringify(runtime)} names the interpreter ${JSON.stringify(interpreter)}, and no such file stands on this machine: the sandbox could not start it`;
       problems.push(problem);
       refusal = problem;
     } else resolvedInterpreter = real;
@@ -353,7 +385,7 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
       seen.add(key);
       const found = resolveLibrary(name, folders);
       if (found === undefined) {
-        problems.push(`the object ${JSON.stringify(object)} needs the library ${JSON.stringify(name)}, and no folder of its search path holds it (${folders.join(', ')})`);
+        problems.push(`${WHERE}:1: the object ${JSON.stringify(object)} needs the library ${JSON.stringify(name)}, and no folder of its search path holds it (${folders.join(', ')})`);
         continue;
       }
       addFile(found);
@@ -387,25 +419,40 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
         }
       }
     } else {
-      const problem = `the runtime ${JSON.stringify(runtime)} is run by nix-ld's shim, and this host's environment names no NIX_LD: the shim cannot find a loader inside the sandbox`;
+      const problem = `${WHERE}:1: the runtime ${JSON.stringify(runtime)} is run by nix-ld's shim, and this host's environment names no NIX_LD: the shim cannot find a loader inside the sandbox`;
       problems.push(problem);
-      refusal = problem;
+      refusal = refusal ?? problem;
     }
     if (nixLdFolders.length > 0) {
       environment['NIX_LD_LIBRARY_PATH'] = nixLdFolders.join(':');
       for (const folder of nixLdFolders) {
         if (folderOf(folder) === undefined) {
-          problems.push(`NIX_LD_LIBRARY_PATH names the folder ${JSON.stringify(folder)}, and it does not stand on this machine`);
+          const problem = `${WHERE}:1: NIX_LD_LIBRARY_PATH names the folder ${JSON.stringify(resolve(folder))}, and it does not stand on this machine`;
+          problems.push(problem);
+          refusal = refusal ?? problem;
           continue;
         }
-        // The folder as given holds the names the loader opens (symlinks into one store path each); the folder it
-        // links to is bound too, and every library resolved through it has its own target's folder bound by follow.
-        addFolder(folder);
-        const real = realOf(folder);
-        if (real !== undefined) addFolder(real);
+        // Include every farm entry, not only DT_NEEDED: a plugin may dlopen any of these names later.
+        addPath(folder, true);
+        try {
+          for (const name of readdirSync(folder).sort(byCodePoint)) {
+            const entry = join(folder, name);
+            try {
+              addPath(entry, statSync(entry).isDirectory());
+            } catch (error) {
+              const problem = `${WHERE}:1: cannot read NIX_LD_LIBRARY_PATH entry ${JSON.stringify(resolve(entry))}: ${(error as Error).message}`;
+              problems.push(problem);
+              refusal = refusal ?? problem;
+            }
+          }
+        } catch (error) {
+          const problem = `${WHERE}:1: cannot read NIX_LD_LIBRARY_PATH folder ${JSON.stringify(resolve(folder))}: ${(error as Error).message}`;
+          problems.push(problem);
+          refusal = refusal ?? problem;
+        }
       }
     } else {
-      const problem = `the runtime ${JSON.stringify(runtime)} is run by nix-ld's shim, and this host's environment names no NIX_LD_LIBRARY_PATH: the libraries it loads cannot be found inside the sandbox`;
+      const problem = `${WHERE}:1: the runtime ${JSON.stringify(runtime)} is run by nix-ld's shim, and this host's environment names no NIX_LD_LIBRARY_PATH: the libraries it loads cannot be found inside the sandbox`;
       problems.push(problem);
       refusal = refusal ?? problem;
     }

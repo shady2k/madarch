@@ -306,3 +306,48 @@ describe('a loader s own folder', () => {
     expect(resolved.mounts).toContain(join(root, 'store', 'glibc-n', 'lib'));
   });
 });
+
+
+describe('the complete loader symlink chain', () => {
+  test.each(['dangling', 'cycle'])('a %s loader link is refused with its full path', (kind) => {
+    const root = scratch();
+    const interpreter = join(root, 'nix-ld');
+    symlinkSync(kind === 'cycle' ? 'nix-ld' : 'missing-loader', interpreter);
+    const runtime = join(root, 'runtime');
+    writeFileSync(runtime, elf64({ interpreter }));
+    const resolved = runtimeSandbox(runtime, {});
+    expect(resolved.refusal).toContain('src/plugin/elf-runtime.ts:1:');
+    expect(resolved.refusal).toContain(interpreter);
+  });
+  test('every interpreter, NIX_LD and library-farm hop is bound read-only', () => {
+    const root = scratch();
+    const folders = ['lib64', 'store/nix-ld/libexec', 'store/nix-ld/bin', 'loader-links', 'store/glibc/lib', 'farm', 'library-links', 'store/extra/lib'];
+    for (const folder of folders) mkdirSync(join(root, folder), { recursive: true });
+    writeFileSync(join(root, 'store/nix-ld/bin/nix-ld'), elf64());
+    symlinkSync('../bin/nix-ld', join(root, 'store/nix-ld/libexec/nix-ld'));
+    const interpreter = join(root, 'lib64/ld-linux-x86-64.so.2');
+    symlinkSync(join(root, 'store/nix-ld/libexec/nix-ld'), interpreter);
+    writeFileSync(join(root, 'store/glibc/lib/ld.so'), elf64());
+    symlinkSync('../store/glibc/lib/ld.so', join(root, 'loader-links/ld.so'));
+    symlinkSync(join(root, 'loader-links/ld.so'), join(root, 'farm/ld.so'));
+    // This library is not in DT_NEEDED: plugins may load it later.
+    writeFileSync(join(root, 'store/extra/lib/extra.so'), elf64());
+    symlinkSync('../store/extra/lib/extra.so', join(root, 'library-links/extra.so'));
+    symlinkSync(join(root, 'library-links/extra.so'), join(root, 'farm/extra.so'));
+    symlinkSync('farm', join(root, 'farm-alias'));
+    const runtime = join(root, 'runtime');
+    writeFileSync(runtime, elf64({ interpreter }));
+    const env = { NIX_LD: join(root, 'farm-alias/ld.so'), NIX_LD_LIBRARY_PATH: join(root, 'farm-alias') };
+    const resolved = runtimeSandbox(runtime, env);
+    expect(resolved.problems).toEqual([]);
+    const list = args(spec(runtime), env);
+    for (const folder of [...folders, 'farm-alias']) {
+      const full = join(root, folder);
+      expect(resolved.mounts).toContain(full);
+      expect(list).toContain('--ro-bind');
+      const at = list.indexOf(full);
+      expect(list.slice(at - 1, at + 2)).toEqual(['--ro-bind', full, full]);
+    }
+    expect(resolved.mounts).toEqual([...resolved.mounts].sort((a, b) => a < b ? -1 : a > b ? 1 : 0));
+  });
+});
