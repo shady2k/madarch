@@ -244,12 +244,17 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
     await tx.query(STORE_SCHEMA_LOCK);
     await tx.query(`CREATE SCHEMA IF NOT EXISTS ${META_SCHEMA}`);
     await tx.query(STAMP_SQL);
+    // The stamp names every opinion field, its type and its nullability, not only the kind and its key: a contract that
+    // gains a nullable column moves the stamp, so the short fast path is skipped and the table is reconciled before a
+    // publication or a page read asks for the new column (madarch-8bdc.2.24).
+    const fields = (held: readonly { readonly name: string; readonly type: string; readonly nullable?: boolean; readonly reference?: string }[]): string =>
+      held.map((field) => `${field.name}:${field.type}:${field.nullable === true ? 'null' : 'not-null'}${field.reference === undefined ? '' : `:${field.reference}`}`).join(',');
     const parts = [
       `revision ${String(SCHEMA_REVISION)}`,
       ...SCHEMA,
-      ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')} ${kind.key.join(',')}`),
-      ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''}`),
-      ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')}`),
+      ...contract.vertex.map((kind) => `vertex ${kind.name} ${generatedTableName(kind.name, 'vertex')} ${kind.key.join(',')} ${fields(kind.fields)}`),
+      ...contract.edge.map((kind) => `edge ${kind.name} ${generatedTableName(kind.name, 'edge')} ${String(kind.repeats)} ${kind.discriminator ?? ''} ${fields(kind.fields)}`),
+      ...contract.dictionary.map((one) => `dictionary ${one.name} ${generatedTableName(one.name, 'dictionary')} ${fields(one.fields)} ${one.key.join(',')}`),
     ];
     const stamp = sha256Hex(new TextEncoder().encode(parts.join('\n')));
     // A store whose stamp stands is opened with one statement and no catalog walk: its stamp and its revision are read
