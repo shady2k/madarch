@@ -362,7 +362,7 @@ function quoteColumn(name: string): string {
 
 /** The select over one manifest-declared kind's table: the vertices an opinion stands for, with their keys. */
 function generatedSelect(decl: GeneratedKindRead): string {
-  return `SELECT DISTINCT n.id::text AS node_id, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed`;
+  return `SELECT DISTINCT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed`;
 }
 
 /** One column's value as a reader holds it: a count as a number, a flag as a boolean, everything else as it stands. */
@@ -889,7 +889,7 @@ export class GraphReader {
   /** Look up the same rendered natural key the listing exposes; key values may themselves contain slashes. */
   private async generatedFind(tx: OuterTransaction, decl: GeneratedKindRead, tail: string): Promise<GraphEntity[]> {
     const parts = decl.key.map((column) => `n.key->>'${column.replaceAll("'", "''")}'`);
-    const rendered = `concat_ws('/', ${parts.join(', ')})`;
+    const rendered = parts.length === 0 ? 'n.uid::text' : `concat_ws('/', ${parts.join(', ')})`;
     const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${rendered} = $1 ORDER BY node_id`, [tail]);
     return await this.generatedEntities(tx, decl, found.rows);
   }
@@ -928,7 +928,7 @@ export class GraphReader {
       const node = String(row['node_id']);
       const keyObject = (row['key'] ?? {}) as Record<string, unknown>;
       const keyValues = decl.key.map((column) => String(keyObject[column] ?? ''));
-      const key = `${decl.kind}:${keyValues.join('/')}`;
+      const key = `${decl.kind}:${decl.key.length === 0 ? String(row['uid']) : keyValues.join('/')}`;
       const properties: Record<string, unknown> = {};
       for (const column of decl.key) properties[column] = valueOfColumn(keyObject[column], decl.types[column] ?? 'text');
       const entityOpinions: GraphEntityOpinion[] = [];
@@ -1043,11 +1043,11 @@ export class GraphReader {
    */
   private async generatedPage(tx: OuterTransaction, decl: GeneratedKindRead, options: { q?: string; after?: string; limit: number }): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
     const fields = decl.key.map((field) => `n.key->>'${field.replaceAll("'", "''")}'`);
-    const rendered = fields.length === 0 ? `n.id::text` : `concat_ws('/', ${fields.join(', ')})`;
+    const rendered = fields.length === 0 ? `n.uid::text` : `concat_ws('/', ${fields.join(', ')})`;
     const text = options.q === undefined || options.q.trim() === '' ? undefined : options.q.trim().toLowerCase();
     const after = options.after === undefined || options.after === '' ? null : (options.after.startsWith(`${decl.kind}:`) ? options.after.slice(decl.kind.length + 1) : options.after);
     const where = `t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0) AND ($2::text IS NULL OR (${rendered}) > $2::text)`;
-    const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE ${where} ORDER BY (${rendered}) LIMIT $3::bigint`, [text ?? null, after, String(options.limit + 1)]);
+    const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE ${where} ORDER BY (${rendered}) LIMIT $3::bigint`, [text ?? null, after, String(options.limit + 1)]);
     const total = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)`, [text ?? null]);
     const more = page.rows.length > options.limit;
     const shown = more ? page.rows.slice(0, options.limit) : page.rows;
