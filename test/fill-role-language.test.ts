@@ -15,6 +15,7 @@ import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
+import { createRun } from '../src/fill/state-store.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { execFileSync } from 'node:child_process';
@@ -92,6 +93,7 @@ test('a redelivered fill keeps its published failure and acknowledges the job wi
   const job = { product: join(work, 'missing-redelivered-product'), store: storeFolder, runId: 'ended-run' };
   const original = { runId: job.runId, state: 'failed', message: 'The original failure must remain exact.' };
   try {
+    await createRun(owner, { runId: job.runId, product: job.product, at: Date.now() });
     await writeFillEnd(owner, original);
     expect(await askFillRun(queue, job)).toBe(true);
     let passes = 0;
