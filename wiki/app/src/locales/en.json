@@ -1011,7 +1011,8 @@
       "graph": "Graph",
       "filter": "Filter kinds",
       "relations": "Dependencies",
-      "choose": "Show dependencies and dependents of {{kind}}"
+      "choose": "Show dependencies and dependents of {{kind}}",
+      "contents": "On this page"
     }
   },
   "loop": {

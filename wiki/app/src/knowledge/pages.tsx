@@ -2,6 +2,7 @@ import { Operations } from './operations.js';
 import { KindSources } from './kind-sources.js';
 import { KindGraph, relatedKinds } from './kind-graph.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
+import { TableOfContents } from '@/components/ui/table-of-contents.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -587,6 +588,16 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const [filter, setFilter] = useState('');
   const [chosen, setChosen] = useState<string | null>(null);
   const [view, setView] = useState('table');
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  useEffect(() => {
+    if (jumpTo === null || view !== 'table') return;
+    // Radix mounts the newly selected panel after the view change.
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(jumpTo)?.scrollIntoView?.({ block: 'start' });
+      setJumpTo(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [jumpTo, view]);
   if (error !== null && data === null) {
     return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   }
@@ -613,6 +624,15 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   ].filter((section) => sectionKinds(section).length > 0);
   const records = all.reduce((sum, kind) => sum + kind.count, 0);
   const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
+  const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
+  const kindId = (kind: string): string => `catalogue-kind-${encodeURIComponent(kind)}`;
+  const kindContents = (kinds: CatalogKindView[]) => kinds.map((kind) => ({ id: kindId(kind.kind), label: nameOf(kind) }));
+  const contents = sections.map((section) => ({
+    id: sectionId(section.key), label: section.name,
+    children: [...kindContents(section.kinds), ...section.subgroups.map((subgroup) => ({
+      id: sectionId(subgroup.key), label: subgroup.name, children: kindContents(subgroup.kinds),
+    }))],
+  }));
   const producerWords = (kind: CatalogKindView): string => {
     if ((kind.plugins ?? []).length > 0) return t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') });
     if (kind.producer === 'extract') return t('knowledge.catalogueStage.extract');
@@ -636,7 +656,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
       </TableHeader>
       <TableBody>
         {rows.map((kind) => (
-          <TableRow key={kind.kind} data-kind={kind.kind} data-filled={String(kind.filled)} data-chosen={String(chosen === kind.kind)} data-related={String(highlighted.has(kind.kind))} className={highlighted.has(kind.kind) ? "bg-pill" : undefined}>
+          <TableRow key={kind.kind} id={kindId(kind.kind)} data-kind={kind.kind} data-filled={String(kind.filled)} data-chosen={String(chosen === kind.kind)} data-related={String(highlighted.has(kind.kind))} className={highlighted.has(kind.kind) ? "bg-pill" : undefined}>
             <TableCell className="whitespace-nowrap align-top">
               {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}
               <Button variant="ghost" size="default" className="ml-2" aria-label={t('knowledge.catalogueViews.choose', { kind: nameOf(kind) })} aria-pressed={chosen === kind.kind} onClick={() => setChosen(chosen === kind.kind ? null : kind.kind)}>{t('knowledge.catalogueViews.relations')}</Button>
@@ -663,6 +683,8 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</p>
       </header>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_200px]">
+      <div className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
           <TabsTrigger value="table">{t('knowledge.catalogueViews.table')}</TabsTrigger>
@@ -670,11 +692,11 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </TabsList>
         <TabsContent value="table">
       {sections.map((section) => (
-        <section key={section.key} className="mb-8" data-testid="catalogue-group" data-group={section.key}>
+        <section key={section.key} id={sectionId(section.key)} className="mb-8 scroll-mt-4" data-testid="catalogue-group" data-group={section.key}>
           <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</span></h2>
           {section.kinds.length > 0 && table(section.kinds)}
           {section.subgroups.map((subgroup) => (
-            <section key={subgroup.key} className="mb-5" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
+            <section key={subgroup.key} id={sectionId(subgroup.key)} className="mb-5 scroll-mt-4" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
               <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{totals(subgroup.kinds)}</span></h3>
               {subgroup.kinds.length > 0 ? table(subgroup.kinds) : <p className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</p>}
             </section>
@@ -684,6 +706,11 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </TabsContent>
         <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} chosen={chosen} onChoose={setChosen} highlighted={highlighted} /></TabsContent>
       </Tabs>
+      </div>
+      <aside className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-10rem)] md:overflow-y-auto" data-testid="catalogue-contents">
+        <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
+      </aside>
+      </div>
     </section>
   );
 }

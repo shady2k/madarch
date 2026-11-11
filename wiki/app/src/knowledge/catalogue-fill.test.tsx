@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -64,6 +64,60 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
+  test('contents lists every section and kind and jumps to the selected section', async () => {
+    await setWikiLanguage('en');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-contents"]') !== null, 'catalogue contents');
+    const contents = page.querySelector('[data-testid="catalogue-contents"]')!;
+    const links = [...contents.querySelectorAll<HTMLAnchorElement>('a')];
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Code', '#catalogue-section-code'],
+      ['Files', '#catalogue-kind-code.file'],
+      ['Requirements', '#catalogue-section-requirements'],
+      ['Use cases', '#catalogue-kind-doc.use-case'],
+      ['Vocabulary', '#catalogue-section-vocabulary'],
+      ['Terms', '#catalogue-kind-doc.term'],
+    ]);
+    const requirements = contents.querySelector('a[href="#catalogue-section-requirements"]')!;
+    expect(requirements.parentElement!.querySelector('a[href="#catalogue-section-vocabulary"]')).not.toBeNull();
+    expect(contents.querySelector('[data-kind]')).toBeNull();
+    const section = page.querySelector<HTMLElement>('#catalogue-section-requirements')!;
+    const scroll = spyOn(section, 'scrollIntoView');
+    try {
+      (requirements as HTMLAnchorElement).click();
+      await until(() => scroll.mock.calls.length > 0, 'section scroll');
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    } finally {
+      scroll.mockRestore();
+    }
+  });
+
+  test('contents switches from Graph to Table before scrolling to a section', async () => {
+    await setWikiLanguage('en');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-contents"]') !== null, 'catalogue contents');
+    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
+    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph view');
+    const scrolled: Element[] = [];
+    const scroll = spyOn(window.HTMLElement.prototype, 'scrollIntoView').mockImplementation(function (this: HTMLElement) {
+      scrolled.push(this);
+    });
+    try {
+      page.querySelector<HTMLAnchorElement>('[data-testid="catalogue-contents"] a[href="#catalogue-section-vocabulary"]')!.click();
+      await until(() => scrolled.length > 0, 'section scroll after switching views');
+      const section = page.querySelector('[role="tabpanel"][data-state="active"] #catalogue-section-vocabulary');
+      expect(section).not.toBeNull();
+      expect(scrolled).toEqual([section!]);
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+      expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]')).toBeNull();
+    } finally {
+      scroll.mockRestore();
+    }
+  });
+
   test('Table and Graph share the filter, chosen kind and dependency highlights', async () => {
     stub([]);
     const page = into(createElement(CataloguePage, { version: 0 }));
@@ -84,6 +138,8 @@ describe('the catalogue as a browse-only view', () => {
     setter.call(input, 'Source files');
     input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 's' }));
     await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered graph');
+    const filteredContents = [...page.querySelectorAll<HTMLAnchorElement>('[data-testid="catalogue-contents"] a')];
+    expect(filteredContents.map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code', '#catalogue-kind-code.file']);
     const tableTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Table')!;
     tableTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
     await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table');
