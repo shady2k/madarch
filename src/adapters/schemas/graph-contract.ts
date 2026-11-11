@@ -112,7 +112,7 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
         await tx.query(`ALTER TABLE ${name} ADD COLUMN ${quote(field.name, 'field')} ${sqlType(field)}`);
         continue;
       }
-      if (field.reference !== undefined && sameType(actual, field)) {
+      if (field.reference !== undefined && field.type === 'json' && sameType(actual, field)) {
         const incompatible = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${name} WHERE ${quote(field.name, 'field')} IS NOT NULL AND ${quote(field.name, 'field')}->>'kind' IS DISTINCT FROM $1`, [field.reference]);
         if (Number(incompatible.rows[0]!.n) > 0) throw new Error(`${import.meta.path}:117: the kind ${JSON.stringify(kind)} field ${JSON.stringify(field.name)} has ${incompatible.rows[0]!.n} non-null values incompatible with reference ${JSON.stringify(field.reference)}: the change is refused`);
       }
