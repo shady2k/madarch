@@ -32,7 +32,8 @@ test('the loop kinds declare complete authored contracts and explicit import loc
     expect(kind.key).toBeUndefined();
     expect(manifestContractOf(manifest).vertex.find((vertex) => vertex.name === name)?.key).toEqual([]);
     expect(kind.importFolder).toBe(`docs/${name}s`);
-    expect(kind.fields).toEqual([
+    for (const field of kind.fields!) expect(field.line).toBeGreaterThan(0);
+    expect(kind.fields!.map(({ line: _line, ...field }) => field)).toEqual([
       { name: 'legacy_id', type: 'text', nullable: true, producers: ['person'] },
       { name: 'title', type: 'text', producers: ['person'] },
       { name: 'body', type: 'text', nullable: true, producers: ['person'] },
