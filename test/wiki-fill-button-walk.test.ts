@@ -3,9 +3,8 @@
  * through the route the button calls, over HTTP, and its pages are then read over HTTP — the repository, its tree and
  * one file, from the store this path published.
  *
- * The product is a fixture this test makes: its manifest, its workflow manifest (the starter set's first fill), one
- * code repository with one source file. No model runs: the fill is the static stages, and the pages that a model would
- * write are absent by design.
+ * The product is a fixture this test makes: its manifest, a native tree/history workflow, and one code repository
+ * with one source file. No plugin or model runs: these pages need only repository inventory and history.
  */
 import { afterAll, beforeAll, expect, test as bunTest } from 'bun:test';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
@@ -21,7 +20,6 @@ import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
-import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
@@ -53,7 +51,7 @@ beforeAll(async () => {
   writeFileSync(join(product, 'docs', 'product.md'), '# Walk\n\nA small product the walk fills.\n');
   // The product holds its own copy of the starter set, as `madarch new` leaves it; the fill workflow is its own.
   seedStarterSet(product);
-  writeFirstFillWorkflow(product);
+  writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
   git(product, 'init', '-q', '-b', 'main');
   git(product, 'add', '-A');
   git(product, 'commit', '-qm', 'the product the walk fills');
