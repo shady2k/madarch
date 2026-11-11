@@ -95,8 +95,8 @@ describe('the one store of one product', () => {
       await wiki.status();
       const owner = await openStore(storeDatabasePath(store));
       try {
-        const pins = await owner.run((tx) => tx.query<{ repo: string; commit_hash: string }>('SELECT repo, commit_hash FROM knowledge_fill ORDER BY repo'));
-        expect(pins.rows).toContainEqual({ repo: name, commit_hash: head });
+        // The pins are the graph's own rows (stage 3: `knowledge_fill` is gone): the repository entity and its as-is edge.
+        expect((await repositoryFacts(owner, name))?.asIsCommit).toBe(head);
       } finally {
         await owner.close();
       }

@@ -25,7 +25,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 let root = '';
 let repository = '';
 /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
 
 const RECORD_TABLES = [
   ...MECHANISM_TABLES,
@@ -268,8 +268,10 @@ describe('the two passes over one fixture', () => {
     if (block.type !== 'repository') throw new Error(`the repository block answered ${block.type}: ${block.type === 'problem' ? block.message : ''}`);
     expect(block.data.url).toBe('https://example.test/fixture.git');
     // The credential stands nowhere in the store.
-    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string }>(`SELECT url FROM ${GIT_TABLES.repository}`));
-    expect(stored.rows.map((row) => row.url)).toEqual(['https://example.test/fixture.git']);
+    // The tree states the address; the history's own opinion of the repository states only its shallow fact, so its
+    // url column is null — and the credential stands in neither.
+    const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string | null }>(`SELECT url FROM ${GIT_TABLES.repository} ORDER BY id`));
+    expect(stored.rows.map((row) => row.url).filter((url) => url !== null)).toEqual(['https://example.test/fixture.git']);
   });
 
   test('run as stages: one unit per repository per pass, publishing through the module', async () => {
@@ -335,41 +337,23 @@ describe('the two passes over one fixture', () => {
 
   });
 
-describe('the gaps each pass owns', () => {
-  test('a pass replaces only the gaps it wrote, whatever reason the other pass wrote them under', async () => {
+describe('a shallow clone is the history pass\'s own opinion of the repository', () => {
+  test('a shallow clone is stated by the pass, and a deeper clone takes the statement back', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const tree = (gaps: { what: string; reason: 'non-utf8-path' | 'unreadable' }[]) => ({ repository: { name: 'gaps', url: 'file:///gaps' }, commit: 'a'.repeat(40), files: [], gitlinks: [], gaps });
-    const history = (gaps: { what: string; reason: 'shallow-history' | 'unreadable' }[]) => ({ repository: { name: 'gaps' }, commits: [], gaps });
-    // The repository's first empty publications make its own rows (the repository, its as-is edge): the
-    // counts below are the gaps', not those rows'.
-    await publishHistory(owner, history([]));
-    await publishTree(owner, tree([]));
-    // The history writes an unreadable field and a shallow history; the tree then writes a path no
-    // UTF-8 can hold. Both passes can write `unreadable`, so the reason cannot say whose row it is.
-    const firstHistory = await publishHistory(owner, history([{ what: 'commit aaa author name <0xff>', reason: 'unreadable' }, { what: 'gaps at aaa', reason: 'shallow-history' }]));
-    expect([firstHistory.inserted, firstHistory.deleted]).toEqual([2, 0]);
-    const firstTree = await publishTree(owner, tree([{ what: 'bad/<0xff>.ts', reason: 'non-utf8-path' }]));
-    expect([firstTree.inserted, firstTree.deleted]).toEqual([1, 0]);
-    const all = await repositoryFacts(owner, 'gaps');
-    expect(all?.gaps).toEqual([
-      { what: 'bad/<0xff>.ts', reason: 'non-utf8-path' },
-      { what: 'commit aaa author name <0xff>', reason: 'unreadable' },
-      { what: 'gaps at aaa', reason: 'shallow-history' },
-    ]);
-    // The history runs again without the unreadable field: its own row goes, and the tree's stands.
-    const secondHistory = await publishHistory(owner, history([{ what: 'gaps at aaa', reason: 'shallow-history' }]));
-    expect([secondHistory.inserted, secondHistory.deleted]).toEqual([0, 1]);
-    expect(secondHistory.unchanged).toBeGreaterThanOrEqual(1);
-    expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([
-      { what: 'bad/<0xff>.ts', reason: 'non-utf8-path' },
-      { what: 'gaps at aaa', reason: 'shallow-history' },
-    ]);
-    // The tree runs again without its unreadable path: its own row goes, and the history's stands.
-    const secondTree = await publishTree(owner, tree([]));
-    expect([secondTree.inserted, secondTree.deleted]).toEqual([0, 1]);
-    expect((await repositoryFacts(owner, 'gaps'))?.gaps).toEqual([{ what: 'gaps at aaa', reason: 'shallow-history' }]);
+    // Stage 3: `gap` is gone. What a pass could not read is a problem for a person, said in the run's log and trace; a
+    // fact it can state about a vertex — a shallow clone — is its opinion of that vertex.
+    const publication = (shallow: boolean) => ({ repository: { name: 'shallow' }, commits: [], shallow });
+    const first = await publishHistory(owner, publication(true));
+    expect(first.inserted).toBeGreaterThan(0);
+    expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
+    // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
+    await publishHistory(owner, publication(false));
+    expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
+    const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' AND (n.key->>'name') = 'shallow'`,
+    ));
+    expect(open.rows[0]?.n).toBe('1');
   }, 120_000);
-
 });
 
 describe('a git date of a zero or a negative offset', () => {

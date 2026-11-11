@@ -822,7 +822,7 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         data.url,
         `${data.counts.files} files · ${data.counts.commits} commits · ${data.counts.folders} folders`,
         data.asIsCommit === null ? 'the tree pass has not run' : `as-is commit ${data.asIsCommit}`,
-        ...data.gaps.map((gap) => `gap: ${gap.what} — ${gap.reason}`),
+        ...(data.historyShallow === true ? ['history: the clone was shallow, so the walk is not the whole history'] : []),
         ...(block.run === undefined ? [] : [`last run finished ${block.run.finishedAt} in ${block.run.wallMs} ms`]),
         ...(block.unread ?? []).map((one) => `unread: ${one.repository} (${one.path}) — ${one.reason}`),
       ];
