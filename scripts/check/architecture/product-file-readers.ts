@@ -34,6 +34,10 @@ const PARSERS: Readonly<Record<string, readonly string[]>> = {
   'src/writer/sentences.ts': ['groundLinks', 'statementsOf'],
 };
 const TEXT_MEMBERS: Readonly<Record<string, readonly string[]>> = {
+  'src/plugin/product-files.ts': ['text', 'readText'],
+  'src/plugin/product-source.ts': ['text'],
+  'src/plugin/repository-snapshot.ts': ['read', 'readText'],
+  'src/plugin/stored-text.ts': ['content', 'contentsOf', 'contentAt'],
   'src/knowledge/product-files.ts': ['text', 'readText'],
   'src/knowledge/product-source.ts': ['text'],
   'src/knowledge/graph-read.ts': ['content', 'contentsOf', 'contentAt'],
@@ -42,6 +46,7 @@ const TEXT_MEMBERS: Readonly<Record<string, readonly string[]>> = {
   'src/knowledge/blocks.ts': ['readSource'],
 };
 const TEXT_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
+  'src/plugin/stored-text.ts': ['fileContent', 'fileContents', 'fileTextAt', 'pluginFileContent'],
   'src/graph/records.ts': ['fileContent', 'fileContents', 'fileTextAt'],
   'src/graph/plugin-turns.ts': ['pluginFileContent'],
   'src/knowledge/product-files.ts': ['workingTreeFiles', 'snapshotFiles'],
