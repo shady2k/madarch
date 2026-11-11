@@ -8,8 +8,8 @@
  * runs the extract driver over each repository the manifest declares, into
  * that store, one commit at a time; after each commit the pages that are open
  * are told to read again (`subscribe`). What each repository was filled to is
- * kept in the store (`knowledge_fill`), so a source view shows the bytes the
- * graph's spans were read from, and a restarted server still knows.
+ * the graph's own repository entity and its as-is edge, so a source view shows
+ * the bytes the graph's spans were read from, and a restarted server still knows.
  */
 import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs.js';
 import { createRecordSchema } from '../graph/index.js';
@@ -539,9 +539,9 @@ export class KnowledgeProduct {
   }
 
   /**
-   * The repositories the graph holds, and the commit each is as-is at: the graph's own answer, never the fill's
-   * `knowledge_fill` rows. The fill's operational counts are not product data; what a page states of a repository is
-   * read from the repository entity and its as-is edge (madarch-hsqs stage A).
+   * The repositories the graph holds, and the commit each is as-is at: the graph's own answer, never a pin table of the
+   * fill's. The fill's operational counts are not product data; what a page states of a repository is read from the
+   * repository entity and its as-is edge (madarch-hsqs stage A).
    */
   private async loadPins(owner: DatabaseOwner): Promise<void> {
     const reader = new GraphReader(owner, this.validAt);
@@ -550,7 +550,8 @@ export class KnowledgeProduct {
     for (const facts of held) {
       const commit = facts.asIsCommit ?? '';
       const at = commit === '' ? undefined : await reader.commit(facts.name, commit).catch(() => null);
-      const shallow = facts.gaps.some((gap) => gap.reason === 'shallow-history');
+      // The history pass's own opinion of the repository: a shallow clone is not the whole history.
+      const shallow = facts.historyShallow === true;
       next.push({
         name: facts.name, url: facts.url, scope: facts.nodeId, head: commit, commit,
         effectiveTime: at?.commitDate ?? new Date().toISOString(),
@@ -2243,7 +2244,7 @@ export class KnowledgeProduct {
       ?? held.find((one) => one.name === declared[0])
       ?? held[0];
     if (chosen === undefined) return undefined;
-    return { id: chosen.id, name: chosen.name, url: chosen.url, defaultBranch: chosen.defaultBranch, asIsCommit: chosen.asIsCommit, counts: chosen.counts, gaps: chosen.gaps, steps: chosen.steps };
+    return { id: chosen.id, name: chosen.name, url: chosen.url, defaultBranch: chosen.defaultBranch, asIsCommit: chosen.asIsCommit, counts: chosen.counts, historyShallow: chosen.historyShallow, steps: chosen.steps };
   }
 
   /** The newest run of the store's trace, or the named one. */
@@ -3363,7 +3364,7 @@ export class KnowledgeProduct {
   }
 }
 
-/** What a repository was filled to: kept in the primary store (`knowledge_fill`) and applied with the snapshot it belongs to. */
+/** What a repository was filled to: the graph's repository entity and its as-is edge, read with the snapshot it belongs to. */
 export interface RepositoryPin {
   name: string;
   /** The repository's web address, as the files producer read its remote; a local path when it has none. */

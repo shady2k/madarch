@@ -90,7 +90,6 @@ export interface TreePublish {
    * publication touches its scope only: a file or folder outside it is not this publication's to delete.
    */
   readonly scope?: readonly string[];
-  readonly gaps: readonly { readonly what: string; readonly reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[];
 }
 
 /** One commit the history pass read, with the paths it changed. */
@@ -116,7 +115,8 @@ export interface HistoryCommit {
 export interface HistoryPublish {
   readonly repository: { readonly name: string };
   readonly commits: readonly HistoryCommit[];
-  readonly gaps: readonly { readonly what: string; readonly reason: 'non-utf8-path' | 'shallow-history' | 'unreadable' }[];
+  /** Whether the clone the pass read is shallow: a fact about its input, stated as the producer's opinion of the repository. */
+  readonly shallow?: boolean;
 }
 
 /** What one publish wrote: the rows that changed, and the rows that were already right. */
@@ -459,8 +459,6 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     }
     counts = { ...counts, unchanged: counts.unchanged + [...desired.keys()].filter((key) => heldContains.has(key)).length };
 
-    // The tree pass retracts only the gaps it wrote: a tree published after a history keeps the history's rows.
-    counts = sum(counts, await publishGaps(tx, heldRepository.node, input.gaps, 'tree'));
     await writeJournal(tx, journal);
     return counts;
   });
@@ -470,33 +468,6 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
 async function fileLinkNodeOf(tx: OuterTransaction, repository: string, path: string): Promise<string> {
   const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.gitlink, key: { repository: repositoryRef(repository), path } });
   return made.nodeId;
-}
-
-/** The pass that read a gap: a gap is replaced by the pass that wrote it, and by no other. */
-type GapProducer = 'tree' | typeof GIT_KINDS.history;
-
-/**
- * The gaps of one repository, as one pass read them: the rows this pass wrote are
- * written again and the pass's stale ones go, and the other pass's rows stand as
- * they are. Both passes can write `unreadable`, so the producer, never the reason,
- * says whose row it is.
- */
-async function publishGaps(tx: OuterTransaction, repositoryNode: string, gaps: readonly { readonly what: string; readonly reason: string }[], producer: GapProducer): Promise<RecordCounts> {
-  const held = new Map((await tx.query<{ what: string; reason: string }>('SELECT what, reason FROM gap WHERE repository_node = $1::bigint AND producer = $2', [repositoryNode, producer])).rows.map((row) => [row.what, row.reason]));
-  let inserted = 0;
-  let unchanged = 0;
-  let deleted = 0;
-  for (const gap of gaps) {
-    if (held.get(gap.what) === gap.reason) { unchanged += 1; continue; }
-    await tx.query('INSERT INTO gap (repository_node, what, reason, producer) VALUES ($1::bigint, $2, $3, $4) ON CONFLICT (repository_node, what) DO UPDATE SET reason = EXCLUDED.reason, producer = EXCLUDED.producer', [repositoryNode, gap.what, gap.reason, producer]);
-    inserted += 1;
-  }
-  for (const [what] of held) {
-    if (gaps.some((gap) => gap.what === what)) continue;
-    await tx.query('DELETE FROM gap WHERE repository_node = $1::bigint AND what = $2 AND producer = $3', [repositoryNode, what, producer]);
-    deleted += 1;
-  }
-  return { inserted, updated: 0, deleted, unchanged };
 }
 
 /** The distinct commits of one walk's touched rows, as the id array a standing-edges read takes. */
@@ -520,6 +491,10 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     const entities = await entityIds(tx);
     const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.repository, key: { name: repository } });
     let counts: RecordCounts = { inserted: made.created ? 1 : 0, updated: 0, deleted: 0, unchanged: made.created ? 0 : 1 };
+    // A shallow clone is a fact about what the pass was given, so the pass states it as its own opinion of the
+    // repository: a deeper clone states false, and every reader answers from the graph (stage 3: `gap` is gone).
+    const shallowWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.repository, nodeId: made.nodeId, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, values: { history_shallow: input.shallow === true }, lang: null });
+    if (shallowWritten) counts = { ...counts, inserted: counts.inserted + (made.created ? 1 : 0), updated: counts.updated + (made.created ? 0 : 1) };
 
     // Every commit vertex the walk names — a commit of the walk or a parent of one — exists before a row points at it.
     const commitNodes = new Map<string, { node: string; created: boolean }>();
@@ -682,7 +657,6 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     );
     for (const row of staleRenamed.rows) if (!desiredRenamed.has(`${row.from_node}\u0000${row.to_node}\u0000${row.discriminator}`)) { await removeEdgeById(tx, GIT_CONTRACT, `${GIT_KINDS.renamedFrom}`, row.id); counts = { ...counts, deleted: counts.deleted + 1 }; }
 
-    counts = sum(counts, await publishGaps(tx, made.nodeId, input.gaps, `${GIT_KINDS.history}`));
     await writeJournal(tx, journal);
     return counts;
   });
@@ -740,7 +714,7 @@ function opinionsOfJson(value: unknown, carried: readonly string[]): HeldOpinion
     const saidBy = String(held['said_by'] ?? '');
     const at = saidBy.lastIndexOf('@');
     const values: Record<string, unknown> = {};
-    for (const field of [...carried, 'lang', 'mode', 'blob_id', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
+    for (const field of [...carried, 'lang', 'mode', 'blob_id', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'history_shallow', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
     return {
       id: String(held['id'] ?? ''),
       saidBy,
@@ -1272,8 +1246,7 @@ async function readCommitFacts(tx: OuterTransaction, _repository: string, hash: 
   };
 
 }
-/** One repository as a reader sees it: its name, its url, the commit it is as-is at, its counts and its gaps. */
-/** The facts one repository page states, read once per page: its key, its address, its as-is commit, its counts, its gaps. */
+/** The facts one repository page states, read once per page: its key, its address, its as-is commit and its counts. */
 export interface RepositoryFacts {
   readonly nodeId: string;
   readonly name: string;
@@ -1283,7 +1256,8 @@ export interface RepositoryFacts {
   readonly fileCount: number;
   readonly commitCount: number;
   readonly directoryCount: number;
-  readonly gaps: readonly { what: string; reason: string }[];
+  /** Whether the clone the history pass read is shallow: the pass's opinion of the repository, never a table of its own. */
+  readonly historyShallow: boolean | null;
 }
 
 /** One page's repository facts, bound to the page's transaction so every block of the page shares one read. */
@@ -1308,16 +1282,15 @@ export async function repositoryFacts(owner: DatabaseOwner, repository: string):
 
 /** The facts of one repository, read in statements of its own; the page shares the result through `repositoryFacts`. */
 async function readRepositoryFacts(tx: OuterTransaction, repository: string): Promise<RepositoryFacts | null> {
-  // One statement for the repository row and everything a page states about it: its opinions, its as-is commit, its
-  // counts and its gaps (the CI page budget counts statements, not only rows).
-  const found = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; files: string; commits: string; directories: string; gaps: unknown }>(
+  // One statement for the repository row and everything a page states about it: its opinions, its as-is commit and its
+  // counts (the CI page budget counts statements, not only rows).
+  const found = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; files: string; commits: string; directories: string }>(
     `SELECT n.id::text AS node_id,
-       (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
+       (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch", 'history_shallow', o."history_shallow") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
        (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS as_is,
        (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (f.key->'repository'->'key'->>'name') = $1::text) AS files,
        (SELECT count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = n.id AND e.context_id = 1) AS commits,
-       (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (d.key->'repository'->'key'->>'name') = $1::text) AS directories,
-       (SELECT coalesce(jsonb_agg(jsonb_build_object('what', g.what, 'reason', g.reason) ORDER BY g.what), '[]'::jsonb) FROM gap g WHERE g.repository_node = n.id) AS gaps
+       (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (d.key->'repository'->'key'->>'name') = $1::text) AS directories
      FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE n.key @> jsonb_build_object('name', $1::text) AND n.context_id = 1 AND NOT n.removed`,
     [repository],
   );
@@ -1330,7 +1303,7 @@ async function readRepositoryFacts(tx: OuterTransaction, repository: string): Pr
     fileCount: Number(row['files'] ?? '0'),
     commitCount: Number(row['commits'] ?? '0'),
     directoryCount: Number(row['directories'] ?? '0'),
-    gaps: Array.isArray(row['gaps']) ? (row['gaps'] as { what: string; reason: string }[]) : [],
+    historyShallow: fieldRead(opinions, 'history_shallow', (value) => (typeof value === 'boolean' ? value : null)).value,
   };
 }
 

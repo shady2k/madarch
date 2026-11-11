@@ -101,7 +101,8 @@ describe('the tools this step serves', () => {
       asIsCommit: third,
       counts: { files: 4, commits: 3, folders: 3 },
       steps: { 'repository-tree': true, 'repository-history': true },
-      gaps: [],
+      // The history pass states it: this clone is not shallow.
+      historyShallow: false,
     });
   }, 120_000);
 
@@ -213,7 +214,8 @@ describe('the tools this step serves', () => {
     expect(answered.isError).toBe(false);
     const answer = answered.answer as Record<string, unknown>;
     expect(answer['counts']).toMatchObject({ commits: 1 });
-    expect(answer['gaps']).toEqual([{ what: `kit at ${git(path.join(SHALLOW, 'kit'), 'rev-parse', 'HEAD')}`, reason: 'shallow-history' }]);
+    // A shallow clone is the history pass's own opinion of the repository, so the answer states it as one.
+    expect(answer['historyShallow']).toBe(true);
   }, 180_000);
 
   test('a tool of a later step answers that its step has not run, naming it', async () => {

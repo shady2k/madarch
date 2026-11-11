@@ -531,7 +531,8 @@ export interface GraphRepositoryFacts {
   readonly asIsCommit: string | null;
   readonly asIsHref: string | null;
   readonly counts: { readonly files: number; readonly commits: number; readonly folders: number };
-  readonly gaps: readonly { readonly what: string; readonly reason: string }[];
+  /** Whether the clone the history pass read is shallow: the pass's own opinion of the repository. */
+  readonly historyShallow: boolean | null;
   readonly steps: { readonly tree: boolean; readonly history: boolean };
 }
 
@@ -698,8 +699,8 @@ export class GraphReader {
   }
 
   /**
-   * One repository as the graph states it: its facts, its as-is commit, its counts and its gaps. This is the graph's
-   * answer, never a page model of another store.
+   * One repository as the graph states it: its facts, its as-is commit, its counts and whether its history is shallow.
+   * This is the graph's answer, never a page model of another store.
    */
   async repository(name: string): Promise<GraphRepositoryFacts | null> {
     const held = this.repositoryMemo.get(name);
@@ -720,7 +721,7 @@ export class GraphReader {
       defaultBranch: facts.defaultBranch, asIsCommit: facts.asIsCommit,
       asIsHref: facts.asIsCommit === null ? null : entityAddress(`code.commit:${facts.asIsCommit}`),
       counts: { files: facts.fileCount, commits: facts.commitCount, folders: facts.directoryCount },
-      gaps: facts.gaps, steps: { tree: facts.asIsCommit !== null, history: facts.commitCount > 0 },
+      historyShallow: facts.historyShallow, steps: { tree: facts.asIsCommit !== null, history: facts.commitCount > 0 },
     };
   }
 

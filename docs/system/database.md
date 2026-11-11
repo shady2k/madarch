@@ -1,472 +1,140 @@
-# The database as it is (2026-11-09, after decision 0034)
+# The database as it is (2026-11-11, after stage 3 of madarch-64o5.2)
 
-Status: as-is description of a filled product's PostgreSQL 18.6.1 cluster, read from
-`pg_catalog` and `count(*)` of the walk store (`madarch new`, `madarch repo add`,
-`madarch fill` over madarch's own repository at `0d45283b`). Every product has one such
-cluster, database `madarch`, under `<madarch home>/.madarch/knowledge/<product id>/graph`.
-The design is decision 0034; this document records what the database holds now. Person names
-and emails are redacted, and the repository URLs are neutral examples.
+Status: as-is description of a filled product's PostgreSQL cluster, read from `pg_catalog` and
+`count(*)` of a fill of madarch's own repository (1 909 files, 2 532 commits). Every product has
+one such cluster, database `madarch`, under
+`<madarch home>/.madarch/knowledge/<product id>/graph`; the design is decision 0034 and this
+document records what the store holds now. Repository URLs are neutral examples.
 
-The engine's DDL (`src/graph/one-graph.ts`) holds only the **mechanism** tables. Every kind's
-table is generated from the product's contract (decision 0034, items 2, 3, 13 and 14): its
-name is generated from the kind and a digest (`k_file_…`, `d_path_…`, `e_touched_…`), never
-the kind's display name, and its columns, natural key and indexes come from the contract. A
-product that declares no code kind has none of these tables; a tracker-only product opens,
-fills and serves with the mechanism tables alone.
+The engine's DDL (`src/graph/one-graph.ts`) holds only the **mechanism** tables — the graph's own
+identity, its journal and its records of what a publication could not resolve. Every kind's table
+is generated from the product's contract (decision 0034, items 2, 3, 13 and 14): its name is
+generated from the kind and a digest (`k_file_…`, `d_path_…`, `e_touched_…`), never the kind's
+display name, and its columns, natural key and indexes come from the contract. A product that
+declares no code kind has none of these tables; a tracker-only product opens, fills and serves
+with the mechanism tables alone.
 
 ## Overview
 
-| Area | Tables | Rows | State |
-|---|---:|---:|---|
-| [Mechanism (the engine's DDL)](#mechanism) | 9 | 51,392 | written by every fill |
-| [Tables generated from the walk product's contracts](#generated) | 12 | 43,217 | built from the manifest's kinds and the git capability's contract |
-| [The fill orchestrator (decision 0027)](#orchestrator) | 18 | 102 | written by the fill; foreign keys on `(unit_id, generation)` and `run_id` |
-| [The job queue (pg-boss, schema pgboss)](#queue) | 14 | 16 | written by the fill |
-| [Schema bookkeeping (schema madarch_meta)](#meta) | 1 | 3 | written at start |
-
-The walk repository has 1 853 files; the generated file table holds 2802 rows
-because the product's own repository is filled beside it. The catalogue's `code.file` count is
-the filled repository's 1 853.
-
-## The defects the redesign removed
-
-1. **Two graphs.** The fill writes the one graph; the wiki's catalogue, entity pages and
-   blocks read the same tables. The temporal tables of decision 0028 are gone.
-2. **A vertex repeats its own attribute.** `node` holds its id, its kind and a stable `uid`;
-   a file's path, a commit's hash, a signature's email and a repository's name stand once in
-   their generated table.
-3. **A relation stored twice.** Belonging to a repository is a `contains` edge; `node` has no
-   repository column.
-4. **An edge that is not an edge.** A commit's change to a file is an edge with its own
-   attribute table; a rename is a `renamed-from` edge; a blob is a dictionary with no vertex.
-5. **The old fact store survives.** `fill_fact` and `fill_fact_holding` are gone with their
-   readers and writers.
-6. **No integrity in the orchestrator.** The `fill_*` tables reference each other by foreign
-   keys on `(unit_id, generation)` and `run_id`.
-7. **Clusters outlive their servers.** The store's server is stopped with its owner.
-
-<a id="mechanism"></a>
-
-## Mechanism
-
-These tables are the engine's own: identity, edges, claims, evidence, layers, the journal and
-coverage gaps. No product kind name stands in their DDL.
-
-| Table | Rows | What it holds |
+| Area | Tables | What writes it |
 |---|---:|---|
-| `kind` | 13 | a declared kind, whether it is a vertex or an edge, and its repeat rule |
-| `node` | 6,167 | a vertex's identity: its kind, a local id and a UUIDv5 `uid` over kind and natural key |
-| `edge` | 36,927 | one edge: kind, from, to, and the discriminator of a repeating kind |
-| `claim` | 1,897 | one attribute of a node, with its producer and version |
-| `evidence` | 6,387 | the vertex, edge or claim a claim is grounded in |
-| `context` | 1 | a layer over the base context |
-| `layer_entry` | 0 | what a layer replaces or removes |
-| `operation` | 0 | a person's or the agent's journal entry |
-| `gap` | 0 | a known absence the fill states |
+| The graph's mechanism (`public`, the engine's DDL) | 6 | every publication |
+| Tables generated from the product's contracts | 15 here | the git capability's contract, through the one writer |
+| The fill's own tables (decision 0027) | 17 | the run, its stages and units |
+| The job queue (`pgboss`) | 14 | the fill's queue |
+| Store metadata (`madarch_meta`) | 1 | the store's open |
 
-<a id="generated"></a>
+## The graph's mechanism
 
-## Tables generated from the walk product's contracts
+| Table | Rows here | What it holds |
+|---|---:|---|
+| `entity` | 13 | a kind the contract declares: its name, whether it sorts vertices or edges, and a repeating edge kind's discriminator rule |
+| `node` | 6 271 | a vertex's identity only: its entity, a local id, a stable `uid`, its natural key (`key`), its context and whether it is removed |
+| `edge` | 38 511 | one edge: its entity, its two ends, the discriminator a repeating kind needs, and its context |
+| `context` | 1 | a layer over the base context; the base is the row with no parent and every read is of context 1 |
+| `operation` | 27 | the journal: one row a publication, with its author (`producer@version`, `agent`, `person:<uid>`), its words, its durable order (`seq`) and the change it made — the vertices, edges and opinions it declared, removed, opened, closed or re-evidenced, with the values and evidence a replay needs |
+| `unresolved_reference` | 0 | a reference a publication named and no vertex held: the referrer, the field, the target entity and key, the producer and the context — read by the consistency plugin (madarch-stm0.7) and deleted when the reference resolves |
 
-The names below are generated from the kind and its sort; the kind's display name stands
-apart. `k_` is a vertex, `d_` a dictionary and `e_` an attributed edge. The natural key stands
-once on the vertex (`node.key`); every other field value is an opinion in the table, and no
-field is authoritative — a manifest no longer states a field's `role`. The git capability's
-contract supplies these tables because the manifest binds `capability: git`; a manifest that
-binds no code kind gets none.
+The journal is the history (decision 0034, A6): `node`, `edge` and the opinion tables hold the
+present, and every change is a row of `operation`. An opinion's row carries its own evidence, its
+language, the opinion it was translated from, its source's digest and the moment it was said; a
+field's value is never authoritative — every value is one producer's opinion, and a disagreement is
+read as the list of values with each value's opinion beside it.
 
-| Table | Kind | Rows | Natural key |
+## Tables generated from the product's contracts
+
+The names below are generated from the kind and its sort; the kind's display name stands apart.
+`k_` is a vertex, `d_` a dictionary and `e_` an edge's own table. The natural key stands once on
+the vertex (`node.key`); every other field value is an opinion in the table, one row per producer,
+version, language and context. The git capability's contract supplies these tables because the
+manifest binds `capability: git`; a manifest that binds no code kind gets none.
+
+| Table | Kind | Rows here | Natural key |
 |---|---|---:|---|
 | `k_repository_7edaa2e7` | repository | 2 | `name` |
-| `k_directory_3827c86d` | directory | 858 | `(repository_node, path_id)` |
-| `k_file_3d6caaab` | file | 2,802 | `(repository_node, path_id)` |
-| `k_gitlink_85ee1099` | gitlink | 0 | `(repository_node, path_id)` |
-| `k_commit_5beb4971` | commit | 2,491 | `hash` |
-| `k_signature_f06259ed` | signature | 14 | `(name, email)` |
-| `d_path_fed16136` | path | 3,654 | `text` |
-| `d_blob_c9a5c40e` | blob | 1,819 | `hash` |
+| `k_directory_3827c86d` | directory | 864 | `(repository, path)` |
+| `k_file_3d6caaab` | file | 6 661 | `(repository, path)` |
+| `k_gitlink_85ee1099` | gitlink | 0 | `(repository, path)` |
+| `k_commit_5beb4971` | commit | 2 554 | `hash` |
+| `k_signature_f06259ed` | signature | 15 | `(name, email)` |
+| `d_path_fed16136` | path | 0 | `text` |
+| `d_blob_c9a5c40e` | blob | 1 842 | `hash` |
 | `d_language_9f027895` | language | 0 | `name` |
-| `e_history_56998345` | history (edge) | 2,491 | the edge's `edge_id` |
-| `e_parent_ae611ebe` | parent (edge) | 2,980 | the edge's `edge_id` |
-| `e_touched_ca9234b8` | touched (edge) | 26,106 | the edge's `edge_id` |
-
-The edge kinds `contains`, `as-is`, `authored` and `renamed-from` hold no attribute table;
-they are rows of the mechanism `edge` table. `touched`, `parent` and `history` add the fields
-their edges carry. The walk store has no table named `repository`, `file`, `commit`,
-`signature`, `touched`, `path` or `blob`; those display names are the contract's, not the
-store's.
-
-<a id="orchestrator"></a>
-
-## The fill orchestrator (decision 0027)
-
-The run, its stages and units, their leases, drafts and publications, and the event log.
-Every run-scoped row names its run, and every unit row its unit and generation, by a foreign
-key; the constraints are deferred and cascade with their parent.
-
-
-### `fill_chain` — 1 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `product` | text |  |
-| `state` | text |  |
-| `context` | jsonb |  |
-| `updated_at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (product)`
-
-
-### `fill_run` — 1 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `run_id` | text |  |
-| `product` | text |  |
-| `state` | text |  |
-| `context` | jsonb |  |
-| `created_at` | bigint |  |
-| `updated_at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (run_id)`
-
-Sample rows:
-
-| run_id | product | state |
-|---|---|---|
-| fill-20261109T000000000Z | madarch-demo | succeeded |
-
-
-### `fill_run_configuration` — 1 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `run_id` | text |  |
-| `digest` | text |  |
-| `snapshot` | jsonb |  |
-| `recorded_at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (run_id)`
-- `FOREIGN KEY (run_id) REFERENCES fill_run(run_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `fill_run_stage` — 2 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `run_id` | text |  |
-| `stage_id` | text |  |
-| `planned_at` | bigint |  |
-| `units` | integer |  |
-| `publications` | integer |  |
-
-Constraints:
-
-- `PRIMARY KEY (run_id, stage_id)`
-- `FOREIGN KEY (run_id) REFERENCES fill_run(run_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `fill_unit` — 4 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `product` | text |  |
-| `stage_id` | text |  |
-| `scope_key` | text |  |
-| `generation` | integer |  |
-| `created_at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (unit_id)`
-- `UNIQUE (product, stage_id, scope_key)`
-
-Sample rows:
-
-| unit_id | product | stage_id | scope_key | generation |
-|---|---|---|---|---:|
-| repository:madarch-demo | madarch-demo | repository-tree | madarch-demo | 1 |
-
-
-### `fill_unit_generation` — 4 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `run_id` | text |  |
-| `state` | text |  |
-| `inputs_digest` | text |  |
-| `fence` | integer |  |
-| `context` | jsonb |  |
-| `published_at` | bigint | yes |
-| `stale_at` | bigint | yes |
-| `updated_at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (unit_id, generation)`
-- `FOREIGN KEY (unit_id) REFERENCES fill_unit(unit_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `fill_unit_lease` — 4 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `attempt` | integer |  |
-| `fence` | integer |  |
-| `holder` | text |  |
-| `issued_at` | bigint |  |
-| `expires_at` | bigint |  |
-| `revoked_at` | bigint | yes |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (unit_id, generation, attempt)`
-
-
-### `fill_unit_plan` — 4 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `run_id` | text |  |
-| `stage_id` | text |  |
-| `stage_unit_id` | text |  |
-| `scope` | text |  |
-| `stage_position` | integer |  |
-| `plan_position` | integer |  |
-| `planned_at` | bigint |  |
-| `cache_versions` | jsonb | yes |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (unit_id, generation)`
-- `FOREIGN KEY (run_id) REFERENCES fill_run(run_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `fill_unit_read` — 0 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `query_digest` | text |  |
-| `query` | text |  |
-| `membership` | text |  |
-| `members` | integer |  |
-| `read_seq` | integer |  |
-| `at` | bigint |  |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (unit_id, generation, query_digest)`
-
-
-### `fill_unit_draft` — 4 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `digest` | text |  |
-| `writes` | jsonb |  |
-| `recorded_at` | bigint |  |
-| `retracted_at` | bigint | yes |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (unit_id, generation)`
-
-
-### `fill_unit_draft_part` — 0 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `part` | integer |  |
-| `writes` | jsonb |  |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (unit_id, generation, part)`
-
-
-### `fill_unit_split` — 0 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `parent_unit_id` | text |  |
-| `parent_generation` | integer |  |
-| `child_unit_id` | text |  |
-| `child_generation` | integer |  |
-| `sealed_at` | bigint |  |
-
-Constraints:
-
-- `FOREIGN KEY (child_unit_id, child_generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `FOREIGN KEY (parent_unit_id, parent_generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (parent_unit_id, parent_generation, child_unit_id)`
-
-
-### `fill_publication` — 4 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `unit_id` | text |  |
-| `generation` | integer |  |
-| `digest` | text |  |
-| `facts` | integer |  |
-| `published_at` | bigint |  |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (unit_id, generation)`
-
-
-### `fill_event` — 37 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `run_id` | text |  |
-| `seq` | integer |  |
-| `at` | bigint |  |
-| `stage` | text |  |
-| `unit_id` | text |  |
-| `generation` | integer | yes |
-| `kind` | text |  |
-| `summary` | text |  |
-
-Constraints:
-
-- `FOREIGN KEY (unit_id, generation) REFERENCES fill_unit_generation(unit_id, generation) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-- `PRIMARY KEY (run_id, seq)`
-- `FOREIGN KEY (run_id) REFERENCES fill_run(run_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `fill_transition` — 33 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `seq` | bigint |  |
-| `subject_kind` | text |  |
-| `subject_id` | text |  |
-| `generation` | integer | yes |
-| `transition_id` | text |  |
-| `from_state` | text |  |
-| `to_state` | text |  |
-| `event` | text |  |
-| `fence` | integer | yes |
-| `at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (seq)`
-
-
-### `fill_control` — 0 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `run_id` | text |  |
-| `action` | text |  |
-| `at` | bigint |  |
-
-Constraints:
-
-- `PRIMARY KEY (run_id)`
-- `FOREIGN KEY (run_id) REFERENCES fill_run(run_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `fill_end` — 1 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `run_id` | text |  |
-| `state` | text |  |
-| `message` | text | yes |
-| `unread` | jsonb | yes |
-| `finished_at` | timestamp with time zone |  |
-
-Constraints:
-
-- `PRIMARY KEY (run_id)`
-- `FOREIGN KEY (run_id) REFERENCES fill_run(run_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED NOT VALID`
-
-
-### `knowledge_fill` — 2 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `repo` | text |  |
-| `scope` | text | yes |
-| `head` | text |  |
-| `commit_hash` | text |  |
-| `effective_time` | text |  |
-| `commits` | integer |  |
-| `filled_commits` | integer |  |
-
-Constraints:
-
-- `PRIMARY KEY (repo)`
-
-
-<a id="queue"></a>
-
-## The job queue (pg-boss, schema pgboss)
-
-A library's own schema; madarch adds one table to it.
-
-| Table | Rows |
-|---|---:|
-| `bam` | 0 |
-| `instance` | 4 |
-| `job` | 4 |
-| `job_common` | 4 |
-| `job_dependency` | 0 |
-| `madarch_enqueue_stamp` | 1 |
-| `queue` | 2 |
-| `queue_stats` | 0 |
-| `queue_stats_20261109` | 0 |
-| `queue_stats_20261110` | 0 |
-| `schedule` | 0 |
-| `subscription` | 0 |
-| `version` | 1 |
-| `warning` | 0 |
-
-<a id="meta"></a>
-
-## Schema bookkeeping (schema madarch_meta)
-
-One stamp per module that created its tables.
-
-### `schema_stamp` — 3 rows
-
-| Column | Type | Null |
-|---|---|---|
-| `name` | text | |
-| `stamp` | text | |
-| `created_at` | timestamp with time zone | |
-
-Constraints:
-
-- `PRIMARY KEY (name)`
-
-The stamps are `fill-state`, `one-graph` and `orchestrator` (the queue's own schema keeps its `version` table).
+| `e_history_56998345` | history (edge) | 5 108 | the edge's `edge_id` |
+| `e_parent_ae611ebe` | parent (edge) | 6 122 | the edge's `edge_id` |
+| `e_touched_ca9234b8` | touched (edge) | 27 461 | the edge's `edge_id` |
+| `e_authored_6a1502b8` | authored (edge) | 2 554 | the edge's `edge_id` |
+| `e_contains_81e7830c` | contains (edge) | 2 776 | the edge's `edge_id` |
+| `e_as_is_6edec57a` | as-is (edge) | 1 | the edge's `edge_id` |
+| `e_renamed_from_65b54afa` | renamed-from (edge) | 104 | the edge's `edge_id` |
+
+Every edge kind has a table, attribute-free kinds included: it is where that edge's evidence and
+existence opinion live. A file's programming language is the ordinary field `language` (with the
+candidate list in `languages`), never the opinion's `lang`, which is the natural language of a text
+value; the tree pass's lines, bytes and form come from the `blob` dictionary a file's opinion names.
+A shallow clone is the history pass's own opinion of its repository (`history_shallow`), so it needs
+no table of its own. The store has no table named `repository`, `file`, `commit`, `signature`,
+`touched`, `path` or `blob`; those are the contract's display names, not the store's.
+
+## The fill's own tables (decision 0027)
+
+The run, its stages and units, their leases, drafts and publications, the event log and the
+publication's end. Every run-scoped row names its run, and every unit row its unit and generation,
+by a foreign key; the constraints are deferred and cascade with their parent. They are the fill's
+working record, not product data: what a page states of a repository is read from the graph.
+
+| Table | Rows here | What it holds |
+|---|---:|---|
+| `fill_run` | 1 | one run of one product: its state, its context, its creation and update moments |
+| `fill_run_configuration` | 1 | the settings a run judged with |
+| `fill_run_stage` | 2 | one stage of a run |
+| `fill_chain` | 1 | the order the run's stages stand in |
+| `fill_unit` | 2 | one unit of one stage |
+| `fill_unit_generation` | 2 | a unit's current generation, and the one that was superseded |
+| `fill_unit_lease` | 2 | the lease that holds a unit's generation |
+| `fill_unit_plan` | 2 | the units a stage planned |
+| `fill_unit_read` | 0 | what a unit read, so a rerun's membership is known |
+| `fill_unit_draft` | 2 | a unit's draft of the rows it publishes |
+| `fill_unit_draft_part` | 0 | a large draft's parts |
+| `fill_unit_split` | 0 | a unit the run split |
+| `fill_publication` | 2 | one publication: the snapshot a reader opens and when it stood |
+| `fill_event` | 21 | the run's progress events, in order |
+| `fill_transition` | 19 | a unit's state changes |
+| `fill_control` | 0 | a person's pause or stop of a run another process owns |
+| `fill_end` | 0 | the answer a finished run states to the process that pressed it |
+
+## The job queue (`pgboss`)
+
+The fill's queue is pg-boss's own schema: `queue`, `job`, `job_common`, `job_dependency`,
+`schedule`, `subscription`, `version`, `warning`, `instance`, `bam`, `queue_stats` and its
+per-day partitions, and `madarch_enqueue_stamp` (the enqueue high-water mark the fill keeps so a
+second press does not enqueue the same unit twice). Nothing of the product reads it.
+
+## Store metadata (`madarch_meta`)
+
+| Table | Rows here | What it holds |
+|---|---:|---|
+| `schema_stamp` | 5 | the digest of the DDL and contract the store was made with (`one-graph`), the revision of its rows' meaning (`one-graph-revision`), the mark that says a reset left it needing a fill (`graph-reset`), and the record tables' own stamp |
+
+A store whose stamp and revision stand is opened with one statement and no catalog walk; one whose
+revision differs is reset as a whole — the journal is kept — and asks for a fill.
+
+## What this store no longer holds, and where those facts are
+
+| Removed | Where the fact is now |
+|---|---|
+| `kind` | `entity`: one table of names and sort rules, the row every node and edge names |
+| `claim`, `evidence` | the opinion tables: every value is an opinion with its evidence in the same row |
+| `layer_entry` | a branch context is `context_id` on the rows plus `removed`, which an opinion row already carries |
+| `gap` | a problem, not a row of the graph: an unreadable file is stated by its own opinion (the tree pass files it with no blob), a non-UTF-8 path and a shallow clone by the run that met them (its log and trace); a shallow clone is also the history pass's own opinion of its repository |
+| `knowledge_fill` | the graph's own repository entity and its `as-is` edge, with the counts of its rows |
+| `node_identity`, `node_version`, `edge_identity`, `edge_version`, `node_kind`, `relation_type`, `publication_scope`, `work_item` (decision 0028) | the one graph; the temporal tables are gone |
+| `fill_fact`, `fill_fact_holding` | the one graph's opinion tables |
+
+## The mechanism tables of the stages after this one
+
+The store gains no other surface as the fill grows. Three changes add mechanism tables of their
+own, each a working record and never product data: `file_entry` and the `path`/`blob` tables
+(madarch-hsqs stage C) for the files a fill reads, `fill_selection` (madarch-stm0.6.1) for the
+selection a run asked for, and `plugin_state`/`plugin_problem` (madarch-8bdc.2.22) for a plugin's
+own state and what it reports. None of them is in this tree yet.

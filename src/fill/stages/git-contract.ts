@@ -41,7 +41,7 @@ export const GIT_TABLES = {
 const vertex: readonly VertexContract[] = [
   // A file's key is its repository and its path (A2 of the amendment): the repository named by its own key, the path
   // by its text. Neither is a column of the file's table; both stand once in the vertex's key.
-  { name: 'repository', table: GIT_TABLES.repository, fields: [text('name'), text('url'), { name: 'default_branch', type: 'text', nullable: true }], key: ['name'], capability: 'git' },
+  { name: 'repository', table: GIT_TABLES.repository, fields: [text('name'), { name: 'url', type: 'text', nullable: true }, { name: 'default_branch', type: 'text', nullable: true }, { name: 'history_shallow', type: 'boolean', nullable: true }], key: ['name'], capability: 'git' },
   { name: 'directory', table: GIT_TABLES.directory, fields: [{ name: 'repository', type: 'text', reference: 'repository' }, text('path')], key: ['repository', 'path'], capability: 'git' },
   { name: 'file', table: GIT_TABLES.file, fields: [{ name: 'repository', type: 'text', reference: 'repository' }, text('path'), { name: 'mode', type: 'text', nullable: true }, bigint('blob_id', true), { name: 'language', type: 'text', nullable: true }, { name: 'languages', type: 'json', nullable: true }], key: ['repository', 'path'], capability: 'git', indexes: [{ name: 'file_blob', columns: ['blob_id'] }, { name: 'file_language', columns: ['language'] }], checks: [`mode IS NULL OR mode IN ('100644', '100755', '120000')`] },
   { name: 'gitlink', table: GIT_TABLES.gitlink, fields: [{ name: 'repository', type: 'text', reference: 'repository' }, text('path'), text('other_repository'), text('commit_hash')], key: ['repository', 'path'], capability: 'git', checks: [`length(commit_hash) = 40`] },

@@ -38,9 +38,10 @@ const STORE_SCHEMA_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended('madarc
  * what its rows say changed even where their shape did not. Revision 2 (madarch-64o5.2): a file's programming language
  * is an opinion field, `language`, not the opinion's `lang`, which is the natural language of a text value and stands
  * null for a language name; a file opinion written under revision 1 cannot be matched by the writer any more, and its
- * store is made again and filled.
+ * store is made again and filled. Revision 3: the store holds no table but the graph's and its mechanisms' —
+ * `layer_entry`, `gap` and `knowledge_fill` are gone — and a store that still holds them is reset and filled once.
  */
-const SCHEMA_REVISION = 2;
+const SCHEMA_REVISION = 3;
 
 /** The tables a reset drops, in the order their foreign keys allow: the opinions and the catalogue before the nodes. */
 const GENERATED_PREFIXES = ['k_', 'e_', 'd_'] as const;
@@ -110,21 +111,6 @@ const SCHEMA: readonly string[] = [
     expectation jsonb,
     change jsonb NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS layer_entry (
-    context_id bigint NOT NULL REFERENCES context (id),
-    slot text NOT NULL CHECK (slot <> ''),
-    replaces bigint,
-    removed boolean NOT NULL DEFAULT false,
-    PRIMARY KEY (context_id, slot)
-  )`,
-  // What a pass could not read, under the pass that read it (kept from the record store's explicit coverage gaps).
-  `CREATE TABLE IF NOT EXISTS gap (
-    repository_node bigint NOT NULL REFERENCES node (id),
-    what text NOT NULL CHECK (what <> ''),
-    reason text NOT NULL CHECK (reason IN ('non-utf8-path', 'shallow-history', 'unreadable')),
-    producer text NOT NULL CHECK (producer IN ('tree', 'history')),
-    PRIMARY KEY (repository_node, what)
-  )`,
   // A reference to a key no vertex holds: the publication records it and goes on (A2; the consistency plugin
   // madarch-stm0.7 reads these). A rerun of the same answer records the same row once (nulls not distinct); the row
   // names its producer and, for an edge end, the edge kind and the other endpoint; and it goes when the reference
@@ -190,7 +176,7 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
     // A journal row written before stage 2 may carry no default for its id; the writer names none, so the database does.
     await tx.query(`ALTER TABLE operation ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
   }
-  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
+  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
     await tx.query(`DROP TABLE IF EXISTS "${table}"`);
   }
 }
