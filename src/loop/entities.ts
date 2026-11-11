@@ -19,13 +19,9 @@
  * graph and runs no git: `answer.ts` writes and commits, `plan.ts` decides.
  * Every error names the file and the line.
  */
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { byCodePoint } from '../model/order.js';
+import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { readWrittenAt, type WrittenAt } from '../knowledge/index/page.js';
-import { questionFootnoteId } from './ids.js';
 import type { ProductFileSource } from '../knowledge/product-files.js';
 import { groundLinks } from '../writer/sentences.js';
 
@@ -37,8 +33,6 @@ export const CORRECTION_KIND = 'correction';
 export const QUESTION_TYPES = ['contradiction', 'ambiguous-term', 'undocumented', 'gap'] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
-export const MAX_ANSWER = 8000;
-export const MAX_REASON = 4000;
 
 /** A problem in a loop file: where it is and what it is. */
 export class LoopFileError extends Error {
@@ -110,8 +104,6 @@ export interface Correction {
   readonly resolvedAt: string | null;
 }
 
-export const questionPath = (slug: string): string => `${QUESTIONS_FOLDER}/${slug}.md`;
-export const correctionPath = (slug: string): string => `${CORRECTIONS_FOLDER}/${slug}.md`;
 
 /**
  * Where a statement is: the page id and the statement's name (a footnote name, possibly `name~2`). Only the pages the
@@ -126,85 +118,12 @@ export function parseStatementRef(ref: string): { page: string; statement: strin
   return { page, statement: ref.slice(hash + 1) };
 }
 
-const quote = (text: string): string => text.split('\n').map((line) => (line === '' ? '>' : `> ${line}`)).join('\n');
 const unquote = (lines: readonly string[]): string => lines.map((line) => line.replace(/^>\s?/, '')).join('\n').trim();
-
-/** A sentence for the page: one line, with a full stop at its end. */
-function sentence(text: string): string {
-  const one = text.replace(/\s+/g, ' ').trim();
-  return /[.!?…]$/.test(one) ? one : `${one}.`;
-}
-
-function frontMatterText(record: Record<string, unknown>): string {
-  return stringifyYaml(record, { lineWidth: 0 }).trimEnd();
-}
-
-const authorRecord = (author: Author): Record<string, string> => ({ name: author.name, email: author.email, verified: author.verified });
 
 /** The footnote name a side was read with; kept so an old file's names survive a re-render. */
 const KEPT_FOOTNOTE = Symbol('kept question footnote');
 
 type SideWithFootnote = Side & { readonly [KEPT_FOOTNOTE]?: string };
-
-/** The names of the footnotes of a question's sides: a content hash, unique within the file; an old file keeps its names. */
-function footnoteNames(sides: readonly Side[]): string[] {
-  const taken = new Set<string>();
-  return sides.map((side) => {
-    const base = (side as SideWithFootnote)[KEPT_FOOTNOTE] ?? questionFootnoteId(side.claim, side.grounds);
-    let name = base;
-    for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}`;
-    taken.add(name);
-    return name;
-  });
-}
-
-/** The file of a question, canonical: the same question is the same bytes. */
-export function renderQuestion(question: Omit<Question, 'file' | 'id'>): string {
-  const front: Record<string, unknown> = {
-    id: `${QUESTION_KIND}:${question.slug}`,
-    kind: QUESTION_KIND,
-    title: question.title,
-    type: question.type,
-    status: question.status,
-    about: [...question.about],
-    ...(question.askedIn === null ? {} : { 'asked-in': question.askedIn }),
-    ...(question.askedAt === null ? {} : { 'asked-at': question.askedAt }),
-    producer: 'agent',
-    ...(question.answer === null ? {} : { 'answered-by': authorRecord(question.answer.by), 'answered-at': question.answer.at }),
-    ...(question.resolvedBy.length === 0 ? {} : { 'resolved-by': [...question.resolvedBy], 'resolved-at': question.resolvedAt }),
-    ...(question.writtenAt.length === 0 ? {} : { 'written-at': question.writtenAt.map((entry) => ({ ...entry })) }),
-  };
-  const names = footnoteNames(question.sides);
-  const words = QUESTION_HEADINGS[question.language ?? 'en'];
-  const lines = [
-    '---', frontMatterText(front), '---', '',
-    `## ${words.question}`, '', question.question.trim(), '',
-    `## ${words.why}`, '', question.why.trim(), '',
-    `## ${words.sources}`, '',
-    ...question.sides.map((side, index) => `- ${sentence(side.claim)}[^${names[index]}]`), '',
-    ...question.sides.map((side, index) => `[^${names[index]}]: ${side.grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '') || ground}](madarch:${ground})`).join(', ')}`),
-  ];
-  if (question.answer !== null) {
-    lines.push('', `## ${words.answer}`, '', quote(question.answer.text.trim()), '', `${words.answeredBy} ${question.answer.by.name} <${question.answer.by.email}> at ${question.answer.at} (${question.answer.by.verified}).`);
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-export function renderCorrection(correction: Omit<Correction, 'file' | 'id'>): string {
-  const front: Record<string, unknown> = {
-    id: `${CORRECTION_KIND}:${correction.slug}`,
-    kind: CORRECTION_KIND,
-    title: correction.title,
-    status: correction.status,
-    about: [correction.about],
-    statement: correction.statement,
-    producer: 'person',
-    'corrected-by': authorRecord(correction.by),
-    'corrected-at': correction.at,
-    ...(correction.resolvedBy.length === 0 ? {} : { 'resolved-by': [...correction.resolvedBy], 'resolved-at': correction.resolvedAt }),
-  };
-  return `${['---', frontMatterText(front), '---', '', '## Correction', '', quote(correction.reason.trim())].join('\n')}\n`;
-}
 
 // ---- reading ---------------------------------------------------------------------------------
 
@@ -371,69 +290,10 @@ export function parseCorrection(file: string, source: string): Correction {
   };
 }
 
-// ---- reading a product's folders ---------------------------------------------------------------
-
-function filesOf(productFolder: string, folder: string): string[] {
-  try {
-    return readdirSync(join(productFolder, folder)).filter((name) => name.endsWith('.md')).sort(byCodePoint).map((name) => `${folder}/${name}`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw new LoopFileError(folder, 1, `the folder cannot be read: ${(error as Error).message}`);
-  }
-}
-
-export interface Read<T> {
-  readonly items: T[];
-  /** Files that could not be read, each with its file and line: never left out silently. */
-  readonly problems: LoopFileError[];
-}
-
-function readFolder<T>(productFolder: string, folder: string, parse: (file: string, text: string) => T): Read<T> {
-  const items: T[] = [];
-  const problems: LoopFileError[] = [];
-  for (const file of filesOf(productFolder, folder)) {
-    try {
-      items.push(parse(file, readFileSync(join(productFolder, file), 'utf8')));
-    } catch (error) {
-      problems.push(error instanceof LoopFileError ? error : new LoopFileError(file, 1, (error as Error).message));
-    }
-  }
-  return { items, problems };
-}
-
-/** The questions of a product, in id order, and the files that are none. */
-export const readQuestions = (productFolder: string): Read<Question> => readFolder(productFolder, QUESTIONS_FOLDER, parseQuestion);
-export const readCorrections = (productFolder: string): Read<Correction> => readFolder(productFolder, CORRECTIONS_FOLDER, parseCorrection);
-
-/**
- * The questions of a product as one source of its files holds them: the graph's stored files for a reader of a page, the
- * working tree for a writer that edits them. Every file the folder lists is fetched before it is parsed (stage C).
- */
-export async function readQuestionsIn(files: ProductFileSource): Promise<Read<Question>> {
-  return await readFolderIn(files, QUESTIONS_FOLDER, parseQuestion);
-}
-
-/** The corrections of a product as one source of its files holds them. */
-export async function readCorrectionsIn(files: ProductFileSource): Promise<Read<Correction>> {
-  return await readFolderIn(files, CORRECTIONS_FOLDER, parseCorrection);
-}
-
-async function readFolderIn<T>(files: ProductFileSource, folder: string, parse: (file: string, text: string) => T): Promise<Read<T>> {
-  const paths = files.filesIn(folder).filter((path) => path.endsWith('.md')).sort(byCodePoint);
-  await files.ensure(paths);
-  const items: T[] = [];
-  const problems: LoopFileError[] = [];
-  for (const file of paths) {
-    const text = files.text(file);
-    if (text === undefined) {
-      problems.push(new LoopFileError(file, 1, 'the file cannot be read: the source holds no text of it'));
-      continue;
-    }
-    try {
-      items.push(parse(file, text));
-    } catch (error) {
-      problems.push(error instanceof LoopFileError ? error : new LoopFileError(file, 1, (error as Error).message));
-    }
-  }
-  return { items, problems };
-}
+/** The result type kept by legacy readers while their endpoints report retirement. */
+export interface Read<T> { readonly items: T[]; readonly problems: LoopFileError[]; }
+function retired(): never { throw new Error('Markdown authored entity reading is retired; use the authored entity service'); }
+export const readQuestions = (_folder: string): Read<Question> => retired();
+export const readCorrections = (_folder: string): Read<Correction> => retired();
+export async function readQuestionsIn(_files: ProductFileSource): Promise<Read<Question>> { return retired(); }
+export async function readCorrectionsIn(_files: ProductFileSource): Promise<Read<Correction>> { return retired(); }

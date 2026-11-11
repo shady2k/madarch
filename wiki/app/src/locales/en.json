@@ -1,4 +1,21 @@
 {
+  "authored": {
+      "new": "New",
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "loading": "Loading…",
+      "true": "Yes",
+      "false": "No",
+      "invalidJson": "Enter valid JSON.",
+      "invalidInteger": "Enter a whole number within the supported range.",
+      "confirmDelete": "Delete “{{title}}”? This closes its open opinions.",
+      "confirm": "Delete entity",
+      "deleted": "Entity deleted",
+      "back": "Back to list"
+  },
   "brand": {
     "product": "Madarch",
     "concept": "wiki",

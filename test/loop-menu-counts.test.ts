@@ -10,7 +10,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { writeTask } from '../src/loop/tasks.js';
+import { type PlannedTask } from '../src/loop/tasks.js';
+import { renderTask } from './loop-tasks-fixture.js';
+function writeTask(folder: string, file: string, task: Omit<PlannedTask, 'id' | 'file'>): void {
+  mkdirSync(join(folder, 'docs/tasks'), { recursive: true });
+  writeFileSync(join(folder, file), renderTask(task));
+}
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';

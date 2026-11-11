@@ -194,12 +194,8 @@ describe('the menu', () => {
     expect(dependencies.nextElementSibling).toBe(waiting);
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-questions]')!.textContent).toContain('2');
-    // A count drawn from files is absent until it is above zero: nothing of the product is read before the fill runs.
-    expect(waiting.querySelector('[data-testid=nav-tasks]')!.textContent).not.toContain('0');
-    expect(waiting.querySelector('[data-testid=nav-tasks-count]')).toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-tasks]')!.getAttribute('data-empty')).toBe('true');
+    expect(waiting.querySelector('[data-testid=nav-questions]')).toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-tasks]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-problems]')!.textContent).toContain('3');
     expect(waiting.querySelector('[data-testid=nav-problems]')!.getAttribute('data-empty')).toBe('false');
     expect(app.querySelector('[data-testid=nav-scroll] [data-testid=nav-documents]')).toBeNull();
@@ -230,8 +226,8 @@ describe('the menu', () => {
     await until(() => app.querySelector('[data-nav-kind="doc.term"]') !== null, 'the term kind row');
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     expect(waiting.querySelector('[data-nav-kind="doc.term"]')).toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-tasks]')).not.toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-questions]')).toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-tasks]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-problems]')).not.toBeNull();
     const group = app.querySelector('[data-nav-group=requirements]')!;
     const row = group.querySelector('[data-nav-kind="doc.term"]')!;
@@ -328,4 +324,31 @@ describe('the glossary table', () => {
     await until(() => page.querySelector('[data-testid=glossary-table]') !== null, 'the unnamed glossary');
     expect([...page.querySelectorAll('th')].map((head) => head.textContent)).not.toContain('Names');
   });
+});
+
+test('person kinds override glossary and loop navigation and empty lists still offer New', async () => {
+  const kinds = [
+    kind({ kind: 'doc.term', origins: ['person'], count: 0, nav: 'own-page', listing: 'glossary', group: 'authored' }),
+    kind({ kind: 'task', origins: ['person'], count: 0, nav: 'own-page', group: 'authored' }),
+    kind({ kind: 'question', origins: ['person'], count: 0, nav: 'loop', group: 'authored' }),
+  ];
+  (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+    if (url.endsWith('/api/status')) return json(status({ kinds, groups: [{ group: 'authored', labels: { en: 'Authored' }, open: true }] }));
+    if (url.endsWith('/api/products')) return json({ products: [] });
+    if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+    if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+    if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+    if (url.includes('/api/authored?')) return json({ kind: new URL(url, 'http://localhost').searchParams.get('kind'), fields: [], entities: [] });
+    return json({ message: 'not here' }, 404);
+  };
+  const app = into(createElement(AppRoot));
+  await until(() => app.querySelector('[data-nav-kind="question"]') !== null, 'all authored navigation rows');
+  for (const entry of kinds) {
+    const row = app.querySelector(`[data-nav-kind="${entry.kind}"]`)! as HTMLAnchorElement;
+    expect(row.getAttribute('href')).toBe(`/kind/${entry.kind}`);
+    row.click();
+    await until(() => app.querySelector(`[data-testid="authored-kind-page"]`)?.textContent?.includes('New'), `New for ${entry.kind}`);
+  }
+  expect(app.querySelector('[data-testid="nav-questions"]')).toBeNull();
+  expect(app.querySelector('[data-testid="nav-tasks"]')).toBeNull();
 });

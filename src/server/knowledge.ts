@@ -9,12 +9,12 @@
  * after each commit, and a comment now and then so a quiet product keeps its
  * connection.
  */
+import { AuthoredRefusal } from '../graph/authored.js';
 import { languageOf } from '../knowledge/blocks.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { archifyFailurePage } from '../knowledge/view-frames.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { QUESTION_SLUG } from '../loop/ids.js';
-import { ProposalRefusal } from '../loop/propose.js';
 import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
@@ -44,6 +44,8 @@ export interface KnowledgePart {
   block: (request: Request) => Promise<Handled>;
   statement: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
+  authored: (request: Request) => Promise<Handled>;
+  authoredSchema: (request: Request) => Promise<Handled>;
   neighborhood: (request: Request) => Promise<Handled>;
   view: (request: Request) => Promise<Handled>;
   viewFrame: (request: Request) => Promise<Handled>;
@@ -129,6 +131,7 @@ export function createKnowledgePart(
     try {
       return await work(request);
     } catch (error) {
+      if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }) });
       if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
       if (error instanceof WikiReadError) {
         errorLog(`the knowledge wiki could not ${what}: ${error.message}`);
@@ -168,6 +171,33 @@ export function createKnowledgePart(
 
 
   return {
+    authoredSchema: guarded('read the authored contract', async (request) => {
+      const kind = new URL(request.url).searchParams.get('kind') ?? '';
+      return { response: json(200, await product.authored('schema', kind)) };
+    }),
+    authored: guarded('change an authored entity', async (request) => {
+      const url = new URL(request.url);
+      const kind = url.searchParams.get('kind') ?? '';
+      const uid = url.searchParams.get('uid') ?? undefined;
+      const methods = { GET: uid === undefined ? 'list' : 'show', POST: 'create', PATCH: 'update', DELETE: 'delete' } as const;
+      const action = methods[request.method as keyof typeof methods];
+      if (action === undefined) return refused(405, { message: 'use GET, POST, PATCH or DELETE' });
+      let body: { values?: Readonly<Record<string, unknown>>; words?: string } = {};
+      if (request.method !== 'GET') {
+        const outside = foreign(request);
+        if (outside !== undefined) return refused(403, { message: outside });
+        const plain = notJson(request);
+        if (plain !== undefined) return refused(415, { message: plain });
+        let raw: unknown;
+        try { raw = await request.json(); } catch { return refused(400, { message: 'the request body must be JSON' }); }
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: 'the body is {values?, words?}' });
+        const held = raw as Record<string, unknown>;
+        if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: 'words must be text, kept verbatim' });
+        if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: 'values must be an object keyed by field' });
+        body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };
+      }
+      return { response: json(action === 'create' ? 201 : 200, await product.authored(action, kind, { ...body, ...(uid === undefined ? {} : { uid }) })) };
+    }),
     identity: guarded('read the product', async () => {
       const identity = product.product();
       if ('message' in identity) throw new WikiReadError(identity.message);
@@ -690,7 +720,6 @@ export function createKnowledgePart(
         const language = asked.language === 'ru' || asked.language === 'en' ? asked.language : undefined;
         return { response: json(200, await product.proposeTask(asked.question, asked.choice, language)) };
       } catch (error) {
-        if (error instanceof ProposalRefusal) return refused(409, { field: 'question', message: error.message });
         throw error;
       }
     }),

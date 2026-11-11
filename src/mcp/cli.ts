@@ -19,10 +19,16 @@ import { readRevision } from './git.js';
 import { repositoryStoreFolder } from './graph.js';
 import { summarize, summaryLines } from './journal.js';
 import { serveRepositoryMcp } from './server.js';
+import { serveProductMcp } from './authored.js';
+import { entityProductFolder } from '../product/entity-cli.js';
+import { whereAmI } from '../product/lifecycle.js';
 
 /** What `madarch mcp` was asked to do. */
 interface McpArguments {
   readonly repository: string;
+  readonly product?: string;
+  readonly home?: string;
+  readonly explicitRepository: boolean;
   readonly journal: boolean;
   readonly help: boolean;
 }
@@ -30,13 +36,15 @@ interface McpArguments {
 /** How the command is read: two flags with a value, two without, and the rule for anything else. */
 function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(), _env: Readonly<Record<string, string | undefined>> = process.env): McpArguments | string {
   let repository: string | undefined;
+  let product: string | undefined;
+  let home: string | undefined;
   let journal = false;
   let help = false;
   for (let at = 0; at < args.length; at += 1) {
     const flag = args[at]!;
     const take = (name: string): { value: string } | { error: string } => {
       const next = args[at + 1];
-      if (next === undefined || next.trim() === '') return { error: `${name} takes a path, and none follows it` };
+      if (next === undefined || next.trim() === '' || next.startsWith('--')) return { error: `${name} takes a path, and none follows it` };
       at += 1;
       return { value: next };
     };
@@ -44,21 +52,33 @@ function parseMcpArgs(args: readonly string[], cwd: string = process.cwd(), _env
       const read = take(flag);
       if ('error' in read) return read.error;
       repository = read.value;
+    } else if (flag === '--product' || flag === '--home') {
+      const read = take(flag);
+      if ('error' in read) return read.error;
+      if (flag === '--product') product = resolve(cwd, read.value);
+      else home = resolve(cwd, read.value);
     } else if (flag === '--journal') {
       journal = true;
     } else if (flag === '--help' || flag === '-h') {
       help = true;
     } else {
-      return `${JSON.stringify(flag)} is no flag of madarch mcp: the flags are --repo <path>, --journal and --help`;
+      return `${JSON.stringify(flag)} is no flag of madarch mcp: the flags are --product <path>, --home <path>, --repo <path>, --journal and --help`;
     }
   }
   const absolute = resolve(cwd, repository ?? '.');
-  return { repository: absolute, journal, help };
+  if (product !== undefined && repository !== undefined) return '--product and --repo select different surfaces; give only one';
+  return { repository: absolute, journal, help, explicitRepository: repository !== undefined, ...(product === undefined ? {} : { product }), ...(home === undefined ? {} : { home }) };
 }
 
 /** The command's own help, printed for `--help` and for a flag it does not know. */
 const MCP_USAGE = [
-  'usage: madarch mcp [--repo <path>]',
+  'usage: madarch mcp [--product <folder>] [--home <folder>]',
+  '       madarch mcp [--repo <path>]',
+  '',
+  'In a product, serves create_entity, read_entity, update_entity and delete_entity.',
+  'These tools use declared fields and stable uid values, and never run a fill.',
+  '--product selects a product; --repo selects the legacy repository graph tools.',
+  'Open the product wiki, select catalogue kinds and press Fill before authoring.',
   '       madarch mcp --journal [--repo <path>]',
   '',
   'Serves one git checkout\'s graph to an agent over the Model Context Protocol on',
@@ -95,6 +115,25 @@ export async function mcpCommand(args: readonly string[], options: {
   if (parsed.help) {
     stdout.write(`${MCP_USAGE}\n`);
     return 0;
+  }
+  const context = whereAmI({ folder: parsed.repository });
+  const useProduct = parsed.product !== undefined || (!parsed.explicitRepository && (context.outcome === 'product' || context.outcome === 'code'));
+  if (parsed.journal && parsed.product !== undefined) {
+    stderr.write('madarch mcp: --journal reads repository graph calls; use --repo, not --product.\n'); return 2;
+  }
+  if (parsed.home !== undefined && !useProduct) {
+    stderr.write('madarch mcp: --home selects the product store and requires a product; use --product.\n'); return 2;
+  }
+  if (useProduct && !parsed.journal) {
+    try {
+      return await serveProductMcp({
+        productFolder: entityProductFolder(parsed.product, parsed.repository), env,
+        ...(parsed.home === undefined ? {} : { home: parsed.home }),
+        ...(options.input === undefined ? {} : { input: options.input }), output: stdout,
+      });
+    } catch (error) {
+      stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); return 2;
+    }
   }
   let folder: string;
   try {

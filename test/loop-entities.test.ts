@@ -6,18 +6,17 @@
  * by madarch's own creation code in a scratch home, with invented pages.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft } from '../src/product/draft.js';
-import { readKnowledgePages } from '../src/knowledge/index/index.js';
-import { LoopRefusal, answerQuestion, commitFiles, localIdentity, recordCorrection } from '../src/loop/answer.js';
-import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderQuestion, type Question } from '../src/loop/entities.js';
-import { correctionId, questionFootnoteId } from '../src/loop/ids.js';
+import { localIdentity } from '../src/loop/answer.js';
+import { LoopFileError, parseQuestion, type Question } from './loop-entities-fixture.js';
+import { renderQuestion } from './loop-entities-fixture.js';
+import { questionFootnoteId } from './loop-ids-fixture.js';
 import { decide } from '../src/loop/plan.js';
-import { symlinkSync } from 'node:fs';
-import { listQuestions, rowOf } from '../src/loop/views.js';
+import { readQuestionsIn } from '../src/loop/entities.js';
 import { gitEnv } from './git-env.js';
 import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
@@ -41,23 +40,6 @@ function product(): string {
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   return draft.folder;
 }
-
-const PAGE = `---
-id: domain:orders
-kind: domain
-title: Orders
-relates:
-  - code.service:orders
-producer: agent
-sources: [README.md]
----
-## How orders work
-
-Orders get a ten percent discount.[^ten-percent-discount] Tax is added at checkout.[^tax-at-checkout]
-
-[^ten-percent-discount]: [README](madarch:doc:README.md#discounts)
-[^tax-at-checkout]: [README](madarch:doc:README.md#tax)
-`;
 
 const QUESTION: Omit<Question, 'file' | 'id'> = {
   slug: 'discount-percentage', title: 'Is the discount ten percent or what the caller passes?', type: 'contradiction', status: 'open',
@@ -114,88 +96,12 @@ describe('a question file', () => {
   });
 
   
-  test('the listing puts open first, then answered, then closed, each by id', async () => {
-    const by = { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' };
-    const folder = product();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    const put = (slug: string, change: Partial<Omit<Question, 'file' | 'id'>>): void => writeFileSync(join(folder, `docs/questions/${slug}.md`), renderQuestion({ ...QUESTION, slug, ...change }));
-    put('z-open', {});
-    put('a-closed', { status: 'answered', answer: { text: 'x', by, at: '2026-10-23T11:00:00.000Z' }, resolvedBy: ['domain:orders'], resolvedAt: '2026-10-23T12:00:00.000Z' });
-    put('m-answered', { status: 'answered', answer: { text: 'x', by, at: '2026-10-23T11:00:00.000Z' } });
-    put('b-open', {});
-    const listing = await listQuestions(workingTreeFiles(folder));
-    expect(listing.rows.map((row) => `${row.slug}:${row.state}`)).toEqual(['b-open:open', 'z-open:open', 'm-answered:answered', 'a-closed:closed']);
-    expect([listing.open, listing.answered, listing.closed]).toEqual([2, 1, 1]);
-    expect(rowOf(readQuestions(folder).items.find((q) => q.slug === 'a-closed')!).closedBy).toEqual(['domain:orders']);
+  test('the retired Markdown listing fails explicitly', async () => {
+    await expect(readQuestionsIn(workingTreeFiles(product()))).rejects.toThrow('retired');
   });
 });
 
 describe('a person answers in the wiki', () => {
-  function withQuestion(): string {
-    const folder = product();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion(QUESTION));
-    execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SEED) });
-    execFileSync('git', ['commit', '-q', '-m', 'the agent asked'], { cwd: folder, env: gitEnv(SEED) });
-    return folder;
-  }
-  const log = (folder: string, format: string): string => execFileSync('git', ['log', '-1', `--format=${format}`], { cwd: folder, encoding: 'utf8', env: gitEnv(SEED) }).trim();
-
-  
-  test('the answer lands in the question file and is committed with the person as author, marked local, not verified', async () => {
-    const folder = withQuestion();
-    const done = await answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: '  Ten percent for every order.  ', now: () => new Date('2026-10-23T11:30:00Z'), env: env(PERSON) });
-    expect(done.committed).toBe(true);
-    expect(done.question.status).toBe('answered');
-    const file = readFileSync(join(folder, 'docs/questions/discount-percentage.md'), 'utf8');
-    const read = parseQuestion('docs/questions/discount-percentage.md', file);
-    expect(read.answer).toEqual({ text: 'Ten percent for every order.', by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:30:00.000Z' });
-    expect(read.sides).toEqual(QUESTION.sides);
-    expect(log(folder, '%an <%ae>')).toBe('Ada Reader <ada@example.test>');
-    expect(log(folder, '%s')).toBe('Answer the question discount-percentage');
-    expect(log(folder, '%b')).toContain('local, not verified');
-    expect(execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: folder, encoding: 'utf8', env: gitEnv(SEED) })).toContain('docs/questions/discount-percentage.md');
-  });
-
-  test('is refused in words: an empty answer, a question that is answered, one that is not there, no git identity', async () => {
-    const folder = withQuestion();
-    const ask = (slug: string, text: string, e: NodeJS.ProcessEnv): Promise<unknown> => answerQuestion({ productFolder: folder, slug, text, env: e });
-    await expect(ask('discount-percentage', '   ', env(PERSON))).rejects.toThrow('the answer is empty');
-    await expect(ask('nothing-here', 'x', env(PERSON))).rejects.toThrow('there is no question nothing-here: docs/questions/nothing-here.md is not in the product repository');
-    await expect(ask('Bad Slug', 'x', env(PERSON))).rejects.toThrow('no question id');
-    await expect(ask('discount-percentage', 'x', env())).rejects.toThrow(/git has no user\.name for .*, so the wiki cannot say who wrote this: run  git config --global user\.name/);
-    expect(readFileSync(join(folder, 'docs/questions/discount-percentage.md'), 'utf8')).toBe(renderQuestion(QUESTION));
-    await ask('discount-percentage', 'Ten percent.', env(PERSON));
-    try {
-      await ask('discount-percentage', 'Twelve.', env(PERSON));
-      throw new Error('a second answer was accepted');
-    } catch (error) {
-      expect(error).toBeInstanceOf(LoopRefusal);
-      expect((error as LoopRefusal).status).toBe(409);
-      expect((error as LoopRefusal).message).toContain('already answered (by Ada Reader');
-    }
-  });
-
-  test('two answers at once make one: the second finds the question answered', async () => {
-    const folder = withQuestion();
-    const results = await Promise.allSettled([
-      answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: 'First.', env: env(PERSON) }),
-      answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: 'Second.', env: env(PERSON) }),
-    ]);
-    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
-    expect(parseQuestion('docs/questions/discount-percentage.md', readFileSync(join(folder, 'docs/questions/discount-percentage.md'), 'utf8')).answer!.text).toBe('First.');
-  });
-
-  test('a folder that is not a git repository gets the file written and says it was not committed', async () => {
-    const folder = scratch();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion(QUESTION));
-    const done = await answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: 'Ten percent.', env: env(PERSON) });
-    expect(done.committed).toBe(false);
-    expect(done.note).toContain('is not a git repository, so the file was written but not committed');
-    expect(parseQuestion('docs/questions/discount-percentage.md', readFileSync(join(folder, 'docs/questions/discount-percentage.md'), 'utf8')).status).toBe('answered');
-  });
-
   test('git identity: the author variables win, then the configuration', async () => {
     const folder = product();
     expect(await localIdentity(folder, env(PERSON))).toEqual({ name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' });
@@ -205,78 +111,7 @@ describe('a person answers in the wiki', () => {
     expect((await localIdentity(folder, env(PERSON))).name).toBe('Ada Reader');
   });
 
-  test('a commit that git refuses is told in the result, with the file still written', async () => {
-    const folder = withQuestion();
-    writeFileSync(join(folder, '.git/hooks/pre-commit'), '#!/bin/sh\necho "hook says no" >&2\nexit 1\n', { mode: 0o755 });
-    const done = await answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: 'Ten percent.', env: env(PERSON) });
-    expect(done.committed).toBe(false);
-    expect(done.note).toContain('the file was written but git could not commit it');
-    expect(done.note).toContain('hook says no');
-    const committed = await commitFiles(folder, ['docs/questions/discount-percentage.md'], 'again', done.question.answer!.by, env(PERSON));
-    expect(committed.committed).toBe(false);
-  });
 });
-
-describe('a person corrects a statement', () => {
-  function withPage(): string {
-    const folder = product();
-    mkdirSync(join(folder, 'docs/domains'), { recursive: true });
-    writeFileSync(join(folder, 'docs/domains/orders.md'), PAGE);
-    execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SEED) });
-    execFileSync('git', ['commit', '-q', '-m', 'a page'], { cwd: folder, env: gitEnv(SEED) });
-    return folder;
-  }
-
-  test('is a new file with the sentence as it read, the reason and the person, committed as the person', async () => {
-    const folder = withPage();
-    const done = await recordCorrection({ productFolder: folder, statement: 'domain:orders#ten-percent-discount', reason: 'The discount is whatever the caller passes.\n\nThe README is out of date.', now: () => new Date('2026-10-23T11:45:00Z'), env: env(PERSON) });
-    expect(done.committed).toBe(true);
-    const firstSlug = correctionId('Orders get a ten percent discount.', 'The discount is whatever the caller passes.\n\nThe README is out of date.', 'domain:orders#ten-percent-discount');
-    expect(done.correction.slug).toBe(firstSlug);
-    expect(done.correction.file).toBe(`docs/corrections/${firstSlug}.md`);
-    const read = parseCorrection(done.correction.file, readFileSync(join(folder, done.correction.file), 'utf8'));
-    expect(read).toMatchObject({ status: 'open', about: 'domain:orders#ten-percent-discount', statement: 'Orders get a ten percent discount.', by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:45:00.000Z' });
-    expect(read.reason).toBe('The discount is whatever the caller passes.\n\nThe README is out of date.');
-    expect(execFileSync('git', ['log', '-1', '--format=%an <%ae>'], { cwd: folder, encoding: 'utf8', env: gitEnv(SEED) }).trim()).toBe('Ada Reader <ada@example.test>');
-    // Two corrections of one statement are two files.
-    const again = await recordCorrection({ productFolder: folder, statement: 'domain:orders#ten-percent-discount', reason: 'The discount is whatever the caller passes.', env: env(PERSON) });
-    expect(again.correction.slug).not.toBe(done.correction.slug);
-    expect(readCorrections(folder).items).toHaveLength(2);
-  });
-
-  test('is refused in words: no reason, a statement the pages do not hold, a shape that is none', async () => {
-    const folder = withPage();
-    const correct = (statement: string, reason: string): Promise<unknown> => recordCorrection({ productFolder: folder, statement, reason, env: env(PERSON) });
-    await expect(correct('domain:orders#ten-percent-discount', ' ')).rejects.toThrow('the correction has no reason');
-    await expect(correct('domain:orders#no-such-statement', 'wrong')).rejects.toThrow('the product has no statement domain:orders#no-such-statement');
-    await expect(correct('orders', 'wrong')).rejects.toThrow('a page id, a hash and the statement\'s name');
-    expect(readCorrections(folder).items).toEqual([]);
-  });
-
-  test('is indexed with the questions: kinds question, answer and correction come from their files, with about as relates', async () => {
-    const folder = withPage();
-    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
-    const by = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' };
-    writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion({ ...QUESTION, status: 'answered', answer: { text: 'Ten percent.', by, at: '2026-10-23T11:00:00.000Z' } }));
-    writeFileSync(join(folder, 'docs/questions/open-one.md'), renderQuestion({ ...QUESTION, slug: 'open-one' }));
-    const tax = await recordCorrection({ productFolder: folder, statement: 'domain:orders#tax-at-checkout', reason: 'Tax is added in the invoice.', env: env(PERSON) });
-    const taxSlug = correctionId('Tax is added at checkout.', 'Tax is added in the invoice.', 'domain:orders#tax-at-checkout');
-    expect(tax.correction.id).toBe(`correction:${taxSlug}`);
-    const { pages, findings } = readKnowledgePages(folder);
-    expect(findings).toEqual([]);
-    expect(pages.map((page) => `${page.id}|${page.kind}`).sort()).toEqual([
-      'answer:discount-percentage|answer', `correction:${taxSlug}|correction`, 'domain:orders|domain', 'question:discount-percentage|question', 'question:open-one|question',
-    ]);
-    const question = pages.find((page) => page.id === 'question:open-one')!;
-    expect(question.relates).toEqual(['domain:orders', 'domain:orders#ten-percent-discount']);
-    expect(question.statements.map((s) => s.id)).toEqual(QUESTION.sides.map((side) => questionFootnoteId(side.claim, side.grounds)));
-    expect(question.statements[0]!.grounds).toEqual(['doc:README.md#discounts']);
-    const answer = pages.find((page) => page.id === 'answer:discount-percentage')!;
-    expect(answer).toMatchObject({ kind: 'answer', producer: 'person', mentions: ['question:discount-percentage'], statements: [] });
-    expect(pages.find((page) => page.kind === 'correction')!.relates).toEqual(['domain:orders#tax-at-checkout']);
-  });
-
-  });
 
 describe('the refresh decides which pages need an agent unit', () => {
   const page = (id: string, file: string, statements: { id: string; grounds: string[]; text?: string }[], relates: string[] = []) => ({
@@ -360,26 +195,6 @@ describe('what a review of the first version found', () => {
     const read = parseQuestion('docs/questions/discount-percentage.md', answered);
     expect(read.sides.map((side) => side.claim)).toEqual([claim, QUESTION.sides[1]!.claim]);
     expect(renderQuestion(read)).toBe(answered);
-  });
-
-  test('a corrections folder or a question that is a link out of the product is not written through', async () => {
-    const folder = product();
-    const outside = scratch();
-    mkdirSync(join(folder, 'docs'), { recursive: true });
-    writeFileSync(join(outside, 'discount-percentage.md'), renderQuestion(QUESTION));
-    symlinkSync(outside, join(folder, 'docs/questions'));
-    await expect(answerQuestion({ productFolder: folder, slug: 'discount-percentage', text: 'Ten.', env: env(PERSON) })).rejects.toThrow(/is a link to .*, outside the product/);
-    expect(readFileSync(join(outside, 'discount-percentage.md'), 'utf8')).toBe(renderQuestion(QUESTION));
-  });
-
-  test('the same correction at once is one file, and the later calls return it without a commit', async () => {
-    const folder = product();
-    mkdirSync(join(folder, 'docs/domains'), { recursive: true });
-    writeFileSync(join(folder, 'docs/domains/orders.md'), PAGE);
-    const both = await Promise.all([1, 2, 3].map(() => recordCorrection({ productFolder: folder, statement: 'domain:orders#tax-at-checkout', reason: 'Tax is added in the invoice.', env: env(PERSON) })));
-    expect(new Set(both.map((done) => done.correction.slug)).size).toBe(1);
-    expect(both.filter((done) => done.committed)).toHaveLength(1);
-    expect(readCorrections(folder).items).toHaveLength(1);
   });
 
   test('a product page that links a domain with no page makes the domain missing and the product page an edit', () => {

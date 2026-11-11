@@ -262,6 +262,22 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(cleared.rows[0]?.n).toBe('0');
   });
 
+  test('a changed contract or revision never resets person-authored values or history', async () => {
+    const durable = await createTestDatabaseOwner();
+    try {
+      await createOneGraphSchema(durable, contract);
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('Durable', 'A person wrote this')], removals: [] }, 1, { author: 'person:reader', words: 'Keep this exactly' }));
+      const changed = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: [...kind.fields, { name: 'extra', type: 'text' as const, nullable: true }] })) };
+      await expect(createOneGraphSchema(durable, changed)).rejects.toThrow('Export a backup and apply a preserving schema migration');
+      await durable.run((tx) => tx.query(`DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph-revision'`));
+      await expect(createOneGraphSchema(durable, contract)).rejects.toThrow('automatic reset is refused');
+      const rows = await durable.run((tx) => tx.query<{ definition: string }>(`SELECT definition FROM ${contract.vertex[0]!.table} WHERE state = 'open'`));
+      expect(rows.rows).toEqual([{ definition: 'A person wrote this' }]);
+      const operations = await durable.run((tx) => tx.query<{ author: string; words: string }>('SELECT author, words FROM operation ORDER BY seq'));
+      expect(operations.rows).toEqual([{ author: 'person:reader', words: 'Keep this exactly' }]);
+    } finally { await durable.close(); }
+  });
+
   test('a store whose graph predates this shape resets as one and needs a fill; the journal is kept', async () => {
     const old = await createTestDatabaseOwner();
     try {

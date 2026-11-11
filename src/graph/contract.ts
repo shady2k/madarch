@@ -184,6 +184,10 @@ export interface VertexRemovalDraft {
   readonly kind: string;
   readonly key: Readonly<Record<string, KeyValueDraft>>;
   readonly producer: string;
+  /** A keyless entity is withdrawn by its persistent random uid. */
+  readonly uid?: string;
+  /** An explicit person action withdraws the entity, not only one producer's opinion. */
+  readonly withdrawAll?: boolean;
 }
 
 /** The empty contract: a product that declares no kind filled by a capability. */

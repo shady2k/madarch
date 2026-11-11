@@ -1,3 +1,4 @@
+import { AuthoredPage } from './authored.js';
 /**
  * The knowledge wiki (decision 0029): the product chosen at the top left, the
  * kinds the product's manifest declares, and the page of one entity at a time
@@ -8,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, Share2Icon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -30,7 +31,7 @@ import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_TASKS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfKind, WIKI_CATALOGUE, WIKI_DEPENDENCIES, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -68,7 +69,7 @@ export function showsProgress(route: WikiRoute, status: WikiStatus): boolean {
 }
 
 /** The loop's kinds have their own places («Вопросы», «Проблемы»), not a kind page of their own: the manifest says which (`nav: loop`). */
-const inLoop = (kind: KindSummary): boolean => kind.nav === 'loop';
+const inLoop = (kind: KindSummary): boolean => !kind.origins.includes('person') && kind.nav === 'loop';
 
 /** The choices the selector offers: each product's wiki address, and which one is open. */
 export function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
@@ -133,13 +134,13 @@ export function ProductSelector({ name, products, current }: { name: string; pro
  * kind" does not list them again. A kind that declares its own listing page (`listing:`) is not one of them: its row
  * stands in its manifest group and opens that listing, so the navigation places it like every other kind.
  */
-const hasOwnPlace = (kind: KindSummary): boolean => kind.nav === 'own-page' && kind.listing === undefined;
+const hasOwnPlace = (kind: KindSummary): boolean => !kind.origins.includes('person') && kind.nav === 'own-page' && kind.listing === undefined;
 
 /** The address a kind's row opens: its own listing page when the manifest declares one, else its page by kind. */
-const ownAddressOf = (kind: KindSummary): string => kind.listing === 'glossary' ? WIKI_GLOSSARY : addressOfKind(kind.kind);
+const ownAddressOf = (kind: KindSummary): string => !kind.origins.includes('person') && kind.listing === 'glossary' ? WIKI_GLOSSARY : addressOfKind(kind.kind);
 
 /** Whether the kind's own listing page is the page in front. */
-const ownRouteOf = (kind: KindSummary, route: WikiRoute): boolean => kind.listing === 'glossary' ? route.name === 'glossary' : route.name === 'kind' && route.kind === kind.kind;
+const ownRouteOf = (kind: KindSummary, route: WikiRoute): boolean => !kind.origins.includes('person') && kind.listing === 'glossary' ? route.name === 'glossary' : route.name === 'kind' && route.kind === kind.kind;
 
 /** A sub-area of a group, as the navigation and the catalogue draw it. */
 interface NavSubgroup {
@@ -172,7 +173,7 @@ interface NavGroup {
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !inLoop(kind));
-  const shown = status.kinds.filter((kind) => !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
+  const shown = status.kinds.filter((kind) => !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.origins.includes('person') || kind.count > 0 || pending(kind.kind) > 0));
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, short: group.short as Record<string, string> | undefined, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
@@ -202,8 +203,6 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
-  const questionsOpen = status.loop?.questionsOpen ?? 0;
-  const tasksOpen = status.loop?.tasksOpen ?? 0;
   // An older server sends only the corrections; the Problems page's own count is preferred when it is there.
   const problemsOpen = status.loop?.problemsOpen ?? status.loop?.correctionsOpen ?? 0;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
@@ -270,8 +269,6 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         </a>
         <div data-testid="nav-waiting" className="mb-2 mt-2">
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
-          {waitingLink('nav-questions', WIKI_QUESTIONS, HelpCircleIcon, t('loop.questionsTitle'), questionsOpen, route.name === 'questions' || route.name === 'question')}
-          {waitingLink('nav-tasks', WIKI_TASKS, CheckIcon, t('loop.tasksTitle'), tasksOpen, route.name === 'tasks' || route.name === 'task')}
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </div>
         {groups.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
@@ -785,6 +782,7 @@ export function KnowledgeApp(): ReactElement {
         ? <EntityPage key={status.repository.id} id={status.repository.id} after={null} version={version} />
         : <Overview status={status} refresh={refresh} />;
   else if (route.name === 'entity') view = <EntityPage key={`${route.id}\0${route.after ?? ''}`} id={route.id} after={route.after} version={version} />;
+  else if (route.name === 'authored') view = status.kinds.some((kind) => kind.kind === route.kind && kind.origins.includes('person')) ? <AuthoredPage key={`${route.kind}:${route.uid}`} kind={route.kind} uid={route.uid} version={version} /> : <p>{t('knowledge.noSuchPage')}</p>;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
   else if (route.name === 'questions') view = <QuestionsPage version={version} />;
   else if (route.name === 'question') view = <QuestionPage key={route.slug} slug={route.slug} version={version} refresh={refresh} />;

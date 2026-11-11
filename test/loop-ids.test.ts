@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { correctionId, questionFootnoteId, taskId } from '../src/loop/ids.js';
+import { questionFootnoteId } from './loop-ids-fixture.js';
+import { correctionId, taskId } from './loop-ids-fixture.js';
 
 const sides = [
   { claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts', 'code.file:src/pricing.ts'] },

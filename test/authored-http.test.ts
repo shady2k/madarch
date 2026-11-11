@@ -1,0 +1,48 @@
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startServer, type StartedServer } from '../src/server/http.js';
+import { knowledgeRootOf } from '../src/product/store.js';
+import { authoredEnv, authoredFixture } from './authored-fixture.js';
+
+let work: string;
+let server: StartedServer;
+let base: string;
+beforeAll(async () => {
+  work = mkdtempSync(join(tmpdir(), 'authored-http-'));
+  const home = join(work, 'products');
+  await authoredFixture(home);
+  await authoredFixture(home, 'empty', false);
+  const app = join(work, 'app');
+  mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
+  server = await startServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: () => {} });
+  base = `${server.url}/products/authored/api/authored?kind=note`;
+}, 60000);
+afterAll(async () => { await server?.stop(); if (work) rmSync(work, { recursive: true, force: true }); });
+const send = (method: string, body: unknown, uid = '') => fetch(base + (uid ? `&uid=${encodeURIComponent(uid)}` : ''), { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+test('HTTP authors a kind from its contract, errors at the field, refuses cross-site and keeps history on delete', async () => {
+  const invalid = await send('POST', { values: { title: 3 } });
+  expect(invalid.status).toBe(400);
+  expect(await invalid.json()).toMatchObject({ error: { field: 'title' } });
+  const created = await send('POST', { values: { title: 'A person said this', count: 1 }, words: '  exact words\r\n' });
+  expect(created.status).toBe(201);
+  const made = await created.json() as { entity: { uid: string; id: string } };
+  expect(made.entity.id).toStartWith('authored-');
+  expect((await fetch(`${server.url}/products/authored/api/status`)).status).toBe(200);
+  expect((await fetch(`${base}&uid=${made.entity.uid}`)).status).toBe(200);
+  const changed = await send('PATCH', { values: { count: 2 } }, made.entity.uid);
+  expect(changed.status).toBe(200);
+  expect(await changed.json()).toMatchObject({ entity: { values: { title: 'A person said this', count: 2 } } });
+  const foreign = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: '{"values":{"title":"No"}}' });
+  expect(foreign.status).toBe(403);
+  expect((await send('DELETE', {}, made.entity.uid)).status).toBe(200);
+  expect(await (await fetch(base)).json()).toMatchObject({ entities: [] });
+}, 30000);
+
+test('before first permitted fill the newcomer is told what to press and no entity is created', async () => {
+  const response = await fetch(`${server.url}/products/empty/api/authored?kind=note`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"values":{"title":"No fill"}}' });
+  expect(response.status).toBe(409);
+  expect(JSON.stringify(await response.json())).toContain('press Fill first');
+});

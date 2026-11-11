@@ -66,7 +66,7 @@ export const KIND_FILE_BASE = '/kind/';
 const WIKI_PAGE_PATHS: readonly string[] = [
   HOME_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, DEPENDENCIES_ADDRESS, GLOSSARY_ADDRESS, QUESTIONS_ADDRESS,
   PROBLEMS_ADDRESS, SETTINGS_ADDRESS, FILL_ADDRESS, TASKS_ADDRESS, RUN_ADDRESS,
-  '/task', '/journal', '/statement', '/doc', '/folder', '/file', '/commit', '/src',
+  '/authored', '/task', '/journal', '/statement', '/doc', '/folder', '/file', '/commit', '/src',
 ];
 
 /** The reader's paths whose a name follows the prefix. */
@@ -93,6 +93,8 @@ export const API = {
   block: '/api/block',
   statement: '/api/statement',
   entities: '/api/entities',
+  authored: '/api/authored',
+  authoredSchema: '/api/authored-schema',
   neighborhood: '/api/neighborhood',
   view: '/api/view',
   viewFrame: '/api/view-frame',

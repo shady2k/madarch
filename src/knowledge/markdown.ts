@@ -56,14 +56,14 @@ export function splitFrontMatter(text: string): { front: string | null; body: st
 }
 
 /** Reads one Markdown file as an entity of the kind; null with findings when it is not one. */
-function readMarkdownEntity(text: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
+export function readMarkdownEntity(text: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
   const { front, body, bodyLine } = splitFrontMatter(text);
   if (front === null) {
     findings.push({ file: path, line: 1, message: `the file has no front matter: an entity of kind "${decl.name}" starts with --- , its id and its kind, ---` });
     return null;
   }
   const lines = new LineCounter();
-  const doc = parseDocument(front, { lineCounter: lines });
+  const doc = parseDocument(front.replace(/\r\n/g, '\n').replace(/\r$/u, ''), { lineCounter: lines });
   if (doc.errors.length > 0) {
     findings.push({ file: path, line: 1 + (doc.errors[0]!.linePos?.[0].line ?? 1), message: `the front matter is not YAML: ${doc.errors[0]!.message.split('\n')[0]}` });
     return null;
@@ -114,7 +114,7 @@ export function readMarkdownEntitiesFrom(files: ProductFileSource, manifest: Kin
   const findings: Finding[] = [];
   const entities: MarkdownEntity[] = [];
   for (const decl of manifest.kinds.values()) {
-    if (decl.source !== 'markdown') continue;
+    if (decl.source !== 'markdown' || decl.origin === 'person') continue;
     const paths = decl.file !== undefined ? [decl.file] : files.filesBelow(decl.folder!).filter((path) => path.endsWith('.md'));
     for (const path of paths) {
       if (!files.has(path)) continue; // the singleton's file is simply not written yet

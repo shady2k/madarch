@@ -20,6 +20,7 @@ import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
   const binding = field.binding;
+  if (kind.origin === 'person') return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
   if (binding === undefined) return undefined;
   if (binding.kind === 'agent') return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
   const plugin = manifest.plugins?.get(binding.plugin);
@@ -38,7 +39,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
   for (const kind of manifest.kinds.values()) {
     // A kind with no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
     if (kind.fields === undefined) continue;
-    const keyFields = kind.key ?? [];
+    const keyFields = kind.origin === 'person' ? [] : kind.key ?? [];
     const fields: FieldContract[] = [];
     let bound = false;
     let capability = '';
@@ -98,7 +99,7 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
   const reads = new Map<string, GeneratedKindRead>();
   for (const kind of manifest.kinds.values()) {
     if (kind.fields === undefined) continue;
-    const keyFields = kind.key ?? [];
+    const keyFields = kind.origin === 'person' ? [] : kind.key ?? [];
     const columns: string[] = [];
     const types: Record<string, GeneratedKindRead['types'][string]> = {};
     const bound = new Set<string>();
