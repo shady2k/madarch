@@ -561,7 +561,12 @@ function plannedSection(page: PageModel, _prefix: string): PageFileSection[] {
 /** The page as the documented JSON document. */
 export function pageFileDocument(page: PageModel, prefix = ''): PageFileDocument {
   const sections: PageFileSection[] = [];
-  for (const block of page.blocks) sections.push(sectionOf(block, page, prefix));
+  for (const block of page.blocks) {
+    sections.push(sectionOf(block, page, prefix));
+    // An overview section draws its diagram as a section of its own in the documented page, so the JSON and Markdown
+    // page files keep the picture the page shows.
+    if (block.type === 'overview' && block.diagrams !== undefined) sections.push(sectionOf(block.diagrams, page, prefix));
+  }
   const address = at(entityAddress(page.id), prefix)!;
   return {
     schema: PAGE_SCHEMA,
@@ -638,6 +643,20 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
         groups: block.neighborhood.relations.map((relation) => ({ relation: relation.relation, direction: relation.direction, total: relation.count, items: [] })),
         ...(block.neighborhood.more.length === 0 ? {} : { notes: block.neighborhood.more.map((more) => `${more.hidden} more ${more.relation} (${more.direction}) from ${more.node}`) }),
       };
+    case 'overview': {
+      const items = [...(block.rows ?? []), ...(block.links ?? [])].map((row) => ({
+        title: row.label,
+        url: at(row.href, prefix),
+        ...(row.value === undefined && row.note === undefined ? {} : { note: [row.value, row.note].filter((value) => value !== undefined).join(' · ') }),
+      }));
+      return {
+        title: block.title,
+        type: 'items',
+        ...(block.paragraphs === undefined ? {} : { text: block.paragraphs.map((paragraph) => resolved(paragraph.text)).join('\n\n') }),
+        ...(items.length === 0 ? {} : { items }),
+        ...(block.absent === undefined ? {} : { message: resolved(block.absent.message) }),
+      };
+    }
     case 'diagrams':
       return {
         title: block.title,

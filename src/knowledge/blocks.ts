@@ -42,6 +42,8 @@ export interface RenderContext {
   pageAfter?: string;
   /** The last run's end, for the repository block: operational state, never a fact of the graph. */
   fillRun?: { readonly finishedAt: string; readonly wallMs: number };
+  /** How many problems the Problems page holds open, when the status has already collected them (never a walk here). */
+  problemCount?: () => number | undefined;
   /** The repositories the fill could not read, for the repository block. */
   unreadRepositories?: readonly { readonly repository: string; readonly path: string; readonly reason: string }[];
   /** What the index of the Markdown (madarch-m38l.8) knows: the statements that rely on a key, and the counts per page kind. */

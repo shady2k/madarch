@@ -186,6 +186,28 @@ describe('the blocks', () => {
     expect(container.textContent).toBe('');
   });
 
+  test('an overview section draws its paragraphs with sources, its rows, its links and its absent note', async () => {
+    const block: Block = {
+      type: 'overview', section: 'terms', title: 'Key terms',
+      paragraphs: [{ text: 'The product’s own words.', source: { label: 'docs/product.md:1', href: '/src?path=docs%2Fproduct.md&line=1' } }],
+      rows: [{ label: 'Fill', value: 'the one run', href: '/e/doc.term%3AFill', source: { label: 'docs/glossary.md:3', href: '/src?path=docs%2Fglossary.md&line=3' } }],
+      links: [{ label: 'Documents', href: '/docs' }],
+      absent: { message: 'More terms appear after a fill.', href: '/fill', label: 'Open the fill' },
+    };
+    const container = into(createElement(BlockView, { block, resolutions: {} }));
+    await until(() => container.querySelector('[data-block=overview]') !== null, 'the overview section');
+    const section = container.querySelector('[data-block=overview]')!;
+    expect(section.getAttribute('data-overview')).toBe('terms');
+    expect(section.querySelector('h2')!.textContent).toBe('Key terms');
+    expect(section.textContent).toContain('The product’s own words.');
+    expect(section.querySelector('a[href="/src?path=docs%2Fproduct.md&line=1"]')).not.toBeNull();
+    expect(section.querySelector('[data-testid=overview-rows]')!.textContent).toContain('the one run');
+    expect(section.querySelector('a[href="/e/doc.term%3AFill"]')!.textContent).toBe('Fill');
+    expect(section.querySelector('[data-testid=overview-links] a')!.getAttribute('href')).toBe('/docs');
+    expect(section.querySelector('[data-testid=overview-absent]')!.textContent).toContain('More terms appear after a fill.');
+    expect(section.querySelector('[data-testid=overview-absent] a')!.getAttribute('href')).toBe('/fill');
+  });
+
   test('callers list each caller with the call site as a link to the source at its line, and say how many there are in all', async () => {
     const block: Block = {
       type: 'callers', title: 'Callers', total: 5,

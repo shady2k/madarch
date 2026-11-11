@@ -24,6 +24,7 @@ import { historyBlock } from './history.js';
 import { withSpan } from '../obs/trace.js';
 import type { GraphEntity } from './graph-read.js';
 import { linkedFromBlock } from './linked-from.js';
+import { overviewAbout, overviewData, overviewHow, overviewReading, overviewStatus, overviewTerms } from './overview.js';
 import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -49,7 +50,7 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
  * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
  */
 /** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
-const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'history', 'definition']);
+const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'history', 'definition', 'overview-how', 'overview-data']);
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: string } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
@@ -285,6 +286,12 @@ async function renderBlockOf(ctx: RenderContext, subject: Subject, name: string,
     case 'term': return termBlock(ctx, subject, { ...params, lang: lang ?? ctx.language }, file, line);
     case 'members': return await membersBlock(ctx, subject, params, file, line, lang ?? ctx.language);
     case 'linkedfrom': return await linkedFromBlock(ctx, subject, params);
+    case 'overview-about': return await overviewAbout(ctx, subject, params, lang);
+    case 'overview-how': return await overviewHow(ctx, subject, params, file, line, lang);
+    case 'overview-data': return await overviewData(ctx, params, file, line, lang);
+    case 'overview-terms': return await overviewTerms(ctx, params, lang);
+    case 'overview-status': return await overviewStatus(ctx, params, lang);
+    case 'overview-reading': return overviewReading(ctx, params, lang);
     default: return { type: 'problem', block: name, file, line, message: `"${name}" is not a block of the library` };
   }
 }

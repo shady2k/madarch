@@ -100,6 +100,21 @@ export type DiagramView = {
   query: string;
 };
 
+export type OverviewSection = 'about' | 'how' | 'data' | 'terms' | 'status' | 'reading';
+export type OverviewSource = { label: string; href: string };
+export type OverviewItem = { label: string; value?: string; href?: string; note?: string; source?: OverviewSource };
+export type OverviewParagraph = { text: string; source?: OverviewSource };
+export type OverviewBlock = {
+  type: 'overview';
+  section: OverviewSection;
+  title: string;
+  paragraphs?: OverviewParagraph[];
+  rows?: OverviewItem[];
+  links?: OverviewItem[];
+  diagrams?: { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] };
+  absent?: { message: string; href: string; label: string };
+};
+
 type BlockShape =
   | { type: 'guide'; data: { guide: { id: string; kind: 'administrator-guide' | 'user-guide'; title: string; locale: 'en' | 'ru'; context: { valid: string; known: string; state: string; repositories: { name: string; commit: string }[] }; unitVersion: string; inputDigest: string; prerequisites: string[]; gaps: string[]; procedures: { id: string; title: string; goal: string; role: string; prerequisites: string[]; steps: { id: string; title: string; cwd: string; environment: string; inputs: { name: string; description: string; secret: boolean }[]; instruction: { kind: 'command' | 'http'; content: string }; expected: { status: number; observation: string }; grounds: { repository: string; commit: string; path: string; line: number; endLine: number }[] }[] }[] }; walk: { status: 'passed' | 'failed' | 'not-walked'; diagnostics: { file: string; line: number; path: string; code: string; message: string }[] }; markdown: string; diagnostics: { file: string; line: number; path: string; code: string; message: string }[]; coverage: 'procedures' | 'gap-only'; sourceViewWarning?: string; grounds: { procedure: string; step: string; repository: string; commit: string; path: string; line: number; endLine: number; href: string }[] } }
   | { type: 'markdown'; markdown: string }
@@ -118,6 +133,7 @@ type BlockShape =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
+  | OverviewBlock
   | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'repository'; title: string; data: RepositoryBlockData; run?: { finishedAt: string; wallMs: number }; unread?: { repository: string; path: string; reason: string }[] }
   | { type: 'folder'; title: string; data: FolderBlockData }

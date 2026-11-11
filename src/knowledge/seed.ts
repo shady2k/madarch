@@ -74,9 +74,15 @@ them, as label.
   // the five files that change most, with the whole list of files one click away. The treemap and the relation table
   // are not on it: they live on the pages of what they describe.
   'product.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
-{% block parts %}{% system title="The system" title-ru="Система" %}
-{% history title="Repository history" title-ru="История репозиториев" sections="summary,hotspots" limit=5 more-kind="code.file" more="All files" more-ru="Все файлы" %}{% endblock %}
+{# The home page is the product's overview (madarch-47vw.5): what it is, how it works, its data, its key terms, where it
+   stands and where to start reading. Each section is an engine block; one without data says which entity's fill brings
+   it. The product's own template may reorder or leave out a section. #}
+{% block lead %}{% overview-about title="What the product is" title-ru="Что это за продукт" %}
+{% overview-how title="How it works" title-ru="Как он работает" %}
+{% overview-data title="Data" title-ru="Данные" %}
+{% overview-terms title="Key terms" title-ru="Ключевые термины" %}
+{% overview-status title="Where it stands" title-ru="Где он сейчас" %}
+{% overview-reading title="Where to start reading" title-ru="С чего начать читать" %}{% endblock %}
 `,
   'domain.liquid': `{% layout "./entity.liquid" %}
 {# A domain page opens with what the domain is and how it goes: its text, the architecture of the domain and the
