@@ -12,7 +12,7 @@ const tool = (action: string, description: string, required: readonly string[]):
   name: `${action}_entity`, description,
   inputSchema: { type: 'object', properties: {
     kind: { type: 'string', description: 'Authored entity kind from the product catalogue, such as doc.term' },
-    uid: { type: 'string', description: 'Stable uid returned by create or read; not a display id' },
+    uid: { type: 'string', description: 'Stable uid returned when an entity is created or read; not a display id' },
     values: { type: 'object', description: 'Declared field names and their values' },
     words: { type: 'string', description: 'Exact original words to keep with the operation' },
     ifRevision: { type: 'string', description: 'Check the read revision before an update or delete' },
