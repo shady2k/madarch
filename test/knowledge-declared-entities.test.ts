@@ -99,7 +99,7 @@ describe('a manifest declares one code kind and not the other', () => {
     await publishPageTemplate(product, 'templates/file.liquid');
     const status = await (await fetch(`${server!.url}/products/files-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
     expect(status.filled, JSON.stringify({ status, errors })).toBe(true);
-    expect(status.kinds.some((kind) => kind.kind === 'code.file')).toBe(true);
+    expect(status.kinds.find((kind) => kind.kind === 'code.file')?.count).toBeGreaterThan(0);
     expect(status.kinds.some((kind) => kind.kind === 'code.repository')).toBe(false);
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
     expect(names.some((name) => name.startsWith('k_file_'))).toBe(true);
