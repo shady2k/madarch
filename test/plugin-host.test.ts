@@ -14,7 +14,7 @@
  * lacks either, every case is skipped with the reason printed, never passed.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -475,16 +475,79 @@ describe('the answer against the declaration', () => {
 
 describe('the commands', () => {
   /** Runs one `madarch plugin` command in the checkout, as a person does. */
-  async function command(args: readonly string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  async function command(args: readonly string[], env: Readonly<Record<string, string | undefined>> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
     const child = Bun.spawn([process.execPath, 'scripts/madarch.ts', 'plugin', ...args], {
       cwd: fileURLToPath(new URL('..', import.meta.url)),
-      env: { ...process.env, MADARCH_PLUGIN_CGROUP: parent },
+      env: { ...process.env, MADARCH_PLUGIN_CGROUP: parent, ...env },
       stdout: 'pipe',
       stderr: 'pipe',
     });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     return { code, stdout, stderr };
   }
+
+  test('MADARCH_PLUGIN_SANDBOX=off checks the fixture without sandbox tools or cgroup delegation', async () => {
+    const work = scratch();
+    const done = await command(['check', probeFolder, '--unit', JSON.stringify(unit('normal')), '--work', work], {
+      MADARCH_PLUGIN_SANDBOX: 'off', MADARCH_PLUGIN_CGROUP: join(work, 'no-cgroup'), MADARCH_TOOLS: join(work, 'no-tools'),
+    });
+    expect(done.code, done.stderr).toBe(0);
+    expect(done.stdout).toContain('check: conforms');
+    expect(done.stdout).toContain('unit normal: extracted 1 vertices and 1 edges, complete');
+    expect(done.stderr).toContain('MADARCH_PLUGIN_SANDBOX');
+    expect(existsSync(join(work, 'no-tools'))).toBe(false);
+    expect(existsSync(join(work, 'no-cgroup'))).toBe(false);
+  }, 30_000);
+
+  test.each(['', 'on', 'OFF', ' off '])('MADARCH_PLUGIN_SANDBOX=%j is refused with its value and source location', async (value) => {
+    const done = await command(['check', probeFolder, '--work', scratch()], { MADARCH_PLUGIN_SANDBOX: value });
+    expect(done.code).toBe(1);
+    const message = `${done.stdout}\n${done.stderr}`;
+    expect(message).toContain('MADARCH_PLUGIN_SANDBOX');
+    expect(message).toContain(JSON.stringify(value));
+    expect(message).toContain('unset');
+    expect(message).toContain('off');
+    expect(message).toMatch(new RegExp(`${fileURLToPath(new URL('../src/plugin/sandbox.ts', import.meta.url))}:\\d+:`));
+  }, 30_000);
+
+  test('disabling confinement does not approve a production closure', async () => {
+    const done = await command(['run', probeFolder, '--repo', probeFolder, '--unit', JSON.stringify(unit('normal')), '--work', scratch()], { MADARCH_PLUGIN_SANDBOX: 'off' });
+    expect(done.code).toBe(1);
+    expect(done.stderr).toContain('needs-approval');
+    expect(done.stderr).toContain(probeClosure.hash);
+  }, 30_000);
+
+  test('two plugin starts in a fresh host process emit one unconfined warning', async () => {
+    const work = scratch();
+    const source = `
+      import { PluginHost } from ${JSON.stringify(fileURLToPath(new URL('../src/plugin/host.ts', import.meta.url)))};
+      for (const n of [1, 2]) {
+        const session = await new PluginHost({
+          pluginFolder: ${JSON.stringify(probeFolder)}, repository: ${JSON.stringify(probeFolder)},
+          workRoot: ${JSON.stringify(work)} + '/' + n, trust: 'validation',
+          cgroupParent: ${JSON.stringify(join(work, 'no-cgroup'))},
+        }).open();
+        try {
+          const outcome = await session.runUnit(${JSON.stringify(unit('normal'))});
+          if (outcome.state !== 'extracted') throw new Error(JSON.stringify(outcome));
+        } finally { await session.close(); }
+        console.log('completed ' + n);
+      }
+    `;
+    const child = Bun.spawn([process.execPath, '--eval', source], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off', MADARCH_TOOLS: join(work, 'no-tools') },
+      stdout: 'pipe', stderr: 'pipe',
+    });
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    expect(stdout.trim().split('\n')).toEqual(['completed 1', 'completed 2']);
+    expect(stderr.split('\n').filter((line) => line.includes('MADARCH_PLUGIN_SANDBOX'))).toEqual([
+      'Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.',
+    ]);
+    expect(existsSync(join(work, 'no-tools'))).toBe(false);
+    expect(existsSync(join(work, 'no-cgroup'))).toBe(false);
+  }, 30_000);
 
   hostTest('madarch plugin check holds the fixture to the protocol and publishes nothing', async () => {
     const done = await command(['check', join(FIXTURES, 'plugin-probe'), '--unit', JSON.stringify(unit('normal')), '--work', scratch()]);

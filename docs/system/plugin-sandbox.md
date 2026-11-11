@@ -1,9 +1,9 @@
 # The plugin sandbox: what madarch needs from a machine (2026-11-09)
 
-Status: operations text of decision 0035, item 9. The plugin host runs no
-plugin unconfined, in any stage and whatever the plugin's origin; where a
-machine lacks what the sandbox needs, the host refuses with an operations
-problem that names the missing piece and points here.
+Status: operations text of decision 0035, item 9. By default the plugin host
+runs no plugin unconfined, in any stage and whatever the plugin's origin;
+where a machine lacks what the sandbox needs, the host refuses with an
+operations problem that names the missing piece and points here.
 
 ## Linux
 
@@ -104,6 +104,10 @@ first.
 
 ## What the host does not run
 
-Where the delegation or the user namespaces are missing, no plugin runs at
-all: an unconfined plugin is another program on the machine. The refusal names
-the missing controllers or setting, the folder it looked in, and this page.
+By default, missing delegation or user namespaces refuse the run, naming the
+missing controllers or setting, the folder and this page. To deliberately run
+without confinement, set `MADARCH_PLUGIN_SANDBOX=off`: no bubblewrap, cgroup,
+seccomp or macOS sandbox is used, and the plugin runs with the host account's
+filesystem and network access. A warning is emitted once per process. Closure
+approval and protocol checks still apply. Leave the variable unset for the
+normal sandbox; every other value, including an empty string, is refused.
