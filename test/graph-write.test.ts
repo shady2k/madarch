@@ -349,6 +349,20 @@ describe('the manifest makes the table and the writer fills it', () => {
     } finally { await durable.close(); }
   });
 
+  test('schema reconciliation preserves scalar reference opinions on repeated preparation', async () => {
+    const durable = await createTestDatabaseOwner();
+    const table = generatedTableName('record', 'vertex');
+    const graph: GraphContract = { vertex: [{ name: 'record', table, fields: [{ name: 'target', type: 'text', reference: 'task', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
+    try {
+      await prepareStore(durable, { contract: graph });
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: {}, values: { target: 'task:repair' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      const before = await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`));
+      expect(before.rows.map((row) => row['target'])).toEqual(['task:repair']);
+      expect(await prepareStore(durable, { contract: graph })).toEqual({ reset: false });
+      expect((await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`))).rows).toEqual(before.rows);
+    } finally { await durable.close(); }
+  });
+
   test('schema reconciliation refuses required additions and changed reference targets with history', async () => {
     const durable = await createTestDatabaseOwner();
     const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'target', type: 'json', reference: 'alpha', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
