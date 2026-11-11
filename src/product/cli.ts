@@ -11,6 +11,7 @@
  * Facts go to standard output, one per line.
  */
 import { installOwnWiki, ownWikiOff } from './own-wiki.js';
+import { readPinnedGraphContract } from './fill-stages.js';
 import { validateProductManifests } from '../graph/manifest-publication.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
@@ -844,7 +845,6 @@ function productHomeOf(named: string | undefined): string {
  * the database it opened before it returns, whether the run succeeded or not.
  */
 async function fillStagesCommand(parsed: Parsed, home: string | undefined): Promise<number> {
-  const { readPinnedGraphContract } = await import('./fill-stages.js');
   const { runFill } = await import('../fill/run.js');
   const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
   const { createDatabaseOwner } = await import('../adapters/database-owner.js');
@@ -981,7 +981,6 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
  * later stage's. `--probe-acp` reports the agents this machine speaks to, and fills nothing.
  */
 async function fillCommand(parsed: Parsed, home: string | undefined): Promise<number> {
-  const { readPinnedGraphContract } = await import('./fill-stages.js');
   const { startKnowledgeFill } = await import('../knowledge/fill-run.js');
   const { createDatabaseOwner } = await import('../adapters/database-owner.js');
   const probe = parsed.probe;
