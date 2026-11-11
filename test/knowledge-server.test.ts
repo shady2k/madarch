@@ -659,4 +659,25 @@ describe('what a refresh changed', () => {
     }
     expect((await refresh()).fill).toMatchObject({ state: 'done', changed: [] });
   }, 180_000);
+
+  test('a file page\'s trail ends in the file, and its History is the commits Git gives for the path', async () => {
+    const id = recordKey('code.file', 'tiny/src/a.ts');
+    const answer = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
+    expect(answer.status).toBe(200);
+    expect(answer.body.trail.at(-1)).toMatchObject({ id, label: 'src/a.ts' });
+    expect(answer.body.trail[0]).toMatchObject({ href: '/' });
+    const file = (answer.body.blocks as { type: string; history?: { hash: string }[]; cochange?: { path: string; share: number }[]; commits?: number }[]).find((block) => block.type === 'filePage')!;
+    expect(file).toBeDefined();
+    const expected = git(repository, 'log', '--follow', '--no-merges', '--format=%H', '--', 'src/a.ts').trim().split('\n').filter(Boolean).sort();
+    expect(file.history!.map((row) => row.hash).sort()).toEqual(expected);
+    expect(file.cochange!.every((row) => row.path !== '' && row.share >= 0 && row.share <= 1)).toBe(true);
+    // A root file and a folder keep the same trail rule: the last part is the entity itself, never a lone root.
+    const root = await get(`/products/tiny/api/page?id=${encodeURIComponent(recordKey('code.file', 'tiny/package.json'))}`);
+    expect(root.status).toBe(200);
+    expect(root.body.trail.at(-1)).toMatchObject({ label: 'package.json' });
+    expect(root.body.trail.some((entry: { label: string }) => entry.label === '/')).toBe(false);
+    const folder = await get(`/products/tiny/api/page?id=${encodeURIComponent(recordKey('code.directory', 'tiny/src'))}`);
+    expect(folder.status).toBe(200);
+    expect(folder.body.trail.at(-1)).toMatchObject({ label: 'src' });
+  }, 60_000);
 });

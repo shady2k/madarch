@@ -1998,6 +1998,22 @@ a.graph-diagram-element-label:hover {
   white-space: pre;
 }
 
+/* A file page reads its source at the page's full width (madarch-u3vw.16), not at the reading measure. The outer
+   frame scrolls sideways and the wrap switch keeps the line numbers aligned: the number stays in its gutter while the
+   text wraps under it. */
+.shell-document > main:has([data-testid="file-page"]) {
+  max-inline-size: none;
+}
+
+.source-code-wrap code {
+  inline-size: auto;
+}
+
+.source-code-wrap .source-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .source-line-focus {
   background: var(--surface-active);
   box-shadow: inset 3px 0 0 var(--text);
