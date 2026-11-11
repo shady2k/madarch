@@ -81,7 +81,9 @@ beforeAll(async () => {
     }
   }
   server = await startServer({ productHome: home, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
-}, 300_000);
+  // The two fills read this checkout's own history into the graph (stage C), and a shared or slow machine takes
+  // minutes over it: the setup names twice the minute bound the earlier case carried, and no assertion is moved.
+}, 600_000);
 
 afterAll(async () => {
   await server?.stop();

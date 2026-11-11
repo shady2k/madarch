@@ -14,6 +14,7 @@ import { GraphReader, type FileRhythm, type GraphEntity } from '../src/knowledge
 import type { HeldOpinion } from '../src/graph/records.js';
 import type { Block } from '../src/knowledge/model.js';
 import { Resolver } from '../src/knowledge/resolve.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 import { byCodePoint } from '../src/model/order.js';
 
 const unusedOwner: DatabaseOwner = {
@@ -100,6 +101,7 @@ function fixture(files: GraphEntity[], rhythms: ReadonlyMap<string, FileRhythm> 
   const reader = new FixtureReader(files, rhythms);
   return {
     productFolder: '',
+    files: workingTreeFiles(''),
     manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     graph: reader,
     markdown: new Map(),
