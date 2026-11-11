@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
+import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSearch, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
@@ -29,7 +29,7 @@ import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
 import { DiagramsView } from './diagrams/views.js';
-import type { CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SearchView, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -47,6 +47,47 @@ function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null 
         </span>
       ))}
     </nav>
+  );
+}
+
+/**
+ * The page of an id the graph does not hold (madarch-moo8): it names the id, and searches the graph through the wiki's
+ * own search API for its last segment — never a regular expression over ids — and links every result. The agent's
+ * offer is not drawn here: that offer belongs where the agent can write the page that was asked for.
+ */
+function MissingEntity({ id, error, version }: { id: string; error: string; version: number }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const tail = id.slice(id.lastIndexOf(':') + 1).split('/').filter((part) => part !== '').pop() ?? id;
+  const { data, error: searchError } = useRead<SearchView>(`missing\0${id}\0${language}`, version, (signal) => getSearch(tail, language, signal));
+  const rows = data === null ? [] : data.groups.flatMap((group) => group.rows);
+  return (
+    <>
+      <Alert variant="problem" data-testid="page-error">
+        <AlertTitle>{t('knowledge.noSuchPage')}</AlertTitle>
+        <AlertDescription>
+          <p>{t('knowledge.missingEntityBody')} <code data-testid="missing-entity-id">{id}</code></p>
+          <details><summary className="cursor-pointer text-small text-muted">{t('knowledge.missingEntityDetails')}</summary><p className="break-all">{error}</p></details>
+        </AlertDescription>
+      </Alert>
+      <section className="mt-4" data-testid="missing-entity-search">
+        <h2>{t('knowledge.searchResults')} <code data-testid="missing-entity-query">{tail}</code></h2>
+        {data === null && searchError === null && <p className="text-muted" data-testid="missing-entity-searching">{t('knowledge.loading')}</p>}
+        {searchError !== null && <p className="text-small" role="alert" data-testid="missing-entity-search-error">{t('knowledge.searchFailed', { message: searchError })}</p>}
+        {data !== null && rows.length === 0 && <p className="text-small text-muted" data-testid="missing-entity-none">{t('knowledge.searchEmpty')}</p>}
+        {rows.length > 0 && (
+          <ul className="m-0 list-none p-0" data-testid="missing-entity-results">
+            {rows.map((row) => (
+              <li key={row.id} className="border-b border-line py-1.5 last:border-b-0" data-testid="missing-entity-result" data-entity={row.id}>
+                <KLink href={row.href}>{row.title}</KLink>
+                <span className="text-small text-muted"> · {row.kind}</span>
+                {row.excerpt !== undefined && <span className="block text-small text-muted" data-testid="missing-entity-excerpt">{row.excerpt}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -69,14 +110,7 @@ export function EntityPage({ id, after = null, version }: { id: string; after?: 
     return () => clearTimeout(timer);
   }, [page?.redirect?.id, page?.redirect?.anchor]);
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;
-  if (page === null) {
-    return (
-      <Alert variant="problem" data-testid="page-error">
-        <AlertTitle>{t('knowledge.noSuchPage')}</AlertTitle>
-        <AlertDescription><p>{error}</p></AlertDescription>
-      </Alert>
-    );
-  }
+  if (page === null) return <MissingEntity id={id} error={error ?? t('knowledge.noSuchPage')} version={version} />;
   // A planned change on this page is said in its header and on each statement that stands on it (madarch-m38l.14).
   const planned: PlannedMarks = {
     headings: {},

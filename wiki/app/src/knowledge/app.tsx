@@ -62,7 +62,9 @@ export function showsProgress(route: WikiRoute, status: WikiStatus): boolean {
   // where the reader is. With no store the home is the introduction, which draws its own fill card:
   // one card, never two.
   if (route.name === 'home') return status.filled && (status.home !== null || status.fill.state === 'running' || status.fill.state === 'failed');
-  return route.name === 'entity';
+  // The agent's offer belongs on the home, where it can write the product page. It is never drawn over an entity page:
+  // a missing entity has its own words and the graph search (madarch-moo8).
+  return false;
 }
 
 /** The loop's kinds have their own places («Вопросы», «Проблемы»), not a kind page of their own: the manifest says which (`nav: loop`). */
