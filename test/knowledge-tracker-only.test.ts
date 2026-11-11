@@ -93,7 +93,7 @@ describe('a product that is only a tracker', () => {
       expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count }))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:00000000-0000-4000-8000-000000000001')}&full=1`, { headers: { accept: 'application/json' } });
-      expect(unopened.status).toBe(404);
+      expect(unopened.status, await unopened.text()).toBe(404);
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
       owner = await createDatabaseOwner({ store: storeDatabasePath(store) });

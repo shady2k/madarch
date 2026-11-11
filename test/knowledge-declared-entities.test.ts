@@ -85,7 +85,7 @@ describe('a manifest declares one code kind and not the other', () => {
     const product = join(home, 'files-only');
     await fillInProcess(product, home);
     const status = await (await fetch(`${server!.url}/products/files-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
-    expect(status.filled).toBe(true);
+    expect(status.filled, JSON.stringify({ status, errors })).toBe(true);
     expect(status.kinds.some((kind) => kind.kind === 'code.file')).toBe(true);
     expect(status.kinds.some((kind) => kind.kind === 'code.repository')).toBe(false);
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
@@ -115,7 +115,7 @@ describe('a manifest declares one code kind and not the other', () => {
     expect(names.some((name) => name.startsWith('k_file_'))).toBe(false);
     // The repository page renders from the one declared kind, and nothing names a file or commit table.
     const page = await fetch(`${server!.url}/products/repos-only/api/page?id=${encodeURIComponent('code.repository:repos-only')}&full=1`, { headers: { accept: 'application/json' } });
-    expect(page.status).toBe(200);
+    expect(page.status, JSON.stringify({ body: await page.text(), errors })).toBe(200);
     expect(errors.filter((line) => /does not exist|42P01/i.test(line))).toEqual([]);
   }, 60_000);
 });
