@@ -194,6 +194,38 @@ export interface TreemapFile {
   churn: number;
 }
 
+/** The six sections of the product overview (madarch-47vw.5): each is a block the product's own template places. */
+export type OverviewSection = 'about' | 'how' | 'data' | 'terms' | 'status' | 'reading';
+
+/** A source a section's content stands on: the file and line, or the page of the entity it came from. */
+export interface OverviewSource { label: string; href: string }
+
+/** One row of an overview section: a name, a value, the page it opens and the source it stands on. */
+export interface OverviewItem {
+  label: string;
+  value?: string;
+  href?: string;
+  note?: string;
+  source?: OverviewSource;
+}
+
+/** One paragraph of an overview section, with the source it stands on. */
+export interface OverviewParagraph { text: string; source?: OverviewSource }
+
+/** What an overview section shows, or the entity's fill that brings it when it has nothing yet. */
+export interface OverviewBlockShape {
+  type: 'overview';
+  section: OverviewSection;
+  title: string;
+  paragraphs?: OverviewParagraph[];
+  rows?: OverviewItem[];
+  links?: OverviewItem[];
+  /** A diagram drawn inside the section (how it works, and the ER of data). */
+  diagrams?: DiagramsBlockShape;
+  /** The section has no data yet: which entity's fill brings it, and where the fill is. */
+  absent?: { message: string; href: string; label: string };
+}
+
 type BlockShape =
   | { type: 'guide'; data: GuidePageData }
   | { type: 'markdown'; markdown: string }
@@ -213,6 +245,7 @@ type BlockShape =
   | { type: 'deferred'; block: string; title: string; id: string }
   | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[]; more?: HistoryMore }
+  | OverviewBlockShape
   | { type: 'repository'; title: string; data: GraphRepositoryFacts; run?: { finishedAt: string; wallMs: number }; unread?: readonly { repository: string; path: string; reason: string }[] }
   | { type: 'folder'; title: string; data: GraphFolderFacts }
   | { type: 'file'; title: string; data: GraphFileFacts }

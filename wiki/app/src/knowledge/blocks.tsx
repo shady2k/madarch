@@ -767,6 +767,46 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
 }
 
 
+/** One section of the product overview (madarch-47vw.5): its words, its diagram, its rows or links, or what brings it. */
+function Overview({ block }: { block: Extract<Block, { type: 'overview' }> }): ReactElement {
+  return (
+    <section data-block="overview" data-overview={block.section} className="mb-6" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      {block.paragraphs?.map((paragraph, at) => (
+        <p key={at} className="max-w-[70ch] break-words">
+          {paragraph.text}
+          {paragraph.source !== undefined && <span className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={paragraph.source.href}>{paragraph.source.label}</KLink></span>}
+        </p>
+      ))}
+      {block.diagrams !== undefined && <DiagramsView block={block.diagrams} />}
+      {block.rows !== undefined && block.rows.length > 0 && (
+        <dl className="m-0 grid gap-2 text-small" data-testid="overview-rows">
+          {block.rows.map((row, at) => (
+            <div key={`${row.label}-${String(at)}`} className="grid grid-cols-[minmax(8rem,14rem)_1fr] gap-x-4">
+              <dt className="break-words font-medium text-ink">{row.href === undefined ? row.label : <KLink href={row.href}>{row.label}</KLink>}</dt>
+              <dd className="m-0 break-words text-secondary">
+                {row.value}
+                {row.note !== undefined && <span className="ml-2 text-muted">{row.note}</span>}
+                {row.source !== undefined && <span className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={row.source.href}>{row.source.label}</KLink></span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {block.links !== undefined && block.links.length > 0 && (
+        <ul className="m-0 list-none p-0 text-small" data-testid="overview-links">
+          {block.links.map((link) => <li key={`${link.label}-${link.href ?? ''}`} className="py-0.5"><KLink href={link.href ?? '#'}>{link.label}</KLink>{link.value !== undefined && <span className="ml-2 text-muted">{link.value}</span>}</li>)}
+        </ul>
+      )}
+      {block.absent !== undefined && (
+        <p className="m-0 text-small text-muted" data-testid="overview-absent">
+          {block.absent.message} <KLink href={block.absent.href}>{block.absent.label}</KLink>
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** One block of a page. */
 export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
   switch (block.type) {
@@ -786,6 +826,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'diagrams': return <DiagramsView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
     case 'history': return <History block={block} />;
+    case 'overview': return <Overview block={block} />;
     case 'definition': return <Definition block={block} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'repository': return <RepositoryFactsBlock data={block.data} />;

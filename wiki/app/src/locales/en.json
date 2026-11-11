@@ -958,7 +958,7 @@
       "stopWords_many": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run.",
       "stopWords_other": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run."
     },
-    "pageProblems": "{{count}} problems",
+    "pageProblems": "Problems on this page: {{count}}",
     "findingsWhere": "Open the problems",
     "findingsCount": "Findings: {{count}}",
     "noStageYet": "No fill stage writes this kind yet."

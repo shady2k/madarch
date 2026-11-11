@@ -119,7 +119,7 @@ describe('what a role opens', () => {
     const container = into(createElement(EntityPage, { id: base.id, version: 1 }));
     await until(() => container.querySelector('[data-testid=entity-page]') !== null, 'the page with problems');
     const badge = container.querySelector('[data-testid=page-problems]')!;
-    expect(badge.textContent).toBe('3 problems');
+    expect(badge.textContent).toBe('Problems on this page: 3');
     expect(badge.querySelector('a')!.getAttribute('href')).toBe('/problems');
     rendered?.unmount();
     document.body.innerHTML = '';
