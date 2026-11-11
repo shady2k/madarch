@@ -172,33 +172,12 @@ export interface FinishedKnowledgeStore {
 }
 
 /**
- * Writes the store's pins: the `knowledge_fill` rows that name the repositories it holds and what each was read to.
- * A snapshot carries the pins, so a reader that opens one reads the commit its graph was filled from beside the graph
- * itself — a run that publishes a snapshot before it ends writes its pins first for the same reason.
- */
-async function writePins(owner: StoreOwner): Promise<number> {
-  await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
-    repo text PRIMARY KEY, scope text, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
-    commits int NOT NULL, filled_commits int NOT NULL)`));
-  const pins = await pinsOf(owner);
-  for (const pin of pins) {
-    await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query(
-      `INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, $6::int, $7::int)
-       ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
-      [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
-    ));
-  }
-  return pins.length;
-}
-
-/**
- * Finishes one store after a run that settled: the `knowledge_fill` rows that name the repositories the
- * run published. Every caller that fills the store — the button, `madarch fill`, `madarch fill-stages`,
- * the daemon's updates and `madarch mcp` — finishes it here, so a run of any of them is read the same way.
+ * Finishes one store after a run that settled: the repositories the graph now holds and what each was filled to, read
+ * from the graph — the repository entity, its as-is edge and the counts of its rows. Nothing is written: a pin is not a
+ * table of the fill's (stage 3: `knowledge_fill` is gone), and a reader opens the same rows the pages read.
  */
 export async function finishKnowledgeStore(owner: StoreOwner): Promise<FinishedKnowledgeStore> {
-  const pins = await writePins(owner);
-  return { pins };
+  return { pins: (await pinsOf(owner)).length };
 }
 
 /**
@@ -248,7 +227,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
               if (lastNotice !== undefined && at - lastNotice < noticeEveryMs) return;
               lastNotice = at;
               try {
-                await writePins(owner);
+                // The notice follows the store's own rows: the pins are the graph's (stage 3: `knowledge_fill` is gone),
+                // so there is nothing to write before a reader is told to read again.
                 await options.onPublish!();
               } catch {
                 // the next publication tries again; the run's end finishes the store whether or not this one did
@@ -273,8 +253,8 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             units: result.units.length,
           };
         }
-        // The pins are committed before the run is called finished anywhere: they are what a page asked after the fill
-        // reads, and a run whose end was visible first would let the pressing side read an empty store as its result.
+        // The run is finished after the store's last publication is committed: a page asked after the fill reads the
+        // graph's own rows, and a run whose end was visible before them would let the pressing side read an empty store.
         await finishKnowledgeStore(owner);
         return {
           ok: true, state: result.state, units: result.units.length,

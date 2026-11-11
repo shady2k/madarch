@@ -445,15 +445,21 @@ export async function createRun(database: FillStateDatabase, options: { readonly
 
 /**
  * A cheap stamp of what a store's answers stand on (madarch-8bdc.9): how many publications it holds, the last of them,
- * and what its pins were filled to. An api role that did not run the fill reads it before each answer and reads the
- * store's numbers again when it moved — one row of counting, not the numbers themselves.
+ * and the graph's own repositories with the commit each is as-is at. An api role that did not run the fill reads it
+ * before each answer and reads the store's numbers again when it moved — one row of counting, not the numbers
+ * themselves. The repositories come from the graph, never from a pin table of the fill's (stage 3: `knowledge_fill` is
+ * gone).
  */
 export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
   const at = here();
-  return await run(at, database, 'readStoreStamp', ['fill_publication', 'knowledge_fill'], async (executor) => {
+  return await run(at, database, 'readStoreStamp', ['fill_publication', 'node', 'edge', 'entity'], async (executor) => {
     const { rows } = await executor.query<{ stamp: string }>(
       `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
-              || ':' || (SELECT coalesce(string_agg(repo || '=' || filled_commits::text, ',' ORDER BY repo), '-') FROM knowledge_fill) AS stamp`,
+              || ':' || (SELECT coalesce(string_agg(name || '=' || coalesce(commit_hash, ''), ',' ORDER BY name), '-')
+                           FROM (SELECT (n.key->>'name') AS name,
+                                        (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash
+                                   FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = 'repository'
+                                  WHERE n.context_id = 1 AND NOT n.removed) r) AS stamp`,
     );
     return rows[0]?.stamp ?? '0:-:-';
   }, 'snapshot');

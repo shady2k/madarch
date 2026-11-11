@@ -16,7 +16,7 @@ test('two concurrent first fills create every generated table once', async () =>
   const root = mkdtempSync(join(tmpdir(), 'madarch-contract-lock-'));
   const store = join(root, 'store');
   /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'gap', 'layer_entry', 'node', 'operation', 'unresolved_reference'] as const;
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
 
 const RECORD_TABLES = [
     ...MECHANISM_TABLES,

@@ -244,7 +244,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       expect(journal.rows[0]).toEqual({ n: '1', author: '', author_node: null });
       // The empty graph takes a fill: a publication writes its rows again.
       await createRecordSchema(old);
-      const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [], gaps: [] });
+      const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [] });
       expect(counts.inserted).toBeGreaterThan(0);
     } finally {
       await old.close();

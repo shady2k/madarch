@@ -462,7 +462,7 @@ export interface RepositoryCounts {
 /**
  * The repository this step's graph holds (madarch-8bdc.2.5, item 3): its
  * identity, the as-is commit every page is true at, the counts the store holds,
- * the gaps the fill recorded, and which of the fill's steps have run.
+ * whether its history was read from a shallow clone, and which of the fill's steps have run.
  */
 export interface RepositoryFactsView {
   /** The graph entity's id, `code.repository:<name>`: the page the home opens. */
@@ -472,7 +472,8 @@ export interface RepositoryFactsView {
   readonly defaultBranch: string | null;
   readonly asIsCommit: string | null;
   readonly counts: RepositoryCounts;
-  readonly gaps: readonly { readonly what: string; readonly reason: string }[];
+  /** The history producer's own opinion: a shallow clone, whose walk is not the whole history. */
+  readonly historyShallow: boolean | null;
   readonly steps: { readonly tree: boolean; readonly history: boolean };
 }
 
