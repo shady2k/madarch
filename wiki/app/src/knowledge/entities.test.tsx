@@ -99,7 +99,7 @@ test('an empty agent kind explains how to start its fill instead of saying there
   await until(() => container.querySelector('[data-testid="kind-empty"]') !== null, 'agent fill guidance');
   const note = container.querySelector('[data-testid="kind-empty"]')!;
   expect(note.textContent).toContain('Choose an agent');
-  expect(note.querySelector('a')?.getAttribute('href')).toBe('/dependencies');
+  expect(note.querySelector('a')?.getAttribute('href')).toBe('/fill');
   expect(note.textContent).not.toContain('No fill stage');
   expect(container.querySelector('[data-testid="kind-agent-usage"]')?.textContent).toContain('fixture-model');
   expect(container.querySelector('[data-testid="kind-agent-usage"]')?.textContent).toContain('42');

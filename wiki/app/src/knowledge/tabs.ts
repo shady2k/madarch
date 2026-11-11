@@ -80,7 +80,8 @@ function set(next: TabsState): void {
 
 const subscribe = (listener: () => void): (() => void) => {
   listeners.add(listener);
-  if (listeners.size === 1) window.addEventListener('popstate', onPop);
+  window.addEventListener('popstate', onPop);
+  onPop();
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) window.removeEventListener('popstate', onPop);

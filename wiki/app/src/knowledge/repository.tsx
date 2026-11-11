@@ -236,7 +236,7 @@ export function FilePageView({ block, resolutions }: { block: FilePageBlock; res
       </PageHeader>
       <TabsList aria-label={t('knowledge.filePage.overview')} className="mb-4 flex h-auto flex-wrap gap-2" data-testid="file-tabs">
         {tabs.map((tab) => (
-          <TabsTrigger key={tab.face} value={tab.face} data-on={face === tab.face} data-testid={`file-tab-${tab.face}`}>{tab.label}</TabsTrigger>
+          <TabsTrigger key={tab.face} value={tab.face} onClick={() => setFace(tab.face)} data-on={face === tab.face} data-testid={`file-tab-${tab.face}`}>{tab.label}</TabsTrigger>
         ))}
       </TabsList>
       {face === 'overview' && (

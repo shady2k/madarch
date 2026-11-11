@@ -1031,6 +1031,9 @@
       "share": "{{both}} of {{total}} commits · {{share}}%"
     },
     "noStageYet": "No fill stage writes this kind yet.",
+    "kindWaitingForAgent": "Choose an agent before filling this kind.",
+    "kindWaitingForFill": "This kind is ready to be filled.",
+    "kindStartAgentFill": "Open Fill",
     "fillChoose": "Fill…",
     "fillSetup": {
       "title": "Choose what to fill",

@@ -1031,6 +1031,9 @@
       "share": "{{both}} из {{total}} коммитов · {{share}}%"
     },
     "noStageYet": "Ни один этап заполнения пока не пишет этот вид.",
+    "kindWaitingForAgent": "Выберите агента перед заполнением этого вида.",
+    "kindWaitingForFill": "Этот вид готов к заполнению.",
+    "kindStartAgentFill": "Открыть заполнение",
     "fillChoose": "Заполнить…",
     "fillSetup": {
       "title": "Выберите, что заполнить",

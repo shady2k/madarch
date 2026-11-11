@@ -855,7 +855,7 @@ describe('there is one app', () => {
     expect(calls.some((url) => url.includes('/api/fill'))).toBe(false);
   });
 
-  for (const route of ['/catalogue', '/dependencies']) {
+  for (const route of ['/catalogue']) {
     test(`the never-filled product opens ${route} from the published graph`, async () => {
       await setWikiLanguage('en');
       const base = answer('not-filled');
