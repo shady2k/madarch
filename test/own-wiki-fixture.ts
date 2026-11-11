@@ -55,6 +55,12 @@ export function makeWikiRepository(folder: string, extra: Record<string, string>
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: example-docs\nname: Example docs\n');
   seedStarterSet(folder);
+  // Install and reader cases need repository readiness, not external plugin outputs.
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   writeFileSync(join(folder, 'docs', 'product.md'), PRODUCT_PAGE);
   writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
   writeFileSync(join(folder, 'docs', 'reference.md'), REFERENCE);

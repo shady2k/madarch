@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
-import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { fillInProcess } from './fill-inline.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -36,8 +36,17 @@ function put(folder: string, relativePath: string, text: string): void {
 let session: RepositorySession | undefined;
 let productCommit = '';
 let connectedCommit = '';
+let releasePreparationOwner!: () => void;
+let preparationOwner: Promise<void>;
+
 
 beforeAll(async () => {
+  let opened!: () => void;
+  const ready = new Promise<void>((resolve) => { opened = resolve; });
+  const closed = new Promise<void>((resolve) => { releasePreparationOwner = resolve; });
+  preparationOwner = withStorePreparationOwner(async () => { opened(); await closed; });
+  await Promise.race([ready, preparationOwner]);
+
   // The product's own repository: a manifest, a workflow, a source file and a commit.
   mkdirSync(path.join(PRODUCT, 'src'), { recursive: true });
   writeFileSync(path.join(PRODUCT, 'workspace.yaml'), [
@@ -49,8 +58,12 @@ beforeAll(async () => {
     '    url: https://example.invalid/sample.git',
     '',
   ].join('\n'));
-  writeFirstFillWorkflow(PRODUCT);
   for (const file of STARTER_FILES) put(PRODUCT, file.path, file.content);
+  put(PRODUCT, 'madarch/workflows.yaml', `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   put(PRODUCT, 'src/total.ts', 'export function total(): number {\n  return 42;\n}\n');
   run(PRODUCT, 'init', '-q', '-b', 'main');
   run(PRODUCT, 'add', '-A');
@@ -72,6 +85,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await session?.close();
+  releasePreparationOwner?.();
+  await preparationOwner;
   rmSync(ROOT, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });
