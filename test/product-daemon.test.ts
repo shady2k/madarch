@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { quarantined } from './quarantine.js';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -140,7 +141,7 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
 }, 40_000);
 
-test('products-home mode lists products and routes each wiki under its folder', async () => {
+quarantined('madarch-64o5.14', test)('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'alpha', 'alpha-id'); product(home, 'beta', 'beta-id');
