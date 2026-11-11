@@ -8,6 +8,7 @@ import { renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { FakeGraph } from './fake-graph.js';
 import { createRecordSchema } from '../src/graph/records.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
@@ -21,31 +22,33 @@ for (const file of STARTER_FILES) {
 }
 const manifest = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', folder);
 
-test('the loop kinds declare complete agent-bound graph contracts with product-owned source paths', () => {
+test('the loop kinds declare complete authored contracts and explicit import locations', () => {
   expect(manifest.findings).toEqual([]);
-  const contracts = {
-    question: ['producer', 'slug', 'file', 'title', 'language', 'type', 'status', 'about', 'asked_in', 'asked_at', 'question', 'why', 'sides', 'answer', 'resolved_by', 'resolved_at', 'written_at'],
-    correction: ['producer', 'slug', 'file', 'title', 'status', 'about', 'statement', 'correction_reason', 'by', 'at', 'resolved_by', 'resolved_at'],
-    task: ['slug', 'file', 'title', 'status', 'question', 'answer', 'problem', 'grounds', 'scope', 'by', 'at', 'closed_by', 'closed_at'],
-    'problem-dismissal': ['rule', 'identity', 'place', 'dismissal_reason', 'by', 'at', 'file'],
-  };
-  for (const [name, names] of Object.entries(contracts)) {
+  for (const name of ['question', 'correction', 'task']) {
     const kind = manifest.kinds.get(name)!;
     expect(kind.source).toBe('graph');
+    expect(kind.origin).toBe('person');
     expect(kind.folder).toBeUndefined();
-    expect(kind.key).toEqual(name === 'problem-dismissal' ? ['rule', 'identity'] : ['slug']);
-    expect(kind.fields!.map((field) => field.name)).toEqual(names);
-    for (const field of kind.fields!) {
-      expect(field.binding?.kind).toBe('agent');
-      if (field.binding?.kind === 'agent') expect(field.binding.description).toContain(name === 'problem-dismissal' ? 'docs/problems/**/*.md' : `docs/${name}s/**/*.md`);
-    }
-    if (name === 'question' || name === 'correction') {
-      expect(kind.fields!.find((field) => field.name === 'resolved_at')).toMatchObject({ type: 'timestamp', nullable: true });
-      expect(kind.fields!.find((field) => field.name === 'resolved_by')).toMatchObject({ type: 'json' });
-    }
+    expect(kind.key).toBeUndefined();
+    expect(manifestContractOf(manifest).vertex.find((vertex) => vertex.name === name)?.key).toEqual([]);
+    expect(kind.importFolder).toBe(`docs/${name}s`);
+    expect(kind.fields).toEqual([
+      { name: 'legacy_id', type: 'text', nullable: true, producers: ['person'] },
+      { name: 'title', type: 'text', producers: ['person'] },
+      { name: 'body', type: 'text', nullable: true, producers: ['person'] },
+      { name: 'front', type: 'json', nullable: true, producers: ['person'] },
+    ]);
   }
-  expect(manifest.kinds.get('question')!.fields!.find((field) => field.name === 'answer')).toMatchObject({ type: 'json', nullable: true });
-  expect(manifest.kinds.get('correction')!.fields!.find((field) => field.name === 'about')).toMatchObject({ type: 'text' });
+  const dismissal = manifest.kinds.get('problem-dismissal')!;
+  expect(dismissal.source).toBe('graph');
+  expect(dismissal.origin).toBe('person');
+  expect(dismissal.folder).toBeUndefined();
+  expect(dismissal.key).toEqual(['rule', 'identity']);
+  expect(dismissal.fields!.map((field) => field.name)).toEqual(['rule', 'identity', 'place', 'dismissal_reason', 'by', 'at', 'file']);
+  for (const field of dismissal.fields!) {
+    expect(field.binding?.kind).toBe('agent');
+    if (field.binding?.kind === 'agent') expect(field.binding.description).toContain('docs/problems/**/*.md');
+  }
 });
 
 test('document and template opinions declare complete structured content rather than a raw reader', () => {
@@ -108,9 +111,10 @@ test('loop pages show structured graph opinions without reading loop Markdown fi
 
 
 test('the starter opinion contract creates real PostgreSQL tables without reserved-column collisions', async () => {
-  const owner = await createTestDatabaseOwner();
+  const contract = manifestContractOf(manifest);
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(contract) });
   try {
-    await createRecordSchema(owner, manifestContractOf(manifest));
+    await createRecordSchema(owner, contract);
   } finally {
     await owner.close();
   }
