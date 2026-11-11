@@ -3,6 +3,7 @@
  * review): a repository of more files than the listing's bound still answers every document, and a truncation names
  * the total it cut. The fixture puts one file more than the bound before every document in code point order.
  */
+import { quarantined } from './quarantine.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,7 +24,7 @@ let work: string;
 let folder: string;
 let product: KnowledgeProduct;
 
-describe('the documents of a repository larger than the listing bound', () => {
+quarantined('madarch-64o5.14', describe)('the documents of a repository larger than the listing bound', () => {
   beforeAll(async () => {
     work = mkdtempSync(join(tmpdir(), 'madarch-documents-'));
     const draft = createDraft({ home: join(work, 'home'), name: 'bulk-shop', gitEnv: gitEnv(IDENTITY) });

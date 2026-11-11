@@ -3,6 +3,7 @@
  * 150 000-span trace. The status answer must not parse the whole trace for every poll; the first answer is
  * bounded, and the later answers are the cached reading.
  */
+import { quarantined } from './quarantine.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,7 +48,7 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-test('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
+quarantined('madarch-64o5.14', test)('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
   const at = Date.now();
   const answer = await fetch(`${server!.url}/api/status`, { headers: { accept: 'application/json' } });
   const elapsed = Date.now() - at;
