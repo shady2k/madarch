@@ -1,0 +1,208 @@
+/**
+ * The consistency plugin's engine side (madarch-stm0.7.1): a whole-graph plugin is planned in its own stage only after
+ * every plugin turn published, reads the writer's records through the host one bounded page at a time, and answers one
+ * finding per problem. The plugin here is the test's own fixture, not a product's: the engine holds no product plugin.
+ */
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseDocument } from 'yaml';
+import type { DatabaseOwner } from '../src/adapters/database-owner.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { makeProduct } from './knowledge-fixture.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
+import { readKinds } from '../src/knowledge/kinds.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { runFill } from '../src/fill/run.js';
+import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
+import { removedEdgeEnds, unresolvedReferences } from '../src/graph/index.js';
+import { generatedTableName } from '../src/graph/contract.js';
+import { closureOf } from '../src/plugin/closure.js';
+
+const FIXTURE = join(import.meta.dir, 'fixtures', 'plugin-consistency');
+let root = '';
+let product = '';
+let repositoryFolder = '';
+let fixtureClosure = '';
+let owner: DatabaseOwner | undefined;
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+/** Add the fixture plugin, its two kinds, its rules and its lock to the starter product the test holds. */
+function addConsistency(folder: string): string {
+  cpSync(FIXTURE, join(folder, 'plugins', 'plugin-consistency'), { recursive: true });
+  const closure = closureOf(join(folder, 'plugins', 'plugin-consistency')).hash;
+  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+  const document = parseDocument(readFileSync(kindsFile, 'utf8'));
+  document.deleteIn(['catalog']);
+  document.setIn(['kinds', 'probe.finding'], document.createNode({
+    template: 'templates/item-plain.liquid', source: 'graph', findings: true,
+    'depends-on': ['code.file'],
+    labels: { en: { one: 'Probe finding', many: 'Probe findings' }, ru: { one: 'Находка', many: 'Находки' } },
+    fields: [
+      { name: 'id', type: 'text', binding: 'plugin-consistency@1.id' },
+      { name: 'rule', type: 'text', binding: 'plugin-consistency@1.rule' },
+      { name: 'subject', type: 'text', binding: 'plugin-consistency@1.subject' },
+      { name: 'target', type: 'text', nullable: true, binding: 'plugin-consistency@1.target' },
+      { name: 'cause', type: 'text', binding: 'plugin-consistency@1.cause' },
+      { name: 'severity', type: 'text', nullable: true, binding: 'plugin-consistency@1.severity' },
+    ],
+    key: ['id'],
+  }));
+  document.setIn(['kinds', 'probe.opinion'], document.createNode({
+    template: 'templates/item-plain.liquid', source: 'graph', 'depends-on': ['code.file'],
+    labels: { en: { one: 'Probe opinion', many: 'Probe opinions' }, ru: { one: 'Утверждение', many: 'Утверждения' } },
+    fields: [
+      { name: 'id', type: 'text', binding: 'plugin-consistency@1.id' },
+      { name: 'first', type: 'text', nullable: true, binding: 'plugin-consistency@1.first' },
+      { name: 'second', type: 'text', nullable: true, binding: 'plugin-consistency@1.second' },
+    ],
+    key: ['id'],
+  }));
+  const plugins = document.getIn(['plugins']) as { toJSON?: () => unknown[] } | undefined;
+  const list = Array.isArray(plugins) ? plugins : [];
+  list.push(document.createNode({ id: 'plugin-consistency', version: 1, path: 'plugins/plugin-consistency', inputs: ['code.file'], outputs: ['probe.finding', 'probe.opinion'], closure: ['plugins/plugin-consistency/contract.json', 'plugins/plugin-consistency/main.ts', 'plugins/plugin-consistency/plugin.json'] }));
+  document.setIn(['plugins'], document.createNode(list));
+  for (const [id, predicate, severity, label] of [
+    ['missing-reference', 'findings', 'major', 'Reference to a missing key'],
+    ['dangling-reference', 'findings', 'major', 'Edge end names a missing key'],
+    ['removed-end', 'findings', 'major', 'Edge ends at a removed vertex'],
+    ['unevidenced-opinion', 'findings', 'minor', 'Opinion without evidence'],
+  ] as const) {
+    document.setIn(['problems', 'rules', id], document.createNode({ predicate, kind: id, sonar: 'bug', severity, section: 'code', action: 'task', enabled: true, label: { en: label, ru: label } }));
+  }
+  writeFileSync(kindsFile, document.toString());
+  const lockFile = join(folder, 'madarch', 'plugins.lock');
+  writeFileSync(lockFile, `${readFileSync(lockFile, 'utf8').trimEnd()}\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
+  return closure;
+}
+
+/** The findings the fixture plugin stated, as the Problems page reads them. */
+async function findings(): Promise<{ rule: string; subject: string; target: string; cause: string }[]> {
+  if (owner === undefined) throw new Error('the store was not opened');
+  const table = generatedTableName('probe.finding', 'vertex');
+  const found = await owner.transaction('snapshot', async (tx) => await tx.query<{ rule: string; subject: string; target: string; cause: string }>(
+    `SELECT o.rule AS rule, o.subject AS subject, o.target AS target, o.cause AS cause FROM ${table} o WHERE o.state = 'open' ORDER BY o.id`,
+  ));
+  return found.rows;
+}
+
+beforeAll(async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-consistency-'));
+  const repository = join(root, 'repo');
+  repositoryFolder = repository;
+  mkdirSync(join(repository, 'src'), { recursive: true });
+  mkdirSync(join(repository, 'docs'), { recursive: true });
+  writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
+  writeFileSync(join(repository, 'docs', 'glossary.md'), '# Terms\n\n- **Fill** — the one run that reads a product.\n');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repository });
+  execFileSync('git', ['add', '-A'], { cwd: repository });
+  execFileSync('git', ['-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'one'], { cwd: repository });
+  const home = join(root, 'home');
+  mkdirSync(home, { recursive: true });
+  product = makeProduct(home, 'consistency', repository, 'repo');
+  seedStarterSet(product);
+  fixtureClosure = addConsistency(product);
+  git(product, 'add', '-A');
+  git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the product');
+  owner = await createTestDatabaseOwner({ btreeGist: true });
+});
+
+afterAll(async () => {
+  await owner?.close();
+  if (root !== '') rmSync(root, { recursive: true, force: true });
+});
+
+describe('a whole-graph fixture plugin reads through the host and runs last', () => {
+  test('a consistent fill states no finding', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'consistent', home: join(root, 'home') });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.state).toBe('succeeded');
+    // The whole-graph turn is its own stage, planned after the plugin turns published.
+    expect(run.units.filter((unit) => unit.stageId === 'whole-graph-turns').length).toBe(1);
+    expect(await findings()).toEqual([]);
+  }, 300_000);
+
+  test('two unevidenced fields of one entity are two findings, not one key twice', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const read = readKinds(product);
+    if (!read.present) throw new Error('manifest absent');
+    const contract = graphContractOf(read.manifest);
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' }],
+      removals: [],
+    }, 1));
+    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.opinion'] }, runId: 'unevidenced', home: join(root, 'home') });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.state).toBe('succeeded');
+    const found = (await findings()).filter((one) => one.rule === 'unevidenced-opinion');
+    expect(found.map((one) => one.target)).toEqual(['plugin-consistency@1.0.0:first:184', 'plugin-consistency@1.0.0:second:184']);
+  }, 300_000);
+
+  test('one dangling edge and one reference to a missing key are exactly two findings, and a fix clears them', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const read = readKinds(product);
+    if (!read.present) return;
+    const contract = graphContractOf(read.manifest);
+    for (const producer of ['git-tree', 'linguist']) {
+      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src/a.ts' }, producer }, 1))).toBe(true);
+    }
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
+      removals: [],
+    }, 1));
+    expect((await unresolvedReferences(owner, { limit: 10 })).rows.map((one) => one.edge === undefined ? 'key' : 'edge')).toEqual(['key']);
+    expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['contains']);
+    const alone = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home') });
+    expect(alone.ok).toBe(true);
+    if (!alone.ok) return;
+    expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:whole-graph@')]);
+    expect((await findings()).map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
+    // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [
+        { kind: 'repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
+        { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
+      ],
+      removals: [],
+    }, 1));
+    writeFileSync(join(repositoryFolder, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(repositoryFolder, 'add', '-A');
+    git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
+    const fixed = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'fixed', home: join(root, 'home') });
+    expect(fixed.ok).toBe(true);
+    if (!fixed.ok) return;
+    expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);
+  }, 300_000);
+  test('a reference leaves the read when its target stands, and the read pages by a cursor', async () => {
+    if (owner === undefined) throw new Error('the store was not opened');
+    const read = readKinds(product);
+    if (!read.present) return;
+    const contract = graphContractOf(read.manifest);
+    const fileVertex = (name: string) => ({ kind: 'file', key: { repository: { kind: 'repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [fileVertex('page-a'), fileVertex('page-b')], removals: [] }, 1));
+    const first = await unresolvedReferences(owner, { limit: 1 });
+    expect(first.rows).toHaveLength(1);
+    expect(first.next).toBeDefined();
+    const second = await unresolvedReferences(owner, { after: first.next, limit: 1 });
+    expect(second.rows).toHaveLength(1);
+    // The target stands now: the row the writer kept is no longer a problem, while the other still is.
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
+    const after = await unresolvedReferences(owner, { limit: 10 });
+    expect(after.rows.map((one) => one.target.label)).toEqual(['page-b']);
+    await owner.transaction('write', async (tx) => {
+      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
+      for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b') OR key->>'name' IN ('page-a', 'page-b'))`);
+      await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b')`);
+      await tx.query(`DELETE FROM node WHERE key->>'name' IN ('page-a', 'page-b')`);
+    });
+  }, 120_000);
+
+});

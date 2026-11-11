@@ -35,8 +35,10 @@ const DOCUMENT_PREDICATES = [
 
 /** The wiki section reads its findings from the loop's own files; every wiki rule names this predicate. */
 const WIKI_PREDICATE = 'wiki';
+/** A producer's findings are problems the product's rules declare; this predicate runs no section rule of its own. */
+const FINDINGS_PREDICATE = 'findings';
 
-export const PREDICATES: readonly string[] = [...CODE_PREDICATES, ...DOCUMENT_PREDICATES, WIKI_PREDICATE];
+export const PREDICATES: readonly string[] = [...CODE_PREDICATES, ...DOCUMENT_PREDICATES, WIKI_PREDICATE, FINDINGS_PREDICATE];
 
 /** Every rule the product declares, with its id, in the manifest's order of ids. */
 export function ruleSpecs(settings: ProblemSettings): RuleSpec[] {

@@ -666,6 +666,29 @@ export async function readUnitStates(database: FillStateDatabase): Promise<Map<s
   }, 'snapshot');
 }
 
+/**
+ * Whether every unit of one stage in the product's live run has ended (madarch-stm0.7.1, piece 3): a whole-graph turn is
+ * planned only after the plugin turns it reads have published. A product with no live run, and a live run with no unit of
+ * the stage, answer true: there is nothing to wait for.
+ */
+export async function stageSettled(database: FillStateDatabase, product: string, stageId: string): Promise<boolean> {
+  const at = here();
+  return run(at, database, `stageSettled(${product}, ${stageId})`, ['fill_run', 'fill_unit', 'fill_unit_generation'], async (executor) => {
+    const active = await executor.query<{ run_id: string }>(
+      "SELECT run_id FROM fill_run WHERE product = $1 AND state IN ('planning', 'running', 'pausing') ORDER BY created_at DESC LIMIT 1",
+      [product],
+    );
+    const runId = active.rows[0]?.run_id;
+    if (runId === undefined) return true;
+    const held = await executor.query<{ state: string }>(
+      'SELECT g.state AS state FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.product = $1 AND u.stage_id = $2 AND g.run_id = $3',
+      [product, stageId, runId],
+    );
+    const settled = new Set(['published', 'superseded', 'failed', 'cancelled', 'stale', 'blocked']);
+    return held.rows.every((row) => settled.has(row.state));
+  }, 'snapshot');
+}
+
 export async function readRunUnits(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {

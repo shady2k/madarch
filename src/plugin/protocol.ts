@@ -134,8 +134,9 @@ export const PluginFieldDeclaration = Type.Object(
     meaning: Type.String({ minLength: 1, description: 'What the field is, in plain words, for the person binding it in the manifest.' }),
     example: Type.Unknown({ description: 'One value the field holds, as an example.' }),
     required: Type.Boolean({ description: 'Whether the plugin cannot run without it: a kind\'s natural key and every field its reading needs.' }),
+    evidence: Type.Optional(Type.Boolean({ description: 'Whether an opinion of this field must carry evidence (madarch-stm0.7.1): the host\'s unevidenced read reports an opinion of this field that states none, and a field that declares nothing is not reported.' })),
   },
-  { additionalProperties: false, description: 'One field of a declared kind: its type, its meaning, an example and whether it is required. Every value a producer states of it is an opinion.' },
+  { additionalProperties: false, description: 'One field of a declared kind: its type, its meaning, an example, whether it is required and whether its opinions must carry evidence. Every value a producer states of it is an opinion.' },
 );
 
 /** One vertex kind the plugin declares it produces. */
@@ -169,20 +170,40 @@ export const PluginContractDeclaration = Type.Object(
   { additionalProperties: false, description: 'The outputs a plugin declares: every kind, field and edge kind a result may name.' },
 );
 
+/** One graph read a plugin may declare: its name. */
+export const PluginGraphRead = Type.Union(
+  [Type.Literal('files'), Type.Literal('value'), Type.Literal('unresolved'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
+  { description: 'One graph read the host answers: files and value are the unit reads, unresolved and removedEnds the writer\'s consistency records, and unevidenced the opinions whose field requires evidence.' },
+);
+
 /**
  * The rights a plugin asks for (decision 0035, item 9): the network profile, whether it reads the graph through the
  * host's queries, and whether it may see the repository snapshot at all. A right it does not declare is one the host
  * grants it nothing for: only the files producer — the reader of the source filesystem and git — declares the
  * repository, and the glossary reads the file vertices and their content from the graph, never a folder.
+ *
+ * `graphReads` names the queries the graph right covers; absent, a plugin that declares `graph: true` reads `files`
+ * and `value`, the two reads a unit plugin has always had. A read it does not name is refused by name, so the
+ * consistency reads the writer keeps are a capability a plugin has to declare.
  */
 export const PluginRights = Type.Object(
   {
     network: Type.Union([Type.Literal('none')], { description: 'The network profile. "none" is the only one this build runs: the network namespace is unshared and socket creation refused.' }),
-    graph: Type.Optional(Type.Boolean({ description: 'Whether the plugin reads the graph through the host\'s read-only queries (`graph.files`, `graph.value`); absent, it may not.' })),
+    graph: Type.Optional(Type.Boolean({ description: 'Whether the plugin reads the graph through the host\'s read-only queries (`graph.files`, `graph.value`, and the reads `graphReads` names); absent, it may not.' })),
+    graphReads: Type.Optional(Type.Array(PluginGraphRead, { description: 'The graph reads the right covers: files, value, unresolved, removedEnds and unevidenced; absent, files and value.' })),
     filesystem: Type.Optional(Type.Boolean({ description: 'Whether the plugin sees the repository snapshot read-only at /repo; absent, it sees no repository at all.' })),
   },
   { additionalProperties: false, description: 'The rights a plugin declares it needs: its network profile, graph reads and the repository snapshot.' },
 );
+
+/**
+ * The graph reads a contract's rights grant: the names it declared, or `files` and `value` for a plugin that declared
+ * `graph: true` without naming reads. A plugin that declared no graph right grants none.
+ */
+export function graphReadsOf(rights: PluginRights | undefined): readonly PluginGraphRead[] {
+  if (rights?.graph !== true) return [];
+  return rights.graphReads === undefined ? ['files', 'value'] : [...new Set(rights.graphReads)];
+}
 
 /**
  * The contract a plugin keeps in its own folder (`contract.json`), the same
@@ -198,8 +219,9 @@ export const PluginContractFile = Type.Object(
     version: Type.String({ minLength: 1, description: 'The plugin\'s semantic version, the one the lock records.' }),
     outputs: PluginContractDeclaration,
     rights: Type.Optional(PluginRights),
+    reads: Type.Optional(Type.Union([Type.Literal('unit'), Type.Literal('whole-graph')], { description: 'What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn ("whole-graph"). The introduction repeats it.' })),
   },
-  { additionalProperties: false, description: 'A plugin folder\'s contract: its id, its version and the outputs its introduction declares.' },
+  { additionalProperties: false, description: 'A plugin folder\'s contract: its id, its version, the outputs its introduction declares and what it reads.' },
 );
 
 /** What the plugin declares about its own work. */
@@ -220,8 +242,9 @@ export const PluginIntroduce = Type.Object(
     rights: PluginRights,
     limits: Type.Optional(PluginLimits),
     outputs: PluginContractDeclaration,
+    reads: Type.Optional(Type.Union([Type.Literal('unit'), Type.Literal('whole-graph')], { description: 'What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn ("whole-graph"). A whole-graph plugin is planned once, last, and planned again when anything it read moved.' })),
   },
-  { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights and limits.' },
+  { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights, limits and what it reads.' },
 );
 
 /** One read-only query of the graph: the file vertices whose path matches a pattern (decision 0035, item 15). */
@@ -240,6 +263,66 @@ export const PluginGraphValueRequest = Type.Object(
     field: Type.String({ minLength: 1, description: 'The field the vertex holds (`content`).' }),
   },
   { additionalProperties: false, description: 'A query for one field of one vertex.' },
+);
+
+/** One entity the host names in an answer: its kind, its key values and a label a person can read. */
+export const PluginGraphAddress = Type.Object(
+  {
+    kind: Type.String({ minLength: 1, description: 'The entity\'s kind, the graph\'s own name (`code.file`).' }),
+    key: PluginKeyValues,
+    label: Type.String({ description: 'The entity as a person reads it: its key values joined, or its kind when it has no key.' }),
+  },
+  { additionalProperties: false, description: 'One entity in a graph answer: its kind, its key and a readable label.' },
+);
+
+/** One edge an unresolved reference or a removed end names, with the end that stands. */
+export const PluginGraphEdgeAddress = Type.Object(
+  {
+    kind: Type.String({ minLength: 1 }),
+    from: Type.Optional(PluginGraphAddress),
+    to: Type.Optional(PluginGraphAddress),
+    discriminator: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false, description: 'An edge by its kind and the ends that stand, when they do.' },
+);
+
+/**
+ * One reference the writer recorded and no vertex holds (the `unresolved_reference` table): a key reference (a
+ * vertex's key field names a missing entity) or an edge end (an edge names a missing entity). The referrer is the
+ * vertex whose key holds the reference, or the other end of an edge; `edge` is present only for an edge end.
+ */
+export const PluginGraphUnresolvedReference = Type.Object(
+  {
+    referrer: Type.Optional(PluginGraphAddress),
+    edge: Type.Optional(PluginGraphEdgeAddress),
+    field: Type.String({ minLength: 1, description: 'The key field or the edge end (`from` or `to`) that names the missing entity.' }),
+    target: PluginGraphAddress,
+    producer: Type.String({ minLength: 1, description: 'The producer and version that named the reference.' }),
+    against: Type.Optional(PluginGraphAddress),
+  },
+  { additionalProperties: false, description: 'A reference the writer recorded and no vertex holds.' },
+);
+
+/** One edge whose end is removed: it stands in the graph, and the vertex it names does not. */
+export const PluginGraphRemovedEnd = Type.Object(
+  {
+    edge: PluginGraphEdgeAddress,
+    from: PluginGraphAddress,
+    to: PluginGraphAddress,
+    removed: Type.Array(Type.Union([Type.Literal('from'), Type.Literal('to')]), { description: 'The ends that are removed.' }),
+  },
+  { additionalProperties: false, description: 'An edge whose end is removed.' },
+);
+
+/** One open opinion that states a field whose contract requires evidence, and rests on none. */
+export const PluginGraphUnevidencedOpinion = Type.Object(
+  {
+    entity: PluginGraphAddress,
+    field: Type.String({ minLength: 1 }),
+    producer: Type.String({ minLength: 1 }),
+    opinion: Type.String({ description: 'The opinion\'s own id, one sequence for the whole graph.' }),
+  },
+  { additionalProperties: false, description: 'One unevidenced opinion of a field whose contract requires evidence.' },
 );
 
 /** The unit the host hands a plugin: what to read, named by kind and key. */
@@ -298,6 +381,20 @@ const UnitRequestMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId
 const ControlRequest = (method: 'pause' | 'resume' | 'stop') => Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal(method), params: Type.Optional(Type.Unknown()) }, { additionalProperties: false, description: `The host asks the plugin to ${method}.` });
 const GraphFilesMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.files'), params: PluginGraphFilesRequest }, { additionalProperties: false, description: 'The plugin asks the host for the file vertices whose path matches a pattern.' });
 const GraphValueMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.value'), params: PluginGraphValueRequest }, { additionalProperties: false, description: 'The plugin asks the host for one field of one vertex.' });
+/**
+ * One page of the writer's consistency records: the cursor a previous answer named, and the most rows this page may
+ * hold. The host bounds the size, so a plugin walks a large store one page at a time.
+ */
+export const PluginGraphPageRequest = Type.Object(
+  {
+    after: Type.Optional(Type.String({ description: 'The cursor the previous answer named; absent, the first page.' })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1_000, description: 'The most rows this page may hold; the host bounds it.' })),
+  },
+  { additionalProperties: false, description: 'One page asked of a consistency read: a cursor and a bound.' },
+);
+const GraphUnresolvedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unresolved'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the references the writer recorded and no vertex holds.' });
+const GraphRemovedEndsMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.removedEnds'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the edges whose end is removed.' });
+const GraphUnevidencedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unevidenced'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the open opinions of fields whose contract requires evidence and that state none.' });
 
 /** One notification either side sends, with its own params. */
 const HeartbeatMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('heartbeat'), params: Type.Optional(PluginHeartbeat) }, { additionalProperties: false, description: 'The plugin is alive while a unit runs.' });
@@ -318,6 +415,9 @@ export const PluginProtocolMessage = Type.Union(
     UnitRequestMessage,
     GraphFilesMessage,
     GraphValueMessage,
+    GraphUnresolvedMessage,
+    GraphRemovedEndsMessage,
+    GraphUnevidencedMessage,
     ControlRequest('pause'),
     ControlRequest('resume'),
     ControlRequest('stop'),
@@ -353,6 +453,13 @@ export type PluginFieldDeclaration = Static<typeof PluginFieldDeclaration>;
 export type PluginContractFile = Static<typeof PluginContractFile>;
 export type PluginGraphFilesRequest = Static<typeof PluginGraphFilesRequest>;
 export type PluginGraphValueRequest = Static<typeof PluginGraphValueRequest>;
+export type PluginGraphPageRequest = Static<typeof PluginGraphPageRequest>;
+export type PluginGraphAddress = Static<typeof PluginGraphAddress>;
+export type PluginGraphEdgeAddress = Static<typeof PluginGraphEdgeAddress>;
+export type PluginGraphUnresolvedReference = Static<typeof PluginGraphUnresolvedReference>;
+export type PluginGraphRemovedEnd = Static<typeof PluginGraphRemovedEnd>;
+export type PluginGraphUnevidencedOpinion = Static<typeof PluginGraphUnevidencedOpinion>;
+export type PluginGraphRead = Static<typeof PluginGraphRead>;
 export type PluginKeyValues = Static<typeof PluginKeyValues>;
 export type PluginHeartbeat = Static<typeof PluginHeartbeat>;
 export type PluginProgress = Static<typeof PluginProgress>;

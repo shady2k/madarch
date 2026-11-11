@@ -20,6 +20,7 @@ import { readCodeSnapshot, evaluateCode } from './code.js';
 import { evaluateDocuments } from './documents.js';
 import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } from './types.js';
 import { unimplementedRuleNotes } from './rules.js';
+import { entityAddress } from '../knowledge/addresses.js';
 
 export interface CollectInput {
   readonly productFolder: string;
@@ -28,6 +29,8 @@ export interface CollectInput {
   readonly files: ProductFileSource;
   readonly manifest: KindsManifest;
   readonly graph: GraphReader;
+  /** The kinds the product's manifest declares as its findings kinds (`findings: true`): the engine names none. */
+  readonly findingKinds?: readonly string[];
   readonly settings: ProblemSettings;
   readonly resolve: (url: string) => Promise<Resolution>;
   readonly findings: readonly Finding[];
@@ -74,6 +77,30 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     notes.push(...judged.notes);
   } catch (error) {
     notes.push({ message: `the documents section could not be judged: ${(error as Error).message}` });
+  }
+  // What a producer stated about the graph's own consistency: the product's findings kinds hold one entity a finding
+  // (madarch-stm0.7.1). The engine reads the kind's declared fields, and a kind that declares nothing is no findings kind.
+  try {
+    for (const kind of input.findingKinds ?? []) {
+      const found = await input.graph.byPrefix(kind, `${kind}:`, 5_000);
+      for (const entity of found.rows) {
+        const rule = typeof entity.properties['rule'] === 'string' ? entity.properties['rule'] : 'consistency';
+        const subject = typeof entity.properties['subject'] === 'string' ? entity.properties['subject'] : '';
+        const cause = typeof entity.properties['cause'] === 'string' ? entity.properties['cause'] : entity.label;
+        drafts.push({
+          section: 'code', rule, kind: 'bug', sonar: 'bug',
+          severity: entity.properties['severity'] === 'blocker' || entity.properties['severity'] === 'critical' || entity.properties['severity'] === 'major' || entity.properties['severity'] === 'minor' || entity.properties['severity'] === 'info' ? entity.properties['severity'] : 'major',
+          fixer: 'person', closed: false, reason: cause, file: '', line: null, page: null, pageTitle: null,
+          statement: null, sentence: null, target: subject === '' ? null : subject,
+          place: { label: kind, href: null, key: entity.key },
+          entity: subject === '' ? null : { label: subject, href: entityAddress(subject), key: subject },
+          evidence: [], by: null, at: null, identity: entity.key,
+        });
+      }
+      if (found.total > found.rows.length) notes.push({ message: `the consistency section reads the first ${String(found.rows.length)} of ${String(found.total)} findings: the rest are not shown` });
+    }
+  } catch (error) {
+    notes.push({ message: `the consistency section could not be read: ${(error as Error).message}` });
   }
   // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
   notes.push(...unimplementedRuleNotes(input.settings));

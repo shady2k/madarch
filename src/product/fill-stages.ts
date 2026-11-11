@@ -85,6 +85,8 @@ import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageRegistry } from '../fill/stages/index.js';
+import { stageSettled } from '../fill/state-store.js';
+import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import { MANIFEST_FILE, type ProductIdentity } from './manifest.js';
@@ -120,6 +122,8 @@ export interface StagesFillOptions {
    * a plugin to, as a whole fill does.
    */
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  /** The plugin closures this fill trusts beside the release's. */
+  readonly releaseHashes?: readonly string[];
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -213,7 +217,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);

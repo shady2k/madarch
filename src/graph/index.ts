@@ -11,3 +11,4 @@ export {
   type DeclaredKinds, type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
   type TreeFile, type TreeGitlink, type TreePublish,
 } from './records.js';
+export { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from './consistency.js';

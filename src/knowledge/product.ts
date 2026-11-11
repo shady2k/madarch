@@ -3225,6 +3225,7 @@ export class KnowledgeProduct {
       productFolder: this.options.productFolder, owner, files, manifest: context.manifest,
       // The Problems page reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
       graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, graphKindsOf(context.manifest).declared, graphKindsOf(context.manifest).generated),
+      findingKinds: [...context.manifest.kinds.values()].filter((kind) => kind.findings === true).map((kind) => kind.name).sort(),
       settings: context.manifest.problems ?? defaultSettings(),
       ...(repository === undefined ? {} : { repository }),
       resolve: (url) => context.ctx.resolver.resolve(url), findings: [...context.findings, ...dismissals.problems.map((problem) => ({ file: problem.file, line: problem.line, message: problem.message }))],

@@ -68,7 +68,36 @@
                 },
                 "graph": {
                   "type": "boolean",
-                  "description": "Whether the plugin reads the graph through the host's read-only queries (`graph.files`, `graph.value`); absent, it may not."
+                  "description": "Whether the plugin reads the graph through the host's read-only queries (`graph.files`, `graph.value`, and the reads `graphReads` names); absent, it may not."
+                },
+                "graphReads": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "files"
+                      },
+                      {
+                        "type": "string",
+                        "const": "value"
+                      },
+                      {
+                        "type": "string",
+                        "const": "unresolved"
+                      },
+                      {
+                        "type": "string",
+                        "const": "removedEnds"
+                      },
+                      {
+                        "type": "string",
+                        "const": "unevidenced"
+                      }
+                    ],
+                    "description": "One graph read the host answers: files and value are the unit reads, unresolved and removedEnds the writer's consistency records, and unevidenced the opinions whose field requires evidence."
+                  },
+                  "description": "The graph reads the right covers: files, value, unresolved, removedEnds and unevidenced; absent, files and value."
                 },
                 "filesystem": {
                   "type": "boolean",
@@ -179,10 +208,14 @@
                             "required": {
                               "type": "boolean",
                               "description": "Whether the plugin cannot run without it: a kind's natural key and every field its reading needs."
+                            },
+                            "evidence": {
+                              "type": "boolean",
+                              "description": "Whether an opinion of this field must carry evidence (madarch-stm0.7.1): the host's unevidenced read reports an opinion of this field that states none, and a field that declares nothing is not reported."
                             }
                           },
                           "additionalProperties": false,
-                          "description": "One field of a declared kind: its type, its meaning, an example and whether it is required. Every value a producer states of it is an opinion."
+                          "description": "One field of a declared kind: its type, its meaning, an example, whether it is required and whether its opinions must carry evidence. Every value a producer states of it is an opinion."
                         },
                         "description": "The fields it writes beside the key."
                       }
@@ -272,10 +305,14 @@
                             "required": {
                               "type": "boolean",
                               "description": "Whether the plugin cannot run without it: a kind's natural key and every field its reading needs."
+                            },
+                            "evidence": {
+                              "type": "boolean",
+                              "description": "Whether an opinion of this field must carry evidence (madarch-stm0.7.1): the host's unevidenced read reports an opinion of this field that states none, and a field that declares nothing is not reported."
                             }
                           },
                           "additionalProperties": false,
-                          "description": "One field of a declared kind: its type, its meaning, an example and whether it is required. Every value a producer states of it is an opinion."
+                          "description": "One field of a declared kind: its type, its meaning, an example, whether it is required and whether its opinions must carry evidence. Every value a producer states of it is an opinion."
                         }
                       }
                     },
@@ -286,10 +323,23 @@
               },
               "additionalProperties": false,
               "description": "The outputs a plugin declares: every kind, field and edge kind a result may name."
+            },
+            "reads": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "unit"
+                },
+                {
+                  "type": "string",
+                  "const": "whole-graph"
+                }
+              ],
+              "description": "What the plugin reads: one unit at a time (\"unit\", the default), or the whole graph once after every other plugin turn (\"whole-graph\"). A whole-graph plugin is planned once, last, and planned again when anything it read moved."
             }
           },
           "additionalProperties": false,
-          "description": "The plugin's introduction: its contract, version, rights and limits."
+          "description": "The plugin's introduction: its contract, version, rights, limits and what it reads."
         }
       },
       "additionalProperties": false,
@@ -492,6 +542,153 @@
       },
       "additionalProperties": false,
       "description": "The plugin asks the host for one field of one vertex."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "graph.unresolved"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "after": {
+              "type": "string",
+              "description": "The cursor the previous answer named; absent, the first page."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "description": "The most rows this page may hold; the host bounds it."
+            }
+          },
+          "additionalProperties": false,
+          "description": "One page asked of a consistency read: a cursor and a bound."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for one page of the references the writer recorded and no vertex holds."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "graph.removedEnds"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "after": {
+              "type": "string",
+              "description": "The cursor the previous answer named; absent, the first page."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "description": "The most rows this page may hold; the host bounds it."
+            }
+          },
+          "additionalProperties": false,
+          "description": "One page asked of a consistency read: a cursor and a bound."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for one page of the edges whose end is removed."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "graph.unevidenced"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "after": {
+              "type": "string",
+              "description": "The cursor the previous answer named; absent, the first page."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "description": "The most rows this page may hold; the host bounds it."
+            }
+          },
+          "additionalProperties": false,
+          "description": "One page asked of a consistency read: a cursor and a bound."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The plugin asks the host for one page of the open opinions of fields whose contract requires evidence and that state none."
     },
     {
       "type": "object",

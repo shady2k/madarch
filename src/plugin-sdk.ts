@@ -25,6 +25,9 @@
 /** The protocol version this SDK speaks. */
 export const PROTOCOL_VERSION = 'madarch.plugins/2';
 
+/** One graph read a plugin may declare. */
+export type GraphReadName = 'files' | 'value' | 'unresolved' | 'removedEnds' | 'unevidenced';
+
 /** One entity named by its kind and key values. */
 export interface EntityRef {
   readonly kind: string;
@@ -83,12 +86,71 @@ export interface GraphVertex {
   readonly key: Readonly<Record<string, string | number>>;
 }
 
-/** The graph reads a plugin declares and asks for (decision 0035, item 15): files by pattern, and a vertex's field. */
+/** One entity a host answer names: its kind, its key and a label a person reads. */
+export interface GraphAddress {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, string | number>>;
+  readonly label: string;
+}
+
+/** One edge an unresolved reference or a removed end names, with the ends that stand. */
+export interface GraphEdgeAddress {
+  readonly kind: string;
+  readonly from?: GraphAddress;
+  readonly to?: GraphAddress;
+  readonly discriminator?: string;
+}
+
+/** One reference the writer recorded and no vertex holds: a key reference, or an edge end. */
+export interface GraphUnresolvedReference {
+  readonly referrer?: GraphAddress;
+  readonly edge?: GraphEdgeAddress;
+  readonly field: string;
+  readonly target: GraphAddress;
+  readonly producer: string;
+  readonly against?: GraphAddress;
+}
+
+/** One edge whose end is removed. */
+export interface GraphRemovedEnd {
+  readonly edge: GraphEdgeAddress;
+  readonly from: GraphAddress;
+  readonly to: GraphAddress;
+  readonly removed: readonly ('from' | 'to')[];
+}
+
+/** One open opinion of a field whose contract requires evidence and that states none. */
+export interface GraphUnevidencedOpinion {
+  readonly entity: GraphAddress;
+  readonly field: string;
+  readonly producer: string;
+  readonly opinion: string;
+}
+
+/** One page asked of a consistency read: the cursor a previous page named, and a bound. */
+export interface GraphPageQuery {
+  readonly after?: string;
+  readonly limit?: number;
+}
+
+/** One page answered by a consistency read, with the cursor of the next page when one stands. */
+export interface GraphPage<T> {
+  readonly rows: readonly T[];
+  readonly next?: string;
+}
+
+/** The graph reads a plugin declares and asks for (decision 0035, item 15; madarch-stm0.7.1, pieces 2 and 4). */
 export interface GraphReads {
   /** The file vertices whose path matches the pattern (a glossary document in any folder, say), in code point order. */
   files(pattern: string): Promise<GraphVertex[]>;
   /** One field of one vertex: a file's content, as the files producer stored it, never a folder of the product. */
   value<T = unknown>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T>;
+  /** One page of the references the writer recorded and no vertex holds. */
+  unresolved(query?: GraphPageQuery): Promise<GraphPage<GraphUnresolvedReference>>;
+  /** One page of the edges one of whose ends is removed. */
+  removedEnds(query?: GraphPageQuery): Promise<GraphPage<GraphRemovedEnd>>;
+  /** One page of the open opinions of fields whose contract requires evidence and that state none. */
+  unevidenced(query?: GraphPageQuery): Promise<GraphPage<GraphUnevidencedOpinion>>;
 }
 
 /** What `extract` is handed beside the unit: the way back to the host while it works. */
@@ -113,6 +175,8 @@ export interface FieldDeclaration {
   readonly example: unknown;
   /** Whether the plugin cannot run without it: its kind's key and every field its reading needs. */
   readonly required: boolean;
+  /** Whether an opinion of this field must carry evidence: the host reports one that states none. */
+  readonly evidence?: boolean;
 }
 
 /** One vertex kind a plugin declares it produces. */
@@ -151,6 +215,10 @@ export interface PluginDefinition {
   readonly filesystem?: boolean;
   /** Whether the plugin asks the host for graph reads (`context.graph`); absent, it may not. */
   readonly graph?: boolean;
+  /** The graph reads the plugin asks for; absent, files and value. A read not named is refused by name. */
+  readonly graphReads?: readonly GraphReadName[];
+  /** What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn. */
+  readonly reads?: 'unit' | 'whole-graph';
   /** The one function the author writes: the unit in, its answer out. */
   readonly extract: (unit: Unit, context: ExtractContext) => Promise<UnitResult> | UnitResult;
 }
@@ -266,6 +334,9 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
           graph: {
             files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
             value: async (kind, key, field) => await askHost<{ value: unknown }>('graph.value', { kind, key, field }).then((answer) => answer.value as never),
+            unresolved: async (query) => await askHost<{ references: GraphUnresolvedReference[]; next?: string }>('graph.unresolved', query ?? {}).then((answer) => ({ rows: answer.references, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+            removedEnds: async (query) => await askHost<{ edges: GraphRemovedEnd[]; next?: string }>('graph.removedEnds', query ?? {}).then((answer) => ({ rows: answer.edges, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+            unevidenced: async (query) => await askHost<{ opinions: GraphUnevidencedOpinion[]; next?: string }>('graph.unevidenced', query ?? {}).then((answer) => ({ rows: answer.opinions, ...(answer.next === undefined ? {} : { next: answer.next }) })),
           },
         });
         if (!running.has(id)) return;
@@ -329,12 +400,13 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       protocol: PROTOCOL_VERSION,
       name: definition.name,
       version: definition.version,
-      rights: { network: 'none', ...(definition.graph === true ? { graph: true } : {}), ...(definition.filesystem === true ? { filesystem: true } : {}) },
+      rights: { network: 'none', ...(definition.graph === true ? { graph: true } : {}), ...(definition.graphReads === undefined ? {} : { graphReads: definition.graphReads }), ...(definition.filesystem === true ? { filesystem: true } : {}) },
       limits: {
         ...(definition.maxParallelUnits === undefined ? {} : { maxParallelUnits: definition.maxParallelUnits }),
         ...(definition.maxOutputBytes === undefined ? {} : { maxOutputBytes: definition.maxOutputBytes }),
       },
       outputs: definition.contract,
+      reads: definition.reads ?? 'unit',
     },
   };
   send(introduce);

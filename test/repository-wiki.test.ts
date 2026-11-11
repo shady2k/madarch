@@ -127,7 +127,7 @@ git(folder,'commit','-qm','the nested file moves');
       const runSteps = run['steps'] as FillStepView[];
       // The tree, the history, and the plugin turn, which plans one unit per kind whose documents the tree
       // published (decision 0035, items 6 and 15).
-      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns', 'repository-history', 'repository-tree']);
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns', 'repository-history', 'repository-tree', 'whole-graph-turns']);
       for (const step of runSteps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);

@@ -17,7 +17,7 @@ import type { SnapshotSource } from '../snapshot.js';
 import type { RecordPassWiring } from '../steps.js';
 import type { DeclaredKinds } from '../../graph/records.js';
 import { createRepositoryHistoryStage, createRepositoryTreeStage } from './repository-facts.js';
-import { createPluginTurnStage, type GraphOwner, type PluginTurnWiring } from '../plugin-turns.js';
+import { createPluginTurnStage, createWholeGraphTurnStage, type GraphOwner, type PluginTurnWiring } from '../plugin-turns.js';
 
 /** What a run's stages read from outside the graph: pinned repositories and their Git checkouts. */
 export interface FillStageWiring {
@@ -98,6 +98,6 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   registry.register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records, ...kinds }));
   if (wiring.git !== false) registry.register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records, ...kinds }));
   // A product's plugins run after the tree stands: their units are the file vertices it published (decision 0035, item 15).
-  if (wiring.plugins !== undefined) registry.register(createPluginTurnStage(wiring.plugins));
+  if (wiring.plugins !== undefined) registry.register(createPluginTurnStage(wiring.plugins)).register(createWholeGraphTurnStage(wiring.plugins));
   return registry;
 }

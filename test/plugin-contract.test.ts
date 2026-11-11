@@ -27,9 +27,10 @@ function product(manifest: string, contract?: unknown): string {
 
 const CONTRACT = {
   id: 'g', version: '1.0.0',
+  reads: 'whole-graph',
   outputs: { vertices: [{ kind: 'doc.term', key: ['name'], fields: [
     { name: 'name', type: 'text', meaning: 'the term', example: 'x', required: true },
-    { name: 'definition', type: 'text', meaning: 'what it means', example: 'y', required: true },
+    { name: 'definition', type: 'text', meaning: 'what it means', example: 'y', required: true, evidence: true },
     { name: 'rank', type: 'integer', meaning: 'its place', example: 1, required: false },
   ] }], edges: [] },
 };
@@ -69,6 +70,15 @@ describe('a kind\'s table comes from the manifest', () => {
     // The path index an evidence row names stands in the mechanism (`src/graph/one-graph.ts`), not in the contract a
     // manifest's bindings make.
     expect(contract.dictionary).toEqual([]);
+  });
+
+  test('a plugin contract states what it reads and which fields must carry evidence', () => {
+    const folder = product(MANIFEST, CONTRACT);
+    const read = parseKinds(MANIFEST, 'madarch/kinds.yaml', folder);
+    const contract = read.plugins?.get('g')?.contract;
+    expect(contract?.reads).toBe('whole-graph');
+    expect(contract?.vertices[0]?.fields.find((field): boolean => field.name === 'definition')?.evidence).toBe(true);
+    expect(contract?.vertices[0]?.fields.find((field): boolean => field.name === 'rank')?.evidence).toBeUndefined();
   });
 
   test('a reader knows the columns, their types and the key of a kind the manifest makes', () => {

@@ -20,6 +20,7 @@ await definePlugin({
   name: 'plugin-graph',
   version: '1.0.0',
   graph: true,
+  graphReads: ['files', 'value', 'unresolved', 'removedEnds', 'unevidenced'],
   contract: {
     vertices: [{ kind: 'probe', key: ['id'], fields: [] }],
     edges: [],
@@ -34,6 +35,14 @@ await definePlugin({
         return { end: { state: 'partial', cause: `read-graph: ${String(files.length)} files` } };
       } catch (error) {
         return { end: { state: 'partial', cause: `read-graph: refused (${(error as Error).message.slice(0, 80)})` } };
+      }
+    }
+    if (behavior === 'read-consistency') {
+      try {
+        const [references, ends, opinions] = await Promise.all([context.graph.unresolved(), context.graph.removedEnds(), context.graph.unevidenced()]);
+        return { end: { state: 'partial', cause: `read-consistency: ${String(references.rows.length)} refs, ${String(ends.rows.length)} ends, ${String(opinions.rows.length)} opinions` } };
+      } catch (error) {
+        return { end: { state: 'partial', cause: `read-consistency: refused (${(error as Error).message.slice(0, 80)})` } };
       }
     }
     return { end: { state: 'partial', cause: `unknown behaviour ${behavior}` } };

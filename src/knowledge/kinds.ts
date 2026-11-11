@@ -131,6 +131,8 @@ export interface PluginFieldDecl {
   readonly meaning: string;
   readonly example: unknown;
   readonly required: boolean;
+  /** Whether an opinion of this field must carry evidence (madarch-stm0.7.1, piece 4). */
+  readonly evidence?: boolean;
 }
 
 /** One output kind a plugin's own contract declares, with its key and fields. */
@@ -144,6 +146,8 @@ export interface PluginOutputKind {
 export interface PluginContract {
   readonly id: string;
   readonly version: string;
+  /** What the plugin reads: one unit at a time, or the whole graph once after every other plugin turn. */
+  readonly reads: 'unit' | 'whole-graph';
   readonly vertices: readonly PluginOutputKind[];
   readonly file: string;
 }
@@ -236,6 +240,12 @@ export interface KindDecl {
    * a passage of a general kind no kind names is said to be unshown, never dropped silently.
    */
   semantics?: SemanticKind;
+  /**
+   * Whether this kind's entities are findings: what a producer states about the graph's own consistency, read by the
+   * Problems page as problems (madarch-stm0.7.1). The engine names no kind: the product's manifest says which kind is
+   * its findings kind, and a kind that declares nothing is no findings kind.
+   */
+  readonly findings?: boolean;
   /**
    * Document kinds: the sections a section of this kind holds (`Status`, `Context`, `Decision`,
    * `Consequences`): the structure pass reads them, as a heading or as a paragraph that opens with
@@ -509,7 +519,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
-  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history',
+  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
@@ -870,7 +880,7 @@ function readPluginContract(files: ProductFileRead, id: string, path: string, ma
     findings.push({ file, line: jsonLine(text, where.length), message: `the plugin contract ${file} is not a plugin contract: ${first === undefined ? 'it does not fit the protocol' : `${where === '' ? 'the contract' : where.slice(1)} ${first.message}`}` });
     return undefined;
   }
-  const contract = value as { id: string; version: string; outputs: PluginContractDeclaration };
+  const contract = value as { id: string; version: string; outputs: PluginContractDeclaration; reads?: 'unit' | 'whole-graph' };
   if (contract.id !== id) findings.push({ file, line: 1, message: `the plugin contract ${file} declares the id ${JSON.stringify(contract.id)}, and the manifest declares the plugin ${JSON.stringify(id)}` });
   const vertices: PluginOutputKind[] = [];
   for (const vertex of contract.outputs.vertices) {
@@ -887,7 +897,7 @@ function readPluginContract(files: ProductFileRead, id: string, path: string, ma
     }
     vertices.push({ kind: vertex.kind, key: vertex.key ?? [], fields });
   }
-  return { id, version: contract.version, vertices, file };
+  return { id, version: contract.version, reads: contract.reads ?? 'unit', vertices, file };
 }
 
 /** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */
@@ -1237,6 +1247,8 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     const names2 = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
     if (headings !== undefined && !names2(headings)) problem(['headings'], '"headings" is a list of the headings whose sections are entities of the kind, such as [Use cases, Qualities]');
     const semantics = decl['semantics'];
+    const findingsKind = decl['findings'];
+    if (findingsKind !== undefined && typeof findingsKind !== 'boolean') problem(['findings'], '"findings" is true for a kind whose entities are findings, and nothing else');
     if (semantics !== undefined && (typeof semantics !== 'string' || !isSemanticKind(semantics))) problem(['semantics'], `"semantics" is the general kind of the sections: ${SEMANTIC_KINDS.join(', ')}`);
     const structure = decl['structure'];
     if (structure !== undefined && !names2(structure)) problem(['structure'], '"structure" is a list of the sections a section of the kind holds, such as [Status, Context, Decision, Consequences]');
@@ -1437,6 +1449,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       ...(details.length > 0 ? { details } : {}),
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
+      ...(findingsKind === true ? { findings: true } : {}),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
       ...(er === undefined ? {} : { er }),
       ...(sequence === undefined ? {} : { sequence }),
@@ -1669,6 +1682,9 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     if (orderIndex.size === 0) continue;
     const declaredOutputs = plugin.outputs.filter((output) => orderIndex.has(output));
     if (declaredOutputs.length === 0) continue;
+    // A plugin that reads the whole graph asks for no particular kind as its input: the graph is its input, and the
+    // declared list names what a person should see it read, not a dependency closure (madarch-stm0.7.1, piece 3).
+    if (plugin.contract?.reads === 'whole-graph') continue;
     const earliest = declaredOutputs.reduce((first, next) => (orderIndex.get(next)! < orderIndex.get(first)! ? next : first));
     const closure = closureOf(earliest);
     for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });

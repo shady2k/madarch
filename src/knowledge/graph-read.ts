@@ -1267,6 +1267,27 @@ export class GraphReader {
 
   async byPrefix(kind: string, prefix: string, limit: number, after?: string): Promise<{ total: number; rows: GraphEntity[] }> {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
+    // A kind the manifest's own field declarations made has its table, not a code kind: the findings kind the Problems
+    // page reads is one of these (madarch-stm0.7.1). Its page is read in SQL by the key's own text, so a store of many
+    // findings is not loaded whole to answer one page.
+    const generated = this.generatedKind(kind);
+    if (generated !== undefined) {
+      return await this.run(async (tx) => {
+        const values = generated.key.map((column) => `(n.key->>'${column.replaceAll("'", "''")}')`);
+        const keyText = values.length === 1 ? values[0]! : `concat_ws('/', ${values.join(', ')})`;
+        const head = prefix.startsWith(`${generated.kind}:`) ? prefix.slice(generated.kind.length + 1) : prefix;
+        const params: unknown[] = [`${head}%`];
+        let condition = `${keyText} LIKE $1`;
+        if (after !== undefined) {
+          params.push(after.slice(after.indexOf(':') + 1));
+          condition += ` AND ${keyText} > $2`;
+        }
+        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed AND ${condition} GROUP BY n.id, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
+        const counted = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
+        const rows = await this.generatedEntities(tx, generated, page.rows);
+        return { total: Number(counted.rows[0]?.n ?? '0'), rows };
+      });
+    }
     const graphKind = graphKindOf(kind);
     if (graphKind === undefined || !this.holds(graphKind)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {

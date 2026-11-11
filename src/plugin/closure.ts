@@ -173,6 +173,17 @@ export function pluginRightsOf(closure: Closure): PluginRights {
   return contract.rights ?? { network: 'none' };
 }
 
+/**
+ * What a plugin's own contract says it reads (madarch-stm0.7.1, piece 3): `whole-graph` for a plugin that reads the
+ * graph once after every other plugin turn, `unit` for one that reads a unit at a time. Read from `contract.json`
+ * before the process starts, and the introduction repeats it.
+ */
+export function pluginReadsOf(closure: Closure): 'unit' | 'whole-graph' {
+  const file = join(closure.folder, 'contract.json');
+  const value = JSON.parse(readFileSync(file, 'utf8')) as { reads?: unknown };
+  return value.reads === 'whole-graph' ? 'whole-graph' : 'unit';
+}
+
 /** The one dependency madarch hands every plugin: the SDK, at the name a plugin imports it by. */
 export const SDK_PACKAGE = 'madarch-plugin-sdk';
 
