@@ -54,6 +54,19 @@ function page(files: Source, graph: Renamed) {
   } finally {rmSync(root, {recursive: true, force: true});}
 });
 
+test('moving raw reader declarations into plugins does not permit engine callers', () => {
+  const root = fixture({
+    'src/plugin/product-files.ts': 'export interface ProductFileSource { text(path: string): string; }',
+    'src/reader.ts': "import type {ProductFileSource} from './plugin/product-files.js'; export function read(source: ProductFileSource) {return source.text('docs/a.md');}",
+    'src/plugin/reader.ts': "import type {ProductFileSource} from './product-files.js'; export function read(source: ProductFileSource) {return source.text('docs/a.md');}",
+  });
+  try {
+    expect(productFileReaderViolations(root)).toEqual([
+      {rule:'product-file-readers', file:'src/reader.ts', line:1, symbol:'call:src/plugin/product-files.ts:text'},
+    ]);
+  } finally {rmSync(root, {recursive: true, force: true});}
+});
+
 test('parser declarations and re-export dependencies are covered even without a file open', () => {
   const root = fixture({...SURFACES,
     'src/barrel.ts': "export { splitFrontMatter as parse } from './knowledge/markdown.js';",
