@@ -2,559 +2,466 @@
   {
     "rule": "product-file-readers",
     "file": "src/fill/stages/repository-facts.ts",
-    "line": 241,
     "symbol": "git:file-text"
   },
   {
     "rule": "product-file-readers",
     "file": "src/graph/index.ts",
-    "line": 7,
     "symbol": "dependency:src/graph/records.ts:fileContent"
   },
   {
     "rule": "product-file-readers",
     "file": "src/graph/index.ts",
-    "line": 7,
     "symbol": "dependency:src/graph/records.ts:fileContents"
   },
   {
     "rule": "product-file-readers",
     "file": "src/graph/index.ts",
-    "line": 7,
     "symbol": "dependency:src/graph/records.ts:fileTextAt"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 198,
     "symbol": "call:src/knowledge/doc-tree.ts:readDocTree"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 21,
     "symbol": "dependency:src/knowledge/doc-tree.ts:readDocTree"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 248,
     "symbol": "parser:src/knowledge/anchors.ts:anchorExtent"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 202,
     "symbol": "parser:src/knowledge/anchors.ts:anchorLines"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 209,
     "symbol": "parser:src/knowledge/anchors.ts:documentAnchors"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 217,
     "symbol": "parser:src/knowledge/anchors.ts:findAnchor"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/anchors.ts",
-    "line": 268,
     "symbol": "parser:src/knowledge/anchors.ts:titleOfAnchor"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/blocks.ts",
-    "line": 312,
     "symbol": "call:src/knowledge/blocks.ts:readSource"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/blocks.ts",
-    "line": 199,
     "symbol": "call:src/knowledge/markdown.ts:readBody"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/blocks.ts",
-    "line": 21,
     "symbol": "dependency:src/knowledge/markdown.ts:readBody"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 149,
     "symbol": "call:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 19,
     "symbol": "dependency:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 163,
     "symbol": "parser-call:unified:parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 153,
     "symbol": "parser-call:yaml:parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 14,
     "symbol": "parser-dependency:remark-gfm"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 15,
     "symbol": "parser-dependency:remark-parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 16,
     "symbol": "parser-dependency:unified"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/doc-tree.ts",
-    "line": 144,
     "symbol": "parser:src/knowledge/doc-tree.ts:readDocTree"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/graph-read.ts",
-    "line": 813,
     "symbol": "call:src/graph/records.ts:fileContent"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/graph-read.ts",
-    "line": 826,
     "symbol": "call:src/graph/records.ts:fileContents"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/graph-read.ts",
-    "line": 836,
     "symbol": "call:src/graph/records.ts:fileTextAt"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/graph-read.ts",
-    "line": 14,
     "symbol": "dependency:src/graph/records.ts:fileContent"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/graph-read.ts",
-    "line": 14,
     "symbol": "dependency:src/graph/records.ts:fileContents"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/graph-read.ts",
-    "line": 14,
     "symbol": "dependency:src/graph/records.ts:fileTextAt"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/grounds.ts",
-    "line": 45,
     "symbol": "git:file-text"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/index.ts",
-    "line": 36,
     "symbol": "call:src/knowledge/index/page.ts:readIndexedPage"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/index.ts",
-    "line": 29,
     "symbol": "call:src/knowledge/markdown.ts:readMarkdownEntitiesFrom"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/index.ts",
-    "line": 18,
     "symbol": "dependency:src/knowledge/index/grounds.ts:gitReader"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/index.ts",
-    "line": 9,
     "symbol": "dependency:src/knowledge/index/page.ts:readIndexedPage"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/index.ts",
-    "line": 7,
     "symbol": "dependency:src/knowledge/markdown.ts:readMarkdownEntitiesFrom"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/page.ts",
-    "line": 63,
     "symbol": "call:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/page.ts",
-    "line": 11,
     "symbol": "dependency:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/page.ts",
-    "line": 67,
     "symbol": "parser-call:yaml:parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/index/page.ts",
-    "line": 62,
     "symbol": "parser:src/knowledge/index/page.ts:readIndexedPage"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/linked-from.ts",
-    "line": 26,
     "symbol": "call:src/knowledge/markdown.ts:readStatements"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/linked-from.ts",
-    "line": 9,
     "symbol": "dependency:src/knowledge/markdown.ts:readStatements"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 60,
     "symbol": "call:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 251,
     "symbol": "parser-call:unified:parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 66,
     "symbol": "parser-call:yaml:parseDocument"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 12,
     "symbol": "parser-dependency:remark-gfm"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 13,
     "symbol": "parser-dependency:remark-parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 14,
     "symbol": "parser-dependency:unified"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 300,
     "symbol": "parser:src/knowledge/markdown.ts:parseTarget"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 250,
     "symbol": "parser:src/knowledge/markdown.ts:readBody"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 113,
     "symbol": "parser:src/knowledge/markdown.ts:readMarkdownEntitiesFrom"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 336,
     "symbol": "parser:src/knowledge/markdown.ts:readStatements"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/markdown.ts",
-    "line": 45,
     "symbol": "parser:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/overview.ts",
-    "line": 140,
     "symbol": "call:src/knowledge/blocks.ts:readSource"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/page-files.ts",
-    "line": 603,
     "symbol": "call:src/knowledge/page-files.ts:textLinks"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/page-files.ts",
-    "line": 285,
     "symbol": "parser-call:unified:parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/page-files.ts",
-    "line": 12,
     "symbol": "parser-dependency:remark-gfm"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/page-files.ts",
-    "line": 13,
     "symbol": "parser-dependency:remark-parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/page-files.ts",
-    "line": 14,
     "symbol": "parser-dependency:unified"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/page-files.ts",
-    "line": 363,
     "symbol": "parser:src/knowledge/page-files.ts:textLinks"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/product.ts",
-    "line": 2746,
     "symbol": "call:src/knowledge/blocks.ts:readSource"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/product.ts",
-    "line": 1304,
     "symbol": "call:src/knowledge/graph-read.ts:content"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/product.ts",
-    "line": 1748,
     "symbol": "call:src/knowledge/graph-read.ts:contentAt"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/product.ts",
-    "line": 1725,
     "symbol": "call:src/knowledge/markdown.ts:readMarkdownEntitiesFrom"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/product.ts",
-    "line": 41,
     "symbol": "dependency:src/knowledge/markdown.ts:readMarkdownEntitiesFrom"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 154,
     "symbol": "call:src/knowledge/markdown.ts:readBody"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 107,
     "symbol": "call:src/knowledge/template.ts:parseTemplate"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 27,
     "symbol": "dependency:src/knowledge/markdown.ts:readBody"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 32,
     "symbol": "dependency:src/knowledge/template.ts:parseTemplate"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 408,
     "symbol": "parser-call:unified:parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 9,
     "symbol": "parser-dependency:remark-gfm"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 10,
     "symbol": "parser-dependency:remark-parse"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 11,
     "symbol": "parser-dependency:unified"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/render.ts",
-    "line": 444,
     "symbol": "parser:src/knowledge/render.ts:excerpt"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/reset.ts",
-    "line": 75,
     "symbol": "call:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/reset.ts",
-    "line": 12,
     "symbol": "dependency:src/knowledge/markdown.ts:splitFrontMatter"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/reset.ts",
-    "line": 80,
     "symbol": "parser-call:yaml:parseDocument"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/resolve.ts",
-    "line": 96,
     "symbol": "call:src/knowledge/anchors.ts:findAnchor"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/resolve.ts",
-    "line": 65,
     "symbol": "call:src/knowledge/markdown.ts:parseTarget"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/resolve.ts",
-    "line": 7,
     "symbol": "dependency:src/knowledge/anchors.ts:findAnchor"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/resolve.ts",
-    "line": 11,
     "symbol": "dependency:src/knowledge/markdown.ts:parseTarget"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 107,
     "symbol": "call:src/knowledge/anchors.ts:findAnchor"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 51,
     "symbol": "call:src/knowledge/blocks.ts:readSource"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 102,
     "symbol": "call:src/knowledge/markdown.ts:parseTarget"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 122,
     "symbol": "call:src/knowledge/markdown.ts:readStatements"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 9,
     "symbol": "dependency:src/knowledge/anchors.ts:findAnchor"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 12,
     "symbol": "dependency:src/knowledge/markdown.ts:parseTarget"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/statement.ts",
-    "line": 12,
     "symbol": "dependency:src/knowledge/markdown.ts:readStatements"
   },
   {
     "rule": "product-file-readers",
     "file": "src/knowledge/template.ts",
-    "line": 52,
     "symbol": "parser:src/knowledge/template.ts:parseTemplate"
   },
   {
     "rule": "product-file-readers",
     "file": "src/loop/closure.ts",
-    "line": 67,
     "symbol": "git:file-text"
   },
   {
     "rule": "product-file-readers",
     "file": "src/loop/plan.ts",
-    "line": 191,
     "symbol": "call:src/knowledge/index/grounds.ts:gitReader"
   },
   {
     "rule": "product-file-readers",
     "file": "src/loop/plan.ts",
-    "line": 26,
     "symbol": "dependency:src/knowledge/index/grounds.ts:gitReader"
   },
   {
     "rule": "product-file-readers",
     "file": "src/loop/views.ts",
-    "line": 353,
     "symbol": "call:src/knowledge/index/grounds.ts:gitReader"
   },
   {
     "rule": "product-file-readers",
     "file": "src/loop/views.ts",
-    "line": 10,
     "symbol": "dependency:src/knowledge/index/grounds.ts:gitReader"
   },
   {
     "rule": "product-file-readers",
     "file": "src/model/strict-yaml.ts",
-    "line": 40,
     "symbol": "parser-call:yaml:parse"
   },
   {

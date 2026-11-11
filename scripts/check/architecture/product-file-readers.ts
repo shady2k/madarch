@@ -8,7 +8,7 @@ import { moduleSet } from './sources.js';
 import { orderedViolations, type ArchitectureViolation } from './violation.js';
 
 const PARSERS: Readonly<Record<string, readonly string[]>> = {
-  'src/knowledge/markdown.ts': ['splitFrontMatter', 'readMarkdownEntitiesFrom', 'readBody', 'readStatements', 'parseTarget'],
+  'src/knowledge/markdown.ts': ['splitFrontMatter', 'readMarkdownEntitiesFrom', 'readBody', 'readStatements'],
   'src/knowledge/doc-tree.ts': ['readDocTree'],
   'src/knowledge/anchors.ts': ['anchorLines', 'documentAnchors', 'findAnchor', 'anchorExtent', 'titleOfAnchor'],
   'src/knowledge/doc-sources.ts': ['documentTitle'],
@@ -46,8 +46,8 @@ const TEXT_MEMBERS: Readonly<Record<string, readonly string[]>> = {
   'src/knowledge/blocks.ts': ['readSource'],
 };
 const TEXT_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
-  'src/plugin/stored-text.ts': ['fileContent', 'fileContents', 'fileTextAt', 'pluginFileContent'],
-  'src/graph/records.ts': ['fileContent', 'fileContents', 'fileTextAt'],
+  'src/plugin/stored-text.ts': ['content', 'contentsOf', 'contentAt', 'fileContent', 'fileContents', 'fileTextAt', 'pluginFileContent', 'pluginFileText', 'storedFileText'],
+  'src/graph/records.ts': ['fileContent', 'fileContents', 'fileTextAt', 'storedFileText'],
   'src/graph/plugin-turns.ts': ['pluginFileContent'],
   'src/knowledge/product-files.ts': ['workingTreeFiles', 'snapshotFiles'],
   'src/knowledge/index/grounds.ts': ['gitReader'],

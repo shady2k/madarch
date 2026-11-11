@@ -67,6 +67,15 @@ test('moving raw reader declarations into plugins does not permit engine callers
   } finally {rmSync(root, {recursive: true, force: true});}
 });
 
+test('URL target parsing does not read product-file text', () => {
+  const root = fixture({
+    'src/knowledge/markdown.ts': 'export function parseTarget(url: string) {return new URL(url);}',
+    'src/consumer.ts': "import {parseTarget as target} from './knowledge/markdown.js'; target('https://example.test');",
+  });
+  try { expect(productFileReaderViolations(root)).toEqual([]); }
+  finally {rmSync(root, {recursive: true, force: true});}
+});
+
 test('parser declarations and re-export dependencies are covered even without a file open', () => {
   const root = fixture({...SURFACES,
     'src/barrel.ts': "export { splitFrontMatter as parse } from './knowledge/markdown.js';",
