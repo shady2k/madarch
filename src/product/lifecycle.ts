@@ -814,7 +814,7 @@ function withFailures(prints: string[], failures: readonly string[]): LifecycleO
  * nothing behind.
  */
 /** Creates a product around the current checkout by linking it through the same manifest operation as `repo add`. */
-export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv }): LifecycleOutcome {
+export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string }): LifecycleOutcome {
   const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
   if (!top.ok) return refused2([], `madarch init must run inside a Git checkout: ${top.output}; use madarch new to start without one`);
   const source = resolve(top.output);
@@ -840,7 +840,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv 
   } catch { /* a missing products home contains no prior link */ }
   const target = join(products, name);
   if (pathExists(target)) return refused2([], `cannot initialize this checkout: ${target} already exists; choose another checkout name or move that product`);
-  const draft = createDraft({ home: products, name });
+  const draft = createDraft({ home: products, name, ...(options.template === undefined ? {} : { template: options.template }) });
   if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
   const remote = runGit(source, ['remote', 'get-url', 'origin'], options.gitEnv);
   const url = remote.ok ? remote.output : undefined;
@@ -849,7 +849,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv 
     rmSync(draft.folder, { recursive: true, force: true });
     return linked;
   }
-  return { ...linked, prints: [`folder: ${draft.folder}`, `id: ${draft.id}`, `source: ${source}`, ...linked.prints.filter((fact) => !fact.startsWith('folder: '))] };
+  return { ...linked, prints: [`folder: ${draft.folder}`, `id: ${draft.id}`, `source: ${source}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`, ...linked.prints.filter((fact) => !fact.startsWith('folder: '))] };
 }
 
 export function cloneLife(options: { url?: string; home?: string; env: DraftEnv }): LifecycleOutcome {

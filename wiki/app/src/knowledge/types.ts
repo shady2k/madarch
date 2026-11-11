@@ -428,7 +428,7 @@ export type AgentOffer = {
 
 export type WikiStatus = {
   product: { name: string; id: string };
-  manifest: 'ok' | 'no-manifest';
+  manifest: 'ok' | 'not-filled' | 'no-manifest';
   manifestFile: string;
   language: string;
   /** How many findings the documents hold: a count, never the list (madarch-8bdc.2.5). */

@@ -109,13 +109,18 @@ describe('an empty product', () => {
     // The engine knows no entities: nothing was written into the folder, so the wiki shows no kind and says
     // which file it lacks (decision 0034, item 24).
     expect(bare.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, kinds: [] });
+    // The state names the file it lacks, and the wiki's page links the guide that writes one.
+    expect(String(bare.body.manifestFile)).toBe(join(home, 'bare', 'madarch', 'kinds.yaml'));
     expect(bare.body.seeded).toBeUndefined();
     expect(readKinds(join(home, 'bare')).present).toBe(false);
     const refused = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(refused.status).toBe(409);
     expect(JSON.stringify(await refused.json())).toContain('madarch/kinds.yaml');
+    // Its manifest stands in the repository and no fill has read it: the second state, never `no-manifest`, and nothing
+    // was written to the graph to say so.
     const tiny = await get('/products/tiny/api/status');
-    expect(tiny.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
+    expect(tiny.body).toMatchObject({ manifest: 'not-filled', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
+    expect(String(tiny.body.manifestFile)).toBe(join(home, 'tiny', 'madarch', 'kinds.yaml'));
     expect(tiny.body.kinds).toEqual([]);
     const unconnected = await get('/products/unconnected/api/status');
     expect(unconnected.body.repositories).toEqual([]);

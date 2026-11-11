@@ -344,6 +344,13 @@
     "fromGraph": "Read from the code by the fill",
     "noManifestTitle": "The product repository has no kinds manifest",
     "noManifest": "The graph holds no {{file}} at the commit the fill read: the wiki shows the kinds that file declares, so it has none to show. Add the file to the product repository and fill again.",
+    "noManifestScratch": "The product was started from scratch. No command copies the starter set into an existing product, so write {{file}} by hand; the guide tells you every field it takes.",
+    "noManifestGuide": "How to write a product's manifests",
+    "notFilledTitle": "The product is created",
+    "notFilledWhat": "madarch created the product, and its kinds manifest stands at {{file}}. Nothing is read yet: the graph holds no page until the fill reads the product repository.",
+    "notFilledNext": "Press Fill to read the product repository into the graph: the kinds the manifest declares, the documents and the page templates they name. The wiki's pages stand afterwards. Nothing runs until you press.",
+    "notFilledGuide": "How to write a product's manifests",
+    "notFilledFill": "Fill reads the product repository itself into the graph: the kinds the manifest declares, the documents and the page templates. It starts only when you press.",
     "unitLimits": {
       "turns_one": "{{count}} turn",
       "turns_few": "{{count}} turns",

@@ -2,6 +2,7 @@ import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'n
 import { dirname, join, sep } from 'node:path';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
+import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
@@ -649,7 +650,19 @@ function workflowsManifest(): string {
   return `${lines.join('\n')}\n`;
 }
 
-function kindsManifest(): string {
+function kindsManifest(kindsNamed?: readonly string[]): string {
+  const chosen = kindsNamed === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kindsNamed.includes(kind.name));
+  const names = new Set(chosen.map((kind) => kind.name));
+  // The groups the chosen kinds stand in, and the areas above them: a group no chosen kind uses is not in the manifest.
+  const used = new Set<string>();
+  for (const kind of chosen) {
+    let group: string | undefined = kind.group;
+    while (group !== undefined && !used.has(group)) {
+      used.add(group);
+      group = GROUPS.find((one) => one.name === group)?.parent;
+    }
+  }
+  const groups = GROUPS.filter((group) => used.has(group.name));
   const lines: string[] = [
     "# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).",
     "# Each kind names where its entities come from and the template that draws them:",
@@ -706,20 +719,23 @@ function kindsManifest(): string {
     "# `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member",
     "# or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.",
     "groups:",
-    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}, short: { en: ${yamlText(group.shortEn)}, ru: ${yamlText(group.shortRu)} }${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
+    ...groups.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}, short: { en: ${yamlText(group.shortEn)}, ru: ${yamlText(group.shortRu)} }${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
     "properties:",
     ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: ${propertyYaml(label)}`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
     // product without user stories or quality requirements says so instead of showing a smaller wiki (decision 0032, section 4).
-    "  expect: [doc.use-case, doc.rule, doc.requirement, doc.decision]",
+    `  expect: [${['doc.use-case', 'doc.rule', 'doc.requirement', 'doc.decision'].filter((kind) => names.has(kind)).join(', ')}]`,
     // A fence, an html comment, a rule line and a link definition are a document's furniture: the product names them as
     // blocks that hold no meaning of their own, so the reader can ignore them by a rule instead of guessing (decision
     // 0032 section 4; the review of the eighth pass).
     "  ignore: [code, html, thematicBreak, definition]",
     "roles:",
-    ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
+    // A role leads with the groups it knows, and a group the template does not declare is not one it can lead with.
+    ...ROLES.map((role) => ({ ...role, lead: role.lead.filter((group) => used.has(group)) }))
+      .filter((role) => role.lead.length > 0)
+      .map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
     "problems:",
     "  thresholds:",
     ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
@@ -736,31 +752,43 @@ function kindsManifest(): string {
     ...Object.entries(CATALOG_RELATIONS).map(([name, source]) => (source === null ? `    ${name}:` : `    ${name}: ${yamlText(source)}`)),
     "kinds:",
   ];
-  for (const kind of CATALOG_KINDS) lines.push(...kindLines(kind));
-  lines.push(
-    "# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and",
-    "# the capability that fills them. A kind with a capability takes that capability's contract for its fields.",
-    "edges:",
-    "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }",
-    "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }",
-    "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }",
-    "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }",
-    "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }",
-    "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }",
-    "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }",
+  for (const kind of chosen) lines.push(...kindLines(kind));
+  // An edge kind stands when a kind its ends name is one the template chose: an end the catalogue does not hold (a
+  // gitlink) is the match's own and never refused here. A tracker declares no code edge at all.
+  const edges = [
+    { ends: ['code.repository', 'code.directory', 'code.file', 'code.gitlink'], line: "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }" },
+    { ends: ['code.repository', 'code.commit'], line: "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }" },
+    { ends: ['code.repository', 'code.commit'], line: "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }" },
+    { ends: ['code.commit'], line: "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }" },
+    { ends: ['code.commit', 'code.file'], line: "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }" },
+    { ends: ['code.author', 'code.commit'], line: "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }" },
+    { ends: ['code.file'], line: "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }" },
     // The data entities the db-schema plugin fills: a table holds its columns and its indexes, a column references a
     // column, and a table is declared in the file that holds its SQL (task madarch-47vw.3).
-    "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }",
-    "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }",
-    "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }",
-    "  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }",
-    "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
-    "# files of its closure. madarch's own git reader is the first; it runs in process until the plugin host lands.",
-    "plugins:",
-    // The plugins a madarch release carries are declared with their folder and the major version the manifest binds;
-    // the lock beside the manifest records the exact version and the closure hash (decision 0035, items 17 and 20).
-    ...BUNDLED_PLUGINS.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
-  );
+    { ends: ['code.table', 'code.column'], line: "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }" },
+    { ends: ['code.table', 'code.index'], line: "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }" },
+    { ends: ['code.column'], line: "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }" },
+    { ends: ['code.table', 'code.file'], line: "  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }" },
+  ].filter((edge) => edge.ends.some((kind) => names.has(kind))).map((edge) => edge.line);
+  if (edges.length > 0) {
+    lines.push(
+      "# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and",
+      "# the capability that fills them. A kind with a capability takes that capability's contract for its fields.",
+      "edges:",
+      ...edges,
+    );
+  }
+  // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3);
+  // a plugin no chosen kind uses is not declared, and a product that is only a tracker holds none (decision 0034).
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  if (plugins.length > 0) {
+    lines.push(
+      "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
+      "# files of its closure. The lock beside the manifest records the exact version and the closure hash.",
+      "plugins:",
+      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
+    );
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -831,17 +859,15 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   }
   return lines;
 }
-const KINDS = kindsManifest();
-const WORKFLOWS = workflowsManifest();
 
 /** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
-function pluginLockText(): string {
+function pluginLockText(plugins: readonly BundledPlugin[]): string {
   const lines = [
     '# The plugins this product runs (decision 0035, item 20): each one\'s exact version and the hash of its closure.',
     '# A fill runs exactly what this lock names. A changed closure needs a person\'s approval before it runs.',
     'plugins:',
   ];
-  for (const plugin of BUNDLED_PLUGINS) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
+  for (const plugin of plugins) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -853,23 +879,72 @@ function pluginOutputsOf(plugin: BundledPlugin): string[] {
   return contract.outputs.vertices.map((vertex) => vertex.kind);
 }
 
-export const STARTER_FILES: readonly StarterFile[] = [
-  { path: 'madarch/kinds.yaml', content: KINDS },
-  { path: 'madarch/plugins.lock', content: pluginLockText() },
-  { path: WORKFLOWS_FILE, content: WORKFLOWS },
-  // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3).
-  ...bundledPluginFiles().map((file) => ({ path: file.path, content: file.content, ...(file.bytes === undefined ? {} : { bytes: file.bytes }) })),
-  ...Object.entries(TEMPLATES).map(([name, content]) => ({ path: `templates/${name}`, content })),
-];
+/** The templates a set of kind templates names, with every layout and partial they render, in code point order. */
+function templatesUsedBy(kindTemplates: readonly string[]): Record<string, string> {
+  const wanted = new Set<string>();
+  const visit = (path: string): void => {
+    if (wanted.has(path)) return;
+    const content = TEMPLATES[path];
+    if (content === undefined) throw new Error(`src/knowledge/seed.ts:1: the template ${path} is named by a kind or a template and the starter set holds none`);
+    wanted.add(path);
+    for (const match of content.matchAll(/["']\.\/([^"']+\.liquid)["']/g)) visit(match[1]!);
+  };
+  for (const template of kindTemplates) visit(template);
+  return Object.fromEntries([...wanted].sort().map((path) => [path, TEMPLATES[path]!]));
+}
 
 /**
- * Writes the starter set into a product that has none: the files that are absent, never one that is there. Answers the
- * paths it wrote. An error names the file that could not be written.
+ * The starter files one template writes: its manifest's kinds, and the page templates, the plugins and the workflows
+ * those kinds use, and nothing they do not. A template that declares no kinds writes nothing at all — the person starts
+ * from a product with no manifest.
  */
-export function seedStarterSet(productFolder: string): string[] {
+/** The catalogue kinds one template declares, in the catalogue's order; none when it declares no manifest. */
+export function starterKindNames(template: StarterTemplate): readonly string[] {
+  if (template.kinds === 'none') return [];
+  return template.kinds === 'all' ? CATALOG_KINDS.map((kind) => kind.name) : template.kinds;
+}
+
+/** The kinds one template's manifest shows as pages: the catalogue kinds whose template policy is not `none`. */
+export function starterPageKindNames(template: StarterTemplate): readonly string[] {
+  const named = new Set(starterKindNames(template));
+  return CATALOG_KINDS.filter((kind) => named.has(kind.name) && kind.policy !== 'none').map((kind) => kind.name);
+}
+
+export function starterFilesFor(template: StarterTemplate): readonly StarterFile[] {
+  if (template.kinds === 'none') return [];
+  const kinds = template.kinds === 'all' ? undefined : starterKindNames(template);
+  const chosen = kinds === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kinds.includes(kind.name));
+  const names = new Set(chosen.map((kind) => kind.name));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const templates = templatesUsedBy(chosen.flatMap((kind) => (kind.template === undefined ? [] : [kind.template])));
+  // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
+  const workflows = chosen.some((kind) => kind.source === 'graph');
+  return [
+    { path: 'madarch/kinds.yaml', content: kindsManifest(kinds) },
+    ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),
+    ...(plugins.length === 0 ? [] : [{ path: 'madarch/plugins.lock', content: pluginLockText(plugins) }]),
+    ...bundledPluginFiles()
+      .filter((file) => plugins.some((plugin) => file.path.startsWith(`${plugin.folder}/`)))
+      .map((file) => ({ path: file.path, content: file.content, ...(file.bytes === undefined ? {} : { bytes: file.bytes }) })),
+    ...Object.entries(templates).map(([name, content]) => ({ path: `templates/${name}`, content })),
+  ];
+}
+
+/** The files the default template writes: the whole starter set, as the first products were made. */
+export const STARTER_FILES: readonly StarterFile[] = starterFilesFor(starterTemplateOf(DEFAULT_STARTER_TEMPLATE)!);
+
+/**
+ * Writes one template's files into a product that has none: the files that are absent, never one that is there. Answers
+ * the paths it wrote. An error names the file that could not be written.
+ */
+export function seedStarterSet(productFolder: string, templateId: string = DEFAULT_STARTER_TEMPLATE, templates?: readonly StarterTemplate[]): string[] {
+  const template = starterTemplateOf(templateId, templates);
+  if (template === undefined) throw new Error(`src/knowledge/seed.ts:1: no starter template is declared with the id ${JSON.stringify(templateId)}`);
+  // The default template's files are the constant the tests and the catalog check read the starter set through.
+  const files = template.id === DEFAULT_STARTER_TEMPLATE ? STARTER_FILES : starterFilesFor(template);
   const written: string[] = [];
   const root = realpathSync(productFolder);
-  for (const starter of STARTER_FILES) {
+  for (const starter of files) {
     const target = join(productFolder, starter.path);
     if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
     // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.

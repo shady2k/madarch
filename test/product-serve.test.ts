@@ -584,19 +584,31 @@ describe('madarch new serving the draft it just created', () => {
     const built = builtApp(base);
     const opener = injectableOpener('ok');
     const port = await freePort();
-    const serve = serveLive(['new', '--home', base, '--port', String(port), '--no-open'],
+    const serve = serveLive(['new', '--home', base, '--port', String(port), '--template', 'everything', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_BROWSER: opener });
     // The command returns at once where serve would keep running.
     await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
     // The draft's facts come first, one per line, then the address.
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
     expect(lines[0]).toContain('✓ Created the product');
+    // The newcomer bar names the template the product was made from, and the next step offers the fill.
+    expect(lines.some((line) => line.startsWith('✓ Template "Everything":'))).toBeTrue();
     expect(lines.some((line) => line.startsWith('Next:'))).toBeTrue();
     const url = lines.find((line) => line.startsWith('The wiki is running at '))!.match(/(https?:\/\/\S+)/)![1];
     expect(url).toBe(`http://127.0.0.1:${port}/products/${basename(lines[0]!.match(/ in (.+)$/)?.[1]!)}/`);
     const body = (await (await fetch(`${url}api/product`)).json()) as { name: string };
     expect(body.name).toStartWith('idea-');
     expect(stopDaemon({ home: base })).toBe(0);
+  }, 30_000);
+
+  test('new with no terminal and no --template refuses, naming the flag and the templates, and makes no product', () => {
+    const base = scratchFolder();
+    const run = runCommand(['new', '--home', base, '--no-open'], { MADARCH_HOME: base });
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('--template');
+    for (const id of ['everything', 'none']) expect(run.stderr).toContain(id);
+    const products = join(base, 'products');
+    expect(existsSync(products) ? readdirSync(products) : []).toEqual([]);
   }, 30_000);
 
   test('new keeps refusing an unknown option with exit 2, before any draft is created', () => {

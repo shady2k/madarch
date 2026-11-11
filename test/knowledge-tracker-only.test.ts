@@ -77,11 +77,13 @@ describe('a product that is only a tracker', () => {
     const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     let owner: DatabaseOwner | undefined;
     try {
-      // Before any fill the graph holds no manifest and no kind: the page says so, and the app's card offers the fill.
+      // The manifest stands in the repository and no fill has read it: the second state, `not-filled`, and the graph
+      // holds no kind. Nothing is written until the fill is pressed.
       const before = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
       expect(before.status).toBe(200);
-      const opening = (await before.json()) as { manifest?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
-      expect(opening).toMatchObject({ manifest: 'no-manifest', filled: false, kinds: [], fill: { state: 'idle' } });
+      const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
+      expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, kinds: [], fill: { state: 'idle' } });
+      expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:one')}&full=1`, { headers: { accept: 'application/json' } });
       expect(unopened.status).toBe(404);
       expect(String(((await unopened.json()) as { message?: string }).message)).toContain('madarch/kinds.yaml');

@@ -2282,7 +2282,11 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: await this.loopCounts() }, ctx: undefined };
+      // Three states, never mixed: the file is absent (`no-manifest`), it stands in the repository but no fill has read
+      // it into the graph yet (`not-filled`), or the graph holds it (`ok`). The presence is read from the folder and
+      // nothing is written: the graph changes only when the person presses Fill.
+      const stands = existsSync(context.file);
+      return { body: { ...common, manifest: stands ? 'not-filled' : 'no-manifest', manifestFile: context.file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: await this.loopCounts() }, ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);

@@ -753,7 +753,7 @@ describe('the product selector', () => {
 });
 
 describe('there is one app', () => {
-  const answer = (manifest: 'ok' | 'no-manifest') => async (url: string): Promise<Response> => {
+  const answer = (manifest: 'ok' | 'not-filled' | 'no-manifest') => async (url: string): Promise<Response> => {
     if (url.endsWith('/api/status')) {
       return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0, kinds: [], groups: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null }));
     }
@@ -796,6 +796,34 @@ describe('there is one app', () => {
     const container = into(createElement(AppRoot));
     await until(() => container.querySelector('[data-testid=no-manifest]') !== null, 'the page that says what to do');
     expect(container.querySelector('[data-testid=knowledge-app]')).not.toBeNull();
+  });
+
+  test('a product created and not filled yet says what happened, offers Fill, and presses nothing', async () => {
+    const calls: string[] = [];
+    const base = answer('not-filled');
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => { calls.push(String(url)); return await base(String(url)); };
+    window.history.replaceState({}, '', '/');
+    const container = into(createElement(AppRoot));
+    await until(() => container.querySelector('[data-testid=not-filled]') !== null, 'the newcomer page');
+    expect(container.querySelector('[data-testid=no-manifest]')).toBeNull();
+    const page = container.querySelector('[data-testid=not-filled]')!;
+    // What happened, that nothing is read yet, and the next step: the manifest's place, and Fill offered.
+    expect(page.textContent).toContain('The product is created');
+    expect(page.textContent).toContain('madarch/kinds.yaml');
+    expect(page.querySelector('[data-testid=fill-start]')).not.toBeNull();
+    expect(page.querySelector('[data-testid=manifests-guide]')!.getAttribute('href')).toBe('https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md');
+    // Nothing started the fill: the page only offers it.
+    expect(calls.some((url) => url.includes('/api/fill'))).toBe(false);
+  });
+
+  test('a product started from scratch names the file it lacks and links the guide that writes one', async () => {
+    (globalThis as { fetch?: unknown }).fetch = answer('no-manifest');
+    window.history.replaceState({}, '', '/');
+    const container = into(createElement(AppRoot));
+    await until(() => container.querySelector('[data-testid=no-manifest]') !== null, 'the no-manifest page');
+    const page = container.querySelector('[data-testid=no-manifest]')!;
+    expect(page.textContent).toContain('madarch/kinds.yaml');
+    expect(page.querySelector('[data-testid=manifests-guide]')!.getAttribute('href')).toBe('https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md');
   });
 });
 

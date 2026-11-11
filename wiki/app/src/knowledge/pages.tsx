@@ -373,12 +373,15 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
       </Card>
     );
   }
-  const connected = status.repositories.length > 0;
+  // A product created and not filled yet holds its own Git checkout: Fill reads that repository, so it is offered even
+  // when no other repository is connected (madarch-64o5.3).
+  const ownCheckout = status.manifest === 'not-filled' && status.repositories.length === 0;
+  const connected = status.repositories.length > 0 || ownCheckout;
   return (
     <Card className="mb-8" data-testid="fill-card" data-state="empty">
       <CardHeader>
         <CardTitle>{t('knowledge.emptyTitle')}</CardTitle>
-        <CardDescription>{connected ? t('knowledge.emptyConnected', { repositories: status.repositories.map((repo) => repo.name).join(', ') }) : t('knowledge.emptyNoRepository')}</CardDescription>
+        <CardDescription>{ownCheckout ? t('knowledge.notFilledFill') : connected ? t('knowledge.emptyConnected', { repositories: status.repositories.map((repo) => repo.name).join(', ') }) : t('knowledge.emptyNoRepository')}</CardDescription>
       </CardHeader>
       <CardContent>
         {connected ? (
@@ -425,7 +428,10 @@ export function Overview({ status, refresh }: { status: WikiStatus; refresh: () 
   );
 }
 
-/** A product with no kinds manifest: what the file is and where it comes from. */
+/** The guide every product without a starter set needs: the file in the repository the release is published from. */
+const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
+
+/** A product with no kinds manifest: what the file is and where it comes from, and the guide that writes one. */
 export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   useTabTitle(status.product.name);
@@ -437,12 +443,44 @@ export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void 
       <Card>
         <CardHeader>
           <CardTitle>{t('knowledge.noManifestTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.noManifest', { file: 'madarch/kinds.yaml' })}</CardDescription>
+          <CardDescription>{t('knowledge.noManifest', { file: status.manifestFile })}</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="mb-0"><a href={appPath('/') + '?documents'}>{t('knowledge.documents')}</a></p>
+          <p>{t('knowledge.noManifestScratch', { file: status.manifestFile })}</p>
+          <p className="mb-0">
+            <a href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.noManifestGuide')}</a>
+          </p>
         </CardContent>
       </Card>
+    </section>
+  );
+}
+
+/**
+ * A product whose manifest stands in its repository and whose graph no fill has read yet: the newcomer's first page.
+ * It says what happened, that nothing is read yet, and the next step — Fill is offered and never started here.
+ */
+export function NewHome({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  useTabTitle(status.product.name);
+  return (
+    <section data-testid="not-filled">
+      <header className="mb-6">
+        <h1>{status.product.name}</h1>
+      </header>
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>{t('knowledge.notFilledTitle')}</CardTitle>
+          <CardDescription>{t('knowledge.notFilledWhat', { file: status.manifestFile })}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p>{t('knowledge.notFilledNext')}</p>
+          <p className="mb-0">
+            <a href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.notFilledGuide')}</a>
+          </p>
+        </CardContent>
+      </Card>
+      <FillCard status={status} refresh={refresh} />
     </section>
   );
 }

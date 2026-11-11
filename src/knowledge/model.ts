@@ -774,7 +774,7 @@ export interface AgentOffer {
 export interface WikiStatus {
   product: { name: string; id: string };
   /** `no-manifest` when `madarch/kinds.yaml` is absent. */
-  manifest: 'ok' | 'no-manifest';
+  manifest: 'ok' | 'not-filled' | 'no-manifest';
   manifestFile: string;
   /** The language the product's pages are written in; English when the manifest names none. */
   language: string;

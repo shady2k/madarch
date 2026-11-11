@@ -267,7 +267,7 @@ async function createsAndServes(outfile: string, products: string, port: number,
   // Every run stands outside the checkout, the way an installed binary does:
   // a server the binary could only start with the repository beside it would
   // be no release.
-  const created = spawnSync(outfile, ['new', '--home', products, '--port', String(port), '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, env, cwd: resideElsewhere(products) });
+  const created = spawnSync(outfile, ['new', '--home', products, '--port', String(port), '--template', 'everything', '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, env, cwd: resideElsewhere(products) });
   const said = `${created.stdout ?? ''}${created.stderr ?? ''}`.trim();
   if (created.status !== 0) {
     return `the built binary could not create a draft, open the graph store and serve it (exit ${String(created.status)}): ${said}${daemonLog(products)}`;
@@ -297,6 +297,12 @@ async function createsAndServes(outfile: string, products: string, port: number,
       // The wiki the binary carries is the knowledge wiki: its status answers for the draft, and the app's entry page loads.
       const answer = await fetch(`${facts.url}api/product`);
       if (answer.ok && (await answer.text()).includes('"id"')) {
+        // Nothing was filled: the draft's manifest stands in its repository and the graph holds none of it, so the
+        // status reads `not-filled` and the fill is idle. The smoke presses nothing.
+        const status = await fetch(`${facts.url}api/status`);
+        const state = status.ok ? JSON.parse(await status.text()) as { manifest?: string; fill?: { state?: string } } : {};
+        if (state.manifest !== 'not-filled') return `the built binary's draft reads "${String(state.manifest)}", and nothing was filled: it must read "not-filled" until a person presses Fill`;
+        if (state.fill?.state !== 'idle') return `the built binary's draft fill is "${String(state.fill?.state)}", and the smoke pressed nothing`;
         const page = await fetch(facts.url);
         if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
         // madarch's own wiki came out of the copy the binary carries, with no network asked for.
