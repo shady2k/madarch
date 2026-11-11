@@ -159,7 +159,9 @@ describe('details, members and empty sections', () => {
     const summary = await kindSummaries(ctx);
     const catalogue = await catalogKinds(ctx);
     expect(summary.map(({ kind, count, page }) => ({ kind, count, page }))).toEqual(catalogue.map(({ kind, count, page }) => ({ kind, count, page })));
-    expect(await listEntities(ctx, 'code.facet', { limit: 10 })).toBeUndefined();
+    expect(await listEntities(ctx, 'code.facet', { limit: 10 })).toEqual({
+      kind: 'code.facet', total: 1, rows: [{ id: FACET, kind: 'code.facet', label: 'a.ts · src/a.ts', href: `/e/${encodeURIComponent(FACET)}` }], next: null,
+    });
     const model = await page(FACET, 'ru');
     expect(model.id).toBe(FILE);
     expect(model.redirect).toEqual({ id: FILE, anchor: expect.stringMatching(/^member-/) });

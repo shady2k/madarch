@@ -209,7 +209,7 @@ export async function openRepositoryGraph(options: {
   const commit = headCommit(repository);
   let owner: DatabaseOwner | undefined;
   try {
-    await requestStorePreparation(databasePath, await readPinnedGraphContract(repository));
+    await requestStorePreparation(databasePath, validated?.ok === true && validated.value !== undefined ? graphContractOf(validated.value.manifest) : await readPinnedGraphContract(repository));
     owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
     const openedOwner = owner;
     const started = performance.now();
