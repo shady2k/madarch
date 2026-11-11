@@ -22,6 +22,7 @@ const COUNT_MESSAGES: {
   en: readonly [string, string, string, string];
   ru: readonly [string, string, string, string];
 }[] = [
+  { key: 'knowledge.fillDot.pages', ru: ['Записано страниц: 1', 'Записано страниц: 2', 'Записано страниц: 5', 'Записано страниц: 0'], en: ['Pages written: 1', 'Pages written: 2', 'Pages written: 5', 'Pages written: 0'] },
   { key: 'knowledge.historyFigure.commits', ru: ['1 коммит', '2 коммита', '5 коммитов', '0 коммитов'], en: ['1 commit', '2 commits', '5 commits', '0 commits'] },
   { key: 'knowledge.historyFigure.files', ru: ['1 файл', '2 файла', '5 файлов', '0 файлов'], en: ['1 file', '2 files', '5 files', '0 files'] },
   { key: 'knowledge.historyFigure.symbols', ru: ['1 символ', '2 символа', '5 символов', '0 символов'], en: ['1 symbol', '2 symbols', '5 symbols', '0 symbols'] },
@@ -46,8 +47,6 @@ const COUNT_MESSAGES: {
   { key: 'journal.size', ru: ['1 байт', '2 байта', '5 байт', '0 байт'], en: ['1 byte', '2 bytes', '5 bytes', '0 bytes'] },
   { key: 'journal.cut', ru: ['Ответ обрезан: всего 1 байт, сохранено начало.', 'Ответ обрезан: всего 2 байта, сохранено начало.', 'Ответ обрезан: всего 5 байт, сохранено начало.', 'Ответ обрезан: всего 0 байт, сохранено начало.'], en: ['The response was cut: 1 byte in all, the first part is kept.', 'The response was cut: 2 bytes in all, the first part is kept.', 'The response was cut: 5 bytes in all, the first part is kept.', 'The response was cut: 0 bytes in all, the first part is kept.'] },
   { key: 'knowledge.lines', ru: ['Строк: 1', 'Строк: 2', 'Строк: 5', 'Строк: 0'], en: ['1 line', '2 lines', '5 lines', '0 lines'] },
-  { key: 'knowledge.fillDone', args: (count) => ({ count, date: '2026-01-02' }), ru: ['Заполнено 2026-01-02, страниц: 1', 'Заполнено 2026-01-02, страниц: 2', 'Заполнено 2026-01-02, страниц: 5', 'Заполнено 2026-01-02, страниц: 0'], en: ['Filled 2026-01-02, 1 page', 'Filled 2026-01-02, 2 pages', 'Filled 2026-01-02, 5 pages', 'Filled 2026-01-02, 0 pages'] },
-  { key: 'knowledge.fillDoneNoDate', ru: ['Заполнено, страниц: 1', 'Заполнено, страниц: 2', 'Заполнено, страниц: 5', 'Заполнено, страниц: 0'], en: ['Filled, 1 page', 'Filled, 2 pages', 'Filled, 5 pages', 'Filled, 0 pages'] },
   { key: 'knowledge.reset.pages', args: (count) => ({ count, list: 'docs/a.md' }), ru: ['страницы, которые написал агент (1): docs/a.md.', 'страницы, которые написал агент (2): docs/a.md.', 'страницы, которые написал агент (5): docs/a.md.', 'страницы, которые написал агент (0): docs/a.md.'], en: ['the 1 page the agent wrote: docs/a.md.', 'the 2 pages the agent wrote: docs/a.md.', 'the 5 pages the agent wrote: docs/a.md.', 'the 0 pages the agent wrote: docs/a.md.'] },
   { key: 'knowledge.catalogueStatements', ru: ['утверждений: 1', 'утверждений: 2', 'утверждений: 5', 'утверждений: 0'], en: ['1 statement', '2 statements', '5 statements', '0 statements'] },
   { key: 'knowledge.diagram.linesN', ru: ['строк: 1', 'строк: 2', 'строк: 5', 'строк: 0'], en: ['1 line', '2 lines', '5 lines', '0 lines'] },

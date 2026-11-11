@@ -436,14 +436,6 @@
       "notInstalledBundled": "Его адаптер не установлен: {{program}} — самостоятельная программа, а не пакет, который ставит madarch. Установите её из доверенного источника; madarch не знает ни её версии, ни папки."
     },
     "fillWriting": "Агент пишет страницы",
-    "fillDone_one": "Заполнено {{date}}, страниц: {{count}}",
-    "fillDone_few": "Заполнено {{date}}, страниц: {{count}}",
-    "fillDone_many": "Заполнено {{date}}, страниц: {{count}}",
-    "fillDone_other": "Заполнено {{date}}, страниц: {{count}}",
-    "fillDoneNoDate_one": "Заполнено, страниц: {{count}}",
-    "fillDoneNoDate_few": "Заполнено, страниц: {{count}}",
-    "fillDoneNoDate_many": "Заполнено, страниц: {{count}}",
-    "fillDoneNoDate_other": "Заполнено, страниц: {{count}}",
     "fillButton": "Заполнить",
     "fillMenuTitle": "Заполнение этого продукта",
     "refresh": "Обновить",
@@ -954,6 +946,7 @@
     "historyDateTitle": "{{repo}} на {{date}}",
     "historyCurrent": "Вернуться к текущему коду",
     "historyRepository": "Репозиторий",
+    "historyDateFormat": "ГГГГ-ММ-ДД",
     "historyChooseDate": "Дата (UTC)",
     "historyOpenDate": "Открыть эту дату",
     "historyPointUnread": "структура не прочитана",
@@ -1014,6 +1007,11 @@
       "noSelection": "Выбор не прочитался: панель показывает все сущности; выбор сохраняется кнопкой «Сохранить» на странице каталога."
     },
     "fillDot": {
+      "finished": "Последнее заполнение: {{date}}",
+      "pages_one": "Записано страниц: {{count}}",
+      "pages_few": "Записано страниц: {{count}}",
+      "pages_many": "Записано страниц: {{count}}",
+      "pages_other": "Записано страниц: {{count}}",
       "upToDate": "Всё прочитано: граф описывает {{commit}} · Файлов: {{files}} · Коммитов: {{commits}}",
       "upToDateNoCommit": "Всё прочитано · Файлов: {{files}} · Коммитов: {{commits}}",
       "stale": "Устарело: граф описывает {{commit}}, а в репозиториях уже больше · Файлов: {{files}} · Коммитов: {{commits}}",
@@ -1061,7 +1059,21 @@
     "pageProblems": "Проблем на странице: {{count}}",
     "findingsWhere": "Открыть проблемы",
     "findingsCount": "Находок: {{count}}",
-    "noStageYet": "Ни один этап заполнения пока не пишет этот вид."
+    "noStageYet": "Ни один этап заполнения пока не пишет этот вид.",
+    "filePage": {
+      "cochangeShown": "Показано {{shown}} из {{total}} файлов, изменённых вместе не менее двух раз.",
+      "overview": "Обзор",
+      "history": "История",
+      "cochange": "Совместные изменения",
+      "rendered": "Отрисовано",
+      "source": "Исходный текст",
+      "softWrap": "Мягкий перенос",
+      "sourcesPage": "Открыть в источниках",
+      "noSource": "В графе нет текста этого файла.",
+      "noHistory": "Ни один коммит не менял этот файл.",
+      "noCochange": "Ни один другой файл не менялся вместе с ним в двух и более коммитах.",
+      "share": "{{both}} из {{total}} коммитов · {{share}}%"
+    }
   },
   "loop": {
     "questionsTitle": "Вопросы",

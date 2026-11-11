@@ -359,8 +359,8 @@ function pagesOf(status: WikiStatus): number {
 /**
  * The fill's state in the toolbar and the wiki's one fill control (madarch-stm0.6): the badge carries the status dot
  * and opens the panel from the right, where the sections, the agent and the cap are chosen and the fill is pressed. The
- * badge has no second Sync button beside it; while a run works it says how far it is, and after it, when it ended and how
- * many pages the wiki holds. Choosing the pages' language stays the one request of the badge itself — it starts the run
+ * badge has no second Sync button beside it; while a run works it says how far it is, and after it says Sync. The dot's
+ * tooltip holds the last fill's date and page count. Choosing the pages' language starts the run
  * that writes them in it.
  */
 export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
@@ -403,7 +403,6 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const fill = status.fill;
   const writer = status.writer;
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  const pages = pagesOf(status);
   if (status.manifest !== 'ok') return null;
   // The stages of the agent named the way a reader knows them: the kind's name and the page's title (madarch-m38l.23).
   // A run a person holds or ended is read before the stages (madarch-m38l.17): a paused one writes nothing, and «Заполнено»
@@ -433,17 +432,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${count}`;
     solid = true;
   }
-  else if (status.filled) {
-    const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    // The header says one word and one dot (the owner, 2026-11-10: "Заполнено · Файлов: 1882 · Коммитов: 2520" takes too
-    // much room): the button is Sync, and what the last run read — the commit, the files, the commits — is the dot's
-    // tooltip, where a reader asks for it.
-    label = pages > 0
-      ? (when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages }))
-      : t('knowledge.sync');
-    narrow = null;
-    if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
-  }
+  else if (status.filled) label = t('knowledge.sync');
   // A product with a repository and no fill yet offers Fill in the top bar (the owner, 2026-11-10): the press opens the
   // panel over the page, where the person chooses the sections and the agent and reads the estimate before pressing. A
   // product with no repository has nothing to fill and says so on its home page instead.
@@ -636,9 +625,16 @@ export function fillDotTitle(status: WikiStatus, t: (key: string, args?: Record<
  * hue (the design tokens are the graphite pair), and its title says the commit and the counts.
  */
 export function FillDot({ status }: { status: WikiStatus }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const state = fillDotState(status);
-  const words = fillDotTitle(status, t);
+  let words = fillDotTitle(status, t);
+  if (status.filled && (state === 'up-to-date' || state === 'stale') && !runIsPaused(status) && !runIsStopped(status)) {
+    const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+    const when = status.fill.finishedAt;
+    if (when !== undefined) words += ` · ${t('knowledge.fillDot.finished', { date: new Date(when).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' }) })}`;
+    words += ` · ${t('knowledge.fillDot.pages', { count: pagesOf(status) })}`;
+    if (status.fill.rebuilt === 'extractors-changed') words += ` · ${t('knowledge.fillRebuiltExtractors')}`;
+  }
   return (
     <span
       className="fill-dot mr-1.5 inline-block size-2 shrink-0 rounded-full align-middle"

@@ -159,7 +159,8 @@ describe('the function page', () => {
     expect(source.text).toContain(item('payments.timeout').locations!.find((entry) => entry.symbol === 'pay')!.anchor!);
     expect(source.language).toBe('typescript');
     expect(source.truncated).toBe(false);
-    expect(model.trail.map((entry) => entry.label)).toEqual(['payments', 'services/payments/src/domain', 'services/payments/src/domain/payment-service.ts']);
+    expect(model.trail.map((entry) => entry.label).slice(-3)).toEqual(['payments', 'services/payments/src/domain', 'services/payments/src/domain/payment-service.ts']);
+    expect(model.trail.at(-1)!.label).toBe('services/payments/src/domain/payment-service.ts');
   });
 
   test('the factory\'s page holds the anchored switch of the answer key, and the chain from pay is a sequence of its steps down to the table', async () => {
@@ -247,7 +248,8 @@ describe('the pages of the documents\' entities', () => {
     // The domain page grounds the sentence in UC-2 and PaymentService.pay in one footnote, the product page grounds one in the payments service and UC-2 in another.
     expect(rows(model, 'Implemented by')).toEqual([{ id: PAYMENTS_SERVICE, note: 'grounded with it on the page Online shop' }, { id: PAY, note: 'grounded with it on the page Payment' }]);
     expect(rows(model, 'Mentioned on').map((row) => row.id)).toEqual(['domain:payment', 'product:shop']);
-    expect(model.trail.map((entry) => entry.label)).toEqual(['training: docs/requirements.md']);
+    // Product / the document: the trail ends in the document's own name.
+    expect(model.trail.map((entry) => entry.label).slice(-2)).toEqual([expect.any(String), 'training: docs/requirements.md']);
     expect(model.findings).toEqual([]);
   });
 

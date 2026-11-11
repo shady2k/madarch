@@ -32,7 +32,7 @@ import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, isWikiAddress, WIKI_PROBLEMS } from './routes.js';
-import { FileFactsBlock, FolderBlock, RepositoryFactsBlock } from './repository.js';
+import { FileFactsBlock, FilePageView, FolderBlock, RepositoryFactsBlock } from './repository.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements } from './statements.js';
@@ -476,7 +476,7 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
 // ---- source -------------------------------------------------------------------------------------
 
 /** Highlighted lines with their numbers; `focus` marks the line the reader was sent to. */
-export function CodeLines({ text, language, firstLine, focus, marked }: { text: string; language: string; firstLine: number; focus?: number | null; marked?: { start: number; end: number } }): ReactElement {
+export function CodeLines({ text, language, firstLine, focus, marked, wrap = false }: { text: string; language: string; firstLine: number; focus?: number | null; marked?: { start: number; end: number }; wrap?: boolean }): ReactElement {
   const lines = highlight(text, language);
   // The plain scanner draws at once; the colors of Shiki replace it when they arrive.
   const [colored, setColored] = useState<{ key: string; lines: ColoredToken[][] } | null>(null);
@@ -488,7 +488,7 @@ export function CodeLines({ text, language, firstLine, focus, marked }: { text: 
   }, [key, text, language]);
   const shown = colored !== null && colored.key === key && colored.lines.length === lines.length ? colored.lines : null;
   return (
-    <pre className="source-code" data-testid="source-code" data-language={language} data-colored={shown !== null ? 'true' : 'false'}>
+    <pre className={`source-code${wrap ? ' source-code-wrap' : ''}`} data-testid="source-code" data-language={language} data-colored={shown !== null ? 'true' : 'false'} data-wrap={wrap ? 'true' : 'false'}>
       <code>
         {lines.map((tokens, index) => {
           const number = firstLine + index;
@@ -886,6 +886,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'repository': return <RepositoryFactsBlock data={block.data} />;
     case 'folder': return <FolderBlock data={block.data} />;
     case 'file': return <FileFactsBlock data={block.data} />;
+    case 'filePage': return <FilePageView block={block} resolutions={resolutions} />;
     case 'problem': return <Problem block={block} />;
   }
 }
