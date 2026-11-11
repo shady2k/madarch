@@ -148,11 +148,14 @@ export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryL
       return held.get(path) ?? undefined;
     },
     ensure: async (paths) => {
-      for (const path of paths) {
-        if (held.has(path)) continue;
-        const entry = entries.get(path);
-        if (entry === undefined || entry.form !== 'blob') { held.set(path, null); continue; }
-        held.set(path, await reader.readText(path));
+      const pending = [...new Set(paths)].filter((path) => !held.has(path));
+      // Git reads are independent; bound concurrency rather than starting one process per file at once.
+      for (let at = 0; at < pending.length; at += 8) {
+        const batch = await Promise.all(pending.slice(at, at + 8).map(async (path) => {
+          const entry = entries.get(path);
+          return [path, entry === undefined || entry.form !== 'blob' ? null : await reader.readText(path)] as const;
+        }));
+        for (const [path, text] of batch) held.set(path, text);
       }
     },
     filesIn: (folder) => {

@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { FILE_ENTRY_TABLE, FILE_PATH_TABLE, FILE_BLOB_TABLE } from '../src/graph/one-graph.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { publishTree } from '../src/graph/records.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
@@ -131,6 +132,47 @@ describe('a manifest-declared kind is read by prefix, as the Problems page reads
     });
   });
 });
+
+test('entity registrations cached in a publication do not survive its rollback', async () => {
+  const graph: GraphContract = {
+    vertex: [{ name: 'rollback.kind', table: generatedTableName('rollback.kind', 'vertex'), fields: [{ name: 'name', type: 'text' }], key: ['name'], capability: 'fixture' }],
+    edge: [], dictionary: [],
+  };
+  await expect(owner.transaction('write', async (tx) => {
+    await ensureVertex(tx, graph, { kind: 'rollback.kind', key: { name: 'one' } });
+    await ensureVertex(tx, graph, { kind: 'rollback.kind', key: { name: 'two' } });
+    throw new Error('roll back registration');
+  })).rejects.toThrow('roll back registration');
+  await expect(owner.transaction('write', async (tx) => {
+    const first = await ensureVertex(tx, graph, { kind: 'rollback.kind', key: { name: 'one' } });
+    const second = await ensureVertex(tx, graph, { kind: 'rollback.kind', key: { name: 'two' } });
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(true);
+    expect(first.nodeId).not.toBe(second.nodeId);
+    throw new Error('leave fixture unchanged');
+  })).rejects.toThrow('leave fixture unchanged');
+});
+
+test('tree mechanism entries preserve batched inserts, changes and scoped removals', async () => {
+  const files = Array.from({ length: 503 }, (_, index) => ({
+    path: index === 502 ? 'outside/keep.txt' : `inside/file-${index}.txt`,
+    mode: '100644' as const, blob: 'b'.repeat(40), bytes: 4, form: 'text' as const,
+    lines: 1, content: 'old\n', language: 'Text', candidates: ['Text'],
+  }));
+  const input = { repository: { name: 'batched-entries', url: 'file:///batched' }, commit: 'a'.repeat(40), files, gitlinks: [], kinds: false as const };
+  expect(await publishTree(owner, input)).toEqual({ inserted: 503, updated: 0, deleted: 0, unchanged: 0 });
+  expect(await publishTree(owner, input)).toEqual({ inserted: 0, updated: 0, deleted: 0, unchanged: 503 });
+  const changed = files.slice(0, 501).map((file) => ({ ...file, mode: '100755' as const, blob: 'c'.repeat(40), content: 'new\n' }));
+  expect(await publishTree(owner, { ...input, files: changed, scope: ['inside'] })).toEqual({ inserted: 0, updated: 501, deleted: 1, unchanged: 0 });
+  const held = await owner.transaction('snapshot', async (tx) => await tx.query<{ path: string; mode: string; content: string }>(
+    `SELECT p.text AS path, e.mode, b.content FROM ${FILE_ENTRY_TABLE} e JOIN ${FILE_PATH_TABLE} p ON p.id = e.path_id JOIN ${FILE_BLOB_TABLE} b ON b.id = e.blob_id WHERE e.repository = $1 ORDER BY p.text`,
+    ['batched-entries'],
+  ));
+  expect(held.rows).toHaveLength(502);
+  expect(held.rows.filter((row) => row.path.startsWith('inside/')).every((row) => row.mode === '100755' && row.content === 'new\n')).toBe(true);
+  expect(held.rows.find((row) => row.path === 'outside/keep.txt')).toEqual({ path: 'outside/keep.txt', mode: '100644', content: 'old\n' });
+  expect(await publishTree(owner, { ...input, files: [] })).toEqual({ inserted: 0, updated: 0, deleted: 502, unchanged: 0 });
+}, 120_000);
 
 describe('the manifest makes the table and the writer fills it', () => {
   test('the kind has a column for every field it states and none for its key', async () => {

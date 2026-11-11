@@ -242,13 +242,25 @@ function edgeOfKind(contract: GraphContract, kind: string): { readonly name: str
 }
 
 /** The id of a kind's row in `entity`, made where the contract declares it and the store holds none. */
+// Database owners lend a fresh executor to each transaction, so ids never survive a rollback or schema reset.
+const ENTITY_IDS_OF = new WeakMap<SqlExecutor, Map<string, string>>();
+
 async function entityIdOf(executor: SqlExecutor, kind: string, sort: 'node' | 'edge'): Promise<string> {
+  let ids = ENTITY_IDS_OF.get(executor);
+  const key = `${sort}:${kind}`;
+  const held = ids?.get(key);
+  if (held !== undefined) return held;
   const made = await executor.query<{ id: string }>(
     `INSERT INTO entity (name, sort) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id::text AS id`,
     [kind, sort],
   );
   const id = made.rows[0]?.id;
   if (id === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(kind)} was registered and the store answered no id`);
+  if (ids === undefined) {
+    ids = new Map();
+    ENTITY_IDS_OF.set(executor, ids);
+  }
+  ids.set(key, id);
   return id;
 }
 
@@ -883,6 +895,10 @@ export async function publishFileEntries(executor: SqlExecutor, input: {
   const paths = await internPaths(executor, input.files.map((file) => file.path));
   const held = await heldFileEntries(executor, input.repository);
   const blobs = new Map<string, string>();
+  const inserted: { path_id: string; mode: string | null; blob_id: string }[] = [];
+  const updated: { path_id: string; mode: string | null; blob_id: string }[] = [];
+  const deleted: string[] = [];
+  const wanted = new Set(input.files.map((file) => file.path));
   let counts: FileEntryCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
   for (const file of input.files) {
     const known = held.get(file.path);
@@ -892,19 +908,38 @@ export async function publishFileEntries(executor: SqlExecutor, input: {
     if (blobId === undefined || blobId === null) throw new Error(`src/graph/write.ts:1: the blob ${file.blob} of ${JSON.stringify(file.path)} has no row: the files producer interns it first`);
     blobs.set(file.blob, blobId);
     if (known === undefined) {
-      await executor.query(`INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id) VALUES ($1, $2::bigint, $3, $4::bigint)`, [input.repository, pathId, file.mode, blobId]);
+      inserted.push({ path_id: pathId, mode: file.mode, blob_id: blobId });
       counts = { ...counts, inserted: counts.inserted + 1 };
     } else if (known.mode !== file.mode || known.hash !== file.blob) {
-      await executor.query(`UPDATE ${FILE_ENTRY_TABLE} SET mode = $2, blob_id = $3::bigint WHERE repository = $1 AND path_id = $4::bigint`, [input.repository, file.mode, blobId, known.pathId]);
+      updated.push({ path_id: known.pathId, mode: file.mode, blob_id: blobId });
       counts = { ...counts, updated: counts.updated + 1 };
     } else {
       counts = { ...counts, unchanged: counts.unchanged + 1 };
     }
   }
   for (const [path, known] of held) {
-    if (input.files.some((file) => file.path === path) || !within(path)) continue;
-    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = $2::bigint`, [input.repository, known.pathId]);
+    if (wanted.has(path) || !within(path)) continue;
+    deleted.push(known.pathId);
     counts = { ...counts, deleted: counts.deleted + 1 };
+  }
+  // Keep the entry writes bounded without one database round trip per repository path.
+  for (let at = 0; at < inserted.length; at += 500) {
+    await executor.query(
+      `INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id)
+       SELECT $1, e.path_id, e.mode, e.blob_id FROM jsonb_to_recordset($2::jsonb) AS e(path_id bigint, mode text, blob_id bigint)`,
+      [input.repository, JSON.stringify(inserted.slice(at, at + 500))],
+    );
+  }
+  for (let at = 0; at < updated.length; at += 500) {
+    await executor.query(
+      `UPDATE ${FILE_ENTRY_TABLE} f SET mode = e.mode, blob_id = e.blob_id
+       FROM jsonb_to_recordset($2::jsonb) AS e(path_id bigint, mode text, blob_id bigint)
+       WHERE f.repository = $1 AND f.path_id = e.path_id`,
+      [input.repository, JSON.stringify(updated.slice(at, at + 500))],
+    );
+  }
+  for (let at = 0; at < deleted.length; at += 500) {
+    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = ANY($2::bigint[])`, [input.repository, `{${deleted.slice(at, at + 500).join(',')}}`]);
   }
   return { counts, blobIds: blobs };
 }
