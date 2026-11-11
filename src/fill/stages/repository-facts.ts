@@ -13,14 +13,13 @@
  * item and a publication for every path of a tree one statement listed.
  */
 import * as languages from 'linguist-languages';
-import { withSpan } from '../../obs/trace.js';
+import { gitStream, gitText, blobContents } from '../../plugin/git-bytes.js';
 import { raise } from '../../model/raise.js';
 import { Type } from 'typebox';
 import { log } from '../../obs/log.js';
 import { byCodePoint } from '../../model/order.js';
-import type { SnapshotSource } from '../snapshot.js';
+import type { SnapshotSource } from '../../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StagePlan, type StageUnit } from '../stage.js';
-import { decideLanguage } from './language-heuristics.js';
 import type { DeclaredKinds, HistoryCommit, HistoryPublish, RecordCounts, TreeFile, TreeGitlink, TreePublish } from '../../graph/index.js';
 
 /** The stage ids of the two passes, as a later step registers them. */
@@ -34,59 +33,6 @@ export interface RepositoryAt {
   readonly commit: string;
   readonly url: string;
   readonly defaultBranch?: string;
-}
-
-/** The most bytes of git's standard error one failure may name; the rest is cut and said to be cut. */
-const GIT_ERROR_BYTES = 4_000;
-
-/**
- * Runs one git command in a checkout and hands its standard output to `onChunk`
- * as it arrives, so a history of a million entries is read once and never stands
- * in memory whole. The span names the command, its arguments and the bytes it
- * answered; it never holds those bytes.
- */
-async function gitStream(root: string, args: readonly string[], onChunk: (chunk: Uint8Array) => void, options: { readonly input?: string } = {}): Promise<number> {
-  return await withSpan('process.git', {
-    'process.command': 'git',
-    'process.args': [...args],
-    'process.cwd': root,
-  }, async (span) => {
-    let process_: ReturnType<typeof Bun.spawn>;
-    try {
-      process_ = Bun.spawn(['git', ...args], {
-        cwd: root,
-        stdin: options.input === undefined ? 'ignore' : new TextEncoder().encode(options.input),
-        stdout: 'pipe',
-        stderr: 'pipe',
-        env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' },
-      });
-    } catch (error) {
-      raise(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)}`);
-    }
-    const errors: Uint8Array[] = [];
-    const drained = (async () => { for await (const chunk of process_.stderr as ReadableStream<Uint8Array>) errors.push(chunk); })();
-    let bytes = 0;
-    for await (const chunk of process_.stdout as ReadableStream<Uint8Array>) {
-      bytes += chunk.byteLength;
-      onChunk(chunk);
-    }
-    await drained;
-    const code = await process_.exited;
-    span.setAttribute('process.outputBytes', bytes);
-    span.setAttribute('process.exitCode', code);
-    if (code !== 0) {
-      const message = Buffer.concat(errors.map((one) => Buffer.from(one))).toString('utf8').trim();
-      raise(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`}`);
-    }
-    return bytes;
-  });
-}
-
-/** One git answer as text, for the small answers (a commit's tree id, a yes or a no). */
-async function gitText(root: string, args: readonly string[]): Promise<string> {
-  const parts: Buffer[] = [];
-  await gitStream(root, args, (chunk) => parts.push(Buffer.from(chunk)));
-  return Buffer.concat(parts).toString('utf8');
 }
 
 /**
@@ -209,39 +155,7 @@ export function languageOfPath(path: string): { language: string; candidates: re
   return best.length === 1 ? { language: best[0]!, candidates: best } : { language: 'ambiguous', candidates: best };
 }
 
-/**
- * The bytes of many blobs as text, in one `git cat-file --batch` call (decision 0035, item 9: the files producer reads
- * the source, once per blob). A blob whose bytes are no UTF-8 is kept as no content, never as replacement characters;
- * the batch's own header states each object's size, so a content holding a line that looks like a header is read whole.
- */
-async function blobContents(root: string, blobs: readonly string[]): Promise<Map<string, string | null>> {
-  const contents = new Map<string, string | null>();
-  if (blobs.length === 0) return contents;
-  const wanted = [...new Set(blobs)];
-  let held = Buffer.alloc(0);
-  let index = 0;
-  const take = (chunk: Uint8Array): void => {
-    held = held.length === 0 ? Buffer.from(chunk) : Buffer.concat([held, Buffer.from(chunk)]);
-    for (;;) {
-      if (index >= wanted.length) return;
-      // A header is `<oid> <type> <size>` and a newline; the content follows, then its own newline.
-      const newline = held.indexOf(0x0a);
-      if (newline < 0) return;
-      const header = held.subarray(0, newline).toString('latin1');
-      const parts = header.split(' ');
-      if (parts.length !== 3) { index += 1; held = held.subarray(newline + 1); continue; }
-      const size = Number(parts[2]);
-      if (!Number.isFinite(size) || held.length < newline + 1 + size + 1) return;
-      const bytes = held.subarray(newline + 1, newline + 1 + size);
-      contents.set(wanted[index]!, textOf(bytes) ?? null);
-      held = held.subarray(newline + 1 + size + 1);
-      index += 1;
-    }
-  };
-  await gitStream(root, ['cat-file', '--batch'], (chunk) => take(chunk), { input: `${wanted.join('\n')}\n` });
-  take(new Uint8Array(0));
-  return contents;
-}
+
 
 /** The `linguist-language` overrides one tree states, read by git's own attribute parser in one call. */
 async function languageOverridesAt(root: string, commit: string, paths: readonly string[]): Promise<Map<string, string>> {
@@ -405,15 +319,6 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
   // The text files' bytes, once per blob: two files with the same bytes share one row in the store (item 9).
   const contents = await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
   for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
-  // A path whose extension several languages claim is decided by GitHub Linguist's own rules (madarch-j9ao.1, item 7):
-  // the vendored data, over the first 50 KiB of the text, with the Oniguruma engine Ruby's regexes are built on. A path
-  // git's `.gitattributes` overrides keeps git's answer, and a path no rule decides keeps the dataset's candidates.
-  for (let at = 0; at < files.length; at += 1) {
-    const file = files[at]!;
-    if (file.form !== 'text' || file.candidates.length <= 1 || overrides.has(file.path) || file.content === null) continue;
-    const decided = await decideLanguage(file.path, file.content, file.candidates);
-    if (decided !== undefined) files[at] = { ...file, language: decided.language, candidates: [decided.language] };
-  }
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
   // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a

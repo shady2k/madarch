@@ -27,14 +27,14 @@
  * ```
  */
 import { join } from 'node:path';
-import type { ProductFileRead } from './product-files.js';
+import type { ProductFileRead } from '../../plugin/product-files.js';
 import { LineCounter, parseDocument } from 'yaml';
-import { byCodePoint } from '../model/order.js';
-import { lineForPath } from '../model/yaml-position.js';
-import { deriveStageGraphOver, type StageRegistry } from '../fill/registry.js';
-import { STAGE_ID_PATTERN } from '../fill/stage.js';
-import { createEngineStageRegistry } from '../fill/stages/index.js';
-import { STARTER_WORKFLOWS } from './starter-workflows.js';
+import { byCodePoint } from '../../model/order.js';
+import { lineForPath } from '../../model/yaml-position.js';
+import { deriveStageGraphOver, type StageRegistry } from '../../fill/registry.js';
+import { STAGE_ID_PATTERN } from '../../fill/stage.js';
+import { createEngineStageRegistry } from '../../fill/stages/index.js';
+import { STARTER_WORKFLOWS } from '../../knowledge/starter-workflows.js';
 
 /** The manifest's place in the product repository. */
 export const WORKFLOWS_FILE = 'madarch/workflows.yaml';

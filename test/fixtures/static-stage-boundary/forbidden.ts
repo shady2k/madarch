@@ -4,7 +4,7 @@
  * this file and expects one violation for each. It is never registered,
  * imported or run.
  */
-import type { SnapshotSource } from '../../../src/fill/snapshot.js';
+import type { SnapshotSource } from '../../../src/plugin/repository-snapshot.js';
 
 const leaked = (sources: SnapshotSource): number => (sources === undefined ? 0 : 1);
 

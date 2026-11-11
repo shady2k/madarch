@@ -9,9 +9,6 @@
  * A server mounted under a product home passes its prefix, so every address a
  * document holds stays inside that product.
  */
-import remarkGfm from 'remark-gfm';
-import remarkParse from 'remark-parse';
-import { unified } from 'unified';
 import type { Block, CodeLocation, EntityRef, KindSummary, PageModel } from './model.js';
 import { historyFigureText } from './history-figures.js';
 import type { Resolution } from './resolve.js';
@@ -207,179 +204,15 @@ const itemOf = (ref: EntityRef, prefix: string): PageFileItem => ({
   ...(ref.location === undefined ? {} : { place: placeOf(ref.location, prefix)! }),
 });
 
-/** The text of an mdast label: its words, without the marks around them. */
-interface MdNode {
-  type: string;
-  url?: string;
-  identifier?: string;
-  label?: string;
-  title?: string | null;
-  alt?: string | null;
-  value?: string;
-  children?: MdNode[];
-  position?: { start: { offset?: number }; end: { offset?: number } };
-}
-
-const wordsOf = (node: MdNode): string => {
-  if (node.type === 'text' || node.type === 'inlineCode') return node.value ?? '';
-  if (node.type === 'image') return node.alt ?? '';
-  return (node.children ?? []).map(wordsOf).join('');
-};
-
-const parser = unified().use(remarkParse).use(remarkGfm);
-
-/** One definition of a reference link: where it points, and the title the author gave it. */
-interface MdDefinition {
-  url: string;
-  title: string | null;
-}
-
-/** Every definition the text holds, by the identifier a reference names it with. */
-function definitionsIn(root: MdNode): Map<string, MdDefinition> {
-  const found = new Map<string, MdDefinition>();
-  const walk = (node: MdNode): void => {
-    if (node.type === 'definition' && typeof node.identifier === 'string' && typeof node.url === 'string') {
-      found.set(node.identifier, { url: node.url, title: node.title ?? null });
-    }
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(root);
-  return found;
-}
-
-/**
- * The label a link wrote, marks and all, from the offsets of its own children:
- * `[**Home**](…)` keeps its bold, and `[Home][h]` keeps the words before the
- * reference. A node with no child offsets falls back to its words.
- */
-function labelIn(text: string, node: MdNode): string {
-  const children = node.children ?? [];
-  const first = children[0]?.position?.start.offset;
-  const last = children[children.length - 1]?.position?.end.offset;
-  if (children.length > 0 && first !== undefined && last !== undefined) return text.slice(first, last);
-  return wordsOf(node);
-}
-
-/** A destination no bracket around it ends early: parentheses, spaces and angle brackets are encoded. */
+/** Encode a generated Markdown destination. */
 function destination(url: string): string {
-  let out = '';
-  for (const character of url) {
-    if (character === '(') out += '%28';
-    else if (character === ')') out += '%29';
-    else if (character === ' ') out += '%20';
-    else if (character === '<') out += '%3C';
-    else if (character === '>') out += '%3E';
-    else out += character;
-  }
-  return out;
+  return url.replaceAll('(', '%28').replaceAll(')', '%29').replaceAll(' ', '%20').replaceAll('<', '%3C').replaceAll('>', '%3E');
 }
 
-/** A link written from the AST: its words kept as written, its destination the address it resolves to. */
-function linkNode(label: string, url: string, title: string | null | undefined): string {
-  const named = title === undefined || title === null || title === '' ? '' : ` ${JSON.stringify(title)}`;
-  return `[${label}](${destination(url)}${named})`;
-}
-
-/** Every link the text holds, reference links resolved through their definitions. */
-function linksIn(text: string): { title: string; url: string }[] {
-  const root = parser.parse(text) as unknown as MdNode;
-  const definitions = definitionsIn(root);
-  const found: { title: string; url: string }[] = [];
-  const walk = (node: MdNode): void => {
-    if (node.type === 'link' && typeof node.url === 'string') found.push({ title: wordsOf(node), url: node.url });
-    else if (node.type === 'linkReference' && node.identifier !== undefined) {
-      const definition = definitions.get(node.identifier);
-      if (definition !== undefined) found.push({ title: wordsOf(node), url: definition.url });
-    }
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(root);
-  return found;
-}
-
-const brokenNote = (reason: string): string => ` *(no page: ${reason.split('\n').join(' ')})*`;
-
-/**
- * A page's text with every link written as the address it resolves to: a
- * `madarch:` link through the page's resolutions, an ordinary wiki link at the
- * product's mount. The links are read from the Markdown AST — reference links
- * through their definitions, autolinks from their own text — and written back
- * from it, so a link's words keep the markup the page wrote. A link that
- * resolves to nothing keeps its words, its reason beside it, and is listed as
- * broken instead of becoming a dead scheme.
- */
-function rewrite(text: string, resolutions: Readonly<Record<string, Resolution>>, prefix: string): string {
-  const root = parser.parse(text) as unknown as MdNode;
-  const definitions = definitionsIn(root);
-  const changes: { start: number; end: number; text: string }[] = [];
-  const walk = (node: MdNode): void => {
-    const start = node.position?.start.offset;
-    const end = node.position?.end.offset;
-    if (node.type === 'link' || node.type === 'linkReference') {
-      const definition = node.type === 'linkReference' && node.identifier !== undefined ? definitions.get(node.identifier) : undefined;
-      const url = node.type === 'link' ? node.url : definition?.url;
-      const title = node.type === 'link' ? node.title : definition?.title;
-      if (start !== undefined && end !== undefined && typeof url === 'string') {
-        const original = text.slice(start, end);
-        const label = labelIn(text, node);
-        let replacement = original;
-        if (url.startsWith('madarch:')) {
-          const resolution = resolutions[url];
-          if (resolution === undefined) replacement = `${original}${brokenNote('no resolution for the link')}`;
-          else if (resolution.state === 'broken') replacement = `${original}${brokenNote(resolution.reason)}`;
-          else if (resolution.href === null) replacement = `${wordsOf(node)}${brokenNote(resolution.note ?? `the kind ${resolution.kind} has no page`)}`;
-          else replacement = linkNode(label, at(resolution.href, prefix)!, title);
-        } else if (url.startsWith('/')) {
-          const href = at(url, prefix)!;
-          if (href !== url) replacement = linkNode(label, href, title);
-        }
-        if (replacement !== original) changes.push({ start, end, text: replacement });
-      }
-    } else if (node.type === 'definition' && typeof node.url === 'string' && start !== undefined && end !== undefined) {
-      // The definition is what a reference link points with: it names the wiki address too, so no dead scheme outlives the reference.
-      const original = text.slice(start, end);
-      let href: string | null = null;
-      if (node.url.startsWith('madarch:')) {
-        const resolution = resolutions[node.url];
-        if (resolution !== undefined && resolution.state !== 'broken' && resolution.href !== null) href = at(resolution.href, prefix);
-      } else if (node.url.startsWith('/')) {
-        href = at(node.url, prefix);
-      }
-      if (href !== null && href !== node.url) {
-        const close = original.indexOf(']:');
-        const label = close === -1 ? node.label ?? '' : original.slice(1, close);
-        const named = node.title === undefined || node.title === null || node.title === '' ? '' : ` ${JSON.stringify(node.title)}`;
-        changes.push({ start, end, text: `[${label}]: ${destination(href)}${named}` });
-      }
-    }
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(root);
-  let out = text;
-  for (const change of changes.sort((left, right) => right.start - left.start)) out = out.slice(0, change.start) + change.text + out.slice(change.end);
-  return out;
-}
-
-function textLinks(text: string, resolutions: Readonly<Record<string, Resolution>>, prefix: string): PageFileLink[] {
-  const seen = new Set<string>();
-  const links: PageFileLink[] = [];
-  for (const link of linksIn(text)) {
-    const resolution = resolutions[link.url];
-    let entry: PageFileLink;
-    if (link.url.startsWith('madarch:')) {
-      if (resolution === undefined) entry = { title: link.title, url: null, broken: 'no resolution for the link' };
-      else if (resolution.state === 'broken') entry = { title: link.title, url: null, broken: resolution.reason };
-      else if (resolution.href === null) entry = { title: link.title, url: null, kind: resolution.kind, ...(resolution.entity === undefined ? {} : { id: resolution.entity }), broken: resolution.note ?? `the kind ${resolution.kind} has no page` };
-      else entry = { title: link.title, url: at(resolution.href, prefix), kind: resolution.kind, ...(resolution.entity === undefined ? {} : { id: resolution.entity }) };
-    } else {
-      entry = { title: link.title, url: at(link.url, prefix) };
-    }
-    const key = `${entry.title}\u0000${entry.url}\u0000${entry.kind ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    links.push(entry);
-  }
-  return links;
+function resolutionLinks(resolutions: Readonly<Record<string, Resolution>>, prefix: string): PageFileLink[] {
+  return Object.values(resolutions).map((resolution) => resolution.state === 'broken'
+    ? { title: resolution.target, url: null, broken: resolution.reason }
+    : { title: resolution.label, url: at(resolution.href, prefix), kind: resolution.kind, ...(resolution.entity === undefined ? {} : { id: resolution.entity }) });
 }
 
 /** A fenced code block no backtick run in the text can close early. */
@@ -593,34 +426,32 @@ export function pageFileDocument(page: PageModel, prefix = ''): PageFileDocument
 }
 
 function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSection {
-  const rewriteText = (text: string): string => rewrite(text, page.resolutions, prefix);
-  const resolved = (text: string): string => rewriteText(text);
   switch (block.type) {
     case 'guide':
       // No stage writes a guide block yet: a page that carries one shows no text, never a second store's.
       return { title: '', type: 'text', text: '', links: [] };
     case 'markdown':
-      return { title: '', type: 'text', text: resolved(block.markdown), links: textLinks(block.markdown, page.resolutions, prefix) };
+      return { title: '', type: 'text', text: block.markdown, links: resolutionLinks(page.resolutions, prefix) };
     case 'term': {
-      const text = [resolved(block.definition), block.usedIn === null ? '' : resolved(block.usedIn)].filter(Boolean).join('\n\n');
+      const text = [block.definition, block.usedIn === null ? '' : block.usedIn].filter(Boolean).join('\n\n');
       return {
         title: block.title,
         type: 'text',
         text,
-        links: textLinks([block.definition, block.usedIn ?? '', block.ambiguous ?? ''].join('\n\n'), page.resolutions, prefix),
+        links: resolutionLinks(page.resolutions, prefix),
         items: [
           ...block.synonyms.map((synonym) => ({ title: synonym, url: null, badge: 'synonym' })),
           ...block.code.map((entry) => ({ title: entry, url: null, badge: 'code' })),
         ],
-        ...(block.ambiguous === null ? {} : { message: resolved(block.ambiguous) }),
+        ...(block.ambiguous === null ? {} : { message: block.ambiguous }),
       };
     }
     case 'body':
       return {
         title: '',
         type: 'text',
-        text: resolved(block.markdown),
-        links: textLinks(block.markdown, page.resolutions, prefix),
+        text: block.markdown,
+        links: resolutionLinks(page.resolutions, prefix),
         file: block.file,
         statements: block.statements,
         ...(block.ungrounded.length === 0 ? {} : { ungrounded: block.ungrounded }),
@@ -683,9 +514,9 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
       return {
         title: block.title,
         type: 'items',
-        ...(block.paragraphs === undefined ? {} : { text: block.paragraphs.map((paragraph) => resolved(paragraph.text)).join('\n\n') }),
+        ...(block.paragraphs === undefined ? {} : { text: block.paragraphs.map((paragraph) => paragraph.text).join('\n\n') }),
         ...(items.length === 0 ? {} : { items }),
-        ...(block.absent === undefined ? {} : { message: resolved(block.absent.message) }),
+        ...(block.absent === undefined ? {} : { message: block.absent.message }),
       };
     }
     case 'diagrams':

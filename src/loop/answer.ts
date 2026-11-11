@@ -11,16 +11,19 @@
 import { whoIsTheUser } from '../identity/identity.js';
 import { execFile } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { correctionId, QUESTION_SLUG } from './ids.js';
-import { readKnowledgePages } from '../knowledge/index/index.js';
+import { graphKnowledgePages } from '../knowledge/index/index.js';
 import {
-  CORRECTIONS_FOLDER, CORRECTION_KIND, LoopFileError, MAX_ANSWER, MAX_REASON,
-  correctionPath, parseCorrection, parseQuestion, parseStatementRef, questionPath, renderCorrection, renderQuestion,
+  CORRECTIONS_FOLDER, CORRECTION_KIND, MAX_ANSWER, MAX_REASON,
+  correctionPath, parseStatementRef, questionPath, renderCorrection, renderQuestion,
   type Author, type Correction, type Question,
 } from './entities.js';
+
+import { graphCorrections, type LoopGraph } from './graph.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 
 const run = promisify(execFile);
 
@@ -108,7 +111,7 @@ async function alone<T>(key: string, work: () => Promise<T>): Promise<T> {
 
 export interface AnswerInput {
   readonly productFolder: string;
-  readonly slug: string;
+  readonly question: Question;
   readonly text: string;
   readonly now?: () => Date;
   readonly env?: NodeJS.ProcessEnv;
@@ -120,39 +123,28 @@ export interface Answered extends Committed {
 
 export async function answerQuestion(input: AnswerInput): Promise<Answered> {
   const env = input.env ?? process.env;
-  if (!QUESTION_SLUG.test(input.slug)) throw new LoopRefusal(400, `"${input.slug}" is no question id: a question's id is lower-case words joined by hyphens or the 12-character content hash a new file is named by`);
+  if (!QUESTION_SLUG.test(input.question.slug)) throw new LoopRefusal(400, `"${input.question.slug}" is no question id: a question's id is lower-case words joined by hyphens or the 12-character content hash a new file is named by`);
   const text = input.text.replace(/\r\n/g, '\n').trim();
   if (text === '') throw new LoopRefusal(400, 'the answer is empty: write what is true, in your own words');
   if (text.length > MAX_ANSWER) throw new LoopRefusal(413, `the answer is ${text.length} characters, past the ${MAX_ANSWER} a question's file keeps`);
-  const file = questionPath(input.slug);
+  const file = questionPath(input.question.slug);
   const path = join(input.productFolder, file);
   return await alone(path, async () => {
-    let source: string;
-    try {
-      source = await readFile(path, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new LoopRefusal(404, `there is no question ${input.slug}: ${file} is not in the product repository`);
-      throw new LoopRefusal(500, `${file} cannot be read: ${(error as Error).message}`);
-    }
-    let question: Question;
-    try {
-      question = parseQuestion(file, source);
-    } catch (error) {
-      if (error instanceof LoopFileError) throw new LoopRefusal(422, error.message);
-      throw error;
-    }
-    if (question.status === 'answered') throw new LoopRefusal(409, `the question ${input.slug} is already answered (by ${question.answer!.by.name} at ${question.answer!.at}); to change what the wiki says, record a correction on the page that used the answer`);
+    const question = input.question;
+    if (question.status === 'answered') throw new LoopRefusal(409, `the question ${input.question.slug} is already answered (by ${question.answer!.by.name} at ${question.answer!.at}); to change what the wiki says, record a correction on the page that used the answer`);
     assertInside(input.productFolder, path);
     const by = await localIdentity(input.productFolder, env);
     const at = (input.now?.() ?? new Date()).toISOString();
     const answered: Question = { ...question, status: 'answered', answer: { text, by, at } };
     await writeWhole(path, renderQuestion(answered));
-    const committed = await commitFiles(input.productFolder, [file], `Answer the question ${input.slug}\n\nAnswered in the wiki by ${by.name} <${by.email}> (${by.verified}).`, by, env);
+    const committed = await commitFiles(input.productFolder, [file], `Answer the question ${input.question.slug}\n\nAnswered in the wiki by ${by.name} <${by.email}> (${by.verified}).`, by, env);
     return { question: answered, ...committed };
   });
 }
 
 export interface CorrectionInput {
+  readonly graph: LoopGraph;
+  readonly manifest: KindsManifest;
   readonly productFolder: string;
   /** `<page id>#<statement name>`: the statement the correction is about. */
   readonly statement: string;
@@ -166,10 +158,10 @@ export interface Corrected extends Committed {
 }
 
 /** Finds a statement of the product's pages: its page, its sentence and its file. */
-function findStatement(productFolder: string, ref: string): { page: string; file: string; text: string } | undefined {
+async function findStatement(graph: LoopGraph, manifest: KindsManifest, ref: string): Promise<{ page: string; file: string; text: string } | undefined> {
   const parsed = parseStatementRef(ref);
   if (parsed === undefined) return undefined;
-  const { pages } = readKnowledgePages(productFolder);
+  const { pages } = await graphKnowledgePages(graph, manifest);
   const page = pages.find((candidate) => candidate.id === parsed.page);
   const statement = page?.statements.find((candidate) => candidate.id === parsed.statement);
   return page === undefined || statement === undefined ? undefined : { page: page.id, file: page.file, text: statement.text };
@@ -182,7 +174,7 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcte
   const reason = input.reason.replace(/\r\n/g, '\n').trim();
   if (reason === '') throw new LoopRefusal(400, 'the correction has no reason: say why the statement is wrong ("wrong, because ...")');
   if (reason.length > MAX_REASON) throw new LoopRefusal(413, `the reason is ${reason.length} characters, past the ${MAX_REASON} a correction keeps`);
-  const found = findStatement(input.productFolder, input.statement);
+  const found = await findStatement(input.graph, input.manifest, input.statement);
   if (found === undefined) throw new LoopRefusal(404, `the product has no statement ${input.statement}: it may have been rewritten since the page was opened; open the page again and choose the sentence`);
   const by = await localIdentity(input.productFolder, env);
   const at = (input.now?.() ?? new Date()).toISOString();
@@ -191,15 +183,14 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcte
   // The id is chosen inside the turn: the same correction is one file, and two different ones never pick the same file.
   return await alone(join(input.productFolder, CORRECTIONS_FOLDER), async () => {
     const wanted = correctionId(found.text, reason, input.statement);
+    const corrections = await graphCorrections(input.graph);
+    const existing = corrections.find((item) => correctionId(item.statement, item.reason, item.about) === wanted);
+    if (existing !== undefined) return { correction: existing, committed: false, note: `${existing.file} already records this correction; nothing was written` };
     let slug = wanted;
     for (let n = 2; ; n += 1) {
       const candidate = correctionPath(slug);
       const path = join(input.productFolder, candidate);
       if (!existsSync(path)) break;
-      const existing = parseCorrection(candidate, await readFile(path, 'utf8'));
-      if (correctionId(existing.statement, existing.reason, existing.about) === wanted) {
-        return { correction: existing, committed: false, note: `${candidate} already records this correction; nothing was written` };
-      }
       slug = `${wanted}-${n}`;
     }
     const file = correctionPath(slug);

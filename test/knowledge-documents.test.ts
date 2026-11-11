@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { DOCUMENT_LIMIT } from '../src/knowledge/doc-sources.js';
+const DOCUMENT_LIMIT = 2000;
 import { gitEnv } from './git-env.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };

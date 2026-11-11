@@ -13,9 +13,10 @@
  * The proposal carries the impact computed through the graph, so the reader sees
  * the pages and statements the change reaches before confirming anything.
  */
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { readQuestions, type Question } from './entities.js';
+import { graphQuestions, type LoopGraph } from './graph.js';
 import { impactOf, type TaskImpact } from './impact.js';
 import { groundsOfScope } from './planned.js';
 import type { PlaceView, TaskScope } from './tasks.js';
@@ -63,13 +64,9 @@ function scopeOfGround(ground: string): TaskScope | undefined {
 const scopeKey = (scope: TaskScope): string => JSON.stringify(scope);
 
 /** The proposal for one answer: its grounds as a scope, its impact read through the graph. */
-export async function proposeTask(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly question: string; readonly choice: TaskChoice; readonly language?: 'en' | 'ru' }): Promise<TaskProposal> {
-  const read = readQuestions(input.productFolder);
-  const question: Question | undefined = read.items.find((candidate) => candidate.slug === input.question);
-  if (question === undefined) {
-    const broken = read.problems.find((problem) => problem.file.endsWith(`/${input.question}.md`));
-    throw new ProposalRefusal(broken === undefined ? `there is no question ${input.question}: docs/questions/${input.question}.md is not in the product repository` : broken.message);
-  }
+export async function proposeTask(input: { readonly owner: DatabaseOwner; readonly graph: LoopGraph; readonly manifest: KindsManifest; readonly productFolder: string; readonly question: string; readonly choice: TaskChoice; readonly language?: 'en' | 'ru' }): Promise<TaskProposal> {
+  const question = (await graphQuestions(input.graph)).find((candidate) => candidate.slug === input.question);
+  if (question === undefined) throw new ProposalRefusal(`there is no question ${input.question} in the graph`);
   if (question.answer === null) throw new ProposalRefusal(`${question.file}:1: the question ${question.slug} has no answer yet, so it proposes no task: answer it first`);
   // The answer's evidence, not where the question was asked: a bare page id names a place, not a change.
   const grounds = [...new Set([...question.about, ...question.sides.flatMap((side) => side.grounds)])]
@@ -89,7 +86,7 @@ export async function proposeTask(input: { readonly owner: DatabaseOwner; readon
   const scope = [...scopes.values()].sort((a, b) => byCodePoint(JSON.stringify(a), JSON.stringify(b)));
   // The preview is what the scope reaches: the sections the task changes, not the evidence of the whole answer.
   const keys = [...new Set([...scopes.values()].flatMap((scope) => groundsOfScope(scope)))].sort(byCodePoint);
-  const impact = await impactOf(input.owner, input.productFolder, keys.length === 0 ? grounds : keys);
+  const impact = await impactOf(input.owner, input.productFolder, keys.length === 0 ? grounds : keys, { graph: input.graph, manifest: input.manifest });
   const language = input.language === 'ru' ? 'ru' : 'en';
   const title = `${TITLE_PREFIX[input.choice][language]}: ${question.title}`;
   return {

@@ -10,9 +10,12 @@
  * goes stale against the history it describes. A git read that fails is an error
  * naming the repository, never a task silently left open or closed.
  */
+import { changedLineRanges } from '../plugin/git-bytes.js';
 import { execFileSync } from 'node:child_process';
-import { anchorExtent } from '../knowledge/anchors.js';
 import { byCodePoint } from '../model/order.js';
+import { documentSections } from '../knowledge/anchors.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
+import type { LoopGraph } from './graph.js';
 import { scopePath, type PlannedTask, type TaskScope } from './tasks.js';
 
 export interface RepositoryRef {
@@ -60,44 +63,41 @@ function namesTask(message: string, slug: string): boolean {
   });
 }
 
-/** The lines of a file a commit changed, as the ranges of the new side of its diff. */
-function changedLines(repository: string, commit: string, path: string): { start: number; end: number }[] {
-  let patch: string;
-  try {
-    patch = git(repository, ['show', '--format=', '--no-color', '-U0', commit, '--', path]);
-  } catch {
-    return [];
-  }
-  const ranges: { start: number; end: number }[] = [];
-  for (const line of patch.split('\n')) {
-    // `@@ -1,2 +3,4 @@`: the new side is what the file says now.
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (hunk === null) continue;
-    const start = Math.max(1, Number(hunk[1]));
-    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-    // A hunk with no lines of the new side is a deletion: the text it removed stood where the new side now begins.
-    ranges.push({ start, end: count === 0 ? start : start + count - 1 });
+/** Exact section extents, qualified by repository and revision before they can prove a historical closure. */
+export type ScopeLines = ReadonlyMap<string, { readonly start: number; readonly end: number }>;
+
+export function scopeLineKey(repository: string | null, commit: string, path: string, anchor: string): string {
+  return JSON.stringify([repository, commit, path, anchor]);
+}
+
+/** Section extents come from opinions, never from reopening a product document at a commit. */
+export async function graphScopeLines(graph: LoopGraph, manifest: Pick<KindsManifest, 'kinds'>): Promise<ScopeLines> {
+  const ranges = new Map<string, { start: number; end: number }>();
+  for (const kind of manifest.kinds.values()) {
+    if (!kind.fields?.some((field) => field.name === 'markdown')) continue;
+    let after: string | undefined;
+    do {
+    const page = await graph.list(kind.name, { limit: 500, ...(after === undefined ? {} : { after }) });
+    for (const entity of page.rows) {
+      const path = entity.properties['path'];
+      if (typeof path !== 'string') throw new Error(`${entity.key}: document opinion path must be text`);
+      const repository = entity.properties['repository'];
+      if (repository !== null && typeof repository !== 'string') throw new Error(`${entity.key}:1: document opinion repository must be text or null`);
+      const sections = documentSections(entity);
+      const evidence = entity.opinions === undefined ? entity.evidence : entity.opinions.filter((opinion) => opinion.field === 'anchors' && JSON.stringify(opinion.value) === JSON.stringify(entity.properties['anchors'])).flatMap((opinion) => opinion.evidence);
+      const commits = new Set(evidence?.filter((evidence) => evidence.field === 'anchors' && evidence.repository === repository && evidence.path === path && evidence.commit !== null).map((evidence) => evidence.commit!) ?? []);
+      const declaredCommit = entity.properties['commit'];
+      if (typeof declaredCommit === 'string' && declaredCommit !== '') { commits.clear(); commits.add(declaredCommit); }
+      for (const commit of commits) for (const section of sections) {
+        ranges.set(scopeLineKey(repository, commit, path, section.anchor), { start: section.start, end: section.end });
+      }
+    }
+    after = page.next ?? undefined;
+    } while (after !== undefined);
   }
   return ranges;
 }
 
-/**
- * The lines the part an anchor names covers at a commit, read from the parsed document: a heading covers its whole
- * section (its blocks and its sub-sections), a list item or a paragraph covers itself and only what stands under it.
- *
- * The extent is the anchored node's own, never "to the next heading" for every anchor: a task scoped to `br-1` must not
- * close on a commit that changes its sibling `br-2` (madarch-ztyq.3, the review of finding 4), and a section must not be
- * cut off at its first bold item or plain paragraph (the defect that made a commit inside a section close nothing).
- */
-function sectionLines(repository: string, commit: string, path: string, anchor: string): { start: number; end: number } | undefined {
-  let text: string;
-  try {
-    text = git(repository, ['show', `${commit}:${path}`]);
-  } catch {
-    return undefined;
-  }
-  return anchorExtent(text, anchor);
-}
 
 const overlaps = (ranges: readonly { start: number; end: number }[], scope: { start: number; end: number }): boolean =>
   ranges.some((range) => range.start <= scope.end && range.end >= scope.start);
@@ -107,7 +107,7 @@ const overlaps = (ranges: readonly { start: number; end: number }[], scope: { st
  * the section's own lines, not the whole file (the owner, 2026-10-23: "Зачем помечать весь
  * файл, если исправить нужно одну строчку?"); a file scope is the whole file.
  */
-function touches(repository: string, commit: string, changed: readonly string[], scope: TaskScope, pageFiles: ReadonlyMap<string, string>): boolean {
+function touches(repository: RepositoryRef, commit: string, changed: readonly string[], scope: TaskScope, pageFiles: ReadonlyMap<string, string>, scopeLines: ScopeLines, notes: string[]): boolean {
   // A statement stands on a page of the product: its file is the page's own.
   if (scope.type === 'statement') {
     const file = pageFiles.get(scope.key.slice(0, scope.key.indexOf('#')));
@@ -116,13 +116,17 @@ function touches(repository: string, commit: string, changed: readonly string[],
   const path = scopePath(scope);
   if (path === undefined || !changed.includes(path)) return false;
   if (scope.type === 'file' || scope.type === 'symbol') return true;
-  const ranges = changedLines(repository, commit, path);
+  const ranges = changedLineRanges(repository.path, commit, path);
   // A change of the file with no readable patch is not the scope's change: a task closes on what this reader can see.
   if (ranges.length === 0) return false;
   if (scope.type === 'lines') return overlaps(ranges, { start: scope.start, end: scope.end });
-  const section = sectionLines(repository, commit, path, scope.anchor);
-  // The section is not at that commit: the commit did not change it.
-  return section === undefined ? false : overlaps(ranges, section);
+  const section = scopeLines.get(scopeLineKey(repository.name === '' ? null : repository.name, commit, path, scope.anchor));
+  if (section === undefined) {
+    const note = `${repository.path}/${path}:1: ${commit} names a task but no section extent opinion for repository ${JSON.stringify(repository.name || null)} at that revision proves its change of #${scope.anchor}; the task remains open`;
+    if (!notes.includes(note)) notes.push(note);
+    return false;
+  }
+  return overlaps(ranges, section);
 }
 
 interface Commit {
@@ -155,14 +159,14 @@ function commitsSince(repository: string, since: string, most: number): Commit[]
 }
 
 /** The commit that closes a task, when its repositories' default branches hold one since the task was written. */
-export function closingCommit(task: PlannedTask, repositories: readonly RepositoryRef[], options: { readonly most?: number; readonly pageFiles?: ReadonlyMap<string, string> } = {}): TaskClosure | undefined {
+export function closingCommit(task: PlannedTask, repositories: readonly RepositoryRef[], options: { readonly most?: number; readonly pageFiles?: ReadonlyMap<string, string>; readonly scopeLines?: ScopeLines; readonly notes?: string[] } = {}): TaskClosure | undefined {
   if (task.closedBy !== null) return undefined;
   const since = task.at === '' || Number.isNaN(new Date(task.at).getTime()) ? '1970-01-01T00:00:00Z' : task.at;
   const found: TaskClosure[] = [];
   for (const repository of repositories) {
     for (const commit of commitsSince(repository.path, since, options.most ?? 2_000)) {
       if (!namesTask(commit.message, task.slug)) continue;
-      if (!task.scope.some((scope) => touches(repository.path, commit.commit, commit.changed, scope, options.pageFiles ?? new Map()))) continue;
+      if (!task.scope.some((scope) => touches(repository, commit.commit, commit.changed, scope, options.pageFiles ?? new Map(), options.scopeLines ?? new Map(), options.notes ?? []))) continue;
       found.push({ repository: repository.name, commit: commit.commit, at: commit.at, subject: commit.subject });
       break;
     }

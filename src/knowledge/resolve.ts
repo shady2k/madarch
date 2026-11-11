@@ -4,7 +4,7 @@
  * `doc:<path>#<anchor>` for a section of a document. A target that does not
  * resolve is shown as broken with the reason, never dropped and never linked.
  */
-import { findAnchor } from './anchors.js';
+import { graphDocument, documentSections } from './anchors.js';
 import type { GraphEntity, GraphReader } from './graph-read.js';
 import type { CodeLocation } from './model.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -36,12 +36,12 @@ export const noEntityMessage = (key: string, language?: string): string => (lang
 
 export interface ResolverDeps {
   graph: GraphReader;
+  /** Manifest kinds with structured document opinions. */
+  documentKinds: readonly string[];
   /** Markdown entities by id. */
   markdown: ReadonlyMap<string, MarkdownEntity>;
   /** Kinds the manifest declares, for whether an entity has a page. */
   declared: (kind: string) => boolean;
-  /** A document's text from the product repository (`null`) or a code repository by name; `undefined` when it is not there. */
-  readDocument: (repo: string | null, path: string) => Promise<string | undefined>;
   /** The names of the code repositories, in the order they are searched. */
   repositories: () => readonly string[];
   /** Where an entity is declared, for a reference to code to open the source at its line. */
@@ -86,15 +86,16 @@ export class Resolver {
     const roots: (string | null)[] = named === null ? [null, ...this.deps.repositories()] : [named];
     const seen: string[] = [];
     for (const root of roots) {
-      const text = await this.deps.readDocument(root, where);
-      if (text === undefined) continue;
+      const document = await graphDocument(this.deps.graph, root, where, this.deps.documentKinds);
+      if (document === undefined) continue;
       seen.push(root ?? 'the product repository');
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
       if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: where, href: isMarkdownPath(where) ? documentAddress(root, where) : sourceAddress(root, where) };
       // A GROUND written as a source anchor names the part the document gives that anchor NOW, so after two numbers swap
       // it opens the passage that carries `uc-1` today, and an anchor the document no longer has is a broken section.
-      const line = findAnchor(text, anchor);
-      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${where}#${anchor}`, href: isMarkdownPath(where) ? documentAddress(root, where, anchor) : sourceAddress(root, where, line) };
+      const section = documentSections(document).find((entry) => entry.anchor === anchor);
+      const line = section?.start;
+      if (line !== undefined) return { state: 'ok', target: url, kind: 'document', label: `${where}#${anchor}`, href: isMarkdownPath(where) ? documentAddress(root, where, anchor) : sourceAddress(root, where, line) };
     }
     if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${where}" in ${named === null ? 'the product repository or its code repositories' : `the repository ${named}`}`, why: { code: 'no-document', path: where } };
     return { state: 'broken', target: url, reason: `the document "${where}" (in ${seen.join(', ')}) has no section "${anchor}"`, why: { code: 'no-section', path: where, anchor: anchor ?? '', repos: seen.join(', ') } };

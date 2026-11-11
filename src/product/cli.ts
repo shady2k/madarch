@@ -21,7 +21,7 @@ import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
 import { API } from '../knowledge/addresses.js';
-import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
+import { applyReset, type ResetPlan } from '../knowledge/reset.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
@@ -42,7 +42,7 @@ import { runGit } from './git.js';
 import { runFill } from '../fill/run.js';
 import { productsHome, type DraftEnv } from './draft.js';
 import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
-import { readKinds } from '../knowledge/kinds.js';
+import { readKinds } from './manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
 import { createDatabaseOwner } from '../adapters/database-owner.js';
 import { graphKindCounts } from '../graph/index.js';
@@ -166,7 +166,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   'daemon-serve': { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
-  'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
@@ -706,15 +705,6 @@ function productHomeOf(named: string | undefined): string {
   return named !== undefined && named !== '' ? resolve(named) : productsHome(process.env);
 }
 
-  if (command === 'knowledge-render-worker') {
-    // The knowledge wiki's Liquid templates, rendered in a process of its own (madarch-u3vw.1): messages are lines on standard input and output.
-    const { runRenderWorker } = await import('../knowledge/render-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runRenderWorker({ lines: standardInputLines(), send: (message) => { process.stdout.write(`${message}\n`); } });
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
   if (command === 'fill') return await fillCommand(parsed, home);
   if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
@@ -1149,8 +1139,13 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
       plan = (await answer.json()) as ResetPlan;
     } else {
-      const knowledge = knowledgeRootOf(root);
-      plan = planReset(folder, productStoreFolder(folder, knowledge), knowledge);
+      const { KnowledgeProduct } = await import('../knowledge/product.js');
+      const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(root) });
+      try {
+        plan = await product.resetPlan();
+      } finally {
+        await product.close();
+      }
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

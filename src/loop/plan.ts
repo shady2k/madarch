@@ -23,9 +23,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { changedGrounds, gitReader, readKnowledgePages, type GroundChange, type IndexedPage } from '../knowledge/index/index.js';
+import { changedGrounds, graphKnowledgePages, type GroundChange, type IndexedPage } from '../knowledge/index/index.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
-import { parseStatementRef, readCorrections, readQuestions, type Correction, type Question } from './entities.js';
+import { parseStatementRef, type Correction, type Question } from './entities.js';
+
+import { graphQuestions, graphCorrections, type LoopGraph } from './graph.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 
 const run = promisify(execFile);
 
@@ -161,6 +164,8 @@ async function commitTime(repository: string, commit: string): Promise<string | 
 }
 
 export interface PlanOptions {
+  readonly graph: LoopGraph;
+  readonly manifest: KindsManifest;
   readonly owner: DatabaseOwner;
   readonly productFolder: string;
   /** The code repository the pages are written from. */
@@ -178,12 +183,12 @@ export interface Planned {
 }
 
 export async function planRefresh(options: PlanOptions): Promise<Planned> {
-  const read = readKnowledgePages(options.productFolder);
+  const read = await graphKnowledgePages(options.graph, options.manifest);
   const pages = read.pages.filter(isKnowledgePage);
-  const questions = readQuestions(options.productFolder);
-  const corrections = readCorrections(options.productFolder);
-  const problems = [...read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`), ...questions.problems.map((p) => p.message), ...corrections.problems.map((p) => p.message)];
-  const grounds = pages.length === 0 ? [] : await changedGrounds(options.owner, { commit: options.commit, git: gitReader(options.repository.path) });
+  const questions = await graphQuestions(options.graph);
+  const corrections = await graphCorrections(options.graph);
+  const problems = [...read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`)];
+  const grounds = pages.length === 0 ? [] : await changedGrounds(options.owner, { commit: options.commit });
   const product = pages.find((page) => page.file === PRODUCT_PATH);
   let newServices: string[] = [];
   const written = product?.writtenAt.find((entry) => entry.repository === options.repository.name)?.commit;
@@ -198,7 +203,7 @@ export async function planRefresh(options: PlanOptions): Promise<Planned> {
       newServices = await servicesSince(options.owner, since, named);
     }
   }
-  const inputs = { pages, grounds, questions: questions.items, corrections: corrections.items, newServices, language: options.language, problems };
+  const inputs = { pages, grounds, questions, corrections, newServices, language: options.language, problems };
   return { plan: decide(inputs), inputs: { ...inputs, options } };
 }
 

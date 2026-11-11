@@ -1,6 +1,6 @@
 /**
  * The few fact-vocabulary values the fill still uses (decision 0034): a repository path, the
- * repository forms, a coverage gap, and the rank fields a read's membership leaves out. The
+ * repository forms and the rank fields a read's membership leaves out. The
  * rest of the old fact schema is gone with its store; the one graph's kinds are the manifest's.
  */
 const repositoryPathBrand = Symbol('repository-path');
@@ -39,16 +39,6 @@ export function isRepositoryPath(value: string): value is RepositoryPath {
 /** The forms a repository may be pinned as. */
 export const REPOSITORY_FORMS = ['code', 'product'] as const;
 export type RepositoryForm = (typeof REPOSITORY_FORMS)[number];
-
-/** Why a scope could not be read completely. */
-export const COVERAGE_GAP_REASONS = ['budget', 'error', 'inaccessible', 'too-large', 'unsupported'] as const;
-export type CoverageGapReason = (typeof COVERAGE_GAP_REASONS)[number];
-
-/** One thing a scope's coverage could not read, and why. */
-export interface CoverageGap {
-  readonly what: string;
-  readonly reason: CoverageGapReason;
-}
 
 /** The fields a fact's value holds as one measurement of the whole graph rather than of the node. */
 export const FACT_RANK_FIELDS: Readonly<Record<string, readonly string[]>> = {

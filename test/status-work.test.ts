@@ -18,10 +18,10 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
 
-const realKinds = await import('../src/knowledge/kinds.js');
+const realKinds = await import('../src/product/manifest/kinds.js');
 const realReadKinds = realKinds.readKinds;
 let manifestReads = 0;
-mock.module('../src/knowledge/kinds.js', () => ({
+mock.module('../src/product/manifest/kinds.js', () => ({
   ...realKinds,
   readKinds: (folder: string) => {
     manifestReads += 1;

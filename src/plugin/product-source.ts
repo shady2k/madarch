@@ -8,11 +8,12 @@
  * of each file this read asked for. A file the index holds but this read did not fetch is refused by name instead of
  * answering absent: a reader that forgot a file is a defect, never a smaller result.
  */
-import type { GraphReader } from './graph-read.js';
+import { contentsOf } from './stored-text.js';
+import type { GraphReader } from '../knowledge/graph-read.js';
 import type { ProductFileSource } from './product-files.js';
-import { KINDS_FILE } from './kinds.js';
-import { WORKFLOWS_FILE } from './workflows.js';
-import { PLUGINS_LOCK_FILE } from '../plugin/lock.js';
+import { KINDS_FILE } from '../product/manifest/kinds.js';
+import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
+import { PLUGINS_LOCK_FILE } from './lock.js';
 
 /** One file of the product repository, as the graph's tree pass holds it. */
 interface IndexedFile {
@@ -71,7 +72,7 @@ export class StoredProductFiles implements ProductFileSource {
     }
     if (fetch.length === 0) return;
     // The paths as a text[] parameter, the way the storage layer binds every array.
-    const contents = await this.reader.contentsOf(this.repository, fetch);
+    const contents = await contentsOf(this.reader, this.repository, fetch);
     for (const path of fetch) this.held.set(path, contents.get(path) ?? null);
   }
 
@@ -104,7 +105,7 @@ export class StoredProductFiles implements ProductFileSource {
 
   text(path: string): string | undefined {
     if (!this.held.has(path)) {
-      throw new Error(`${this.folder}/${path}: the file was not read from the graph by this read of the product repository: a reader asks the stored files through the reader itself (src/knowledge/product-source.ts)`);
+      throw new Error(`${this.folder}/${path}: the file was not read from the graph by this read of the product repository: a reader asks the stored files through the reader itself (src/plugin/product-source.ts)`);
     }
     return this.held.get(path) ?? undefined;
   }

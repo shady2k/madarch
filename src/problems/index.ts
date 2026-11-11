@@ -8,11 +8,11 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphReader } from '../knowledge/graph-read.js';
-import type { Finding } from '../knowledge/kinds.js';
+import type { Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from '../knowledge/resolve.js';
-import { readQuestionsIn } from '../loop/entities.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
-import type { KindsManifest } from '../knowledge/kinds.js';
+import { graphQuestions } from '../loop/graph.js';
+import type { ProductFileSource } from '../plugin/product-files.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import type { Problem, ProblemInput } from '../loop/views.js';
 import { listProblems } from '../loop/views.js';
 import type { Unplaced } from '../loop/plan.js';
@@ -72,7 +72,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     notes.push({ message: `the code section could not be judged: ${(error as Error).message}` });
   }
   try {
-    const judged = await evaluateDocuments({ questions: (await readQuestionsIn(input.files)).items, resolve: input.resolve, settings: input.settings });
+    const judged = await evaluateDocuments({ questions: await graphQuestions(input.graph), resolve: input.resolve, settings: input.settings });
     drafts.push(...judged.problems);
     notes.push(...judged.notes);
   } catch (error) {
@@ -105,7 +105,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
   notes.push(...unimplementedRuleNotes(input.settings));
   const listing = await listProblems({
-    productFolder: input.productFolder, owner: input.owner, files: input.files, manifest: input.manifest, resolve: input.resolve, findings: input.findings,
+    productFolder: input.productFolder, owner: input.owner, files: input.files, graph: input.graph, manifest: input.manifest, resolve: input.resolve, findings: input.findings,
     settings: input.settings,
     ...(input.repository === undefined ? {} : { repository: input.repository }),
     ...(input.unplaced === undefined ? {} : { unplaced: input.unplaced }),

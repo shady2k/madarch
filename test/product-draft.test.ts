@@ -148,6 +148,7 @@ describe('createDraft', () => {
       'templates/correction.liquid',
       'templates/database.liquid',
       'templates/directory.liquid',
+      'templates/dismissal.liquid',
       'templates/domain.liquid',
       'templates/enrichment.liquid',
       'templates/entity-text.liquid',

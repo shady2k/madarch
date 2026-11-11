@@ -8,7 +8,7 @@ type GuidePageData = Record<string, unknown>;
  * app holds no knowledge of any kind and draws only these shapes.
  */
 import type { RefreshPlan } from '../loop/plan.js';
-import type { Finding } from './kinds.js';
+import type { Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';

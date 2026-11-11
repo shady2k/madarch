@@ -11,14 +11,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
-import { parseWorkflows, readWorkflowsFrom, WORKFLOWS_FILE, type WorkflowsRead } from '../src/knowledge/workflows.js';
+import { parseWorkflows, readWorkflowsFrom, WORKFLOWS_FILE, type WorkflowsRead } from '../src/product/manifest/workflows.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { createEngineStageRegistry } from '../src/fill/stages/index.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
 
 const FILE = 'madarch/workflows.yaml';
 

@@ -7,17 +7,18 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { changedGrounds, gitReader, readKnowledgePagesFrom, type IndexedPage } from '../knowledge/index/index.js';
-import { KINDS_FILE, type FindingKind, type KindsManifest } from '../knowledge/kinds.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
+import { changedGrounds, graphKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
+import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
+import type { ProductFileSource } from '../plugin/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
-import { parseStatementRef, readCorrectionsIn, readQuestionsIn, type Author, type Correction, type Question } from './entities.js';
-import { closingCommit, type RepositoryRef, type TaskClosure } from './closure.js';
+import { parseStatementRef, type Author, type Correction, type Question } from './entities.js';
+import { graphCorrections, graphQuestions, graphTasks, type LoopGraph } from './graph.js';
+import { closingCommit, graphScopeLines, type ScopeLines, type RepositoryRef, type TaskClosure } from './closure.js';
 import { impactOf, type TaskImpact } from './impact.js';
 import { impactGroundsOf, type PlannedMarks } from './planned.js';
-import { readTasksIn, scopeWords, type PlaceView, type PlannedTask, type TaskScope } from './tasks.js';
+import { scopeWords, type PlaceView, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import { ruleForKind } from '../problems/rules.js';
 import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
@@ -59,11 +60,11 @@ export function rowOf(question: Question): QuestionRow {
 
 /** The questions of a product: open first, then answered, then closed; each group by id. */
 /** The questions of a product as the graph holds them: open first, then answered, then closed; each group by id. */
-export async function listQuestions(files: ProductFileSource): Promise<QuestionListing> {
-  const read = await readQuestionsIn(files);
+export async function listQuestions(graph: LoopGraph): Promise<QuestionListing> {
+  const questions = await graphQuestions(graph);
   const order: Record<QuestionState, number> = { open: 0, answered: 1, closed: 2 };
-  const rows = read.items.map(rowOf).sort((a, b) => order[a.state] - order[b.state] || byCodePoint(a.id, b.id));
-  return { rows, open: rows.filter((r) => r.state === 'open').length, answered: rows.filter((r) => r.state === 'answered').length, closed: rows.filter((r) => r.state === 'closed').length, problems: read.problems.map((problem) => problem.message) };
+  const rows = questions.map(rowOf).sort((a, b) => order[a.state] - order[b.state] || byCodePoint(a.id, b.id));
+  return { rows, open: rows.filter((r) => r.state === 'open').length, answered: rows.filter((r) => r.state === 'answered').length, closed: rows.filter((r) => r.state === 'closed').length, problems: [] };
 }
 
 export interface QuestionDetail extends QuestionRow {
@@ -77,14 +78,10 @@ export interface QuestionDetail extends QuestionRow {
   readonly resolvedAt: string | null;
 }
 
-export async function questionDetail(files: ProductFileSource, slug: string, resolve: (url: string) => Promise<Resolution>): Promise<QuestionDetail | undefined> {
-  const read = await readQuestionsIn(files);
-  const question = read.items.find((candidate) => candidate.slug === slug);
-  if (question === undefined) {
-    const broken = read.problems.find((problem) => problem.file.endsWith(`/${slug}.md`));
-    if (broken !== undefined) throw new Error(broken.message);
-    return undefined;
-  }
+export async function questionDetail(graph: LoopGraph, slug: string, resolve: (url: string) => Promise<Resolution>): Promise<QuestionDetail | undefined> {
+  const questions = await graphQuestions(graph);
+  const question = questions.find((candidate) => candidate.slug === slug);
+  if (question === undefined) return undefined;
   const resolutions: Record<string, Resolution> = {};
   const targets = new Set<string>([...question.about, ...question.sides.flatMap((side) => side.grounds), ...question.resolvedBy]);
   for (const target of [...targets].sort(byCodePoint)) {
@@ -229,6 +226,7 @@ export interface ProblemItems {
 }
 
 export interface ProblemInput {
+  readonly graph: LoopGraph;
   readonly productFolder: string;
   readonly owner: DatabaseOwner;
   /** The product repository's own files as the graph holds them, and the manifest they declare: the pages are read here. */
@@ -303,18 +301,11 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   const out: Problem[] = [];
   const notes: ProblemNote[] = [];
   const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
-  const read = readKnowledgePagesFrom(input.files, input.manifest);
+  const read = await graphKnowledgePages(input.graph, input.manifest);
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;
-  const corrections = await readCorrectionsIn(input.files);
-  for (const correction of corrections.items) add(correctionProblem(correction, byId, input.settings, notes));
-  for (const problem of corrections.problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
-    ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
-  }, input.settings, notes));
-  for (const problem of (await readQuestionsIn(input.files)).problems) add(wikiProblem('unreadable-file', `${problem.file}:${problem.line}:${problem.message}`, {
-    ...none, fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line,
-  }, input.settings, notes));
+  for (const correction of await graphCorrections(input.graph)) add(correctionProblem(correction, byId, input.settings, notes));
   // Every finding is kept: two passages of one table row stand on the same line, and one message would hide the other
   // (the twelfth review). Only an exact repeat — the same kind, message and place — is dropped.
   const seenFinding = new Set<string>();
@@ -359,7 +350,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   if (input.repository === undefined) {
     if (pages.length > 0) notes.push({ message: 'the pages name no single code repository, so grounds that disappeared from the code are not looked for' });
   } else if (pages.length > 0) {
-    const changes = await changedGrounds(input.owner, { commit: input.repository.commit, git: gitReader(input.repository.path) });
+    const changes = await changedGrounds(input.owner, { commit: input.repository.commit });
     for (const change of changes) {
       if (change.status !== 'removed') continue;
       const page = byId.get(change.page);
@@ -467,6 +458,7 @@ export interface TaskListing {
 }
 
 export interface TaskReadInput {
+  readonly graph: LoopGraph;
   readonly productFolder: string;
   readonly owner: DatabaseOwner;
   /** The product repository's own files as the graph holds them, and the manifest they declare: the tasks are read here. */
@@ -480,10 +472,10 @@ export interface TaskReadInput {
   readonly pageFiles: ReadonlyMap<string, string>;
 }
 
-function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>, notes: string[]): TaskClosureView | null {
+function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>, scopeLines: ScopeLines, notes: string[]): TaskClosureView | null {
   if (task.closedBy !== null) return { person: true, at: task.closedAt };
   try {
-    const closing: TaskClosure | undefined = closingCommit(task, repositories, { pageFiles });
+    const closing: TaskClosure | undefined = closingCommit(task, repositories, { pageFiles, scopeLines, notes });
     return closing === undefined ? null : { repository: closing.repository, commit: closing.commit, at: closing.at, subject: closing.subject };
   } catch (error) {
     notes.push((error as Error).message);
@@ -491,12 +483,12 @@ function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], pa
   }
 }
 
-async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[]): Promise<TaskRow> {
-  const closedBy = closureOf(task, input.repositories, input.pageFiles, notes);
+async function rowOfTask(task: PlannedTask, input: TaskReadInput, scopeLines: ScopeLines, notes: string[]): Promise<TaskRow> {
+  const closedBy = closureOf(task, input.repositories, input.pageFiles, scopeLines, notes);
   let impact: TaskImpact | null = null;
   let problem: string | undefined;
   try {
-    impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task), { files: input.files, manifest: input.manifest });
+    impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task), { graph: input.graph, manifest: input.manifest });
   } catch (error) {
     problem = (error as Error).message;
     notes.push(`${task.file}: ${problem}`);
@@ -515,29 +507,32 @@ async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[
  * whatever its file still says. The menu's count and the page therefore ask the same question of the same repositories
  * (madarch-m38l.24, the owner's review); a closure that cannot be read leaves the task open, as the page shows it.
  */
-export async function openTasks(files: ProductFileSource, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>): Promise<number> {
+export async function openTasks(graph: LoopGraph, manifest: KindsManifest, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>): Promise<number> {
   const notes: string[] = [];
-  return (await readTasksIn(files)).tasks.filter((task) => closureOf(task, repositories, pageFiles, notes) === null).length;
+  const scopeLines = await graphScopeLines(graph, manifest);
+  return (await graphTasks(graph)).filter((task) => closureOf(task, repositories, pageFiles, scopeLines, notes) === null).length;
 }
 
 /** The product's tasks, open first, then closed; each in id order, with its impact counted through the graph. */
 export async function listTasks(input: TaskReadInput): Promise<TaskListing> {
-  const read = await readTasksIn(input.files);
+  const tasks = await graphTasks(input.graph);
+  const scopeLines = await graphScopeLines(input.graph, input.manifest);
   const notes: string[] = [];
   const rows: TaskRow[] = [];
-  for (const task of read.tasks) rows.push(await rowOfTask(task, input, notes));
+  for (const task of tasks) rows.push(await rowOfTask(task, input, scopeLines, notes));
   rows.sort((a, b) => Number(a.status === 'closed') - Number(b.status === 'closed') || byCodePoint(a.id, b.id));
-  return { tasks: rows, open: rows.filter((row) => row.status === 'open').length, closed: rows.filter((row) => row.status === 'closed').length, problems: read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`), notes };
+  return { tasks: rows, open: rows.filter((row) => row.status === 'open').length, closed: rows.filter((row) => row.status === 'closed').length, problems: [], notes };
 }
 
 /** One task with its complete, graph-computed impact: what a run would rewrite and where the planned change shows. */
 export async function taskDetail(input: TaskReadInput, id: string, marks: PlannedMarks): Promise<TaskDetail | undefined> {
-  const read = await readTasksIn(input.files);
-  const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
+  const tasks = await graphTasks(input.graph);
+  const scopeLines = await graphScopeLines(input.graph, input.manifest);
+  const task = tasks.find((candidate) => candidate.id === id || candidate.slug === id);
   if (task === undefined) return undefined;
   const notes: string[] = [];
-  const row = await rowOfTask(task, input, notes);
-  const impact = row.impact === null ? null : await impactOf(input.owner, input.productFolder, impactGroundsOf(task), { files: input.files, manifest: input.manifest });
+  const row = await rowOfTask(task, input, scopeLines, notes);
+  const impact = row.impact === null ? null : await impactOf(input.owner, input.productFolder, impactGroundsOf(task), { graph: input.graph, manifest: input.manifest });
   return {
     ...row,
     impact,

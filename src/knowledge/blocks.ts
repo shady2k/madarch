@@ -15,10 +15,8 @@ import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, HistoryEvidence, SourceSpan } from './graph-read.js';
-import type { KindsManifest, MemberDecl, PropertyDecl } from './kinds.js';
-import type { ProductFileSource } from './product-files.js';
+import type { KindsManifest, MemberDecl, PropertyDecl } from '../product/manifest/kinds.js';
 import type { MarkdownEntity } from './markdown.js';
-import { readBody } from './markdown.js';
 import type { Block, CallRow, CodeLocation, EntityRef, MemberRow, PropertyRow, RelatedGroup } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolver } from './resolve.js';
 
@@ -26,8 +24,6 @@ export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'mark
 
 export interface RenderContext {
   productFolder: string;
-  /** The product repository's own files as the graph holds them: the manifest's templates and kinds are read here (stage C). */
-  files: ProductFileSource;
   manifest: KindsManifest;
   graph: GraphReader;
   /** The repository's history evidence, cached for the product's snapshot; the history block asks this, never the graph twice. */
@@ -177,18 +173,7 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
  * They are the values `attributeOf` gives, so a page says the same thing in
  * either template language.
  */
-export function pageAttributes(subject: Subject, declared?: readonly string[]): Record<string, string> {
-  const names = new Set<string>(['label', 'title', 'key', 'keyrest', 'id', 'kind', 'slug', 'file', 'producer']);
-  if (declared !== undefined) for (const name of declared) names.add(name);
-  else if (subject.source === 'graph') for (const name of Object.keys(subject.entity.properties)) names.add(name);
-  else if (subject.source === 'markdown') for (const name of Object.keys(subject.entity.front)) names.add(name);
-  const attributes: Record<string, string> = {};
-  for (const name of [...names].sort()) {
-    const value = attributeOf(subject, name);
-    if (value !== undefined) attributes[name] = value;
-  }
-  return attributes;
-}
+
 
 // ---- body -------------------------------------------------------------------------------------
 
@@ -196,7 +181,7 @@ export function bodyBlock(_ctx: RenderContext, subject: Subject, block: string, 
   if (subject.source !== 'markdown') {
     return { type: 'problem', block, file, line, message: 'the body block shows the Markdown of a page; the entities of this kind come from the graph and have none' };
   }
-  const reading = readBody(subject.entity.body, subject.entity.file, subject.entity.bodyLine);
+  const reading = subject.entity.reading;
   return { type: 'body', markdown: subject.entity.body, file: subject.entity.file, statements: reading.statements, ungrounded: reading.ungrounded };
 }
 
@@ -300,42 +285,15 @@ export async function callBlock(ctx: RenderContext, subject: Subject, direction:
 
 // ---- source -----------------------------------------------------------------------------------
 
-/** The most lines a source block shows; the rest is one click away in the source view. */
-export const SOURCE_BLOCK_LINES = 200;
-
-export async function sourceBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+export async function sourceBlock(_ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   if (subject.source !== 'graph') return { type: 'problem', block: 'source', file, line, message: 'the source block shows code; the entities of this kind are Markdown pages' };
   const entity = subject.entity;
-  const span = entity.span ?? (typeof entity.properties['path'] === 'string' ? { path: entity.properties['path'], lineStart: 1, lineEnd: Number.MAX_SAFE_INTEGER, byteStart: 0, byteEnd: Number.MAX_SAFE_INTEGER } : undefined);
-  if (span === undefined) return { type: 'problem', block: 'source', file, line, message: `${entity.key} has no declaration span and no path: nothing to show` };
-  const repo = ctx.repoOfScope(entity.scope) ?? null;
-  const text = await ctx.readSource(repo, span.path);
-  if (text === undefined) {
-    // History retains the old identity after a rename. Never present the successor's bytes as the old path at HEAD.
-    if (entity.kind === 'code.file') {
-      const renamed = await ctx.graph.edgesOf(entity, 'code.renamed-to', 'out', 500);
-      const successors = [];
-      for (const row of renamed.rows) {
-        if (row.other.scope !== entity.scope || row.other.kind !== 'code.file') continue;
-        const path = row.other.span?.path ?? row.other.properties['path'];
-        if (typeof path === 'string' && await ctx.readSource(repo, path) !== undefined) successors.push(row.other);
-      }
-      if (successors.length > 0) return {type:'refs',title:ctx.language === 'ru' ? 'Файл переименован; исходный путь отсутствует в текущей ревизии' : 'File renamed; the original path is absent at the filled revision',total:successors.length,rows:successors.map((successor)=>({entity:refOfGraph(ctx,successor)}))};
-    }
-    return { type: 'problem', block: 'source', file, line, message: `the file ${span.path} is not readable in ${repo ?? 'the product repository'} at the commit the graph was filled from` };
-  }
-  const lines = text.split('\n');
-  if (lines[lines.length - 1] === '') lines.pop();
-  const end = Math.min(span.lineEnd, lines.length);
-  const stop = Math.min(end, span.lineStart + SOURCE_BLOCK_LINES - 1);
-  return {
-    type: 'source',
-    title: params['title'] ?? 'Source',
-    location: { repo, path: span.path, lineStart: span.lineStart, lineEnd: end, href: sourceAddress(repo, span.path, span.lineStart), ...(ctx.webOf?.(repo, span.path, span.lineStart, end) === undefined ? {} : { web: ctx.webOf(repo, span.path, span.lineStart, end)! }) },
-    language: languageOf(span.path),
-    text: lines.slice(span.lineStart - 1, stop).join('\n'),
-    truncated: stop < end,
-  };
+  const value = entity.properties['source'];
+  if (value === undefined) return { type: 'problem', block: 'source', file, line, message: `${entity.key} has no source excerpt opinion` };
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`src/knowledge/blocks.ts: ${entity.key}.source: expected a structured source excerpt`);
+  const source = value as Record<string, unknown>;
+  if (typeof source['text'] !== 'string' || typeof source['language'] !== 'string' || typeof source['truncated'] !== 'boolean' || source['location'] === null || typeof source['location'] !== 'object') throw new Error(`src/knowledge/blocks.ts: ${entity.key}.source: malformed source excerpt opinion`);
+  return { type: 'source', title: params['title'] ?? 'Source', text: source['text'], language: source['language'], truncated: source['truncated'], location: source['location'] as CodeLocation };
 }
 
 

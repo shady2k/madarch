@@ -32,7 +32,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { lineOf, lineOfIndex } from '../product/manifest.js';
 import { jsonPointerToSegments, segmentsToPath, type PathSegment } from '../model/yaml-position.js';
-import { type FillConfigError, type FillStageConfigurationRead } from './config.js';
+import { type FillConfigError, type FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import {
   DEFAULT_STAGE_LIMITS, STAGE_ID_PATTERN,
   type FillStage, type FillStageConfigurationEntry, type ResolvedStageConfiguration, type StageLimitOverrides, type StageLimits,

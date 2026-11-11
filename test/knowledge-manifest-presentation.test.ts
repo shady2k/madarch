@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
+import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { historyBlock } from '../src/knowledge/history.js';
 import { starterKinds } from './knowledge-fixture.js';
 import { buildStatement } from '../src/knowledge/statement.js';

@@ -29,7 +29,7 @@ import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js'
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 

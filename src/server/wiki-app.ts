@@ -14,24 +14,16 @@
  * `{"message"}` because the app's reader shows the message straight from that
  * field (wiki/app/src/api.ts).
  */
-import type { ProductWiki } from '../product-wiki/pages.js';
-import { readFileSync, statSync, watch } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import { isWikiPagePath, KIND_FILE_BASE, PAGE_FILE_BASE, wikiPageAddresses } from '../knowledge/addresses.js';
 import type { Handled, ReplyMaker } from './http.js';
-
-/** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
-const CHANGE_DEBOUNCE_MS = 200;
-
-/** How often a tree that gave no watch events is asked again, so a change is never missed. */
-const WATCH_FALLBACK_MS = 300;
 
 /** The never-and-then-closer of a stream's tail: the encoded bytes one event line is written in. */
 const eventBytes = new TextEncoder();
 
 /**
- * Changes that do not come from the product's working tree and still change what
- * a page shows: the knowledge wiki's fill reads a commit into the graph
+ * Graph changes that affect a page: the knowledge wiki's fill reads a commit into the graph
  * (decision 0029). They ride the wiki's one change stream: the revision the
  * stream compares carries `revision()`, and a notice from `subscribe` asks the
  * stream at once, so an open page reads again after every commit and no second
@@ -42,97 +34,38 @@ export interface OutsideChanges {
   subscribe(listener: () => void): () => void;
 }
 
-/**
- * One long-lived Server-Sent Events stream of the wiki's changes: an initial
- * `retry:` line, then one `change` event each time the product's working
- * tree revision differs from the one the stream last sent — a burst of tree
- * events within `CHANGE_DEBOUNCE_MS` of each other is one event. The tree is
- * watched; where the platform gives no events (or none it shows), a fallback
- * timer asks for the revision at WATCH_FALLBACK_MS, so a change is never
- * missed on either ground. The revision itself is asked from the wiki — the
- * same digest every answer carries — so a stream never invents a change.
- * The stream ends when the asking side hangs up (`request.signal`); the
- * watcher and its timers end with it, so nothing keeps running past an
- * answered stream. Changes from outside the tree (`outside`) move the revision
- * and wake the stream the same way.
- */
-function streamingEvents(wiki: ProductWiki, request: Request, outside?: OutsideChanges): Handled {
+/** The graph revision stream. Product files affect pages only after a plugin writes graph opinions. */
+function streamingEvents(changes: OutsideChanges, request: Request): Handled {
+  let close: () => void = () => {};
+  let cancelled = false;
   const stream = new ReadableStream({
     start: (into): void => {
-      const write = (line: string): void => {
-        try {
-          into.enqueue(eventBytes.encode(line));
-        } catch {
-          // A stream that stopped taking bytes is ending; the closer below runs.
-        }
-      };
+      const write = (line: string): void => { into.enqueue(eventBytes.encode(line)); };
       let lastRevision: string | undefined;
-      let debounce: ReturnType<typeof setTimeout> | undefined;
-      let fallback: ReturnType<typeof setInterval> | undefined;
-      let watcher: ReturnType<typeof watch> | undefined;
       let ended = false;
-      const closeHandlers: (() => void)[] = [];
-      const close = (): void => {
-        if (ended) return;
-        ended = true;
-        for (const off of closeHandlers.splice(0)) off();
-        if (debounce !== undefined) clearTimeout(debounce);
-        if (fallback !== undefined) clearInterval(fallback);
-        watcher?.close();
-        try {
-          into.close();
-        } catch {
-          // Already closing or closed by the asking side.
-        }
-      };
       const ask = (): void => {
-        const asked = wiki.pages();
-        if (!asked.ok) return;
-        // A product whose outside source has not moved answers the tree's revision alone, as it always did.
-        const extra = outside?.revision() ?? '';
-        const revision = extra === '' ? asked.revision : `${asked.revision}+${extra}`;
+        if (ended) return;
+        const revision = changes.revision();
         if (revision === lastRevision) return;
         lastRevision = revision;
         write(`event: change\ndata: ${JSON.stringify({ revision })}\n\n`);
       };
-      const debounced = (): void => {
-        if (debounce !== undefined) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          try {
-            ask();
-          } catch {
-            // A tree unread at this instant is not an event: the next tree event or the fallback asks again.
-          }
-        }, CHANGE_DEBOUNCE_MS);
-      };
-      write(`retry: 3000\n\n`);
-      // A notice from outside is already one per commit, so it asks at once: through the debounce a loop kept busy by a fill
-      // lets the fallback timer reset the delay at every turn, and the notice would wait for the fill's end.
-      if (outside !== undefined) {
-        closeHandlers.push(outside.subscribe(() => {
-          try {
-            ask();
-          } catch {
-            // A tree unread at this instant is not an event: the next notice or the fallback asks again.
-          }
-        }));
-      }
-      // A quiet product still needs the server to say something: an SSE
-      // comment every 30 s keeps proxies and the server's own idle timer
-      // from closing a stream nothing changed on. A comment is no event.
+      const off = changes.subscribe(ask);
       const keepAlive = setInterval(() => write(': ping\n\n'), 30_000);
-      closeHandlers.push(() => clearInterval(keepAlive));
-      // The fallback timer shares the debounced check with the watcher, so a
-      // stream that gets both asks once per burst and never twice.
-      fallback = setInterval(debounced, WATCH_FALLBACK_MS);
-      try {
-        watcher = watch(wiki.product.folder, { recursive: true }, debounced);
-      } catch {
-        // No watcher on this platform: the fallback timer stays alone.
-        watcher = undefined;
-      }
+      close = (): void => {
+        if (ended) return;
+        ended = true;
+        off();
+        clearInterval(keepAlive);
+        request.signal.removeEventListener('abort', close);
+        if (!cancelled) into.close();
+      };
+      write('retry: 3000\n\n');
+      ask();
       request.signal.addEventListener('abort', close);
+      if (request.signal.aborted) close();
     },
+    cancel: (): void => { cancelled = true; close(); },
   });
   return {
     response: new Response(stream, {
@@ -174,12 +107,11 @@ export interface WikiPart {
 export function createWikiPart(
   json: ReplyMaker['json'],
   refused: ReplyMaker['refused'],
-  wiki: ProductWiki,
+  changes: OutsideChanges,
   appFolder: string | undefined,
-  options: { env?: Readonly<Record<string, string | undefined>>; outside?: OutsideChanges } = {},
 ): WikiPart {
   return {
-    events: (request) => streamingEvents(wiki, request, options.outside),
+    events: (request) => streamingEvents(changes, request),
     app: appFolder === undefined
       ? (): Handled | undefined => undefined
       : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),

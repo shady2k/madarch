@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { catalogKinds } from '../src/knowledge/catalog-view.js';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import type { MarkdownEntity } from '../src/knowledge/markdown.js';
 
@@ -117,7 +117,7 @@ const MANIFEST = [
 /** The context the view reads: a graph with three filled entities and two Markdown pages. */
 function context(): RenderContext {
   const manifest = parseKinds(MANIFEST, 'madarch/kinds.yaml', TEMPLATES);
-  const page = (id: string, kind: string): MarkdownEntity => ({ id, kind, title: id, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: `docs/${id}.md`, source: '', front: {} });
+  const page = (id: string, kind: string): MarkdownEntity => ({ id, kind, title: id, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: `docs/${id}.md`, front: {}, reading: { links: [], findings: [], ungrounded: [], statements: 0 }, statementReading: { statements: [], definitions: new Map() }, indexedStatements: [], mentions: [], digest: '' });
   return {
     productFolder: TEMPLATES,
     manifest,

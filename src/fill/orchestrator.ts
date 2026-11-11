@@ -49,7 +49,7 @@ import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { GraphReadRefusal, answerMembership, recordedReadText } from './read-record.js';
-import { SnapshotError } from './snapshot.js';
+import { SnapshotError } from '../plugin/repository-snapshot.js';
 import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import {
@@ -115,7 +115,7 @@ import {
 } from './state-store.js';
 import type { ChainEvidence, RunEvidence } from './fsm.js';
 import type { QueueService, ClaimedJob } from './queue.js';
-import type { FillStageConfigurationRead } from './config.js';
+import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { FillStage, StagePlan } from './stage.js';
 
 // ---------------------------------------------------------------------------------------------

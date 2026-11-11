@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { starterPageKindNames } from '../src/knowledge/seed.js';
 import { STARTER_TEMPLATES, templateMenuLines } from '../src/knowledge/starter-templates.js';
 import { checkStarterTemplate } from '../scripts/template-check.js';

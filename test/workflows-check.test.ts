@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
-import { WORKFLOWS_FILE } from '../src/knowledge/workflows.js';
+import { WORKFLOWS_FILE } from '../src/product/manifest/workflows.js';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-workflows.ts');
 

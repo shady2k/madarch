@@ -11,8 +11,8 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
 import { collectProblems } from '../src/problems/index.js';
 import { defaultSettings } from '../src/problems/types.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
-import type { KindsManifest } from '../src/knowledge/kinds.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
+import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const unusedOwner: DatabaseOwner = {
   location: 'unused findings fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false, hasVector: false,

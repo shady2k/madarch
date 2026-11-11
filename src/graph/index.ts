@@ -5,7 +5,7 @@
  * reads git's own history or the journal, never a versioned row.
  */
 export {
-  RecordGap, commitWithPaths, createRecordSchema, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles,
+  RecordGap, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles,
   graphKindCounts, listDirectories, listDocuments, listFiles, listRepositories, publishHistory, publishTree, repositoryFacts,
   repositoryFileIndex,
   type DeclaredKinds, type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,

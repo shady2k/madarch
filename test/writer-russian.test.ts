@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseKinds, readKinds, setKindsLanguage } from '../src/knowledge/kinds.js';
+import { parseKinds, readKinds, setKindsLanguage } from '../src/product/manifest/kinds.js';
 
 describe('the language is a setting of the manifest', () => {
   test('the manifest names it, a wrong one is a finding with its line, and writing it keeps the comments', () => {

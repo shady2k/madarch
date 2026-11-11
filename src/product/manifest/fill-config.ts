@@ -28,8 +28,15 @@
  * a later madarch still opens, the manifest's own rule for a field it does
  * not know.
  */
-import { lineOf, parseManifest } from '../product/manifest.js';
-import { STAGE_ID_PATTERN } from './stage.js';
+import { lineOf, parseManifest } from '../manifest.js';
+import { STAGE_ID_PATTERN } from '../../fill/stage.js';
+import { join } from 'node:path';
+import { MANIFEST_FILE } from '../manifest.js';
+import { KINDS_FILE, readKindsFrom } from './kinds.js';
+import { WORKFLOWS_FILE } from './workflows.js';
+import { PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
+import { snapshotFiles, type ProductFileRead } from '../../plugin/product-files.js';
+
 
 /** One problem found in the product's fill configuration, named where it stands. */
 export interface FillConfigError {
@@ -125,4 +132,20 @@ export function parseFillStageConfiguration(text: string | undefined, file: stri
   }
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, file, stages: read, lines };
+}
+
+/** The declarative files of the pinned product snapshot, read once for its fill. */
+export async function readFillManifests(snapshot: Parameters<typeof snapshotFiles>[0], folder: string) {
+  const files = await snapshotFiles(snapshot);
+  await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
+  return {
+    files,
+    kindsRead: readKindsFrom(files, folder),
+    lockRead: parsePluginLock(files.has(PLUGINS_LOCK_FILE) ? files.text(PLUGINS_LOCK_FILE) : undefined),
+  };
+}
+
+/** The stage configuration declared by the pinned product manifest. */
+export function fillStageConfigurationFrom(files: ProductFileRead, folder: string): FillStageConfigurationRead {
+  return parseFillStageConfiguration(files.has(MANIFEST_FILE) ? files.text(MANIFEST_FILE) : undefined, join(folder, MANIFEST_FILE));
 }

@@ -1,12 +1,9 @@
 /** Product-owned scoped tasks proposed from answers (madarch-m38l.14). */
-import { readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { byCodePoint } from '../model/order.js';
-import { splitFrontMatter } from '../knowledge/markdown.js';
+import { stringify as stringifyYaml } from 'yaml';
 import { taskId } from './ids.js';
 import type { Author } from './entities.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
 
 export const TASKS_FOLDER = 'docs/tasks';
 /**
@@ -21,7 +18,6 @@ export type TaskScope =
   | { type: 'statement'; key: string }
   | { type: 'file'; path: string };
 export interface PlannedTask { slug: string; id: string; file: string; title: string; status: 'open' | 'closed'; question: string; answer: string; /** The problem this task was opened from (madarch-m38l.19); empty for a task made from a question's answer. */ problem?: string; grounds: string[]; scope: TaskScope[]; by: Author; at: string; closedBy: string | null; closedAt: string | null; }
-export interface TaskFinding { file: string; line: number; message: string; }
 
 /**
  * A place a task changes, as a reader says it (madarch-m38l.14, the owner's review): a section's heading and its
@@ -97,50 +93,6 @@ function parseScope(file: string, value: unknown, ix: number): TaskScope {
   if (s['type'] === 'file' && typeof s['path'] === 'string' && s['path'] !== '') return { type: 'file', path: s['path'] };
   if ((s['type'] === 'symbol' || s['type'] === 'statement') && typeof s['key'] === 'string' && s['key'] !== '') return { type: s['type'], key: s['key'] };
   throw new Error(`${file}:2: scope[${ix}] is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }`);
-}
-
-export function parseTask(file: string, source: string): PlannedTask {
-  const { front } = splitFrontMatter(source.replace(/\r\n/g, '\n'));
-  if (front === null) throw new Error(`${file}:1: the task has no front matter`);
-  let raw: unknown; try { raw = parseYaml(front); } catch (e) { throw new Error(`${file}:2: task front matter is not YAML: ${(e as Error).message.split('\n')[0]}`); }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${file}:2: task front matter is a mapping`);
-  const r = raw as Record<string, unknown>; const slug = file.slice(file.lastIndexOf('/') + 1, -3);
-  const text = (k: string): string => (typeof r[k] === 'string' ? (r[k] as string) : '');
-  if (r['id'] !== `task:${slug}` || r['kind'] !== 'task') throw new Error(`${file}:2: task id and kind must name task:${slug}`);
-  if (r['status'] !== 'open' && r['status'] !== 'closed') throw new Error(`${file}:2: task status is open or closed`);
-  const grounds = r['grounds']; if (!Array.isArray(grounds) || grounds.some((x) => typeof x !== 'string' || x === '')) throw new Error(`${file}:2: task grounds are a list of non-empty keys`);
-  const scope = r['scope']; if (!Array.isArray(scope) || scope.length === 0) throw new Error(`${file}:2: task scope is a non-empty list`);
-  const parsed = scope.map((value, ix) => parseScope(file, value, ix));
-  const by = r['created-by']; if (by === null || typeof by !== 'object' || typeof (by as Record<string, unknown>)['name'] !== 'string' || typeof (by as Record<string, unknown>)['email'] !== 'string') throw new Error(`${file}:2: created-by names the person`);
-  const closedBy = r['closed-by'];
-  if (closedBy !== undefined && (typeof closedBy !== 'string' || closedBy === '')) throw new Error(`${file}:2: closed-by is "person" or the commit that closed the task, or absent`);
-  // A file that says closed and names no commit was closed by hand: the status is kept, and the closure says how.
-  const how: string | null = typeof closedBy === 'string' ? closedBy : r['status'] === 'closed' ? 'person' : null;
-  return { slug, id: `task:${slug}`, file, title: text('title'), status: r['status'], question: text('question'), answer: text('answer'), ...(text('problem') === '' ? {} : { problem: text('problem') }), grounds: grounds as string[], scope: parsed, by: by as Author, at: text('created-at'), closedBy: how, closedAt: text('closed-at') || null };
-}
-
-/**
- * The tasks as one source of the product's files holds them: the graph's stored files for a reader of a page, the working
- * tree for a writer that edits them. Every task file the folder lists is fetched before it is parsed (stage C).
- */
-export async function readTasksIn(files: ProductFileSource): Promise<{ tasks: PlannedTask[]; findings: TaskFinding[] }> {
-  const paths = files.filesIn(TASKS_FOLDER).filter((path) => path.endsWith('.md')).sort(byCodePoint);
-  await files.ensure(paths);
-  const tasks: PlannedTask[] = [], findings: TaskFinding[] = [];
-  for (const file of paths) {
-    const text = files.text(file);
-    if (text === undefined) { findings.push({ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }); continue; }
-    try { tasks.push(parseTask(file, text)); } catch (e) { findings.push({ file, line: 1, message: (e as Error).message }); }
-  }
-  return { tasks, findings };
-}
-
-export function readTasks(folder: string): { tasks: PlannedTask[]; findings: TaskFinding[] } {
-  let files: string[];
-  try { files = readdirSync(join(folder, TASKS_FOLDER)).filter((f) => f.endsWith('.md')).sort(byCodePoint); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: [], findings: [] }; throw new Error(`${TASKS_FOLDER}:1: cannot list task files: ${(e as Error).message}`); }
-  const tasks: PlannedTask[] = [], findings: TaskFinding[] = [];
-  for (const name of files) { const file = `${TASKS_FOLDER}/${name}`; try { tasks.push(parseTask(file, readFileSync(join(folder, file), 'utf8'))); } catch (e) { findings.push({ file, line: 1, message: (e as Error).message }); } }
-  return { tasks, findings };
 }
 
 export function taskSlug(title: string, scopes: readonly TaskScope[]): string { return taskId(title, scopes.map((scope) => scopeWords(scope))); }

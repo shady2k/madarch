@@ -13,7 +13,7 @@
  * (madarch-8bdc.2.5, item 6), and they are the stages this registry holds.
  */
 import { StageRegistry } from '../registry.js';
-import type { SnapshotSource } from '../snapshot.js';
+import type { SnapshotSource } from '../../plugin/repository-snapshot.js';
 import type { RecordPassWiring } from '../steps.js';
 import type { DeclaredKinds } from '../../graph/records.js';
 import { createRepositoryHistoryStage, createRepositoryTreeStage } from './repository-facts.js';

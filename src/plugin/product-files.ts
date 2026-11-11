@@ -32,7 +32,7 @@ export interface ProductFileSource extends ProductFileRead {
 
 /**
  * The product folder's working tree as a source: the fill reads the source through this, and a test's fixture reads the
- * files it wrote. Never a reader of a page — that one reads the graph (`src/knowledge/product-source.ts`).
+ * files it wrote. Never a reader of a page — that one reads the graph (`src/plugin/product-source.ts`).
  */
 export function workingTreeFiles(productFolder: string): ProductFileSource {
   return {
@@ -143,7 +143,7 @@ export async function snapshotFiles(reader: { entries(): readonly SnapshotEntryL
     size: (path) => entries.get(path)?.bytes ?? null,
     text: (path) => {
       if (!held.has(path)) {
-        throw new Error(`${path}: the file was not read from the pinned tree by this fill: a reader asks the stored files through the source itself (src/knowledge/product-files.ts)`);
+        throw new Error(`${path}: the file was not read from the pinned tree by this fill: a reader asks the stored files through the source itself (src/plugin/product-files.ts)`);
       }
       return held.get(path) ?? undefined;
     },

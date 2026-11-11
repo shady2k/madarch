@@ -20,7 +20,7 @@ import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
-import type { FillStageConfigurationRead } from './config.js';
+import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { FactApplication } from './orchestrator.js';
 import {
@@ -46,7 +46,7 @@ import { createOrchestratorSchema, readProgress, type RunSnapshot } from './orch
 import type { QueueService } from './queue.js';
 import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
-import type { SnapshotSource } from './snapshot.js';
+import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 
 /** One product a fill runs for. */
 export interface FillProduct {

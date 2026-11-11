@@ -65,35 +65,32 @@
  * anywhere yet.
  */
 import { execFileSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
-import type { FillStageConfigurationRead } from '../fill/config.js';
-import { parseFillStageConfiguration } from '../fill/config.js';
+import type { FillStageConfigurationRead } from './manifest/fill-config.js';
+import { readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
 import { createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
 import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
 import type { DeclaredKinds } from '../graph/records.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
-import { PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
 import { publishGraphWrites } from '../graph/claims.js';
-import { KINDS_FILE, readKindsFrom } from '../knowledge/kinds.js';
-import { snapshotFiles } from '../knowledge/product-files.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
-import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
+import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../plugin/repository-snapshot.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { stageSettled } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
-import { MANIFEST_FILE, type ProductIdentity } from './manifest.js';
+import type { ProductIdentity } from './manifest.js';
 import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
 import { raise } from '../model/raise.js';
-import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type FirstFillRead } from '../knowledge/workflows.js';
+import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type FirstFillRead } from './manifest/workflows.js';
 
 /**
  * The process's one connection as this wiring names it: the type the graph store
@@ -186,14 +183,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // the working tree beside it, so the graph and the run agree byte for byte (madarch-hsqs stage C).
   const { files, kindsRead, lockRead } = await withSpan('fill.product-files', { 'madarch.product': identity.name }, async () => {
     const own = await snapshots.open(productRepositoryId(identity));
-    const files = await snapshotFiles(own);
-    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
-    return {
-      files,
-      kindsRead: readKindsFrom(files, folder),
-      // The plugin lock (decision 0035, item 20): what a fill runs, by exact version and closure hash.
-      lockRead: parsePluginLock(files.has(PLUGINS_LOCK_FILE) ? files.text(PLUGINS_LOCK_FILE) : undefined),
-    };
+    return readFillManifests(own, folder);
   });
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
   // A folder that is no product — a bare checkout `madarch mcp` serves — reads the code kinds the engine's own
@@ -229,7 +219,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const workflow = files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages();
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
-    configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, parseFillStageConfiguration(files.has(MANIFEST_FILE) ? files.text(MANIFEST_FILE) : undefined, join(folder, MANIFEST_FILE)), registry),
+    configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, fillStageConfigurationFrom(files, folder), registry),
     // This step's two record passes read git and publish through the record store; they ask no graph.
     // The reader is handed to every stage's plan, and a read through it is refused by name.
     graph: () => ({

@@ -6,16 +6,13 @@
  * body; a sentence the body does not hold is refused in words, never guessed.
  */
 import { byCodePoint } from '../model/order.js';
-import { findAnchor } from './anchors.js';
-import { languageOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, type RenderContext } from './blocks.js';
+import { graphDocument, documentSections } from './anchors.js';
+import { propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, type RenderContext } from './blocks.js';
 import type { GraphEntity } from './graph-read.js';
-import { parseTarget, readStatements } from './markdown.js';
+import { parseTarget } from './markdown.js';
 import type { CodeLocation, Excerpt, GroundView, RelyingRef, StatementModel } from './model.js';
 import { documentAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 
-/** Lines of context shown above and below the cited lines, and the most lines an excerpt shows. */
-const CONTEXT_LINES = 3;
-const EXCERPT_LINES = 60;
 /** What a card of an entity shows of its neighbours: this many groups, this many rows in each. */
 const CARD_GROUPS = 4;
 const CARD_ROWS = 5;
@@ -47,39 +44,13 @@ export type StatementResult = { ok: true; statement: StatementModel } | { ok: fa
 
 const squash = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
-async function codeExcerpt(ctx: RenderContext, entity: GraphEntity, location: CodeLocation): Promise<Excerpt | null> {
-  const text = await ctx.readSource(location.repo, location.path);
-  if (text === undefined) return null;
-  const lines = text.split('\n');
-  if (lines[lines.length - 1] === '') lines.pop();
-  const markedStart = Math.max(1, Math.min(location.lineStart, lines.length));
-  const markedEnd = Math.max(markedStart, Math.min(location.lineEnd, lines.length));
-  // A file without a declaration is shown from its top; a long declaration, from its first line.
-  const whole = entity.span === undefined;
-  const from = whole ? 1 : Math.max(1, markedStart - CONTEXT_LINES);
-  const to = whole ? Math.min(lines.length, EXCERPT_LINES) : Math.min(lines.length, markedEnd + CONTEXT_LINES);
-  const stop = Math.min(to, from + EXCERPT_LINES - 1);
-  return {
-    type: 'code',
-    location,
-    language: languageOf(location.path),
-    firstLine: from,
-    text: lines.slice(from - 1, stop).join('\n'),
-    marked: whole ? { start: 0, end: 0 } : { start: markedStart, end: Math.min(markedEnd, stop) },
-    truncated: stop < (whole ? lines.length : to),
-  };
-}
-
-/** The lines of a document from the section's line to the next heading, at most `EXCERPT_LINES`. */
-function sectionText(text: string, line: number): { markdown: string; lineEnd: number } {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  let end = line;
-  for (let at = line; at < lines.length && at < line + EXCERPT_LINES; at += 1) {
-    if (at > line && /^#{1,6}\s/.test(lines[at]!)) break;
-    end = at + 1;
-  }
-  while (end > line && lines[end - 1]!.trim() === '') end -= 1;
-  return { markdown: lines.slice(line - 1, end).join('\n'), lineEnd: end };
+async function codeExcerpt(_ctx: RenderContext, entity: GraphEntity, location: CodeLocation): Promise<Excerpt | null> {
+  const source = entity.properties['source'];
+  if (source === undefined) return null;
+  if (source === null || typeof source !== 'object' || Array.isArray(source)) throw new Error(`src/knowledge/statement.ts:1: ${entity.key}.source requires a structured source opinion`);
+  const value = source as Record<string, unknown>;
+  if (typeof value['text'] !== 'string' || typeof value['language'] !== 'string' || typeof value['truncated'] !== 'boolean') throw new Error(`src/knowledge/statement.ts:1: ${entity.key}.source requires text, language and truncated`);
+  return { type: 'code', location, language: value['language'], firstLine: location.lineStart, text: value['text'], marked: { start: location.lineStart, end: location.lineEnd }, truncated: value['truncated'] };
 }
 
 async function groundOf(ctx: RenderContext, url: string): Promise<GroundView> {
@@ -98,16 +69,18 @@ async function groundOf(ctx: RenderContext, url: string): Promise<GroundView> {
     }
     return { url, resolution, excerpt: null };
   }
-  // A section of a document the manifest makes no entity of: its text from the heading to the next.
+  // A document excerpt is the producer's stated section and exact range.
   const target = parseTarget(url);
   if (target.kind === 'doc') {
-    for (const root of [null, ...ctx.repositories]) {
-      const text = await ctx.readSource(root, target.path);
-      if (text === undefined) continue;
-      const line = target.anchor === null || target.anchor === '' ? 1 : findAnchor(text, target.anchor);
-      if (line === null) continue;
-      const section = sectionText(text, line);
-      return { url, resolution, excerpt: { type: 'text', markdown: section.markdown, place: { repo: root, path: target.path, lineStart: line, lineEnd: section.lineEnd, href: documentAddress(root, target.path, target.anchor) } } };
+    const qualifier = target.path.startsWith('@') ? target.path.indexOf('/') : -1;
+    const path = qualifier > 1 ? target.path.slice(qualifier + 1) : target.path;
+    const roots = qualifier > 1 ? [target.path.slice(1, qualifier)] : [null, ...ctx.repositories];
+    for (const root of roots) {
+      const document = await graphDocument(ctx.graph, root, path, [...ctx.manifest.kinds.values()].filter((kind) => kind.fields?.some((field) => field.name === 'markdown')).map((kind) => kind.name));
+      if (document === undefined) continue;
+      const section = documentSections(document).find((entry) => entry.anchor === (target.anchor ?? ''));
+      if (section === undefined) continue;
+      return { url, resolution, excerpt: { type: 'text', markdown: section.markdown, place: { repo: root, path, lineStart: section.start, lineEnd: section.end, href: documentAddress(root, path, target.anchor) } } };
     }
   }
   return { url, resolution, excerpt: null };
@@ -119,7 +92,7 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
   if (page === undefined) return { ok: false, status: 404, message: noEntityMessage(pageId) };
   const wanted = squash(sentence);
   if (wanted === '') return { ok: false, status: 404, message: 'the sentence is empty' };
-  const reading = readStatements(page.body, page.bodyLine);
+  const reading = page.statementReading;
   const found = reading.statements.filter((statement) => squash(statement.text) === wanted)[turn];
   if (found === undefined) {
     return { ok: false, status: 404, message: `${page.file} holds no statement ${JSON.stringify(sentence.length > 120 ? `${sentence.slice(0, 119)}…` : sentence)}${turn > 0 ? ` at its turn ${turn}` : ''}: the page changed since it was drawn, or the text is not one sentence of its body` };
@@ -131,9 +104,8 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
   for (const note of found.notes) for (const url of reading.definitions.get(note) ?? []) if (!urls.includes(url)) urls.push(url);
   const grounds = await Promise.all(urls.map((url) => groundOf(ctx, url)));
   const resolutions: Record<string, Resolution> = {};
-  for (const match of found.paragraph.matchAll(/madarch:[^\s)\]>"']+/g)) {
-    const target = match[0].replace(/[.,;:]+$/, '');
-    if (!(target in resolutions)) resolutions[target] = await ctx.resolver.resolve(target);
+  for (const link of page.reading.links) {
+    if (!(link.url in resolutions)) resolutions[link.url] = await ctx.resolver.resolve(link.url);
   }
   // The other statements that rely on the same grounds, from the index of the Markdown.
   const relying: RelyingRef[] = [];
@@ -158,7 +130,7 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
         let sentence: string | undefined;
         let turn = 0;
         if (there !== undefined) {
-          const all = readStatements(there.body, there.bodyLine).statements;
+          const all = there.statementReading.statements;
           const at = all.findIndex((candidate) => candidate.line === other.line && letters(candidate.text) === letters(other.text));
           if (at >= 0) {
             sentence = all[at]!.text;

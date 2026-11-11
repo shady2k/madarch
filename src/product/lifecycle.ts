@@ -26,11 +26,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ownRepository, porcelainStatus, runGit, sameFolder, type GitEnv } from './git.js';
 import {
-  lineOf,
+  repositoryDeclarationLine,
+  readManifestText,
   manifestNamed,
   manifestWithRepo,
   MANIFEST_FILE,
-  parseManifest,
   readProduct,
   type ProductIdentity,
 } from './manifest.js';
@@ -111,7 +111,7 @@ export function renameProduct(options: { folder?: string; name?: string; gitEnv?
   if (status.output !== '')
     return { outcome: 'refused', message: `the folder ${folder} holds changes that are not committed: commit them first, since naming the product is a commit of its own and would take them with it` };
 
-  const manifest = readFileSync(join(folder, MANIFEST_FILE), 'utf8');
+  const manifest = readManifestText(folder);
   // The move itself is a step like the commit that follows it: a folder that
   // cannot be renamed failed, and says so with the name and the reason.
   let moved = false;
@@ -324,15 +324,11 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
   if (declared !== -1) {
     // The line the name stands on, read from the manifest the way the reader
     // reads it: a refusal about a manifest names the place in the manifest.
-    const parsed = parseManifest(readFileSync(manifestFile, 'utf8'), manifestFile);
-    const items = parsed.ok && typeof parsed.value === 'object' && parsed.value !== null && Array.isArray((parsed.value as Record<string, unknown>).repos)
-      ? ((parsed.value as Record<string, unknown>).repos as unknown[])
-      : [];
     return {
       outcome: 'refused',
       message: `the manifest ${manifestFile} already declares the code repository "${repoName}": each repository is declared once, and clones into its own folder`,
       file: manifestFile,
-      line: items[declared] === undefined ? lineOf(parsed.ok ? parsed.value : {}, 'repos') : lineOf(items[declared], 'name'),
+      line: repositoryDeclarationLine(folder, declared),
     };
   }
 
@@ -347,7 +343,7 @@ export function addCodeRepository(options: { folder?: string; name?: string; url
   if (status.output !== '')
     return { outcome: 'refused', message: `the folder ${folder} holds changes that are not committed: commit them first, since entering a code repository is a commit of its own and would take them with it` };
 
-  const manifest = readFileSync(manifestFile, 'utf8');
+  const manifest = readManifestText(folder);
   let manifestInstalled = false;
   try {
     writeFileAtomically(manifestFile, manifestWithRepo(manifest, { name: repoName, ...(wanted === undefined ? {} : { url: wanted }), ...(options.linked ? { linked: true } : {}), ...(options.moved ? { moved: true } : {}), branch: wantedBranch }));

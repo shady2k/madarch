@@ -10,16 +10,16 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { KINDS_FILE } from '../src/knowledge/kinds.js';
+import { KINDS_FILE } from '../src/product/manifest/kinds.js';
 import { listProblems } from '../src/loop/views.js';
 
 import type { Resolution } from '../src/knowledge/resolve.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
 
 const folder = (): string => mkdtempSync(join(tmpdir(), 'madarch-problems-wiki-'));
 const resolve = async (): Promise<Resolution> => ({ state: 'ok', target: 'x', kind: 'entity', label: 'x', href: null });
 const input = (productFolder: string, extra: Partial<Parameters<typeof listProblems>[0]> = {}) => ({
-  productFolder, owner: {} as DatabaseOwner, files: workingTreeFiles(productFolder), manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] }, resolve, findings: [], settings: { rules: Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting])), thresholds: { ...DEFAULT_THRESHOLDS } }, ...extra,
+  productFolder, graph: { list: async () => ({ rows: [], next: null, total: 0 }) }, owner: {} as DatabaseOwner, files: workingTreeFiles(productFolder), manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] }, resolve, findings: [], settings: { rules: Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting])), thresholds: { ...DEFAULT_THRESHOLDS } }, ...extra,
 });
 
 describe('the wiki section', () => {

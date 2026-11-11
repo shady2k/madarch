@@ -14,7 +14,7 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import type { FieldDecl, KindDecl, KindsManifest } from '../../knowledge/kinds.js';
+import type { FieldDecl, KindDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */

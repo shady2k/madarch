@@ -5,7 +5,6 @@ import type { RenderContext } from '../src/knowledge/blocks.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { buildViews } from '../src/knowledge/views.js';
 import { fixtureManifest } from './knowledge-manifest-fixture.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 // Only the graph-read boundary is doubled. Every projection comes from the real view builders.
 const unusedOwner: DatabaseOwner = {
@@ -51,10 +50,10 @@ const MANIFEST = fixtureManifest({
 });
 
 function context(graph: GraphReader): RenderContext {
-  return { graph, productFolder: '', files: workingTreeFiles(''), manifest: MANIFEST,
+  return { graph, productFolder: '', manifest: MANIFEST,
     markdown: new Map(),  language: 'en',  repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
-    resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
+    resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, documentKinds: [], repositories: () => [], locate: () => undefined }),
   };
 }
 const entity = (kind: string, name: string, path?: string): GraphEntity => ({ key: `${kind}:${name}`, kind, label: name, properties: {}, nodeIds: [], scope: 'repo',

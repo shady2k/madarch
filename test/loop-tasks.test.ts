@@ -12,7 +12,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { splitFrontMatter } from '../src/knowledge/markdown.js';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
@@ -183,8 +182,8 @@ async function refill(): Promise<void> {
 
 /** The front matter of a file of the product, parsed; a file without one is an error naming it. */
 const frontOf = (path: string): Record<string, unknown> => {
-  const { front } = splitFrontMatter(readFileSync(path, 'utf8'));
-  if (front === null) throw new Error(`${path}:1: the file has no front matter`);
+  const front = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readFileSync(path, 'utf8'))?.[1];
+  if (front === undefined) throw new Error(`${path}:1: the file has no front matter`);
   return parseYaml(front) as Record<string, unknown>;
 };
 

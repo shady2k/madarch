@@ -34,17 +34,17 @@
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, type Document } from 'yaml';
-import { lineForPath } from '../model/yaml-position.js';
-import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
+import { lineForPath } from '../../model/yaml-position.js';
+import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from '../../knowledge/catalog.js';
 import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
-import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
-import { BLOCK_NAMES } from './template.js';
-import { PREDICATES } from '../problems/rules.js';
-import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../problems/types.js';
+import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from '../../knowledge/semantics.js';
+import { BLOCK_NAMES } from '../../knowledge/template.js';
+import { PREDICATES } from '../../problems/rules.js';
+import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../../problems/types.js';
 import { Value } from 'typebox/value';
-import { PluginContractFile, type PluginContractDeclaration } from '../plugin/protocol.js';
-import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
-import { workingTreeFiles, type ProductFileRead } from './product-files.js';
+import { PluginContractFile, type PluginContractDeclaration } from '../../plugin/protocol.js';
+import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
+import { workingTreeFiles, type ProductFileRead } from '../../plugin/product-files.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';

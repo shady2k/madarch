@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { readProduct, manifestNamed, manifestWithRepo, yamlWord, yamlText, cutComment } from '../src/product/manifest.js';
+import { readProduct, readManifestText, repositoryDeclarationLine, manifestNamed, manifestWithRepo, yamlWord, yamlText, cutComment } from '../src/product/manifest.js';
 
 const EXAMPLES = fileURLToPath(new URL('../examples/contract/', import.meta.url));
 const SET_MADE = join(EXAMPLES, 'set-made-product');
@@ -311,5 +311,17 @@ describe('the manifest subset mechanics (decision 0021: the reader is madarch ow
     wantRefused('schemaVersion: 1\nid: x\n? !!str name: sample\n', 3, 'complex mapping key');
     wantRefused('schemaVersion: 1\nid: x\nname: |\n', 3, 'block scalar literal');
     wantRefused('schemaVersion: 1\nid: x\nname: >\n', 3, 'block scalar folded');
+  });
+});
+
+
+describe('manifest text and repository declaration diagnostics', () => {
+  test('keeps exact bytes for lifecycle rollback and names the repository declaration line', () => {
+    const folder = tempFolder('madarch-manifest-lifecycle-');
+    const text = 'schemaVersion: 1\nid: demo\nrepos:\n  - name: first\n    url: https://example.test/first\n  - name: second\n    url: https://example.test/second\n';
+    writeFileSync(join(folder, 'workspace.yaml'), text);
+    expect(readManifestText(folder)).toBe(text);
+    expect(repositoryDeclarationLine(folder, 1)).toBe(6);
+    expect(repositoryDeclarationLine(folder, 20)).toBe(3);
   });
 });
