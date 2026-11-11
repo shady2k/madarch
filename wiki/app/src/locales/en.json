@@ -22,7 +22,8 @@
     "russian": "Russian",
     "repositories": "Repositories",
     "toggleGroup": "Toggle {{group}} group",
-    "pages": "Pages"
+    "pages": "Pages",
+    "catalogue": "Entity catalogue"
   },
   "diagram": {
     "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
@@ -1003,7 +1004,10 @@
     },
     "kindSources": {
       "standards": "Standards and documents",
-      "declaration": "Declared in"
+      "declaration": "Declared in",
+      "show": "Source of {{kind}}",
+      "template": "Page template",
+      "producer": "Filled by"
     },
     "catalogueViews": {
       "label": "Catalogue view",

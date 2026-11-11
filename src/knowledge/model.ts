@@ -439,6 +439,8 @@ export interface CatalogKindView {
   sources?: readonly string[];
   /** The product repository file and line that declare the kind. */
   declaration?: { repo: string | null; path: string; line: number };
+  /** The page-rendering template in the product repository, not the starter template the product was created from. */
+  template?: { repo: string | null; path: string };
   count: number;
   /** The statements the pages of this kind make, when the index holds any. */
   statements?: number;
@@ -456,6 +458,8 @@ export interface CatalogKindView {
   filled: boolean;
   /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */
   plugins?: readonly string[];
+  /** The folders of field-bound plugins that the manifest resolves, deduplicated in code point order. */
+  pluginFolders?: readonly string[];
   /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
   dependsOn?: readonly string[];
   /**

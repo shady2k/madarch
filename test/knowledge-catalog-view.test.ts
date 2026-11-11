@@ -153,6 +153,46 @@ describe('the catalogue view lists every declared kind', () => {
       repo: null, path: 'madarch/kinds.yaml', line: MANIFEST.split('\n').indexOf('  filled:') + 1,
     });
   });
+  test('page templates name the actual product file without claiming a starter origin', async () => {
+    const ctx = context();
+    const kinds = await catalogKinds({ ...ctx, ownRepository: 'product' });
+    expect(kinds.find((kind) => kind.kind === 'written')!.template).toEqual({ repo: 'product', path: 'templates/item.liquid' });
+    expect(kinds.find((kind) => kind.kind === 'empty')!.template).toBeUndefined();
+    expect((await catalogKinds(ctx)).find((kind) => kind.kind === 'written')!.template).toEqual({ repo: null, path: 'templates/item.liquid' });
+
+    const manifest = parseKinds(MANIFEST.replaceAll('templates/item.liquid', 'templates/item.md'), 'madarch/kinds.yaml', TEMPLATES);
+    const resolved = await catalogKinds({ ...ctx, manifest });
+    expect(resolved.find((kind) => kind.kind === 'written')!.template).toEqual({ repo: null, path: 'templates/item.liquid' });
+  });
+
+  test('plugin folders come only from configured field-bound plugins, not from their names', async () => {
+    const ctx = context();
+    const decl = ctx.manifest.kinds.get('written')!;
+    const kinds = new Map(ctx.manifest.kinds);
+    kinds.set('written', {
+      ...decl,
+      fields: ['zebra', 'unknown', 'alpha', 'alias', 'zebra'].map((plugin, index) => ({
+        name: `field${index}`, type: 'text' as const,
+        binding: { kind: 'plugin' as const, plugin, major: '1', field: 'value' },
+      })),
+    });
+    const plugin = (id: string, path?: string) => ({ id, version: '1', inputs: [], outputs: ['written'], closure: [], line: 1, ...(path === undefined ? {} : { path }) });
+    const plugins = new Map([
+      ['zebra', plugin('zebra', 'custom/z-reader')],
+      ['alpha', plugin('alpha', 'custom/a-reader')],
+      ['alias', plugin('alias', 'custom/a-reader')],
+      ['unbound', plugin('unbound', 'custom/not-used')],
+    ]);
+    const manifest = { ...ctx.manifest, kinds, plugins };
+    const written = (await catalogKinds({ ...ctx, manifest })).find((kind) => kind.kind === 'written')!;
+    expect(written.plugins).toEqual(['alias', 'alpha', 'unknown', 'zebra']);
+    expect(written.pluginFolders).toEqual(['custom/a-reader', 'custom/z-reader']);
+    const unresolved = (await catalogKinds({ ...ctx, manifest: { ...manifest, plugins: new Map() } })).find((kind) => kind.kind === 'written')!;
+    expect(unresolved.plugins).toEqual(written.plugins);
+    expect(unresolved.pluginFolders).toBeUndefined();
+    expect((await catalogKinds(ctx)).every((kind) => kind.pluginFolders === undefined)).toBe(true);
+  });
+
   test('status includes catalogue-only kinds and preserves the catalogue counts and page markers', async () => {
     const ctx = context();
     const catalogue = await catalogKinds(ctx);

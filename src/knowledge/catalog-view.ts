@@ -98,6 +98,10 @@ export async function catalogKinds(ctx: RenderContext, turns: {
   const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
     const producer = producerOf(decl, entry, extractorMark);
     const plugins = pluginsOf(decl);
+    const pluginFolders = [...new Set(plugins.flatMap((id) => {
+      const path = ctx.manifest.plugins?.get(id)?.path;
+      return path === undefined ? [] : [path];
+    }))].sort(byCodePoint);
     const count = numbers.count(kind, decl?.source);
     const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
     const turn = turns.turnOf?.(kind);
@@ -106,6 +110,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       kind, subgroup,
       ...(entry === undefined ? {} : { sources: [...entry.sources] }),
       declaration: { repo: ctx.ownRepository ?? null, path: declarationPath, line: (entry ?? decl)!.line },
+      ...(decl === undefined ? {} : { template: { repo: ctx.ownRepository ?? null, path: decl.template } }),
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),
       ...(words.descriptions === undefined || Object.keys(words.descriptions).length === 0 ? {} : { descriptions: { ...words.descriptions } }),
       count,
@@ -114,6 +119,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       ...(producer === undefined ? {} : { producer }),
       filled: producer !== undefined && producer !== 'person',
       ...(plugins.length === 0 ? {} : { plugins }),
+      ...(pluginFolders.length === 0 ? {} : { pluginFolders }),
       ...(dependsOn.length === 0 ? {} : { dependsOn }),
       ...(turn === undefined ? {} : { turn }),
       state: stateOf(count, turn),

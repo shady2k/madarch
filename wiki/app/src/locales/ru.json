@@ -22,7 +22,8 @@
     "russian": "Русский",
     "repositories": "Репозитории",
     "toggleGroup": "Свернуть или развернуть группу «{{group}}»",
-    "pages": "Страницы"
+    "pages": "Страницы",
+    "catalogue": "Каталог сущностей"
   },
   "diagram": {
     "mermaidFailed": "Диаграмму {{title}} не удалось нарисовать как Mermaid: {{message}}",
@@ -1003,7 +1004,10 @@
     },
     "kindSources": {
       "standards": "Стандарты и документы",
-      "declaration": "Объявлено в"
+      "declaration": "Объявлено в",
+      "show": "Источник вида {{kind}}",
+      "template": "Шаблон страницы",
+      "producer": "Заполняет"
     },
     "catalogueViews": {
       "label": "Вид каталога",

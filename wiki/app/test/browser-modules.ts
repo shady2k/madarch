@@ -6,4 +6,5 @@ await import('react-dom/client');
 // then let each page fixture register its own isolated window as usual.
 GlobalRegistrator.register({ url: 'http://localhost/' });
 await import('@radix-ui/react-tabs');
+await import('@radix-ui/react-popover');
 await GlobalRegistrator.unregister();

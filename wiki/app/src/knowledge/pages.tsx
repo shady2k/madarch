@@ -1,5 +1,5 @@
 import { Operations } from './operations.js';
-import { KindSources } from './kind-sources.js';
+import { KindSources, KindSourcePopover } from './kind-sources.js';
 import { KindGraph, relatedKinds } from './kind-graph.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 import { TableOfContents } from '@/components/ui/table-of-contents.js';
@@ -658,7 +658,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         {rows.map((kind) => (
           <TableRow key={kind.kind} id={kindId(kind.kind)} data-kind={kind.kind} data-filled={String(kind.filled)} data-chosen={String(chosen === kind.kind)} data-related={String(highlighted.has(kind.kind))} className={highlighted.has(kind.kind) ? "bg-pill" : undefined}>
             <TableCell className="whitespace-nowrap align-top">
-              {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}
+              {kind.page ? <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink> : <span data-testid="catalogue-kind-name">{nameOf(kind)}</span>}<KindSourcePopover kind={kind} />
               <Button variant="ghost" size="default" className="ml-2" aria-label={t('knowledge.catalogueViews.choose', { kind: nameOf(kind) })} aria-pressed={chosen === kind.kind} onClick={() => setChosen(chosen === kind.kind ? null : kind.kind)}>{t('knowledge.catalogueViews.relations')}</Button>
             </TableCell>
             <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} /></TableCell>

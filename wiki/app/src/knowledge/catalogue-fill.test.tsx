@@ -64,6 +64,21 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
+  test('the source popover names the declaration line, page template and plugin folder', async () => {
+    await setWikiLanguage('en');
+    stub([], { ...CATALOG, kinds: [{ ...CATALOG.kinds[0]!, declaration: { repo: 'shop', path: 'madarch/kinds.yaml', line: 42 }, template: { repo: 'shop', path: 'templates/file.liquid' }, pluginFolders: ['plugins/files'] }] });
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid="kind-source-trigger"]') !== null, 'source trigger');
+    page.querySelector<HTMLButtonElement>('[data-testid="kind-source-trigger"]')!.click();
+    await until(() => document.querySelector('[data-testid="kind-source-popover"]') !== null, 'source popover');
+    const popover = document.querySelector('[data-testid="kind-source-popover"]')!;
+    expect(popover.textContent).toContain('madarch/kinds.yaml:42');
+    expect(popover.textContent).toContain('templates/file.liquid');
+    expect(popover.querySelector('[data-testid="kind-source-producer"]')!.textContent).toBe('plugins/files');
+    expect(popover.querySelector('[data-testid="kind-declaration"]')!.getAttribute('href')).toBe('/src?repo=shop&path=madarch%2Fkinds.yaml&line=42');
+    expect(localeKeyIn(renderedText(popover as HTMLElement))).toBeUndefined();
+  });
+
   test('contents lists every section and kind and jumps to the selected section', async () => {
     await setWikiLanguage('en');
     stub([]);
@@ -123,7 +138,7 @@ describe('the catalogue as a browse-only view', () => {
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'table kinds');
     const kinds = [...page.querySelectorAll('[data-kind]')].map((row) => row.getAttribute('data-kind')).sort();
-    (page.querySelector('[data-kind="code.file"] button') as HTMLButtonElement).click();
+    (page.querySelector('[data-kind="code.file"] button[aria-pressed]') as HTMLButtonElement).click();
     await until(() => page.querySelector('[data-kind="doc.term"]')?.getAttribute('data-related') === 'true', 'dependent highlight');
     const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
     graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
