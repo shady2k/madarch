@@ -32,6 +32,11 @@ function product(name: string, write: (repository: string) => void): string {
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name.trim(), repository, `${name}-code`);
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', `the product ${name}`);
   return folder;

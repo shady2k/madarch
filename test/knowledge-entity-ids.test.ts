@@ -42,6 +42,11 @@ beforeAll(async () => {
     git(path, 'commit', '-qm', `${name} docs`);
   }
   folder = makeProduct(home, 'shop', first, 'first');
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   const manifest = join(folder, 'workspace.yaml');
   writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'second', linked: true }));
   symlinkSync(second, join(folder, 'repos', 'second'));

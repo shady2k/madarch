@@ -71,6 +71,13 @@ beforeAll(async () => {
   expect(fewThousandCommits(historyRepository, 2_500)).toBe('2500');
   historyFolder = makeProduct(home, 'history-shop', historyRepository, 'big');
   for (const product of [folder, historyFolder]) {
+    writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
+    git(product, 'add', '-A');
+    git(product, 'commit', '-qm', 'Declare the native repository fixture workflow');
     const store = productStoreFolder(product, knowledgeRootOf(home));
     mkdirSync(join(store, 'graph'), { recursive: true });
     const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
