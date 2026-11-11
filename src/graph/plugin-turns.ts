@@ -6,7 +6,7 @@
  * plugin asks for them by name and never builds a statement itself.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
+import { GIT_KINDS, GIT_TABLES, GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { generatedTableName } from './contract.js';
 import { journalFor, writeJournal, type JournalRead } from './write.js';
@@ -92,6 +92,53 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
       seen.add(rendered);
       return true;
     }).sort((left, right) => (JSON.stringify(left.key) < JSON.stringify(right.key) ? -1 : 1));
+  });
+}
+
+
+/** The wiki's name of a graph kind: a git kind is presented as `code.file` and the like, a declared kind as it stands. */
+export function wikiKindOf(graphKind: string): string {
+  for (const [graph, wiki] of Object.entries(GIT_WIKI)) if (graph === graphKind) return wiki;
+  return graphKind;
+}
+
+/** One edge a producer published before: its identity as the edge row holds it, ends named by kind and key. */
+export interface ProducerEdge {
+  readonly kind: string;
+  readonly from: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> };
+  readonly to: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> };
+  readonly discriminator: string;
+}
+
+/**
+ * Every edge of one kind whose open opinion names one producer, with both ends by the kind and key the product names
+ * them: what a complete unit's answer is compared with, so an edge the unit no longer states is removed rather than
+ * kept. The ends' keys are the ones `node.key` holds, which is the same object a draft declares.
+ */
+export async function producerEdges(owner: DatabaseOwner, contract: GraphContract, kind: string, producer: string): Promise<ProducerEdge[]> {
+  const declared = contract.edge.find((held) => held.name === kind);
+  if (declared === undefined || declared.table === undefined) return [];
+  return await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ from_kind: string; to_kind: string; from_key: Record<string, unknown>; to_key: Record<string, unknown>; discriminator: string }>(
+      `SELECT fk.name AS from_kind, tk.name AS to_kind, nf.key AS from_key, nt.key AS to_key, e.discriminator
+       FROM ${declared.table} o
+       JOIN edge e ON e.id = o.edge_id
+       JOIN node nf ON nf.id = e.from_node
+       JOIN entity fk ON fk.id = nf.entity_id
+       JOIN node nt ON nt.id = e.to_node
+       JOIN entity tk ON tk.id = nt.entity_id
+       WHERE o.state = 'open' AND o.context_id = 1 AND split_part(o.said_by, '@', 1) = $1
+         AND NOT nf.removed AND NOT nt.removed
+       ORDER BY e.id`,
+      [producer],
+    );
+    const keyOf = (value: Record<string, unknown>): Record<string, string> => Object.fromEntries(Object.entries(value).map(([field, one]) => [field, String(one)]));
+    return found.rows.map((row) => ({
+      kind,
+      from: { kind: wikiKindOf(row.from_kind), key: keyOf(row.from_key) },
+      to: { kind: wikiKindOf(row.to_kind), key: keyOf(row.to_key) },
+      discriminator: row.discriminator,
+    }));
   });
 }
 

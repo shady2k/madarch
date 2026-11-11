@@ -1,0 +1,10 @@
+{
+  "name": "plugin-consistency",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "The fixture whole-graph plugin: it reads the host's consistency records and answers one finding each (madarch-stm0.7.1)."
+}

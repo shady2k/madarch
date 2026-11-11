@@ -15,7 +15,9 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { readKnowledgePages, statementsRelyingOn, type IndexedPage, type RelyingStatement } from '../knowledge/index/index.js';
+import { readKnowledgePages, readKnowledgePagesFrom, statementsRelyingOn, type IndexedPage, type RelyingStatement } from '../knowledge/index/index.js';
+import type { ProductFileSource } from '../knowledge/product-files.js';
+import type { KindsManifest } from '../knowledge/kinds.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import { parseStatementRef } from './entities.js';
 
@@ -76,13 +78,13 @@ function rowOf(row: RelyingStatement, ground: string): ImpactedStatement {
 }
 
 /**
- * The impact of a set of grounds, read through the graph and the product's pages.
- * `productFolder` is read for the pages themselves: their links and their statements.
+ * The impact of a set of grounds, read through the graph and the product's pages. A reader of a page passes the graph's
+ * stored files and the manifest it read; a writer passes neither and reads the working tree it is about to change.
  */
-export async function impactOf(owner: DatabaseOwner, productFolder: string, grounds: readonly string[]): Promise<TaskImpact> {
+export async function impactOf(owner: DatabaseOwner, productFolder: string, grounds: readonly string[], stored?: { readonly files: ProductFileSource; readonly manifest: KindsManifest }): Promise<TaskImpact> {
   const wanted = [...new Set(grounds.map((ground) => ground.trim()).filter((ground) => ground !== ''))].sort(byCodePoint);
   if (wanted.length === 0) throw new ImpactReadError('an impact needs at least one ground: the graph key of a document section, a code place or a statement');
-  const read = readKnowledgePages(productFolder);
+  const read = stored === undefined ? readKnowledgePages(productFolder) : readKnowledgePagesFrom(stored.files, stored.manifest);
   if (read.findings.length > 0) {
     throw new ImpactReadError(`the impact cannot be computed, because not every page of this product can be read:\n${read.findings.map((finding) => `  ${finding.file}:${finding.line}: ${finding.message}`).join('\n')}`);
   }

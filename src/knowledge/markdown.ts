@@ -9,14 +9,13 @@
  * a footnote reference with no definition, a footnote that lists no ground, and
  * the statements that carry no footnote at all.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { LineCounter, parseDocument } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import type { Finding, KindDecl, KindsManifest } from './kinds.js';
+import type { ProductFileSource } from './product-files.js';
 
 /** The scheme of an entity link. */
 const SCHEME = 'madarch:';
@@ -36,6 +35,8 @@ export interface MarkdownEntity {
   bodyLine: number;
   /** Repository-relative path of the file. */
   file: string;
+  /** The file's whole text, as the source holds it: the page index reads the front matter and the body from here. */
+  source: string;
   /** The front matter as written, for attributes. */
   front: Record<string, unknown>;
 }
@@ -54,42 +55,8 @@ export function splitFrontMatter(text: string): { front: string | null; body: st
   return { front: null, body: normalized, bodyLine: 1 };
 }
 
-/** The Markdown files below a folder, `/`-separated and in code point order. */
-export function markdownFilesBelow(root: string, folder: string): string[] {
-  const out: string[] = [];
-  const walk = (directory: string): void => {
-    let names: string[];
-    try {
-      names = readdirSync(directory);
-    } catch {
-      return;
-    }
-    for (const name of names.sort(byCodePoint)) {
-      const full = join(directory, name);
-      let stats;
-      try {
-        stats = statSync(full);
-      } catch {
-        continue;
-      }
-      if (stats.isDirectory()) walk(full);
-      else if (stats.isFile() && name.endsWith('.md')) out.push(relative(root, full).split('\\').join('/'));
-    }
-  };
-  walk(join(root, folder));
-  return out;
-}
-
 /** Reads one Markdown file as an entity of the kind; null with findings when it is not one. */
-function readMarkdownEntity(productFolder: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
-  const full = join(productFolder, path);
-  let text: string;
-  try {
-    text = readFileSync(full, 'utf8');
-  } catch (error) {
-    findings.push({ file: path, line: 1, message: `the file cannot be read: ${(error as Error).message}` });
-    return null;
-  }
+function readMarkdownEntity(text: string, path: string, decl: KindDecl, findings: Finding[]): MarkdownEntity | null {
   const { front, body, bodyLine } = splitFrontMatter(text);
   if (front === null) {
     findings.push({ file: path, line: 1, message: `the file has no front matter: an entity of kind "${decl.name}" starts with --- , its id and its kind, ---` });
@@ -133,24 +100,30 @@ function readMarkdownEntity(productFolder: string, path: string, decl: KindDecl,
     body,
     bodyLine,
     file: path,
+    source: text,
     front: record,
   };
 }
 
-/** Every Markdown entity the manifest places in the product repository. */
-export function readMarkdownEntities(productFolder: string, manifest: KindsManifest): { entities: MarkdownEntity[]; findings: Finding[] } {
+/**
+ * Every Markdown entity the manifest places in the product repository, read from a source of its files: the fill's
+ * working tree, or the graph's stored text for a reader of the wiki. A file the source holds no text of is a finding,
+ * never a silently absent entity (madarch-hsqs stage C).
+ */
+export function readMarkdownEntitiesFrom(files: ProductFileSource, manifest: KindsManifest): { entities: MarkdownEntity[]; findings: Finding[] } {
   const findings: Finding[] = [];
   const entities: MarkdownEntity[] = [];
   for (const decl of manifest.kinds.values()) {
     if (decl.source !== 'markdown') continue;
-    const paths = decl.file !== undefined ? [decl.file] : markdownFilesBelow(productFolder, decl.folder!);
+    const paths = decl.file !== undefined ? [decl.file] : files.filesBelow(decl.folder!).filter((path) => path.endsWith('.md'));
     for (const path of paths) {
-      try {
-        if (!statSync(join(productFolder, path)).isFile()) continue;
-      } catch {
-        continue; // the singleton's file is simply not written yet
+      if (!files.has(path)) continue; // the singleton's file is simply not written yet
+      const text = files.text(path);
+      if (text === undefined) {
+        findings.push({ file: path, line: 1, message: 'the file cannot be read: the source holds no text of it' });
+        continue;
       }
-      const entity = readMarkdownEntity(productFolder, path, decl, findings);
+      const entity = readMarkdownEntity(text, path, decl, findings);
       if (entity !== null) entities.push(entity);
     }
   }

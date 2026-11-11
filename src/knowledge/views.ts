@@ -24,36 +24,39 @@ import { mermaidOfDiagram } from '../product-wiki/graph-mermaid.js';
 import type { ShapeDiagram, ShapeEdge, ShapeElement } from '../product-wiki/diagram-shape.js';
 import { byCodePoint } from '../model/order.js';
 import type { RenderContext, Subject } from './blocks.js';
-import { locationOf, refOfGraph, refOfMarkdown } from './blocks.js';
+import { locationOf, refOfGraph, refOfMarkdown, relatesGroups } from './blocks.js';
 import { chainFrom, entriesOf, modulesBlockModel, pathOfKey, serviceLocator, systemModel, type Entry } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
 import { declarationMissing, erFormOf, kindDraws, systemPartOf } from './kinds.js';
-import type { Chain, ChainStep, CodeLocation } from './model.js';
+import type { Chain, ChainStep, CodeLocation, EntityRef, RelatedGroup } from './model.js';
 import { sourceAddress } from './resolve.js';
 import { stateMachinesOf } from './state-machines.js';
 
 // ---- the vocabulary ----------------------------------------------------------------------------------
 
-const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'er', 'state', 'deployment', 'domain', 'domain-map'] as const;
+const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'er', 'state', 'deployment', 'domain', 'domain-map', 'relations'] as const;
 export type ViewType = (typeof VIEW_TYPES)[number];
 
 /** The renderers, in the order the tabs stand in when the setting does not move one to the front. */
-const RENDERERS = ['likec4', 'mermaid', 'archify'] as const;
+const RENDERERS = ['likec4', 'mermaid', 'archify', 'echarts'] as const;
 export type Renderer = (typeof RENDERERS)[number];
 
 /**
- * What each type is drawn by (decision 0026): archify and Mermaid wherever they can, LikeC4 for C4 and deployment. The
+ * What each type is drawn by (decision 0026; the owner's addendum of 2026-11-10 for the ER view): archify and Mermaid
+ * wherever they can, LikeC4 for C4 and deployment. An ER view is drawn by all three: Mermaid's own `erDiagram`, LikeC4
+ * as one box per table with its columns and an arrow per foreign key, and archify from that same LikeC4 layout. The
  * vendored archify renders an architecture document — components and connections — and so draws no lifeline with an
  * order: a sequence is Mermaid's alone.
  */
 export const RENDERERS_OF: Readonly<Record<ViewType, readonly Renderer[]>> = {
+  relations: ['likec4', 'mermaid', 'archify'],
   'c4-context': ['likec4', 'mermaid', 'archify'],
   'c4-container': ['likec4', 'mermaid', 'archify'],
   'c4-component': ['likec4', 'mermaid', 'archify'],
   deployment: ['likec4', 'mermaid', 'archify'],
   domain: ['likec4', 'mermaid', 'archify'],
   'domain-map': ['likec4', 'mermaid', 'archify'],
-  er: ['mermaid'],
+  er: ['likec4', 'mermaid', 'archify'],
   state: ['mermaid', 'archify'],
   sequence: ['mermaid'],
 };
@@ -87,6 +90,8 @@ export interface ViewSpec {
   scope?: string;
   /** A sequence's entry point (a route or function key) when the subject is a page with several. */
   entry?: string;
+  /** How many elements the view draws before it says what it left out; the ER view's own bound when absent. */
+  limit?: number;
 }
 
 /** A refusal of a specification, naming what is wrong with it. */
@@ -114,6 +119,12 @@ export function parseSpec(query: URLSearchParams): ViewSpec {
   if (scope !== null && scope !== '') spec.scope = scope;
   const entry = query.get('entry');
   if (entry !== null && entry !== '') spec.entry = entry;
+  const limit = query.get('limit');
+  if (limit !== null && limit !== '') {
+    const asked = Number(limit);
+    if (!Number.isInteger(asked) || asked < 1 || asked > 200) throw new ViewRefusal(400, `"limit" is ${JSON.stringify(limit)}: a view draws 1 to 200 elements before it says what it left out`);
+    spec.limit = asked;
+  }
   return spec;
 }
 
@@ -122,6 +133,7 @@ function specQuery(spec: ViewSpec): string {
   const query = new URLSearchParams({ type: spec.type, subject: spec.subject });
   if (spec.scope !== undefined) query.set('scope', spec.scope);
   if (spec.entry !== undefined) query.set('entry', spec.entry);
+  if (spec.limit !== undefined) query.set('limit', String(spec.limit));
   return query.toString();
 }
 
@@ -133,6 +145,8 @@ const NODE_BUDGET = 40;
 interface ViewElement {
   id: string;
   label: string;
+  /** The name the diagram draws when the entity's own is too wide (a full commit hash, a long path); the list keeps `label`. */
+  short?: string;
   /** The look: the kind the renderers style (`container`, `database`, `channel`, `external`, `person`, `component`, `table`, `participant`, `state`, `node`, `image`, `product`). */
   kind: string;
   /** One more line under the name. */
@@ -193,6 +207,8 @@ export interface GraphView {
   up?: { spec: ViewSpec; title: string };
   /** Set when the budget folded the view. */
   marker: string | null;
+  /** The smallest node title the first view keeps, in pixels; left out, eleven on a page and nine in full screen. */
+  titleFloor?: number;
   /** A hand-written Mermaid source for the types whose own syntax reads better than a flowchart (ER, state) while every line is a fact. */
   mermaid?: string;
 }
@@ -215,6 +231,7 @@ const WORDS = {
     caller: 'Caller', foreignKey: 'foreign key', routesTo: 'routes to', builds: 'builds', dependsOn: 'depends on', builtBy: 'built by', replicas: (n: number) => `${n} replica${n === 1 ? '' : 's'}`,
     folded: (n: number, g: string) => `${n} in ${g}`, truncated: (shown: number, total: number) => `Showing ${shown} of ${total}.`, erIncoming: 'Incoming foreign keys', erOutgoing: 'Outgoing foreign keys',
     columnsTruncated: (list: string) => `Some columns are not drawn: ${list}.`,
+    selfReference: (n: number) => `${n === 1 ? 'One relation starts and ends at the same element' : `${n} relations start and end at the same element`}; LikeC4 and archify draw arrows only between different elements, so Mermaid is where ${n === 1 ? 'it is' : 'they are'} drawn.`,
     files: (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`, cycle: 'cycle',
     noServices: 'The graph holds no service yet.', noModules: (root: string) => `The graph holds no module under ${root}.`, noTables: 'The graph holds no table here.',
     noMachines: 'No transition table was found in the code of this page.', noDeploy: 'The graph holds no compose service, Kubernetes deployment or Dockerfile.',
@@ -228,6 +245,7 @@ const WORDS = {
     domain: 'Domain', domains: 'Domains', neighbours: 'neighbouring domain', implementedBy: 'implemented by', implementedWhy: 'which service implements a domain is the agent\'s reading of the code, not a fact the graph holds',
     mentions: 'mentions', mentioned: (shown: number, total: number) => `Showing ${shown} of ${total} pages whose text names the domain.`, mentionsWhy: 'the text names the domain; nothing in the graph links them', neighbourWhy: 'which domain the service belongs to is the agent\'s reading', uses2: 'uses', noDomains: 'No page relates to a service of the graph, so there is no map of domains to draw.',
     domainOf: (title: string) => `Domain: ${title}`, event: (name: string) => `event ${name}`, nothingNearby: 'Nothing else the graph knows is attached to this domain.',
+    relations: 'Relations', noRelations: 'The graph records no relation to this page.', relationsHidden: (n: number) => `${n} further relation${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} not drawn; the lists hold ${n === 1 ? 'it' : 'them'}.`,
   },
   ru: {
     client: 'Клиенты', clientDetail: 'предположение: граф знает маршруты, но не знает, кто их вызывает', uses: 'пользуются (предположение)', system: 'Система',
@@ -236,6 +254,7 @@ const WORDS = {
     caller: 'Вызывающий', foreignKey: 'внешний ключ', routesTo: 'направляет на', builds: 'собирает', dependsOn: 'зависит от', builtBy: 'собран из', replicas: (n: number) => `реплик: ${n}`,
     folded: (n: number, g: string) => `${n} в ${g}`, truncated: (shown: number, total: number) => `Показано ${shown} из ${total}.`, erIncoming: 'Входящие внешние ключи', erOutgoing: 'Исходящие внешние ключи',
     columnsTruncated: (list: string) => `Часть столбцов не нарисована: ${list}.`,
+    selfReference: (n: number) => `${n === 1 ? 'Одна связь начинается и кончается на одном элементе' : `${n} связей начинаются и кончаются на одном элементе`}; LikeC4 и archify рисуют стрелки только между разными элементами, поэтому ${n === 1 ? 'она нарисована' : 'они нарисованы'} только в Mermaid.`,
     files: (n: number) => `${n} ${russianPlural(n, 'файл', 'файла', 'файлов')}`, cycle: 'цикл',
     noServices: 'В графе пока нет ни одного сервиса.', noModules: (root: string) => `В графе нет модулей в ${root}.`, noTables: 'В графе здесь нет таблиц.',
     noMachines: 'В коде этой страницы не найдено таблицы переходов.', noDeploy: 'В графе нет ни сервисов compose, ни развёртываний Kubernetes, ни Dockerfile.',
@@ -249,6 +268,7 @@ const WORDS = {
     domain: 'Домен', domains: 'Домены', neighbours: 'соседний домен', implementedBy: 'реализует', implementedWhy: 'какой сервис реализует домен, решил агент по коду; граф такого факта не хранит',
     mentions: 'упоминает', mentioned: (shown: number, total: number) => `Показано ${shown} из ${total} страниц, в тексте которых назван домен.`, mentionsWhy: 'текст называет домен; в графе между ними связи нет', neighbourWhy: 'к какому домену относится сервис, решил агент', uses2: 'использует', noDomains: 'Ни одна страница не связана с сервисом графа, поэтому карту доменов рисовать не из чего.',
     domainOf: (title: string) => `Домен: ${title}`, event: (name: string) => `событие ${name}`, nothingNearby: 'К этому домену не привязано ничего из того, что знает граф.',
+    relations: 'Связи', noRelations: 'В графе не записано ни одной связи с этой страницей.', relationsHidden: (n: number) => `${n} ${russianPlural(n, 'связь не нарисована', 'связи не нарисованы', 'связей не нарисовано')}; они есть в списках.`,
   },
 };
 type Words = (typeof WORDS)['en'] & { lang: 'en' | 'ru' };
@@ -355,7 +375,7 @@ export function shapeOf(view: GraphView): ShapeDiagram {
   const elements: ShapeElement[] = view.elements.map((element) => ({
     id: element.id,
     kind: element.kind,
-    label: element.label,
+    label: element.short ?? element.label,
     dashed: element.dashed,
     ...(element.detail === undefined ? {} : { detail: element.detail }),
     ...(element.href === null ? {} : { page: { id: element.id, href: element.href } }),
@@ -553,26 +573,50 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   let tables: GraphEntity[];
   let total: number;
   if (form === 'tables') {
-    // The tables the entity holds: the data model extractor files a table under the database whose key it opens
-    // (`code.table:<database>/<table>`, the facts this view reads, decision 0033 item 7). The graph holds none: the view
-    // says so, as it always has.
-    let found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
-    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, found.total);
+    // The tables the entity holds: the manifest's declarations file a table under its database in the table's own key
+    // (`code.table:<database>/<table>`), and the reader answers the graph's rows (decision 0034, item 14).
+    const prefix = `code.table:${keyTail(subject.key)}/`;
+    let found = await ctx.graph.byPrefix('code.table', prefix, limit);
+    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', prefix, found.total);
     if (found.total !== found.rows.length) throw new ViewRefusal(400, `ER database "${subject.key}": expected ${found.total} tables, read ${found.rows.length}`);
     tables = found.rows;
     total = found.total;
   } else {
-    // A table is drawn with the tables it points to by foreign key and the tables that point to it.
-    tables = [subject];
+    // A table is drawn with the tables its columns reference and the tables whose columns reference it. A foreign key is
+    // an edge between columns (decision 0035, item 7), so each end's table is the column's own `table` value.
+    // The relation may be stated between the tables themselves (the catalogue's older shape of it) and between their
+    // columns (decision 0035, item 7): the view follows either, and the tables it reaches are its elements.
+    const held = new Map<string, GraphEntity>([[subject.key, subject]]);
     for (const direction of ['out', 'in'] as const) {
-      let groups = await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: Math.max(20, limit) });
-      const total = Math.max(0, ...groups.map(group => group.total));
-      if (groups.some(group => group.total > group.rows.length)) groups = await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: total });
+      const read = async (count: number) => await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: count });
+      let groups = await read(Math.max(20, limit));
+      const total = Math.max(0, ...groups.map((group) => group.total));
+      if (groups.some((group) => group.total > group.rows.length)) groups = await read(total);
       for (const group of groups) {
         if (group.total !== group.rows.length) throw new ViewRefusal(400, `ER table "${subject.key}" ${direction}: expected ${group.total} foreign-key neighbours, read ${group.rows.length}`);
-        for (const row of group.rows) if (!tables.some((table) => table.key === row.entity.key)) tables.push(row.entity);
+        for (const row of group.rows) if (row.entity.kind === 'code.table') held.set(row.entity.key, row.entity);
       }
     }
+    let own = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(subject.key)}/`, 400);
+    if (own.total > own.rows.length) own = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(subject.key)}/`, own.total);
+    for (const column of own.rows) {
+      const read = async (count: number) => await ctx.graph.neighbors(column, { relations: ['code.foreign-key'], direction: 'both', limit: count });
+      let groups = await read(Math.max(20, limit));
+      const total = Math.max(0, ...groups.map((group) => group.total));
+      if (groups.some((group) => group.total > group.rows.length)) groups = await read(total);
+      for (const group of groups) {
+        if (group.total !== group.rows.length) throw new ViewRefusal(400, `ER column "${column.key}": expected ${group.total} foreign-key neighbours, read ${group.rows.length}`);
+        for (const row of group.rows) {
+          if (row.entity.kind === 'code.table') { held.set(row.entity.key, row.entity); continue; }
+          const table = row.entity.properties['table'];
+          const key = typeof table === 'string' && table !== '' ? `code.table:${table}` : undefined;
+          if (key === undefined || held.has(key)) continue;
+          const [one] = await ctx.graph.find(key);
+          if (one !== undefined) held.set(key, one);
+        }
+      }
+    }
+    tables = [...held.values()].filter((one) => one.key === subject.key || one.kind === 'code.table');
     total = tables.length;
   }
   const title = `${w.er}: ${subject.label}`;
@@ -583,17 +627,24 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   let foreignKeys = await ctx.graph.relationEdges('code.foreign-key', 2000);
   if (foreignKeys.total > foreignKeys.rows.length) foreignKeys = await ctx.graph.relationEdges('code.foreign-key', foreignKeys.total);
   if (foreignKeys.total !== foreignKeys.rows.length) throw new ViewRefusal(400, `ER foreign keys: expected ${foreignKeys.total} relationships, read ${foreignKeys.rows.length}`);
+  /** The table one end of a foreign key stands for: the column's `table` value, or the table the end itself is. */
+  const tableKeyOfEnd = (end: { key: string; kind: string; properties?: Record<string, unknown> }): string | undefined => {
+    if (end.kind === 'code.table') return end.key;
+    const table = (end.properties ?? {})['table'];
+    return typeof table === 'string' && table !== '' ? `code.table:${table}` : undefined;
+  };
   const columnsOf = new Map<string, Set<string>>();
   for (const edge of foreignKeys.rows) {
-    const column = edge.properties['column'];
-    if (typeof column !== 'string' || column === '') continue;
-    const columns = columnsOf.get(edge.from.key) ?? new Set<string>();
-    columns.add(column);
-    columnsOf.set(edge.from.key, columns);
+    const table = tableKeyOfEnd(edge.from);
+    const name = (edge.from.properties ?? {})['name'] ?? edge.properties['column'];
+    if (table === undefined || typeof name !== 'string' || name === '') continue;
+    const columns = columnsOf.get(table) ?? new Set<string>();
+    columns.add(name);
+    columnsOf.set(table, columns);
   }
   for (const table of tables) {
-    let columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
-    if (columns.total > columns.rows.length) columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, columns.total);
+    let columns = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(table.key)}/`, 40);
+    if (columns.total > columns.rows.length) columns = await ctx.graph.byPrefix('code.column', `code.column:${keyTail(table.key)}/`, columns.total);
     if (columns.total !== columns.rows.length) throw new ViewRefusal(400, `ER table "${table.key}": expected ${columns.total} columns, read ${columns.rows.length}`);
     const ownColumns = columnsOf.get(table.key) ?? new Set<string>();
     elements.push({
@@ -603,23 +654,24 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
       href: hrefOf(ctx, table),
       ...(table.span === undefined ? {} : { location: locationOf(ctx, table.scope, table.span) }),
       dashed: false,
-      columns: columns.rows.map((column) => ({ name: column.label, type: erType(column.properties['type']), key: column.properties['primaryKey'] === true, fk: ownColumns.has(column.label) })),
+      columns: columns.rows.map((column) => ({ name: column.label, type: erType(column.properties['type']), key: column.properties['primary_key'] === true, fk: ownColumns.has(column.label) })),
     });
   }
   const edges: ViewEdge[] = [];
   const seen = new Set<string>();
-  for (const table of tables) {
-    for (const edge of foreignKeys.rows) {
-      if (edge.from.key !== table.key || !inView.has(edge.to.key)) continue;
-      const column = edge.properties['column'];
-      const label = typeof column === 'string' && column !== '' ? column : w.foreignKey;
-      const key = JSON.stringify([edge.from.key, edge.to.key, edge.discriminator ?? edge.properties['constraint'] ?? label]);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      edges.push({ from: table.key, to: edge.to.key, label, dashed: false, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }) });
-    }
+  for (const edge of foreignKeys.rows) {
+    const from = tableKeyOfEnd(edge.from);
+    const to = tableKeyOfEnd(edge.to);
+    if (from === undefined || to === undefined || !inView.has(from) || !inView.has(to)) continue;
+    const column = edge.properties['column'] ?? (edge.from.properties ?? {})['name'];
+    const label = typeof column === 'string' && column !== '' ? column : w.foreignKey;
+    const key = JSON.stringify([from, to, edge.discriminator ?? edge.properties['constraint'] ?? label]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ from, to, label, dashed: false, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }) });
   }
   edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}|${a.label}`, `${b.from}|${b.to}|${b.label}`));
+
   const notes = [
     ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
     ...(foreignKeys.total > foreignKeys.rows.length ? [w.truncated(foreignKeys.rows.length, foreignKeys.total)] : []),
@@ -1020,17 +1072,37 @@ export interface ViewContext {
 }
 
 /** The view a specification asks for, checked against the graph; a refusal names what is wrong. */
+/**
+ * A relation whose two ends are one element (a table's reference to itself, a state that loops back) is a fact every
+ * engine should draw, but LikeC4 refuses an arrow an element draws to itself, and archify draws the same layout. The
+ * arrow is therefore left out of their workspaces (`workspaceOf`), and the view says so in words rather than in silence.
+ */
+function withSelfReferenceNote(view: GraphView, w: Words): GraphView {
+  const loops = view.edges.filter((edge) => edge.from === edge.to).length;
+  if (loops === 0) return view;
+  return { ...view, notes: [...view.notes, w.selfReference(loops)] };
+}
+
 export async function buildViews(view: ViewContext, spec: ViewSpec, subject?: Subject): Promise<GraphView[]> {
   const w = wordsOf(view.lang);
+  return (await buildViewsOfType(view, spec, subject, w)).map((one) => withSelfReferenceNote(one, w));
+}
+
+async function buildViewsOfType(view: ViewContext, spec: ViewSpec, subject: Subject | undefined, w: Words): Promise<GraphView[]> {
   switch (spec.type) {
     case 'c4-context': return [await contextView(view.ctx, spec, w, view.productTitle)];
     case 'c4-container': return [await containerView(view.ctx, spec, w)];
     case 'c4-component': return [await componentView(view.ctx, spec, w)];
-    case 'er': return [await erView(view.ctx, spec, w, 12)];
+    case 'er': return [await erView(view.ctx, spec, w, spec.limit ?? 12)];
     case 'deployment': return [await deploymentView(view.ctx, spec, w)];
     case 'sequence': return await sequenceViews(view.ctx, spec, subject, w);
     case 'domain-map': return [await domainMapView(view.ctx, spec, w)];
     case 'domain': return [await domainView(view.ctx, spec, w)];
+    case 'relations': {
+      const subject = await relationsSubject(view.ctx, spec.subject);
+      if (subject === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph and no page of the product: a relations view stands on one of them`);
+      return [relationsViewOf(spec, await collectRelations(view.ctx, subject, 8), w.relations, w)];
+    }
     case 'state': {
       const entity = await entityAt(view.ctx, spec.subject);
       if (entity === undefined) throw new ViewRefusal(404, `"${spec.subject}" is no entity of the graph: a state view reads the transition tables of its code`);
@@ -1041,6 +1113,172 @@ export async function buildViews(view: ViewContext, spec: ViewSpec, subject?: Su
       return wanted;
     }
   }
+}
+
+// ---- the relations block ------------------------------------------------------------------------------
+
+/** One entity with an edge to the page, and the relations that reach it (the "links here" list). */
+export interface LinksHereRow {
+  readonly entity: EntityRef;
+  readonly relations: readonly string[];
+}
+
+/** What the graph holds one step around a page, grouped by relation and direction, and every link that reaches it. */
+interface CollectedRelations {
+  readonly center: EntityRef;
+  readonly groups: RelatedGroup[];
+  readonly linksHere: LinksHereRow[];
+  readonly more: { readonly relation: string; readonly direction: 'out' | 'in'; readonly hidden: number }[];
+}
+
+/** The entity a relations view stands on: a graph vertex by key, or a Markdown page by id. */
+async function relationsSubject(ctx: RenderContext, id: string): Promise<Subject | undefined> {
+  const page = ctx.markdown.get(id);
+  if (page !== undefined) return { source: 'markdown', entity: page };
+  const entity = await entityAt(ctx, id);
+  return entity === undefined ? undefined : { source: 'graph', entity };
+}
+
+/** A relation as a reader says it: the extractor's namespace is a prefix, not a word in the diagram. */
+function relationWordOf(relation: string): string {
+  return relation.replace(/^code\./u, '').replace(/^engine:/u, '').replace(/-/gu, ' ');
+}
+
+/**
+ * The graph's edges one step around a page, both directions, grouped by relation; nothing kinds them here. A Markdown
+ * page's `relates` are read beside the graph's edges (a page's relation to an entity it names is a fact of the page).
+ * Each group is capped at `limit`; `more` says how many the graph holds beyond the rows.
+ */
+async function collectRelations(ctx: RenderContext, subject: Subject, limit: number): Promise<CollectedRelations> {
+  const center = subject.source === 'graph' ? refOfGraph(ctx, subject.entity) : refOfMarkdown(ctx, subject.entity);
+  const groups: RelatedGroup[] = [];
+  if (subject.source === 'graph') {
+    for (const group of await ctx.graph.allNeighbors(subject.entity, { limit })) {
+      groups.push({ relation: group.relation, direction: group.direction, total: group.total, rows: group.rows.map((row) => ({ entity: refOfGraph(ctx, row.entity), count: row.edges })) });
+    }
+    // The file places the entity's own open opinions name: a term is defined in a file, and that file answers the term.
+    const places = new Map<string, { repository: string; path: string; sources: Set<string> }>();
+    for (const place of subject.entity.evidence ?? []) {
+      if (place.repository === null || place.repository === undefined || place.path === null || place.path === undefined) continue;
+      if (place.type !== undefined && place.type !== 'file') continue;
+      const key = `${place.repository}\u0000${place.path}`;
+      const held = places.get(key) ?? { repository: place.repository, path: place.path, sources: new Set<string>() };
+      if (place.saidBy !== undefined && place.saidBy !== '') held.sources.add(place.saidBy);
+      places.set(key, held);
+    }
+    if (places.size > 0) {
+      const rows: RelatedGroup['rows'] = [];
+      for (const place of [...places.values()].sort((left, right) => byCodePoint(`${left.repository}/${left.path}`, `${right.repository}/${right.path}`))) {
+        const [file] = await ctx.graph.find(`code.file:${place.repository}/${place.path}`);
+        if (file === undefined || file.key === subject.entity.key || rows.some((row) => row.entity.id === file.key)) continue;
+        rows.push({ entity: refOfGraph(ctx, file), count: 1, sources: [...place.sources].sort(byCodePoint) });
+      }
+      if (rows.length > 0) groups.push({ relation: 'stated-in', direction: 'out', total: rows.length, rows: rows.slice(0, limit) });
+    }
+    const toward = await ctx.graph.evidenceToward(subject.entity, { limit });
+    if (toward.length > 0) groups.push({ relation: 'stated-in', direction: 'in', total: toward.length, rows: toward.map((one) => ({ entity: refOfGraph(ctx, one.entity), count: 1, sources: one.sources })) });
+  }
+  // The `relates` relation a Markdown page states: out from a page, in from the pages that name a graph vertex.
+  for (const group of await relatesGroups(ctx, subject)) groups.push({ ...group, rows: group.rows.slice(0, limit) });
+  if (subject.source === 'markdown') {
+    const incoming = [...ctx.markdown.values()]
+      .filter((page) => page.id !== subject.entity.id && page.relates.includes(subject.entity.id))
+      .map((page) => ({ entity: refOfMarkdown(ctx, page), count: 1 }));
+    if (incoming.length > 0) groups.push({ relation: 'relates', direction: 'in', total: incoming.length, rows: incoming.slice(0, limit) });
+  }
+  groups.sort((left, right) => (left.direction === right.direction ? byCodePoint(left.relation, right.relation) : left.direction === 'out' ? -1 : 1));
+  const more = groups.filter((group) => group.total > group.rows.length).map((group) => ({ relation: group.relation, direction: group.direction, hidden: group.total - group.rows.length }));
+  const links = new Map<string, { entity: EntityRef; relations: string[] }>();
+  for (const group of groups) {
+    if (group.direction !== 'in') continue;
+    for (const row of group.rows) {
+      const held = links.get(row.entity.id) ?? { entity: row.entity, relations: [] };
+      if (!held.relations.includes(group.relation)) held.relations.push(group.relation);
+      links.set(row.entity.id, held);
+    }
+  }
+  return { center, groups, linksHere: [...links.values()].sort((left, right) => byCodePoint(left.entity.id, right.entity.id)), more };
+}
+
+/** The fewest one-step links the diagram draws: the lists hold the rest, and the diagram says how many. */
+const RELATIONS_DRAWN = 8;
+
+/** The name a diagram draws for an entity: its own when short, a hash's first twelve, else a path's last part. */
+function shortLabelOf(label: string): string {
+  // A signature is "Name <address>": the diagram draws the name, never the angle brackets an archify document refuses.
+  const named = label.replace(/\s*<[^<>]*>\s*/gu, ' ').trim() || label;
+  if (named.length <= 28) return named;
+  if (/^[0-9a-f]{40}([0-9a-f]{24})?$/u.test(named)) return named.slice(0, 12);
+  const slash = named.lastIndexOf('/');
+  if (slash >= 0 && named.length - slash - 1 <= 28) return named.slice(slash + 1);
+  return `${named.slice(0, 27)}…`;
+}
+
+/** One collected neighbourhood as the renderers read it: the page in the middle and every drawn relation as an arrow. */
+function relationsViewOf(spec: ViewSpec, collected: CollectedRelations, title: string, w: Words): GraphView {
+  if (collected.groups.length === 0) return empty(spec, title, w.relations, w.noRelations);
+  const elements: ViewElement[] = [{ id: collected.center.id, kind: 'product', label: collected.center.label, short: shortLabelOf(collected.center.label), href: collected.center.href, dashed: false }];
+  const drawn = new Set<string>([collected.center.id]);
+  const edges: ViewEdge[] = [];
+  let shown = 0;
+  for (const group of collected.groups) {
+    for (const row of group.rows) {
+      if (shown >= RELATIONS_DRAWN) break;
+      const id = row.entity.id;
+      if (!drawn.has(id)) {
+        drawn.add(id);
+        elements.push({ id, kind: 'component', label: row.entity.label, short: shortLabelOf(row.entity.label), href: row.entity.href, dashed: false });
+      }
+      const label = `${relationWordOf(group.relation)}${row.count > 1 ? ` ×${String(row.count)}` : ''}`;
+      edges.push({ from: group.direction === 'out' ? collected.center.id : id, to: group.direction === 'out' ? id : collected.center.id, label, dashed: false });
+      shown += 1;
+    }
+    if (shown >= RELATIONS_DRAWN) break;
+  }
+  const hidden = collected.more.reduce((sum, group) => sum + group.hidden, 0) + Math.max(0, collected.groups.reduce((sum, group) => sum + group.rows.length, 0) - shown);
+  return { spec, title, label: title, elements, edges, notes: hidden > 0 ? [w.relationsHidden(hidden)] : [], empty: null, marker: null, titleFloor: 12.2 };
+}
+
+/** What the `relations` block answers: the diagram through every engine, the groups and the links that reach the page. */
+export interface RelationsBlockShape {
+  type: 'relations';
+  title: string;
+  /** The renderer the tabs open on (the product's setting, else MADARCH_WIKI_DIAGRAM, else LikeC4). */
+  renderer: Renderer;
+  views: ViewPayload[];
+  groups: RelatedGroup[];
+  linksHere: LinksHereRow[];
+  more: { relation: string; direction: 'out' | 'in'; hidden: number }[];
+  /** Why nothing is drawn when the graph holds no relation to this page. */
+  empty?: string;
+}
+
+/**
+ * The `relations` block: an entity's one-step neighbourhood as a diagram through the three engines, under the
+ * renderer switcher, and the same relations as lists — outgoing and incoming grouped by relation, and every entity with
+ * an edge to the page. It names no kind: the store's edges answer the relations and the manifest's labels say them.
+ */
+export async function relationsBlock(
+  view: ViewContext,
+  subject: Subject,
+  params: Readonly<Record<string, string>>,
+  setting: { product: string | undefined; env: Readonly<Record<string, string | undefined>> },
+  where: { file: string; line: number },
+): Promise<RelationsBlockShape | { type: 'problem'; block: string; message: string; file: string; line: number }> {
+  const chosen = chosenRenderer(setting.product, setting.env);
+  if (!chosen.ok) return { type: 'problem', block: 'relations', message: chosen.message, ...where };
+  const parsed = Number(params['limit'] ?? '8');
+  const limit = Number.isInteger(parsed) ? Math.min(50, Math.max(1, parsed)) : 8;
+  const title = params['title'] ?? '';
+  const w = wordsOf(view.lang);
+  const collected = await collectRelations(view.ctx, subject, limit);
+  const drawn = collected.groups.length === 0 ? undefined : relationsViewOf({ type: 'relations', subject: collected.center.id }, collected, title, w);
+  return {
+    type: 'relations', title, renderer: chosen.renderer,
+    views: drawn === undefined ? [] : [payloadOf(drawn, chosen.renderer)],
+    groups: collected.groups, linksHere: collected.linksHere, more: collected.more,
+    ...(drawn === undefined ? { empty: w.noRelations } : {}),
+  };
 }
 
 // ---- the block ---------------------------------------------------------------------------------------
@@ -1103,7 +1341,10 @@ export async function diagramsBlock(
     } else if (name === 'er') {
       if (graphSubject === undefined) return problem('the er block draws the tables of the graph; the entities of this kind are Markdown pages');
       if (erFormOf(view.ctx.manifest, graphSubject.kind) === undefined) return problem(declarationMissing(view.ctx.manifest, graphSubject.kind, '"er: tables" or "er: links"', `the er block draws an entity whose kind declares the ER view, and this is ${graphSubject.kind}`));
-      built.push(...(await buildViews(view, { type: 'er', subject: graphSubject.key }, subject)));
+      // The template says how many tables the picture holds before it says what it left out (`limit` of the er tag).
+      const askedLimit = Number(params['limit'] ?? '');
+      const limit = Number.isInteger(askedLimit) && askedLimit >= 1 && askedLimit <= 200 ? askedLimit : undefined;
+      built.push(...(await buildViews(view, { type: 'er', subject: graphSubject.key, ...(limit === undefined ? {} : { limit }) }, subject)));
     } else {
       built.push(...(await buildViews(view, { type: 'sequence', subject: graphSubject?.key ?? (subject.source === 'markdown' ? subject.entity.id : '') }, subject)));
     }

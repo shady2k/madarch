@@ -152,7 +152,7 @@ describe('the two passes over one fixture', () => {
     expect(shared.rows[0]?.n).toBe('1');
   });
 
-  test('read git\'s shapes: a rename, a deleted path, a binary, two paths on one blob, a symlink, an ambiguous extension, a space and a newline, a merge', async () => {
+  test('read git\'s shapes: a rename, a deleted path, a binary, two paths on one blob, a symlink, an extension several languages claim, a space and a newline, a merge', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const files = await listFiles(owner, { repository: 'fixture', limit: 100 });
     const byPath = new Map(files.rows.map((row) => [row.path, row]));
@@ -166,15 +166,15 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
     // The language is the opinion's field `language` (never its `lang`, which is a text's natural language): blob.bin is
-    // one language (`unknown`). A `.ts` or `.md` file is not: the dataset gives `.ts` TypeScript and XML and `.md` GCC
-    // Machine Description and Markdown, so the opinion names its candidates and picks none.
+    // one language (`unknown`). A `.ts` file is TypeScript and XML in the dataset, and GitHub Linguist's rules decide it
+    // from its text — TypeScript. A `.h` may be C, C++ or Objective-C, and this one's words say C. The text decides; no
+    // language is picked by the reader.
     expect(byPath.get('blob.bin')?.language).toBe('unknown');
-    expect(byPath.get('src/a.ts')?.language).toBeNull();
-    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
-    // `.h` is C, C++ and Objective-C in the dataset: the opinion holds the candidates, and no one language is picked.
+    expect(byPath.get('src/a.ts')?.language).toBe('TypeScript');
+    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript']);
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBeNull();
-    expect(header.candidates.length).toBeGreaterThan(1);
+    expect(header.language).toBe('C');
+    expect(header.candidates).toEqual(['C']);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.fileCount).toBe(files.rows.length);
@@ -191,10 +191,11 @@ describe('the two passes over one fixture', () => {
     const historyCounts = await publishHistory(owner, history);
     // One file's blob moved: the file's row is updated, the new commit's vertex and its row and the
     // as-is edge are added, and the edge to the commit the repository stood at before is removed.
-    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 2 (the file's
-    // opinion and the dataset's, each now resting on the new commit as its evidence), deleted 1 (the old as-is edge).
+    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 3 (the file's
+    // mechanism entry, its opinion and the dataset's opinion — the last two now resting on the new commit as their
+    // evidence), deleted 1 (the old as-is edge).
     expect(treeCounts.inserted).toBe(3);
-    expect(treeCounts.updated).toBe(2);
+    expect(treeCounts.updated).toBe(3);
     expect(treeCounts.deleted).toBe(1);
     expect(historyCounts.inserted).toBeGreaterThan(0);
     expect(historyCounts.updated + historyCounts.unchanged).toBeGreaterThan(0);

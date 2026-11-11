@@ -15,11 +15,12 @@
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
 import { productsHome, type DraftEnv } from './home.js';
-import { STARTER_FILES } from '../knowledge/seed.js';
+import { seedStarterSet, starterPageKindNames } from '../knowledge/seed.js';
+import { DEFAULT_STARTER_TEMPLATE, starterTemplateIds, starterTemplateOf, type StarterTemplate } from '../knowledge/starter-templates.js';
 export type { DraftEnv };
 
 
@@ -32,9 +33,8 @@ export type { DraftEnv };
 const FOLDERS = ['docs', 'model', 'skills', 'prototypes', 'repos'];
 const TRACKED_FOLDERS = ['docs', 'model', 'skills', 'prototypes'];
 /** The wiki's starter set (decision 0029): the kinds manifest and the page templates, the product's own files from the first commit. */
-const STARTER_PATHS = STARTER_FILES.map((file) => file.path);
 const COMMITTED_FILES = ['AGENTS.md', 'CLAUDE.md', `${MANIFEST_FILE}`, '.gitignore',
-  'docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep', ...STARTER_PATHS];
+  'docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep'];
 
 /** The markers around the part of `AGENTS.md` madarch's commands maintain. */
 const MAINTAINED_OPEN = '<!-- product:maintained -->';
@@ -93,7 +93,7 @@ const manifestText = (id: string, name: string): string =>
 
 /** How creating a draft ended. `refused` is the command's exit 2, `failed` its exit 1. */
 export type DraftResult =
-  | { outcome: 'created'; folder: string; id: string; name: string }
+  | { outcome: 'created'; folder: string; id: string; name: string; template: string; kinds: number }
   | { outcome: 'refused'; message: string }
   | { outcome: 'failed'; message: string };
 
@@ -106,6 +106,17 @@ export interface DraftOptions {
   home?: string;
   /** Optional product folder name for `madarch init`; collisions are refused. */
   name?: string;
+  /**
+   * The starter template the product is made from (the ids of `src/knowledge/starter-templates.ts`): the kinds its
+   * manifest declares, and the templates, plugins and workflows those kinds use. Left out, the default template — the
+   * whole starter set — decides. An id no template declares is refused, naming the ids.
+   */
+  template?: string;
+  /**
+   * The templates the id is resolved against; absent, the declared starter data (`src/knowledge/starter-templates.ts`).
+   * The list is data: a test declares a template of its own here to prove creation, the menu and the check read it.
+   */
+  templates?: readonly StarterTemplate[];
   /**
    * The moment the draft's name is folded from. Left out, the local clock
    * decides the day; tests give the day so a run does not depend on the
@@ -192,6 +203,14 @@ function removeDraftFolder(folder: string): string | undefined {
  * left behind, so a failed run never leaves one without saying where.
  */
 export function createDraft(options: DraftOptions = {}): DraftResult {
+  // The template is judged before anything is made, so a refused id leaves no folder behind: the product it would
+  // have been made from is the person's choice, and a guess here would be a product they did not ask for.
+  const templateId = options.template ?? DEFAULT_STARTER_TEMPLATE;
+  const template = starterTemplateOf(templateId, options.templates);
+  if (template === undefined) {
+    return { outcome: 'refused', message: `no starter template is called ${JSON.stringify(templateId)}: the templates are ${starterTemplateIds().join(', ')}` };
+  }
+
   // The home is madarch's own decision: the `--home` the command was given,
   // over `MADARCH_HOME`, over the machine's default (productsHome).
   // productsHome itself trims: the home it names is the folder, never shell whitespace.
@@ -247,14 +266,12 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     writeFileSync(join(folder, MANIFEST_FILE), manifestText(id, name));
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
-    for (const starter of STARTER_FILES) {
-      mkdirSync(dirname(join(folder, starter.path)), { recursive: true });
-      writeFileSync(join(folder, starter.path), starter.content);
-    }
+    // The template's files are copied into the product repository by the one module that writes them: `madarch new`.
+    const starter = seedStarterSet(folder, template.id, options.templates);
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);
-    const add = runGit(folder, ['add', ...COMMITTED_FILES], options.gitEnv);
+    const add = runGit(folder, ['add', ...COMMITTED_FILES, ...starter], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${folder}: ${add.output}`);
     const commit = runGit(folder, ['commit', '--quiet', '-m', 'Create the draft product'], options.gitEnv);
     if (!commit.ok) throw new Error(`git commit failed in ${folder}: ${commit.output}`);
@@ -263,7 +280,7 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     const cleanup = removeDraftFolder(folder);
     return { outcome: 'failed', message: cleanup === undefined ? failure : `${failure}; ${cleanup}` };
   }
-  return { outcome: 'created', folder, id, name };
+  return { outcome: 'created', folder, id, name, template: template.id, kinds: starterPageKindNames(template).length };
 }
 
 /**

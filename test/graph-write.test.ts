@@ -20,8 +20,10 @@ import { publishGraphWrites } from '../src/graph/claims.js';
 import { ensureEdges, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
+import { unevidencedOpinions } from '../src/graph/consistency.js';
 import type { VertexDraft } from '../src/graph/contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
+import { declaredKindReads } from '../src/fill/stages/plugin-contract.js';
 
 const HASH = 'a'.repeat(64);
 const root = mkdtempSync(join(tmpdir(), 'madarch-graph-write-'));
@@ -64,9 +66,11 @@ function product(): string {
 
 let owner: DatabaseOwner;
 let contract: GraphContract;
+let productFolder = '';
 
 beforeAll(async () => {
   const folder = product();
+  productFolder = folder;
   const read = parseKinds(await Bun.file(join(folder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', folder);
   expect(read.findings).toEqual([]);
   contract = manifestContractOf(read);
@@ -85,6 +89,48 @@ function term(name: string, definition: string): VertexDraft {
     producer: 'glossary', producerVersion: '1.0.0',
   };
 }
+
+describe('the unevidenced read reports only a field whose contract requires evidence', () => {
+  test('an opinion with no evidence of a declared field is reported, and one with evidence is not', async () => {
+    // A bare opinion of the field the declaration names, and a cited one of the same kind.
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'doc.term', key: { name: 'Bare' }, values: { definition: 'no source' }, producer: 'glossary', producerVersion: '1.0.0' }],
+      removals: [],
+    }, 1));
+    const declarations = [{ kind: 'doc.term', table: contract.vertex[0]!.table, producer: 'glossary', fields: ['definition'], key: ['name'] }];
+    const found = await unevidencedOpinions(owner, declarations);
+    expect(found.rows.map((one) => [one.entity.label, one.field])).toEqual([['Bare', 'definition']]);
+    // A field that declared nothing is never reported, whatever its opinion rests on.
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'doc.term', key: { name: 'Bare' }, values: { definition: 'still no source' }, evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 1, line_end: 2 }], producer: 'glossary', producerVersion: '1.0.0' }],
+      removals: [],
+    }, 1));
+    expect((await unevidencedOpinions(owner, declarations)).rows).toEqual([]);
+    expect((await unevidencedOpinions(owner, [{ ...declarations[0]!, fields: [] }])).rows).toEqual([]);
+    // The case shares the file's store with the cases after it: its term leaves the store whole, rows and node.
+    await owner.transaction('write', async (tx) => {
+      await tx.query(`DELETE FROM ${declarations[0]!.table} WHERE node_id IN (SELECT id FROM node WHERE key->>'name' = 'Bare')`);
+      await tx.query(`DELETE FROM node WHERE key->>'name' = 'Bare'`);
+    });
+  });
+});
+
+describe('a manifest-declared kind is read by prefix, as the Problems page reads its findings kind', () => {
+  test('the reader answers a generated kind its table holds', async () => {
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'doc.term', key: { name: 'Zeta' }, values: { definition: 'the last one' }, evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 1, line_end: 2 }], producer: 'glossary', producerVersion: '1.0.0' }],
+      removals: [],
+    }, 1));
+    const read = parseKinds(await Bun.file(join(productFolder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', productFolder);
+    const reader = new GraphReader(owner, () => 'now', undefined, undefined, undefined, declaredKindReads(read));
+    const found = await reader.byPrefix('doc.term', 'doc.term:', 10);
+    expect(found.rows.map((one) => one.key)).toContain('doc.term:Zeta');
+    await owner.transaction('write', async (tx) => {
+      await tx.query(`DELETE FROM ${contract.vertex[0]!.table} WHERE node_id IN (SELECT id FROM node WHERE key->>'name' = 'Zeta')`);
+      await tx.query(`DELETE FROM node WHERE key->>'name' = 'Zeta'`);
+    });
+  });
+});
 
 describe('the manifest makes the table and the writer fills it', () => {
   test('the kind has a column for every field it states and none for its key', async () => {

@@ -10,8 +10,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { makeProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { commitProduct, makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
+import { fillInProcess } from './fill-inline.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -38,15 +39,21 @@ beforeAll(async () => {
   git(repository, 'add', '.');
   git(repository, 'commit', '--quiet', '-m', 'First');
   folder = makeProduct(home, 'shop', repository);
+  withoutPluginTurns(folder);
   mkdirSync(join(folder, 'docs', 'questions'), { recursive: true });
   for (let i = 0; i < BROKEN_FILES; i += 1) {
     writeFileSync(join(folder, 'docs', 'questions', `broken-${String(i).padStart(3, '0')}.md`), 'no front matter\n');
   }
+  // The questions are the graph's: the files are the product repository's commit, and a fill reads them.
+  commitProduct(folder, 'Write the question files that cannot be read');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-}, 120_000);
+  // The Problems page reads the graph: one pass of the files producer in this process stores the product repository.
+  await fillInProcess(folder, home, join(work, 'store'));
+  await get('/api/status');
+}, 300_000);
 
 afterAll(async () => {
   await server.stop();

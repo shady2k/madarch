@@ -1,17 +1,15 @@
 /**
- * settings:shots — the acceptance walk of madarch-m38l.11, rendered the way a reader sees it. A product made by madarch
- * 0.2.0 (its manifest and templates are the fixture `test/fixtures/product-0.2.0`) is served by the current madarch:
- * the wiki brings the files to the current starter set when it first reads them, and the walk shows the full grouping,
- * the roles, the use cases and the contract and route pages after a code fill. A second product whose manifest a person
- * edited is left as it is and its Problems page offers «Add». The settings page lists the agent, the model and the
- * reasoning level a fake ACP adapter reports (the fixture agent of the ACP tests, started as a real adapter is), the
- * language, the bounds and both local resets; «Start from scratch» is pressed and the walk checks that no page, no graph
- * and a current manifest are left, then fills again.
+ * settings:shots — the acceptance walk of madarch-m38l.11, rendered the way a reader sees it. Two products the current
+ * set made are served: the first shows the full grouping, the roles, the use cases and the contract and route pages
+ * after a code fill; the second has a note in its manifest, which is left as it is. The settings page lists the agent,
+ * the model and the reasoning level a fake ACP adapter reports (the fixture agent of the ACP tests, started as a real
+ * adapter is), the language, the bounds and both local resets; «Start from scratch» is pressed and the walk checks that
+ * no page and no graph are left, while the product's own manifest and templates stay as the person has them.
  *
  * Usage: bun scripts/settings-shots.ts --lang ru|en [--theme light|dark] [--out <folder>] [--work <folder>] [--port <n>]
  * Each page is taken at 1150 px and at 390 px.
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -26,7 +24,6 @@ import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { SAMPLE_IDENTITY, generateTrainingRepository, makeProduct } from '../test/knowledge-fixture.js';
 import { gitEnv } from '../test/git-env.js';
-import { STARTER_FILES, starterManifest } from '../src/knowledge/seed.js';
 
 function argument(name: string, fallback: string): string {
   const at = process.argv.indexOf(`--${name}`);
@@ -42,25 +39,12 @@ mkdirSync(out, { recursive: true });
 mkdirSync(work, { recursive: true });
 const written: string[] = [];
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env: gitEnv(SAMPLE_IDENTITY), encoding: 'utf8' }).trim();
-const FIXTURE = resolve(import.meta.dir, '..', 'test', 'fixtures', 'product-0.2.0');
-
-/** A draft product turned into what madarch 0.2.0 left: the draft's first commit, then the working tree the questions loop changed. */
-function oldProduct(home: string, name: string, repository: string): string {
-  const folder = makeProduct(home, name, repository);
-  rmSync(join(folder, 'templates'), { recursive: true, force: true });
-  cpSync(join(FIXTURE, 'committed'), folder, { recursive: true });
-  git(folder, 'add', '-A');
-  git(folder, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--amend', '-m', 'Create the draft product');
-  cpSync(join(FIXTURE, 'working'), folder, { recursive: true });
-  return folder;
-}
-
 const repository = generateTrainingRepository(join(work, 'repo'));
 const madarchHome = join(work, 'madarch');
 const products = join(work, 'products');
 mkdirSync(products, { recursive: true });
-const shop = oldProduct(products, 'sample-product', repository);
-const edited = oldProduct(products, 'sample-product-edited', repository);
+const shop = makeProduct(products, 'sample-product', repository);
+const edited = makeProduct(products, 'sample-product-edited', repository);
 writeFileSync(join(edited, 'madarch', 'kinds.yaml'), `# our own note: kinds are listed in the order we read them\n${readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8')}`);
 git(edited, 'add', '-A');
 git(edited, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Note in the manifest');
@@ -136,14 +120,10 @@ try {
   const base = server.url;
   // The reader's role is a machine setting shared by products. Answer the first-run prompt before any screenshot.
   await post(base, '/products/sample-product/api/settings', { role: 'everything' });
-  // ---- the old product, read by the current madarch -----------------------------------------------
-  const before = readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8');
-  check(!before.includes('groups:'), 'the old manifest declares no groups (everything would fall into «Other»)');
+  // ---- a product the set made, filled by the current madarch ---------------------------------------
   const first = await json(base, '/products/sample-product/api/status');
-  check(first.findings.length === 0, 'no finding is left on the upgraded manifest');
-  check(first.groups.length === 7, 'the upgraded manifest has the seven groups');
-  check(Object.keys(first.roles).length === 6, 'the six roles are declared');
-  check(readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8') === starterManifest('ru'), 'the manifest is the current starter set, in the product\'s language');
+  check(first.findings.length === 0, 'the product the set made reads with no finding');
+  check(first.groups.length > 0, `the catalogue reads the product repository's groups (${first.groups.length})`);
   await post(base, '/products/sample-product/api/fill', {});
   await settled(base, 'sample-product');
   const filled = await json(base, '/products/sample-product/api/status');
@@ -160,15 +140,9 @@ try {
   await both(base, `/products/sample-product/e/${encodeURIComponent(contract)}`, 'upgraded-contract-page', '[data-testid=entity-page]');
   await both(base, `/products/sample-product/e/${encodeURIComponent(route)}`, 'upgraded-route-page', '[data-testid=entity-page]');
 
-  // ---- the product a person edited: untouched, and the Problems page offers «Add» -------------------
-  const editedStatus = await json(base, '/products/sample-product-edited/api/status');
+  // ---- the product a person edited: untouched ------------------------------------------------------
+  await both(base, '/products/sample-product-edited/problems', 'edited-problems', '[data-testid=problems-page]', true);
   check(readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8') === editedBefore, 'the edited manifest is byte for byte as it was');
-  check(editedStatus.starterOffers > 0, `the Problems page has ${editedStatus.starterOffers} things to add`);
-  await both(base, '/products/sample-product-edited/problems', 'edited-problems-offer-add', '[data-testid=problems-starter]', true);
-  const offers = (await json(base, '/products/sample-product-edited/api/problems')).starter.map((offer: { id: string }) => offer.id) as string[];
-  await post(base, '/products/sample-product-edited/api/starter', { ids: offers });
-  const addedStatus = await json(base, '/products/sample-product-edited/api/status');
-  check(addedStatus.findings.length === 0 && addedStatus.starterOffers === 0, 'after «Add all» the edited manifest reads clean and offers nothing more');
   check(readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8').startsWith('# our own note'), 'the person\'s comment is still the first line');
 
   // ---- the settings page ---------------------------------------------------------------------------
@@ -193,6 +167,8 @@ try {
   const id = (await json(base, '/products/sample-product/api/product')).id as string;
   const store = join(products, '.madarch', 'knowledge', id);
   writeFileSync(join(shop, 'templates', 'domain.md'), 'a template we edited\n');
+  const kindsBefore = readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8');
+  const templatesBefore = readdirSync(join(shop, 'templates')).sort();
   const page = await open(base, '/products/sample-product/settings', 1150, 900);
   await page.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 120_000 });
   await page.click('[data-testid=danger-fresh-open]');
@@ -202,8 +178,9 @@ try {
   const files = (folder: string): string[] => (existsSync(folder) ? readdirSync(folder, { recursive: true }).map(String) : []);
   check(!existsSync(join(shop, 'docs', 'product.md')) && files(join(shop, 'docs', 'domains')).length === 0, 'no agent page is left');
   check(!existsSync(join(store, 'graph')) || files(join(store, 'graph')).length === 0 || (await json(base, '/products/sample-product/api/status')).fill.state === 'running', 'the old graph is gone (a fresh fill is writing a new one)');
-  check(readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8') === starterManifest('ru'), 'the manifest is the current starter set');
-  for (const starter of STARTER_FILES) check(readFileSync(join(shop, starter.path), 'utf8') === (starter.path === 'madarch/kinds.yaml' ? starterManifest('ru') : starter.content), `${starter.path} is the current starter file`);
+  check(readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8') === kindsBefore, 'the manifest is the product\'s own, untouched by the reset');
+  check(JSON.stringify(readdirSync(join(shop, 'templates')).sort()) === JSON.stringify(templatesBefore), 'the templates are the product\'s own, untouched by the reset');
+  check(readFileSync(join(shop, 'templates', 'domain.md'), 'utf8') === 'a template we edited\n', 'the template a person edited is left as they wrote it');
   await shoot(page, 'after-start-from-scratch');
   await page.close();
   await settled(base, 'sample-product');

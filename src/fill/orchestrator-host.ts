@@ -95,6 +95,8 @@ export interface FillRunResult {
   readonly reused: readonly string[];
   readonly retryWaitMs: number;
   readonly foundNothing: readonly string[];
+  /** The graph kinds the run's contract declared; absent when the run held no manifest (the whole git contract). */
+  readonly declaredKinds?: readonly string[];
 }
 
 export interface FillProgressAnswer {

@@ -267,7 +267,7 @@ async function createsAndServes(outfile: string, products: string, port: number,
   // Every run stands outside the checkout, the way an installed binary does:
   // a server the binary could only start with the repository beside it would
   // be no release.
-  const created = spawnSync(outfile, ['new', '--home', products, '--port', String(port), '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, env, cwd: resideElsewhere(products) });
+  const created = spawnSync(outfile, ['new', '--home', products, '--port', String(port), '--template', 'everything', '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, env, cwd: resideElsewhere(products) });
   const said = `${created.stdout ?? ''}${created.stderr ?? ''}`.trim();
   if (created.status !== 0) {
     return `the built binary could not create a draft, open the graph store and serve it (exit ${String(created.status)}): ${said}${daemonLog(products)}`;
@@ -291,31 +291,44 @@ async function createsAndServes(outfile: string, products: string, port: number,
   if (facts.reused !== false) {
     return `the built binary reused a server in a products home it had just made (--json printed ${line})`;
   }
-  const deadline = Date.now() + 30_000;
+  // The first status opens the product's store, which installs the PostgreSQL server on first use: on a Windows runner
+  // that can take longer than one answer, so the smoke retries for a minute and reports the server's own words.
+  const deadline = Date.now() + 60_000;
+  let lastStatus = '';
   while (Date.now() < deadline) {
     try {
       // The wiki the binary carries is the knowledge wiki: its status answers for the draft, and the app's entry page loads.
       const answer = await fetch(`${facts.url}api/product`);
       if (answer.ok && (await answer.text()).includes('"id"')) {
-        const page = await fetch(facts.url);
-        if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
-        // madarch's own wiki came out of the copy the binary carries, with no network asked for.
-        const listed = await fetch(new URL('/api/products', facts.url));
-        if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
-        // The archify frame draws a service's diagram, from the `code.service` and `code.symbol` nodes the static
-        // stages publish. This step's fill publishes the tree and the history records, so the frame is read when the
-        // product's first-fill workflow names the stage whose step publishes what the diagram is drawn from.
-        const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
-        if (firstFill === undefined || !firstFill.stages.includes('syntax')) {
-          console.log('binary smoke: the archify frame is not read, because this fill publishes no graph reading of a service');
-          return undefined;
+        // Nothing was filled: the draft's manifest stands in its repository and the graph holds none of it, so the
+        // status reads `not-filled` and the fill is idle. The smoke presses nothing.
+        const status = await fetch(`${facts.url}api/status`);
+        const body = await status.text();
+        lastStatus = `api/status answered HTTP ${status.status}: ${body}`;
+        if (status.ok) {
+          const state = JSON.parse(body) as { manifest?: string; fill?: { state?: string } };
+          if (state.manifest !== 'not-filled') return `the built binary's draft reads "${String(state.manifest)}", and nothing was filled: it must read "not-filled" until a person presses Fill${daemonLog(products)}`;
+          if (state.fill?.state !== 'idle') return `the built binary's draft fill is "${String(state.fill?.state)}", and the smoke pressed nothing${daemonLog(products)}`;
+          const page = await fetch(facts.url);
+          if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
+          // madarch's own wiki came out of the copy the binary carries, with no network asked for.
+          const listed = await fetch(new URL('/api/products', facts.url));
+          if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
+          // The archify frame draws a service's diagram, from the `code.service` and `code.symbol` nodes the static
+          // stages publish. This step's fill publishes the tree and the history records, so the frame is read when the
+          // product's first-fill workflow names the stage whose step publishes what the diagram is drawn from.
+          const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
+          if (firstFill === undefined || !firstFill.stages.includes('syntax')) {
+            console.log('binary smoke: the archify frame is not read, because this fill publishes no graph reading of a service');
+            return undefined;
+          }
+          return await smokeArchify(facts, products, env);
         }
-        return await smokeArchify(facts, products, env);
       }
-    } catch { /* the product's API is still coming up */ }
-    await new Promise((done) => setTimeout(done, 100));
+    } catch { /* the product's API is still coming up, or its store is opening */ }
+    await new Promise((done) => setTimeout(done, 200));
   }
-  return `the built binary created a draft but no product answered at ${facts.url}api/product within 30 s: ${said}${daemonLog(products)}`;
+  return `the built binary created a draft but no product answered at ${facts.url}api/product within 60 s: ${said}${lastStatus === '' ? '' : `\n${lastStatus}`}${daemonLog(products)}`;
 }
 
 /** One tiny repository filled through the binary server, then its own archify frame and rendered output. */

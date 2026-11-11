@@ -10,10 +10,11 @@ import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { readMarkdownEntities } from '../src/knowledge/markdown.js';
+import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
 const FILE = K('code.file', 'src/a.ts');
@@ -113,11 +114,12 @@ beforeAll(async () => {
   write('templates/item.liquid', '{% layout "./entity.liquid" %}\n{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}\n');
   const read = parseKinds(await Bun.file(join(product, 'madarch/kinds.yaml')).text(), join(product, 'madarch/kinds.yaml'), product);
   expect(read.findings).toEqual([]);
-  const markdown = new Map(readMarkdownEntities(product, read).entities.map((entity) => [entity.id, entity]));
+  const markdown = new Map(readMarkdownEntitiesFrom(workingTreeFiles(product), read).entities.map((entity) => [entity.id, entity]));
   const graph = fake.reader();
   const readSource = async (_repo: string | null, path: string): Promise<string | undefined> => path === 'src/a.ts' ? 'export function charge() {}\n' : undefined;
   ctx = {
     productFolder: product,
+    files: workingTreeFiles(product),
     manifest: read,
     graph,
     markdown,

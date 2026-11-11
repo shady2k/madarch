@@ -1,0 +1,55 @@
+/**
+ * `madarch new` copies a template into the product repository: the copy is the engine's only source of the product's
+ * kinds, so a draft that writes none — or a starter data module that comes up empty — must fail here, in the source and
+ * in the binary the release build compiles. The test fills nothing: it reads the files the draft wrote.
+ */
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createDraft } from '../src/product/draft.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { readKinds } from '../src/knowledge/kinds.js';
+import { gitEnv } from './git-env.js';
+import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+
+const env = gitEnv(SAMPLE_IDENTITY);
+let root = '';
+let folder = '';
+
+beforeAll(() => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-draft-starter-'));
+  const draft = createDraft({ home: join(root, 'products'), name: 'starter-copy', gitEnv: env });
+  if (draft.outcome !== 'created') throw new Error(`the draft was not made: ${JSON.stringify(draft)}`);
+  folder = draft.folder;
+});
+
+afterAll(() => {
+  if (root !== '') rmSync(root, { recursive: true, force: true });
+});
+
+describe('the starter set a draft copies', () => {
+  test('every starter file stands in the product repository byte for byte', () => {
+    expect(STARTER_FILES.length).toBeGreaterThan(0);
+    for (const starter of STARTER_FILES) {
+      const file = join(folder, starter.path);
+      expect({ path: starter.path, present: existsSync(file) }, starter.path).toEqual({ path: starter.path, present: true });
+      // A file that is not text (a plugin's WebAssembly module) is compared as bytes; the text stands empty for it.
+      const same = starter.bytes === undefined
+        ? readFileSync(file, 'utf8') === starter.content
+        : Buffer.from(starter.bytes).equals(readFileSync(file));
+      expect({ path: starter.path, same }, starter.path).toEqual({ path: starter.path, same: true });
+    }
+  });
+
+  test("the manifest the copy holds is the product's kinds, with no finding", () => {
+    const read = readKinds(folder);
+    expect(read.present).toBe(true);
+    if (!read.present) return;
+    expect(read.manifest.findings).toEqual([]);
+    expect(read.manifest.kinds.size).toBeGreaterThan(0);
+    // The draft committed what it wrote: a fill pins a commit, and an uncommitted copy would be read by nothing.
+    expect(execFileSync('git', ['-C', folder, 'rev-parse', 'HEAD'], { env, encoding: 'utf8' }).trim()).toMatch(/^[0-9a-f]{40}$/);
+  });
+});

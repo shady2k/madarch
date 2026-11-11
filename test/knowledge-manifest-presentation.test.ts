@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readKinds, type KindsManifest } from '../src/knowledge/kinds.js';
 import { historyBlock } from '../src/knowledge/history.js';
-import { STARTER_KINDS } from '../src/knowledge/seed.js';
+import { starterKinds } from './knowledge-fixture.js';
 import { buildStatement } from '../src/knowledge/statement.js';
 import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 import type { GraphEntity, HistoryEvidence } from '../src/knowledge/graph-read.js';
@@ -211,9 +211,9 @@ describe('the manifest reader refuses a presentation field it cannot read', () =
 
 describe('the starter set keeps the pages it showed', () => {
   test('the kinds the starter set gives a card and a history page are the ones the engine named before', () => {
-    const cards = STARTER_KINDS.filter((kind) => kind.card === true).map((kind) => kind.name);
+    const cards = starterKinds().filter((kind) => kind.card === true).map((kind) => kind.name);
     expect(cards).toEqual(['code.service', 'code.package', 'code.operation', 'code.contract', 'code.channel', 'code.message', 'code.database', 'code.table']);
-    const stories = STARTER_KINDS.filter((kind) => kind.history !== undefined).map((kind) => `${kind.name}: ${kind.history}`);
+    const stories = starterKinds().filter((kind) => kind.history !== undefined).map((kind) => `${kind.name}: ${kind.history}`);
     expect(stories).toEqual([
       'product: repositories',
       'code.service: membership',

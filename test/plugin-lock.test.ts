@@ -3,10 +3,13 @@
  * `madarch/plugins.lock`; a lock that cannot be read is refused with the file and the line, never treated as no lock.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readPluginLock } from '../src/plugin/lock.js';
+import { parsePluginLock } from '../src/plugin/lock.js';
+
+/** The lock as the working tree holds it: the test's reading of the file the fill reads from its pinned tree. */
+const readPluginLock = (folder: string) => parsePluginLock(existsSync(join(folder, 'madarch', 'plugins.lock')) ? readFileSync(join(folder, 'madarch', 'plugins.lock'), 'utf8') : undefined);
 
 const made: string[] = [];
 afterAll(() => { for (const folder of made.splice(0)) rmSync(folder, { recursive: true, force: true }); });

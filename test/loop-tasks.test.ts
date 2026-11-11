@@ -16,7 +16,8 @@ import { splitFrontMatter } from '../src/knowledge/markdown.js';
 import { renderQuestion, type Question } from '../src/loop/entities.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
+import { fillInProcess } from './fill-inline.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 /** git in a fixture folder; `extra` sets the dates a commit that closes a task is read by. */
@@ -156,6 +157,7 @@ const REFUND_AMOUNT_QUESTION: Omit<Question, 'file' | 'id'> = {
 const REFUND_ITEM_SCOPE = { type: 'section', path: 'README.md', anchor: 'full-amount' };
 
 let work: string;
+let home: string;
 let folder: string;
 let repository: string;
 let server: StartedServer;
@@ -172,6 +174,12 @@ const post = async (path: string, body: unknown): Promise<{ status: number; body
   const response = await fetch(`${server.url}/products/${SHOP}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   return { status: response.status, body: await response.json() };
 };
+
+/** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
+async function refill(): Promise<void> {
+  await fillInProcess(folder, home, join(work, 'store'));
+  await get('/api/status');
+}
 
 /** The front matter of a file of the product, parsed; a file without one is an error naming it. */
 const frontOf = (path: string): Record<string, unknown> => {
@@ -195,9 +203,10 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'NOTES.md'), '# Notes\n\nNothing is planned here.\n');
   git(repository, ['add', '.']);
   git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'first']);
-  const home = join(work, 'home');
+  home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
+  withoutPluginTurns(folder);
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
   mkdirSync(join(folder, 'docs/domains'), { recursive: true });
@@ -288,6 +297,7 @@ describe('confirming the proposal as a task', () => {
     const proposal = await post('/api/task-propose', { question: 'discount-percentage', choice: 'code' });
     expect(proposal.status).toBe(200);
     const created = await post('/api/task-create', { question: 'discount-percentage', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    await refill();
     expect(created.status).toBe(201);
     const made = created.body.task;
     discountTask = { id: made.id, slug: made.slug, title: made.title, file: made.file, at: made.at };
@@ -403,6 +413,7 @@ describe('closing a task by a commit', () => {
   test('a commit that names the task and changes the file its scope names closes it; a commit that misses either does not', async () => {
     // A second task, from the same open question answered now: its scope is the README's tax section alone.
     const answered = await post('/api/answer', { question: 'tax-timing', text: 'Tax is added when the order is placed.' });
+    await refill();
     expect(answered.status).toBe(200);
     expect(answered.body).toMatchObject({ question: 'tax-timing', state: 'answered', committed: true });
     const proposal = await post('/api/task-propose', { question: 'tax-timing', choice: 'code' });
@@ -411,6 +422,7 @@ describe('closing a task by a commit', () => {
     expect(proposal.body.grounds).toEqual(['doc:README.md#tax']);
     expect(proposal.body.scope).toEqual([TAX_SECTION]);
     const created = await post('/api/task-create', { question: 'tax-timing', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    await refill();
     expect(created.status).toBe(201);
     const made = created.body.task;
     taxTask = { id: made.id, slug: made.slug, title: made.title, file: made.file, at: made.at };
@@ -454,15 +466,22 @@ describe('closing a task by a commit', () => {
   }, 60_000);
 
   test('a section that holds a bold item and an unnamed paragraph closes on a commit that changes its last line', async () => {
+    // The test before this one rewrote the code repository's README; the fill stores the commit, so the section comes back
+    // in a commit of its own before this scenario reads it.
+    writeFileSync(join(repository, 'README.md'), REFUNDS_README);
+    git(repository, ['add', '--', 'README.md']);
+    git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Restore the refunds section']);
     // A section's scope is the whole section — from its heading to the line before the next heading — whatever named or
     // unnamed blocks it holds inside (madarch-ztyq.3). The reading that ended it at its next anchor cut it off at its
     // first bold item, so the commit below touched no scope and the task stayed open.
     const answered = await post('/api/answer', { question: 'refund-window', text: 'Thirty days from the capture.' });
+    await refill();
     expect(answered.status).toBe(200);
     const proposal = await post('/api/task-propose', { question: 'refund-window', choice: 'code' });
     expect(proposal.status).toBe(200);
     expect(proposal.body.scope).toEqual([REFUND_SECTION]);
     const created = await post('/api/task-create', { question: 'refund-window', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    await refill();
     expect(created.status).toBe(201);
     const task: { id: string; slug: string; at: string } = created.body.task;
     const commitReadme = (text: string, message: string, date: string): string => {
@@ -492,11 +511,13 @@ describe('closing a task by a commit', () => {
     // A list item covers only its own lines: the scope is the item, not the section round it (madarch-ztyq.3, the review
     // of finding 4). The sibling item stands two lines above it in the same section.
     const answered = await post('/api/answer', { question: 'refund-amount', text: 'A refund gives back at most what was captured.' });
+    await refill();
     expect(answered.status).toBe(200);
     const proposal = await post('/api/task-propose', { question: 'refund-amount', choice: 'code' });
     expect(proposal.status).toBe(200);
     expect(proposal.body.scope).toEqual([REFUND_ITEM_SCOPE]);
     const created = await post('/api/task-create', { question: 'refund-amount', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    await refill();
     expect(created.status).toBe(201);
     const task: { id: string; slug: string; at: string } = created.body.task;
     const readme = (): string => readFileSync(join(repository, 'README.md'), 'utf8');
@@ -522,6 +543,7 @@ describe('closing a task by a commit', () => {
 describe('closing a task by hand', () => {
   test('a person closes a task in the wiki; the file says closed, and closing it again is refused', async () => {
     const closed = await post('/api/task-close', { id: discountTask.id });
+    await refill();
     expect(closed.status).toBe(200);
     expect(closed.body.state).toBe('closed');
     expect(closed.body.committed).toBe(true);

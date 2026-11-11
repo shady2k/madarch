@@ -6,13 +6,13 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { createOneGraphSchema, FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from '../src/graph/one-graph.js';
 import { OPINION_FIELDS, generatedTableName } from '../src/graph/contract.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
-const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
+const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference', FILE_ENTRY_TABLE, FILE_PATH_TABLE, FILE_BLOB_TABLE] as const;
 
 const RECORD_TABLES = [
   ...MECHANISM_TABLES,
@@ -70,10 +70,12 @@ describe('the tables and the dictionaries', () => {
     const columns = (found.rows as { name: string; column: string }[]).map((row) => `${row.name}.${row.column}`);
     for (const table of RECORD_TABLES) expect(columns.some((column) => column.startsWith(`${table}.`))).toBe(true);
     expect(columns.filter((column) => /^(valid_|recorded_)/u.test(column.split('.')[1] ?? ''))).toEqual([]);
-    // The dictionaries stay (item 13), and the blob's hash names its algorithm.
-    expect(columns).toContain(`${GIT_TABLES.path}.text`);
+    // The path index and the blob text are mechanism state (stage C): every product's own files stand there, and the
+    // language is the product's opinion layer. The blob's hash names its algorithm.
+    expect(columns).toContain(`${FILE_PATH_TABLE}.text`);
     expect(columns).toContain(`${GIT_TABLES.language}.name`);
-    expect(columns).toContain(`${GIT_TABLES.blob}.algorithm`);
+    expect(columns).toContain(`${FILE_BLOB_TABLE}.algorithm`);
+    expect(columns).toContain(`${FILE_ENTRY_TABLE}.repository`);
     // A claim and an evidence table stand nowhere any more (A3): the opinion holds both.
     const tables = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string | null }>(`SELECT to_regclass(current_schema() || '.' || name)::text AS name FROM unnest(ARRAY['claim', 'evidence', 'kind']) AS name`));
     expect(tables.rows.map((row) => row.name)).toEqual([null, null, null]);

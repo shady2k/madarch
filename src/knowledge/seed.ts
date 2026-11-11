@@ -1,9 +1,8 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
-import { parseDocument } from 'yaml';
-import { KINDS_FILE } from './kinds.js';
 import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
+import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
@@ -20,7 +19,10 @@ import type { RuleSpec } from '../problems/types.js';
 /** A starter file: its path in the product repository and its text. */
 export interface StarterFile {
   path: string;
+  /** The file's text; a file that is not text answers an empty text and its `bytes`. */
   content: string;
+  /** The bytes of a file the product copies as it is (a plugin's WebAssembly module). */
+  bytes?: Uint8Array;
 }
 
 /**
@@ -56,7 +58,7 @@ title. A page's values are read as page.label, or, as the templates of 0029 wrot
 them, as label.
 {% endcomment %}{% block lead %}{% endblock %}
 {% block details %}{% endblock %}
-{% block around %}{% endblock %}
+{% block around %}{% relations title="Relations" title-ru="Связи" %}{% endblock %}
 {% block source %}{% endblock %}
 {% block calls %}{% endblock %}
 {% block chain %}{% endblock %}
@@ -65,7 +67,7 @@ them, as label.
 {% block describedby %}{% endblock %}
 {% block mentionedon %}{% linkedfrom title="Mentioned on" title-ru="Упоминается на" hide-empty="true" %}{% endblock %}
 `,
-  'partials/around.liquid': `{% graph title=title title-ru=title_ru %}`,
+  'partials/around.liquid': `{% relations title=title title-ru=title_ru %}`,
   'partials/pages-about.liquid': `{% related title=title title-ru=title_ru relation="relates" %}`,
   'partials/source.liquid': `{% source title=title title-ru=title_ru %}`,
   'partials/relations.liquid': `{% related title=title title-ru=title_ru %}`,
@@ -139,17 +141,24 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this file", title_ru="Страницы об этом файле" %}{% endblock %}
 `,
   'repository.liquid': `{% layout "./entity.liquid" %}
+{# The Files section: the map of the whole tree first, the table of every file below it. A reader drills the map into
+   a folder and climbs back by the breadcrumb; the table finds a file by path, language and measure. Both read the
+   graph alone. #}
+{% block lead %}{% treemap title="Repository map" title-ru="Карта репозитория" colour="heat" window="90d" %}{% endblock %}
 {% block details %}{% repository title="Repository" title-ru="Репозиторий" %}{% endblock %}
-{% block lead %}{% folder title="Root" title-ru="Корень" %}{% endblock %}
-{% block parts %}{% history title="History" title-ru="История" %}
-{% treemap title="Files by size and change" title-ru="Файлы по размеру и изменчивости" %}
+{% block parts %}{% files title="Files" title-ru="Файлы" colour="heat" window="90d" %}
+{% history title="History" title-ru="История" %}
+{% folder title="Root" title-ru="Корень" %}
 {% related title="Files" title-ru="Файлы" relation="code.contains" depth=3 kind="code.file" limit=80 %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this repository", title_ru="Вокруг этого репозитория" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this repository", title_ru="Страницы об этом репозитории" %}{% endblock %}
 `,
   'directory.liquid': `{% layout "./entity.liquid" %}
+{# A folder's page is the Files section of that folder: the map of what it holds, then its files as a table. #}
+{% block lead %}{% treemap title="Folder map" title-ru="Карта папки" colour="heat" window="90d" %}{% endblock %}
 {% block details %}{% folder title="Files and folders" title-ru="Файлы и папки" %}{% endblock %}
-{% block parts %}{% related title="Around this folder" title-ru="Вокруг этой папки" direction="both" limit=40 %}{% endblock %}
+{% block parts %}{% files title="Files" title-ru="Файлы" colour="heat" window="90d" %}
+{% related title="Around this folder" title-ru="Вокруг этой папки" direction="both" limit=40 %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this folder", title_ru="Вокруг этой папки" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this folder", title_ru="Страницы об этой папке" %}{% endblock %}
 `,
@@ -230,13 +239,14 @@ them, as label.
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this author", title_ru="Страницы об этом авторе" %}{% endblock %}
 `,
   'database.liquid': `{% layout "./entity.liquid" %}
+{% block lead %}{% if lang == "ru" %}Статическое чтение показывает таблицы, явно объявленные в коде. Таблицы, создаваемые во время выполнения, не показаны до заполнения агентом; это не полная схема базы данных.{% else %}Static reading shows tables explicitly declared in code. Tables generated at run time are not shown until the agent fill; this is not the complete database schema.{% endif %}{% endblock %}
 {% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this", title_ru="Вокруг этого" %}{% endblock %}
 {% block parts %}{% assign tables_prefix = "code.table:" | append: page.label | append: "/" %}
 {% children title="Tables" title-ru="Таблицы" kind="code.table" prefix=tables_prefix relation="code.contains" %}
 {% assign migrations_prefix = "code.migration:" | append: page.label | append: "/" %}
 {% children title="Migrations" title-ru="Миграции" kind="code.migration" prefix=migrations_prefix relation="code.contains" %}
-{% er title="Tables and their links" title-ru="Таблицы и связи между ними" limit=12 %}{% endblock %}
+{% er title="Tables and their links" title-ru="Таблицы и связи между ними" limit=60 %}{% endblock %}
 {% block relations %}{% render "./partials/relations.liquid", title="Relations", title_ru="Связи" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this database", title_ru="Страницы об этой базе данных" %}{% endblock %}
 `,
@@ -244,10 +254,10 @@ them, as label.
 {% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this", title_ru="Вокруг этого" %}{% endblock %}
 {% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
-{% block parts %}{% assign columns_prefix = page.key | append: "/" %}
-{% children title="Columns" title-ru="Столбцы" kind="code.column" prefix=columns_prefix relation="code.contains" limit=200 %}
+{% block parts %}{% assign columns_prefix = "code.column:" | append: page.keyrest | append: "/" %}
+{% children title="Columns" title-ru="Столбцы" kind="code.column" prefix=columns_prefix relation="code.has-column" limit=200 %}
 {% assign indexes_prefix = "code.index:" | append: page.keyrest | append: "/" %}
-{% children title="Indexes" title-ru="Индексы" kind="code.index" prefix=indexes_prefix relation="code.contains" %}
+{% children title="Indexes" title-ru="Индексы" kind="code.index" prefix=indexes_prefix relation="code.has-index" %}
 {% er title="The table and its links" title-ru="Таблица и её связи" %}{% endblock %}
 {% block relations %}{% render "./partials/relations.liquid", title="Relations", title_ru="Связи" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this table", title_ru="Страницы об этой таблице" %}{% endblock %}
@@ -276,24 +286,6 @@ them, as label.
 {% block lead %}{% body %}{% endblock %}
 `,
 };
-
-/** One kind of the starter catalog whose entities the wiki shows: a page of its own, or a member's row. */
-export type StarterKind = CatalogKindData & {
-  readonly template: keyof typeof TEMPLATES;
-  readonly source: 'markdown' | 'graph' | 'document';
-  /** `one` and `many` per language. */
-  readonly en: readonly [string, string];
-  readonly ru: readonly [string, string];
-  readonly describe: readonly [string, string];
-};
-
-/**
- * The kinds of the starter set the wiki shows, in the manifest's order: the catalog hods every kind of the product's
- * life cycle, and a kind the engine cannot make yet (the template policy `none`) shows no page, so it is no kind here.
- */
-export const STARTER_KINDS: readonly StarterKind[] = CATALOG_KINDS.filter(
-  (kind): kind is StarterKind => kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined,
-);
 
 /**
  * The groups of the navigation and the catalogue, as the catalog declares them: an area, then its subgroups. The
@@ -403,11 +395,12 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   eventTypes: { en: "Event types", ru: "Типы событий", format: "list" },
   database: { en: "Database", ru: "База данных", format: "text" },
   schema: { en: "Schema", ru: "Схема", format: "text" },
+  unsupported: { en: "Unsupported SQL", ru: "Неподдерживаемый SQL", format: "text" },
   evidenceKind: { en: "Evidence", ru: "Основание", format: "text" },
   type: { en: "Type", ru: "Тип", format: "text" },
   nullable: { en: "Nullable", ru: "Допускает NULL", format: "boolean" },
   default: { en: "Default", ru: "Значение по умолчанию", format: "code" },
-  primaryKey: { en: "Primary key", ru: "Первичный ключ", format: "boolean" },
+  primary_key: { en: "Primary key", ru: "Первичный ключ", format: "boolean" },
   unique: { en: "Unique", ru: "Уникальный", format: "boolean" },
   check: { en: "Check", ru: "Проверка", format: "code" },
   columns: { en: "Columns", ru: "Столбцы", format: "list" },
@@ -528,8 +521,8 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.channel": ["protocol", "contract", "path", "description", "consumerStatus", "consumerFound"],
   "code.message": ["channel", "eventTypes", "path"],
   "code.database": ["service", "path", "evidenceKind"],
-  "code.table": ["database", "schema"],
-  "code.column": ["type", "nullable", "default", "primaryKey", "unique", "check"],
+  "code.table": ["database", "schema", "unsupported"],
+  "code.column": ["type", "nullable", "default", "primary_key", "unique", "check"],
   "code.index": ["columns", "unique", "where"],
   "code.migration": ["ordinal", "path"],
   "code.env-var": ["required", "default"],
@@ -570,17 +563,6 @@ function propertyYaml(label: PropertyLabel): string {
   const fields = label.fields === undefined ? '' : `, fields: { ${Object.entries(label.fields).map(([key, field]) => `${key}: ${propertyYaml(field)}`).join(', ')} }`;
   return `{ en: ${yamlText(label.en)}, ru: ${yamlText(label.ru)}, format: ${yamlText(label.format ?? 'text')}${fields} }`;
 }
-
-/** One property's declaration as the manifest's YAML nodes: what an upgrade adds when a kind needs a property it names. */
-export function propertyDeclaration(name: string): Record<string, unknown> | undefined {
-  const label = PROPERTY_LABELS[name];
-  if (label === undefined) return undefined;
-  const fields = label.fields === undefined ? {} : Object.fromEntries(Object.entries(label.fields).map(([key, field]) => [key, { en: field.en, ru: field.ru, format: field.format ?? 'text' }]));
-  return { en: label.en, ru: label.ru, format: label.format ?? 'text', ...(label.fields === undefined ? {} : { fields }) };
-}
-
-/** The exclusion list of the manifest's `documents` section. */
-export const DOCUMENT_EXCLUDES: readonly string[] = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENTS.md', '**/CLAUDE.md', '**/GEMINI.md'];
 
 /**
  * The rules of the Problems page as the starter manifest writes them (madarch-m38l.19, the review's
@@ -668,13 +650,19 @@ function workflowsManifest(): string {
   return `${lines.join('\n')}\n`;
 }
 
-/** The starter manifest's text, with the product's page language when it has one. */
-export function starterManifest(language?: string): string {
-  const text = kindsManifest();
-  return language === undefined ? text : `${text}language: ${language}\n`;
-}
-
-function kindsManifest(): string {
+function kindsManifest(kindsNamed?: readonly string[]): string {
+  const chosen = kindsNamed === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kindsNamed.includes(kind.name));
+  const names = new Set(chosen.map((kind) => kind.name));
+  // The groups the chosen kinds stand in, and the areas above them: a group no chosen kind uses is not in the manifest.
+  const used = new Set<string>();
+  for (const kind of chosen) {
+    let group: string | undefined = kind.group;
+    while (group !== undefined && !used.has(group)) {
+      used.add(group);
+      group = GROUPS.find((one) => one.name === group)?.parent;
+    }
+  }
+  const groups = GROUPS.filter((group) => used.has(group.name));
   const lines: string[] = [
     "# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).",
     "# Each kind names where its entities come from and the template that draws them:",
@@ -731,20 +719,23 @@ function kindsManifest(): string {
     "# `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member",
     "# or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.",
     "groups:",
-    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}, short: { en: ${yamlText(group.shortEn)}, ru: ${yamlText(group.shortRu)} }${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
+    ...groups.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}, short: { en: ${yamlText(group.shortEn)}, ru: ${yamlText(group.shortRu)} }${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
     "properties:",
     ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: ${propertyYaml(label)}`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
     // product without user stories or quality requirements says so instead of showing a smaller wiki (decision 0032, section 4).
-    "  expect: [doc.use-case, doc.rule, doc.requirement, doc.decision]",
+    `  expect: [${['doc.use-case', 'doc.rule', 'doc.requirement', 'doc.decision'].filter((kind) => names.has(kind)).join(', ')}]`,
     // A fence, an html comment, a rule line and a link definition are a document's furniture: the product names them as
     // blocks that hold no meaning of their own, so the reader can ignore them by a rule instead of guessing (decision
     // 0032 section 4; the review of the eighth pass).
     "  ignore: [code, html, thematicBreak, definition]",
     "roles:",
-    ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
+    // A role leads with the groups it knows, and a group the template does not declare is not one it can lead with.
+    ...ROLES.map((role) => ({ ...role, lead: role.lead.filter((group) => used.has(group)) }))
+      .filter((role) => role.lead.length > 0)
+      .map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
     "problems:",
     "  thresholds:",
     ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
@@ -761,25 +752,43 @@ function kindsManifest(): string {
     ...Object.entries(CATALOG_RELATIONS).map(([name, source]) => (source === null ? `    ${name}:` : `    ${name}: ${yamlText(source)}`)),
     "kinds:",
   ];
-  for (const kind of CATALOG_KINDS) lines.push(...kindLines(kind));
-  lines.push(
-    "# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and",
-    "# the capability that fills them. A kind with a capability takes that capability's contract for its fields.",
-    "edges:",
-    "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }",
-    "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }",
-    "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }",
-    "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }",
-    "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }",
-    "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }",
-    "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }",
-    "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
-    "# files of its closure. madarch's own git reader is the first; it runs in process until the plugin host lands.",
-    "plugins:",
-    // The plugins a madarch release carries are declared with their folder and the major version the manifest binds;
-    // the lock beside the manifest records the exact version and the closure hash (decision 0035, items 17 and 20).
-    ...BUNDLED_PLUGINS.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
-  );
+  for (const kind of chosen) lines.push(...kindLines(kind));
+  // An edge kind stands when a kind its ends name is one the template chose: an end the catalogue does not hold (a
+  // gitlink) is the match's own and never refused here. A tracker declares no code edge at all.
+  const edges = [
+    { ends: ['code.repository', 'code.directory', 'code.file', 'code.gitlink'], line: "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }" },
+    { ends: ['code.repository', 'code.commit'], line: "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }" },
+    { ends: ['code.repository', 'code.commit'], line: "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }" },
+    { ends: ['code.commit'], line: "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }" },
+    { ends: ['code.commit', 'code.file'], line: "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }" },
+    { ends: ['code.author', 'code.commit'], line: "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }" },
+    { ends: ['code.file'], line: "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }" },
+    // The data entities the db-schema plugin fills: a table holds its columns and its indexes, a column references a
+    // column, and a table is declared in the file that holds its SQL (task madarch-47vw.3).
+    { ends: ['code.table', 'code.column'], line: "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }" },
+    { ends: ['code.table', 'code.index'], line: "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }" },
+    { ends: ['code.column'], line: "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }" },
+    { ends: ['code.table', 'code.file'], line: "  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }" },
+  ].filter((edge) => edge.ends.some((kind) => names.has(kind))).map((edge) => edge.line);
+  if (edges.length > 0) {
+    lines.push(
+      "# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and",
+      "# the capability that fills them. A kind with a capability takes that capability's contract for its fields.",
+      "edges:",
+      ...edges,
+    );
+  }
+  // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3);
+  // a plugin no chosen kind uses is not declared, and a product that is only a tracker holds none (decision 0034).
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  if (plugins.length > 0) {
+    lines.push(
+      "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
+      "# files of its closure. The lock beside the manifest records the exact version and the closure hash.",
+      "plugins:",
+      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
+    );
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -850,43 +859,94 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
   }
   return lines;
 }
-const KINDS = kindsManifest();
-const WORKFLOWS = workflowsManifest();
 
 /** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
-function pluginLockText(): string {
+function pluginLockText(plugins: readonly BundledPlugin[]): string {
   const lines = [
     '# The plugins this product runs (decision 0035, item 20): each one\'s exact version and the hash of its closure.',
     '# A fill runs exactly what this lock names. A changed closure needs a person\'s approval before it runs.',
     'plugins:',
   ];
-  for (const plugin of BUNDLED_PLUGINS) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
+  for (const plugin of plugins) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
   return `${lines.join('\n')}\n`;
 }
 
 /** The output kinds a bundled plugin's own contract declares. */
 function pluginOutputsOf(plugin: BundledPlugin): string[] {
-  const contract = JSON.parse(plugin.files.find((file) => file.path === 'contract.json')!.content) as { outputs: { vertices: { kind: string }[] } };
+  const held = plugin.files.find((file) => file.path === 'contract.json')?.content;
+  if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no contract.json text to name its output kinds from`);
+  const contract = JSON.parse(held) as { outputs: { vertices: { kind: string }[] } };
   return contract.outputs.vertices.map((vertex) => vertex.kind);
 }
 
-export const STARTER_FILES: readonly StarterFile[] = [
-  { path: 'madarch/kinds.yaml', content: KINDS },
-  { path: 'madarch/plugins.lock', content: pluginLockText() },
-  { path: WORKFLOWS_FILE, content: WORKFLOWS },
-  // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3).
-  ...bundledPluginFiles().map((file) => ({ path: file.path, content: file.content })),
-  ...Object.entries(TEMPLATES).map(([name, content]) => ({ path: `templates/${name}`, content })),
-];
+/** The templates a set of kind templates names, with every layout and partial they render, in code point order. */
+function templatesUsedBy(kindTemplates: readonly string[]): Record<string, string> {
+  const wanted = new Set<string>();
+  const visit = (path: string): void => {
+    if (wanted.has(path)) return;
+    const content = TEMPLATES[path];
+    if (content === undefined) throw new Error(`src/knowledge/seed.ts:1: the template ${path} is named by a kind or a template and the starter set holds none`);
+    wanted.add(path);
+    for (const match of content.matchAll(/["']\.\/([^"']+\.liquid)["']/g)) visit(match[1]!);
+  };
+  for (const template of kindTemplates) visit(template);
+  // In the starter set's own order (`TEMPLATES`), never sorted: the product's file list keeps the order `madarch new`
+  // has always written (the base page and the partials first, then the kinds' templates).
+  return Object.fromEntries(Object.keys(TEMPLATES).filter((path) => wanted.has(path)).map((path) => [path, TEMPLATES[path]!]));
+}
 
 /**
- * Writes the starter set into a product that has none: the files that are absent, never one that is there. Answers the
- * paths it wrote. An error names the file that could not be written.
+ * The starter files one template writes: its manifest's kinds, and the page templates, the plugins and the workflows
+ * those kinds use, and nothing they do not. A template that declares no kinds writes nothing at all — the person starts
+ * from a product with no manifest.
  */
-export function seedStarterSet(productFolder: string): string[] {
+/** The catalogue kinds one template declares, in the catalogue's order; none when it declares no manifest. */
+export function starterKindNames(template: StarterTemplate): readonly string[] {
+  if (template.kinds === 'none') return [];
+  return template.kinds === 'all' ? CATALOG_KINDS.map((kind) => kind.name) : template.kinds;
+}
+
+/** The kinds one template's manifest shows as pages: the catalogue kinds whose template policy is not `none`. */
+export function starterPageKindNames(template: StarterTemplate): readonly string[] {
+  const named = new Set(starterKindNames(template));
+  return CATALOG_KINDS.filter((kind) => named.has(kind.name) && kind.policy !== 'none').map((kind) => kind.name);
+}
+
+export function starterFilesFor(template: StarterTemplate): readonly StarterFile[] {
+  if (template.kinds === 'none') return [];
+  const kinds = template.kinds === 'all' ? undefined : starterKindNames(template);
+  const chosen = kinds === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kinds.includes(kind.name));
+  const names = new Set(chosen.map((kind) => kind.name));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const templates = templatesUsedBy(chosen.flatMap((kind) => (kind.template === undefined ? [] : [kind.template])));
+  // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
+  const workflows = chosen.some((kind) => kind.source === 'graph');
+  return [
+    { path: 'madarch/kinds.yaml', content: kindsManifest(kinds) },
+    ...(plugins.length === 0 ? [] : [{ path: 'madarch/plugins.lock', content: pluginLockText(plugins) }]),
+    ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),
+    ...bundledPluginFiles()
+      .filter((file) => plugins.some((plugin) => file.path.startsWith(`${plugin.folder}/`)))
+      .map((file) => ({ path: file.path, content: file.content, ...(file.bytes === undefined ? {} : { bytes: file.bytes }) })),
+    ...Object.entries(templates).map(([name, content]) => ({ path: `templates/${name}`, content })),
+  ];
+}
+
+/** The files the default template writes: the whole starter set, as the first products were made. */
+export const STARTER_FILES: readonly StarterFile[] = starterFilesFor(starterTemplateOf(DEFAULT_STARTER_TEMPLATE)!);
+
+/**
+ * Writes one template's files into a product that has none: the files that are absent, never one that is there. Answers
+ * the paths it wrote. An error names the file that could not be written.
+ */
+export function seedStarterSet(productFolder: string, templateId: string = DEFAULT_STARTER_TEMPLATE, templates?: readonly StarterTemplate[]): string[] {
+  const template = starterTemplateOf(templateId, templates);
+  if (template === undefined) throw new Error(`src/knowledge/seed.ts:1: no starter template is declared with the id ${JSON.stringify(templateId)}`);
+  // The default template's files are the constant the tests and the catalog check read the starter set through.
+  const files = template.id === DEFAULT_STARTER_TEMPLATE ? STARTER_FILES : starterFilesFor(template);
   const written: string[] = [];
   const root = realpathSync(productFolder);
-  for (const starter of STARTER_FILES) {
+  for (const starter of files) {
     const target = join(productFolder, starter.path);
     if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
     // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
@@ -898,7 +958,7 @@ export function seedStarterSet(productFolder: string): string[] {
     }
     try {
       mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, starter.content, { flag: 'wx' });
+      writeFileSync(target, starter.bytes ?? starter.content, { flag: 'wx' });
     } catch (error) {
       throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
     }
@@ -907,46 +967,3 @@ export function seedStarterSet(productFolder: string): string[] {
   return written;
 }
 
-/**
- * The kinds the loop of questions and corrections needs (madarch-m38l.7): `question` and `correction`, their folders and
- * their templates. A product made before they existed is given them when a refresh starts: the manifest gains the
- * missing declarations (its comments kept) and the templates that are absent are written. Answers the paths it wrote.
- */
-export function ensureLoopKinds(productFolder: string): string[] {
-  const written: string[] = [];
-  const file = join(productFolder, KINDS_FILE);
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    throw new Error(`src/knowledge/seed.ts: ${file} cannot be read to add the question and correction kinds: ${(error as Error).message}`);
-  }
-  const document = parseDocument(text);
-  if (document.errors.length > 0) throw new Error(`${file}:${document.errors[0]!.linePos?.[0].line ?? 1}: the manifest cannot be read, so the question and correction kinds are not added: ${document.errors[0]!.message.split('\n')[0]}`);
-  const wanted = STARTER_KINDS.filter((kind) => kind.name === 'question' || kind.name === 'correction' || kind.name === 'administrator-guide' || kind.name === 'user-guide');
-  let changed = false;
-  for (const kind of wanted) {
-    if (document.hasIn(['kinds', kind.name])) continue;
-    // A group the manifest does not declare would make the kind a finding: the kind is then declared without one.
-    for (const detail of DETAILS[kind.name] ?? []) {
-      if (document.hasIn(['properties', detail])) continue;
-      const declaration = propertyDeclaration(detail);
-      if (declaration !== undefined) document.setIn(['properties', detail], document.createNode(declaration));
-    }
-    const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]), catalog: document.hasIn(['catalog']) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
-    document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
-    changed = true;
-  }
-  for (const name of ['question.liquid', 'correction.liquid', 'guide.liquid']) {
-    const target = join(productFolder, 'templates', name);
-    if (existsSync(target)) continue;
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, TEMPLATES[name]!, { flag: 'wx' });
-    written.push(`templates/${name}`);
-  }
-  if (changed) {
-    writeFileSync(file, document.toString(), 'utf8');
-    written.push(KINDS_FILE);
-  }
-  return written;
-}

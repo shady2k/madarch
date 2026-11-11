@@ -12,16 +12,14 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDraft } from '../src/product/draft.js';
 import { readKnowledgePages } from '../src/knowledge/index/index.js';
-import { ensureLoopKinds } from '../src/knowledge/seed.js';
-import { readKinds } from '../src/knowledge/kinds.js';
 import { LoopRefusal, answerQuestion, commitFiles, localIdentity, recordCorrection } from '../src/loop/answer.js';
-import { parseDocument } from 'yaml';
 import { LoopFileError, parseCorrection, parseQuestion, readCorrections, readQuestions, renderQuestion, type Question } from '../src/loop/entities.js';
 import { correctionId, questionFootnoteId } from '../src/loop/ids.js';
 import { decide } from '../src/loop/plan.js';
 import { symlinkSync } from 'node:fs';
 import { listQuestions, rowOf } from '../src/loop/views.js';
 import { gitEnv } from './git-env.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const folders: string[] = [];
 const scratch = (): string => {
@@ -116,7 +114,7 @@ describe('a question file', () => {
   });
 
   
-  test('the listing puts open first, then answered, then closed, each by id', () => {
+  test('the listing puts open first, then answered, then closed, each by id', async () => {
     const by = { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' };
     const folder = product();
     mkdirSync(join(folder, 'docs/questions'), { recursive: true });
@@ -125,7 +123,7 @@ describe('a question file', () => {
     put('a-closed', { status: 'answered', answer: { text: 'x', by, at: '2026-10-23T11:00:00.000Z' }, resolvedBy: ['domain:orders'], resolvedAt: '2026-10-23T12:00:00.000Z' });
     put('m-answered', { status: 'answered', answer: { text: 'x', by, at: '2026-10-23T11:00:00.000Z' } });
     put('b-open', {});
-    const listing = listQuestions(folder);
+    const listing = await listQuestions(workingTreeFiles(folder));
     expect(listing.rows.map((row) => `${row.slug}:${row.state}`)).toEqual(['b-open:open', 'z-open:open', 'm-answered:answered', 'a-closed:closed']);
     expect([listing.open, listing.answered, listing.closed]).toEqual([2, 1, 1]);
     expect(rowOf(readQuestions(folder).items.find((q) => q.slug === 'a-closed')!).closedBy).toEqual(['domain:orders']);
@@ -279,52 +277,6 @@ describe('a person corrects a statement', () => {
   });
 
   });
-
-describe('a product made before the loop gets its two kinds', () => {
-  test('the manifest gains question and correction with their templates, its comments kept, and a second call changes nothing', () => {
-    const folder = product();
-    const manifest = join(folder, 'madarch/kinds.yaml');
-    const before = readFileSync(manifest, 'utf8');
-    // What the draft's manifest declares about its documents, said by name: the general kind and the headings each
-    // document kind is read by, and the four kinds `documents.expect` holds it to (madarch-ztyq.3).
-    const drafted = readKinds(folder);
-    if (!drafted.present) throw new Error('absent');
-    expect(drafted.manifest.expect?.map((entry) => entry.kind)).toEqual(['doc.use-case', 'doc.rule', 'doc.requirement', 'doc.decision']);
-    expect(drafted.manifest.kinds.get('doc.use-case')).toMatchObject({ semantics: 'scenario', headings: ['Use cases'] });
-    expect(drafted.manifest.kinds.get('doc.rule')).toMatchObject({ semantics: 'rule', headings: ['Business rules'] });
-    expect(drafted.manifest.kinds.get('doc.requirement')).toMatchObject({ semantics: 'quality', headings: ['Qualities', 'Non-functional requirements'] });
-    expect(drafted.manifest.kinds.get('doc.decision')).toMatchObject({ semantics: 'decision', structure: ['Status', 'Context', 'Decision', 'Consequences'] });
-    expect(drafted.manifest.findings).toEqual([]);
-    // A product made before the loop declares neither the document kinds nor the expectation: an expectation whose kinds
-    // are not declared is a finding of its own, so the two go together here, as an older manifest has neither.
-    // A manifest made before the loop loses the two kinds and the documents' expectation, and keeps everything else:
-    // its comments, its other kinds and its plugins.
-    const document = parseDocument(before);
-    document.deleteIn(['kinds', 'question']);
-    document.deleteIn(['documents', 'expect']);
-    const old = document.toString();
-    expect(old).not.toContain('\n  question:\n');
-    expect(old).not.toContain('expect: [');
-    writeFileSync(manifest, old);
-    rmSync(join(folder, 'templates/question.liquid'));
-    rmSync(join(folder, 'templates/correction.liquid'));
-    const added = ensureLoopKinds(folder);
-    expect(added.sort()).toEqual(['madarch/kinds.yaml', 'templates/correction.liquid', 'templates/question.liquid']);
-    const read = readKinds(folder);
-    if (!read.present) throw new Error('absent');
-    expect(read.manifest.findings).toEqual([]);
-    expect(read.manifest.kinds.get('question')).toMatchObject({ folder: 'docs/questions', source: 'markdown' });
-    expect(read.manifest.kinds.get('correction')).toMatchObject({ folder: 'docs/corrections' });
-    expect(readFileSync(manifest, 'utf8')).toContain('# The kinds this product');
-    expect(ensureLoopKinds(folder)).toEqual([]);
-  });
-
-  test('a manifest that cannot be read is an error naming the file and the line, not a silent skip', () => {
-    const folder = product();
-    writeFileSync(join(folder, 'madarch/kinds.yaml'), 'kinds:\n  product: [unclosed\n');
-    expect(() => ensureLoopKinds(folder)).toThrow(/madarch\/kinds\.yaml:\d+: the manifest cannot be read/);
-  });
-});
 
 describe('the refresh decides which pages need an agent unit', () => {
   const page = (id: string, file: string, statements: { id: string; grounds: string[]; text?: string }[], relates: string[] = []) => ({

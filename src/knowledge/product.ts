@@ -15,20 +15,19 @@ import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs
 import { createRecordSchema } from '../graph/index.js';
 import { hasGeneratedTable } from '../graph/tables.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
-import { declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
+import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-stamp.js';
 import { byCodePoint } from '../model/order.js';
-import { MANIFEST_FILE, readProduct, type ProductIdentity } from '../product/manifest.js';
+import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { productRepositoryId } from '../product/identity.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
-import { WORKFLOWS_FILE } from './workflows.js';
+import { homeKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
@@ -37,9 +36,9 @@ import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
 import { readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, type RenderContext } from './blocks.js';
-import { GraphReader, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
+import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
-import { markdownFilesBelow, readMarkdownEntities, type MarkdownEntity } from './markdown.js';
+import { readMarkdownEntitiesFrom, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, DocumentRef, FillErrorView, FillRunView, FillSelectionView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRun } from '../obs/trace-report.js';
@@ -52,7 +51,6 @@ import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../
 import type { WriterBounds } from './model.js';
 import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
-import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
 import { journalFolder, journalOfUnit, NO_COUNTERS, readJournalFile, type Journal, type PageJournal } from '../writer/journal.js';
 import { PRODUCT_PATH, type UnitAgent } from '../writer/units.js';
 import { CONTENT_LANGUAGES } from '../writer/units.js';
@@ -72,25 +70,25 @@ import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRef
 import { buildStatement, type StatementResult } from './statement.js';
 import { documentAddress, entityAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
-import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument, productDocumentPaths } from './doc-sources.js';
-import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
-import { CORRECTIONS_FOLDER, QUESTIONS_FOLDER, readCorrections } from '../loop/entities.js';
+import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, listedDocument } from './doc-sources.js';
+import { readCorrectionsIn } from '../loop/entities.js';
 import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
 import { readScope, readTasks, renderTask, scopeWords, TASKS_FOLDER, taskSlug, writeTask, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
 import { impactGroundsOf } from '../loop/planned.js';
-import { closingCommit, defaultBranch, type RepositoryRef } from '../loop/closure.js';
+import { closingCommit, type RepositoryRef } from '../loop/closure.js';
 import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
 import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
-import { readKnowledgePages } from './index/index.js';
-import { rendersInProcess, warmRenderWorker } from './liquid.js';
+import { readKnowledgePagesFrom, type IndexedPage } from './index/index.js';
+import { StoredProductFiles } from './product-source.js';
+import { warmRenderWorker } from './liquid.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type Problem, type ProblemCategories, type ProblemItems, type ProblemListing, type ProblemSources, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
 import { defaultSettings, type ProblemSection, type ProblemSeverity } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
-import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
+import { readProblemDismissalsIn, writeProblemDismissal } from '../loop/problem-files.js';
 import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
 import { readUnitStates } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
@@ -99,8 +97,10 @@ import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
  * bindings build. No kind's name stands here: the manifest is the product's data and the reader reads it.
  */
-function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>; generated: ReadonlyMap<string, GeneratedKindRead> } {
-  return { declared: new Set(graphContractOf(manifest).vertex.map((kind) => kind.name)), generated: declaredKindReads(manifest) };
+function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>; generated: ReadonlyMap<string, GeneratedKindRead>; edges: ReadonlyMap<string, GeneratedEdgeRead> } {
+  const contract = graphContractOf(manifest);
+  // Vertices and edges both: a read asks whether the product declares an edge kind too (history, touched).
+  return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest), edges: declaredEdgeReads(manifest) };
 }
 
 /** The most terms one listing of a glossary kind reads; a larger glossary is cut rather than read whole. */
@@ -350,6 +350,8 @@ export class KnowledgeProduct {
         await owner.ready;
         await this.ensureStoreTables(owner);
         await this.loadPins(owner);
+        // The publication the pins were read at: the first answer does not read them again (followStoreFill).
+        this.storeStamp = await readStoreStamp(owner).catch(() => undefined);
       } catch (error) {
         // An owner that failed to open is given back: a retry must not leave a connection behind per request.
         await owner.close().catch(() => undefined);
@@ -377,9 +379,10 @@ export class KnowledgeProduct {
     for (let attempt = 1; ; attempt += 1) {
       try {
         // This store's record tables too (madarch-8bdc.2.5): a store the fill has not run on is read for its repository
-        // and its files, and a missing relation would be a failed page, not an empty one.
-        const manifestRead = readKinds(this.options.productFolder);
-        await createRecordSchema(owner, manifestRead.present ? graphContractOf(manifestRead.manifest) : EMPTY_CONTRACT);
+        // and its files, and a missing relation would be a failed page, not an empty one. The contract is the empty one:
+        // this read holds no manifest yet (the graph it would be read from is what this call creates), and the fill that
+        // reads the product repository adds the kinds' tables from the manifest it read.
+        await createRecordSchema(owner, EMPTY_CONTRACT);
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
           await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
@@ -394,120 +397,88 @@ export class KnowledgeProduct {
     }
   }
 
-  /** Whether the starter set was checked for this product by this server (once: the files move on only with madarch). */
-  private upgraded = false;
-  /** What the check found: the files it brought up to date and what an edited manifest lacks. */
-  private upgradeReport: UpgradeReport | undefined;
-
-  /** Where this machine records what madarch wrote into the product's manifest and templates. */
-  private starterRecord(): string {
-    return join(dirname(this.choiceFile()), 'starter.json');
-  }
+  /** The product's own files as one graph revision holds them, and the revision they were read at. */
+  private filesMemo: { seq: number; repository: string; files: StoredProductFiles } | undefined;
 
   /**
-   * Brings the manifest and the templates madarch alone wrote to the current starter set (madarch-m38l.11). A file a
-   * person edited is never touched: what the set holds and it lacks is offered on the Problems page. A failure is
-   * logged with its path and leaves the product as it was.
+   * The product repository's own files as the graph holds them, once per graph revision: the manifest and the declaration
+   * files beside it, the Markdown entities, the templates and the files of the loop are read here. A reader of a page
+   * never opens the checkout: the files producer read it into the graph, and this is the graph's answer (stage C).
    */
-  private upgrade(folder: string): void {
-    this.upgraded = true;
-    try {
-      this.upgradeReport = upgradeStarterSet(folder, this.starterRecord());
-      const changed = [...this.upgradeReport.rewritten, ...this.upgradeReport.written];
-      if (changed.length > 0) {
-        this.options.errorLog?.(`the knowledge wiki brought ${folder} to the current starter set: ${changed.join(', ')}`);
-        this.notify();
-      }
-    } catch (error) {
-      this.options.errorLog?.(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  /** What the current starter set holds that this product's edited manifest lacks, each with the Problems page's «Add». */
-  starterOffers(): StarterOffer[] {
+  private async productFiles(snapshot?: PageSnapshot): Promise<StoredProductFiles> {
     const product = this.product();
-    if ('message' in product) return [];
-    // Judging a manifest runs git; it is judged again only when the file changed.
-    let stamp: string;
-    try {
-      const stat = statSync(join(product.folder, KINDS_FILE));
-      stamp = `${stat.mtimeMs}:${stat.size}`;
-    } catch {
-      return [];
-    }
-    if (this.offered?.stamp === stamp) return this.offered.offers;
-    try {
-      const offers = currentOffers(product.folder, this.starterRecord());
-      this.offered = { stamp, offers };
-      return offers;
-    } catch {
-      return [];
-    }
+    if ('message' in product) throw new WikiReadError(product.message);
+    const repository = productRepositoryId(product);
+    const owner = snapshot?.owner ?? await this.open();
+    const reader = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
+    const seq = this.reader?.seq ?? 0;
+    const held = this.filesMemo;
+    // A page's transaction reads the text in that transaction; the index is the revision's and is reused.
+    if (held !== undefined && held.seq === seq && held.repository === repository) return snapshot === undefined ? held.files : held.files.withReader(reader);
+    const files = await StoredProductFiles.load(reader, repository, product.folder);
+    this.filesMemo = { seq, repository, files };
+    return files;
   }
 
-  private offered: { stamp: string; offers: StarterOffer[] } | undefined;
+  /** The manifest one graph revision was read as: the whole parse stands for the revision, not for a page. */
+  private manifestMemo: { seq: number; folder: string; read: ReturnType<typeof readKindsFrom> } | undefined;
 
-  /** Adds items of the starter set to the product's manifest (and the templates they need), on the reader's press. */
-  addStarter(ids: readonly string[]): { ok: true; written: string[] } | { ok: false; message: string } {
-    const product = this.product();
-    if ('message' in product) return { ok: false, message: product.message };
-    const offered = new Set(this.starterOffers().map((offer) => offer.id));
-    const unknown = ids.filter((id) => !offered.has(id));
-    if (unknown.length > 0) return { ok: false, message: `${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not offered by the starter set for this product now (${[...offered].join(', ') || 'nothing is offered'}): read the Problems page again` };
-    try {
-      const written = addStarterItems(product.folder, ids, this.starterRecord());
-      this.notify();
-      return { ok: true, written };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
-    }
+  /** The product's kinds manifest and the declaration files beside it, read from the graph: absent when the graph holds none. */
+  private async manifestRead(folder: string, snapshot?: PageSnapshot): Promise<ReturnType<typeof readKindsFrom>> {
+    const seq = this.reader?.seq ?? 0;
+    const held = this.manifestMemo;
+    if (held !== undefined && held.seq === seq && held.folder === folder) return held.read;
+    return await this.manifestFrom(await this.productFiles(snapshot), folder);
   }
 
-  /** The starter set written into this product by this server, for the page to say so once. */
-  private seeded: string[] = [];
-  /** Why the starter set could not be written, when it could not. */
-  private seedError: string | undefined;
-
-  /**
-   * The product's kinds manifest. A product without one is given the starter set (`madarch new` and `madarch init` seed
-   * the same files): the wiki has one app, and an empty folder opens on the pages the starter templates draw.
-   */
-  private kinds(folder: string): ReturnType<typeof readKinds> {
-    // A product made by an earlier madarch is brought to the current starter set once, before its manifest is read.
-    if (!this.upgraded && existsSync(join(folder, KINDS_FILE))) this.upgrade(folder);
-    const read = readKinds(folder);
-    if (read.present) return read;
-    try {
-      const written = seedStarterSet(folder);
-      this.seeded = [...this.seeded, ...written];
-      if (written.length > 0) this.options.errorLog?.(`the knowledge wiki gave ${folder} its starter set: ${written.join(', ')}`);
-    } catch (error) {
-      this.seedError = error instanceof Error ? error.message : String(error);
-      this.options.errorLog?.(this.seedError);
-      return read;
-    }
-    return readKinds(folder);
+  /** The manifest of a source already fetched: the text is fetched once and the parse stands for the revision. */
+  private async manifestFrom(files: StoredProductFiles, folder: string): Promise<ReturnType<typeof readKindsFrom>> {
+    const seq = this.reader?.seq ?? 0;
+    const held = this.manifestMemo;
+    if (held !== undefined && held.seq === seq && held.folder === folder) return held.read;
+    await files.ensureManifest();
+    const read = readKindsFrom(files, folder);
+    this.manifestMemo = { seq, folder, read };
+    return read;
   }
 
   /**
    * The roles this product's manifest declares, in its order (decision 0031, "the roles are the product's"): the
    * reader's settings accept these and "everything" alone, and the engine keeps no role of its own.
    */
-  declaredRoles(): string[] {
+  async declaredRoles(): Promise<string[]> {
     const product = this.product();
     if ('message' in product) return [];
-    const read = this.kinds(product.folder);
+    const read = await this.manifestRead(product.folder);
     return read.present ? [...read.manifest.roles.keys()] : [];
   }
 
-  /** Opens the reader and waits for it: a server starts its products before the first request. */
+  /**
+   * Opens the reader and waits for it: a server starts its products before the first request. The init is not run here:
+   * seeding or upgrading a product writes and commits its files, and a server start is not the place a product's repository
+   * changes; the first page (or the first status) does that, before it reads.
+   */
   async warmNow(): Promise<void> {
     try {
       if (this.closed || process.env['MADARCH_SKIP_WARM'] === '1') return;
       // A product with no store yet is not warmed: opening it would create the store at server start.
       if (!existsSync(storeDatabasePath(this.storeFolder()))) return;
       await this.open().catch(() => undefined);
-      await this.context().catch(() => undefined);
+      // The render worker too: a server that warms before its first answer must not make the first page pay the
+      // worker's process start (measured on the own wiki: 450 ms of a 1 030 ms cold page).
+      await this.warmReader();
+      // And the repository pages' aggregates: their first read is what a repository page spends most of its time on,
+      // and a page read from cold shared buffers paid it twice (madarch-64o5.3's own wiki, 2 554 commits).
+      const product = this.product();
+      if ('message' in product) return;
+      const read = await this.manifestRead(product.folder);
+      if (!read.present || this.reader === undefined) return;
+      const kinds = graphKindsOf(read.manifest);
+      const reader = new GraphReader(this.reader.owner, () => this.validAt(), undefined, undefined, kinds.declared, kinds.generated);
+      for (const repository of await reader.repositoryFactsAll().catch(() => [])) {
+        await reader.repositoryHistory(repository.nodeId, 100).catch(() => undefined);
+        await reader.fileIndex(repository.name).catch(() => undefined);
+      }
     } catch {
       // A product with no store yet has no context to warm; the first page opens it.
     }
@@ -516,13 +487,27 @@ export class KnowledgeProduct {
   /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
   warm(): void {
     if (this.closed || this.opening !== undefined) return;
+    void this.warmReader();
+  }
+
+  /**
+   * The reader's warm-up: the manifest as the graph holds it, and the templates. Every page is drawn in a worker of the
+   * product's own (madarch-u3vw.1; madarch-64o5.3: the engine holds no template of its own to draw a page with), started
+   * here, so the first page a reader opens does not pay the process's start.
+   */
+  private async warmReader(): Promise<void> {
     const product = this.product();
-    if ('message' in product || !this.kinds(product.folder).present) return;
-    // A page whose templates a person wrote or edited is drawn in a worker of the product's own (madarch-u3vw.1): started
-    // here, so the first page a reader opens does not pay the process's start. A product of the starter set's own
-    // templates is drawn by the server itself, and starts no process at all.
-    if (!rendersInProcess(product.folder)) warmRenderWorker(product.folder);
-    this.open().catch(() => undefined);
+    if ('message' in product) return;
+    await this.open().catch(() => undefined);
+    try {
+      const read = await this.manifestRead(product.folder);
+      if (!read.present) return;
+      const files = await this.productFiles();
+      await files.ensureBelow('templates');
+      await warmRenderWorker(files, product.folder);
+    } catch {
+      // The first page says what could not be read; nothing is warmed from a store that cannot answer.
+    }
   }
 
   /** Gives back the reader of a product nobody is reading, unless a fill is under way. */
@@ -548,7 +533,11 @@ export class KnowledgeProduct {
    */
   private async loadPins(owner: DatabaseOwner): Promise<void> {
     const reader = new GraphReader(owner, this.validAt);
-    const held = await reader.repositoryFactsAll().catch(() => []);
+    const held = await reader.repositoryFactsAll().catch((error: unknown) => {
+      // A store that cannot answer is said, never read as "this product has no repository".
+      this.options.errorLog?.(`the knowledge wiki could not read the repositories of ${this.options.productFolder}: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    });
     const next: RepositoryPin[] = [];
     for (const facts of held) {
       const commit = facts.asIsCommit ?? '';
@@ -778,7 +767,9 @@ export class KnowledgeProduct {
     }
     const product = this.product();
     if ('message' in product) return { started: false, message: product.message, fill: this.fill };
-    const read = this.kinds(product.folder);
+    // Starting a fill is a write path: its own reading of the product is the working tree the files producer is about to
+    // read, never the graph it is about to write (madarch-hsqs stage C).
+    const read = readKinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
     const repositories = this.repositories();
     // A product with no code repository still has its own repository: the files producer reads it, so a product that is
@@ -791,12 +782,6 @@ export class KnowledgeProduct {
       return { started: false, message: `the repositories ${missing.map((repo) => repo.name).join(', ')} are not checked out under repos/: run "madarch bootstrap" first`, fill: this.fill };
     }
     if (this.closed) return { started: false, message: 'the wiki is shutting down', fill: this.fill };
-    // A product made before the loop of questions and corrections gets its two kinds and their templates now.
-    try {
-      if (ensureLoopKinds(product.folder).length > 0) this.notify();
-    } catch (error) {
-      return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
-    }
     if (this.resetting) return { started: false, message: 'this product is being started over: press again when it is done', fill: this.fill };
     // The press consented to one agent: a choice saved meanwhile from another tab is not the one this press was for.
     if (options.expectAgent !== undefined) {
@@ -1576,15 +1561,12 @@ export class KnowledgeProduct {
 
   /**
    * What the two local resets of the settings page would do, for the confirmation: the pages the agent wrote, the pages
-   * kept because a person wrote them, the graph store, and the starter files a person edited that «from scratch» replaces.
+   * kept because a person wrote them, the graph store and the questions left unanswered. The resets touch no file the
+   * product's own repository holds: the engine holds no copy of the starter set to put back (madarch-64o5.3).
    */
-  dangerPlan(): { rewrite: { agentPages: string[]; keptPages: string[] }; fresh: ResetPlan & { editedStarterFiles: string[]; replacedStarterFiles: string[] } } {
+  dangerPlan(): { rewrite: { agentPages: string[]; keptPages: string[] }; fresh: ResetPlan } {
     const plan = this.resetPlan();
-    const record = this.starterRecord();
-    return {
-      rewrite: { agentPages: plan.agentPages, keptPages: plan.keptPages },
-      fresh: { ...plan, editedStarterFiles: filesAPersonEdited(this.options.productFolder, record), replacedStarterFiles: [KINDS_FILE, ...Object.keys(TEMPLATES).map((name) => `templates/${name}`)] },
-    };
+    return { rewrite: { agentPages: plan.agentPages, keptPages: plan.keptPages }, fresh: plan };
   }
 
   /**
@@ -1618,32 +1600,22 @@ export class KnowledgeProduct {
   }
 
   /**
-   * «Start from scratch»: the pages the agent wrote, the graph and the reader go, the manifest and the templates are put
-   * at the current starter set, and a fresh fill starts. Everything is local to this machine and this checkout.
+   * «Start from scratch»: the pages the agent wrote, the graph and the reader go, and a fresh fill starts. The product's
+   * own files — its manifest and templates — stay as the repository holds them: the engine keeps no copy of them.
    */
-  async startFresh(expected?: ResetPlan): Promise<{ ok: true; plan: ResetPlan; starter: string[]; fill: FillState; fillRefused?: string } | { ok: false; message: string }> {
+  async startFresh(expected?: ResetPlan): Promise<{ ok: true; plan: ResetPlan; fill: FillState; fillRefused?: string } | { ok: false; message: string }> {
     const done = await this.reset(expected);
     if (!done.ok) return done;
-    const product = this.product();
-    if ('message' in product) return { ok: false, message: product.message };
-    let starter: string[];
-    try {
-      starter = replaceWithStarterSet(product.folder, this.starterRecord());
-    } catch (error) {
-      return { ok: false, message: `the pages and the graph were removed, but the manifest could not be put at the current starter set: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    this.upgraded = true;
-    this.notify();
     const chosen = this.chosenAgent();
     const started = await this.startFill(chosen === null ? {} : { expectAgent: chosen.id });
-    return started.started ? { ok: true, plan: done.plan, starter, fill: started.fill } : { ok: true, plan: done.plan, starter, fill: this.fill, fillRefused: started.message };
+    return started.started ? { ok: true, plan: done.plan, fill: started.fill } : { ok: true, plan: done.plan, fill: this.fill, fillRefused: started.message };
   }
 
   /**
    * What the product settings page shows: the agent and the model chosen for it, the page language, the writer's bounds,
    * where the product's files and its derived store are on this machine, and what the two local resets would do.
    */
-  settingsView(): {
+  async settingsView(): Promise<{
     product: { name: string; id: string };
     folder: string;
     store: string;
@@ -1658,17 +1630,17 @@ export class KnowledgeProduct {
     /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
     dangerError?: string;
     busy: boolean;
-  } {
+  }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    const read = readKinds(product.folder);
+    const read = await this.manifestRead(product.folder);
     let danger: ReturnType<KnowledgeProduct['dangerPlan']>;
     let dangerError: string | undefined;
     try {
       danger = this.dangerPlan();
     } catch (error) {
       dangerError = error instanceof Error ? error.message : String(error);
-      danger = { rewrite: { agentPages: [], keptPages: [] }, fresh: { store: [], agentPages: [], keptPages: [], unansweredQuestions: [], keptAnswers: [], editedStarterFiles: [], replacedStarterFiles: [] } };
+      danger = { rewrite: { agentPages: [], keptPages: [] }, fresh: { store: [], agentPages: [], keptPages: [], unansweredQuestions: [], keptAnswers: [] } };
     }
     return {
       product: { name: product.name, id: product.id },
@@ -1686,13 +1658,13 @@ export class KnowledgeProduct {
   }
 
   /** Saves the language the pages are written in (the manifest's `language:`); the next refresh writes the pages again in it. */
-  setLanguage(language: string): { ok: true } | { ok: false; message: string } {
+  async setLanguage(language: string): Promise<{ ok: true } | { ok: false; message: string }> {
     const product = this.product();
     if ('message' in product) return { ok: false, message: product.message };
     if (!Object.keys(CONTENT_LANGUAGES).includes(language)) return { ok: false, message: `"language" is ${JSON.stringify(language)}: the pages are written in ${Object.keys(CONTENT_LANGUAGES).join(' or ')}` };
     // Pages written before the language of the pages was recorded are in the language the manifest names now: say so before
     // it changes, or the next refresh compares the new language with itself and rewrites nothing.
-    const read = readKinds(product.folder);
+    const read = await this.manifestRead(product.folder);
     const current = read.present ? read.manifest.language ?? 'en' : 'en';
     if (current !== language && this.pagesLanguage() === undefined && existsSync(join(product.folder, PRODUCT_PATH))) {
       const file = join(this.storeFolder(), 'pages-language.json');
@@ -1703,18 +1675,8 @@ export class KnowledgeProduct {
         return { ok: false, message: `${file}: the language the pages are in now could not be recorded, so the language was not changed: ${(error as Error).message}` };
       }
     }
-    const previousManifest = readFileSync(join(product.folder, KINDS_FILE), 'utf8');
     const failure = setKindsLanguage(product.folder, language);
     if (failure !== undefined) return { ok: false, message: failure };
-    try {
-      const manifest = readFileSync(join(product.folder, KINDS_FILE), 'utf8');
-      rememberChangedStarterFileIfOwned(product.folder, this.starterRecord(), KINDS_FILE, previousManifest, manifest);
-    } catch (error) {
-      const file = join(product.folder, KINDS_FILE);
-      try { writeFileSync(file, previousManifest, 'utf8'); }
-      catch (restoreError) { return { ok: false, message: `${file}: the language changed but its madarch provenance could not be recorded (${(error as Error).message}) and the previous manifest could not be restored (${(restoreError as Error).message})` }; }
-      return { ok: false, message: `${file}: the language was not changed because its madarch provenance could not be recorded: ${(error as Error).message}` };
-    }
     this.notify();
     return { ok: true };
   }
@@ -1726,17 +1688,21 @@ export class KnowledgeProduct {
 
   // ---- reads -----------------------------------------------------------------------------
 
-  /** The inputs of one page: the manifest and Markdown as they stand now, and the graph. */
+  /** The inputs of one page: the manifest and Markdown as the graph holds them at this revision, and the graph. */
   async context(history?: HistoryContext, snapshot?: PageSnapshot, after?: string): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    // The manifest is parsed once per revision of its text and the template paths it names: every read asks for it, and a
-    // manifest of many kinds is milliseconds of YAML (madarch-m38l.21). An edit still invalidates by content.
-    const read = this.kindsForStamp(product.folder);
+    // A fill another process ran moves the store before this answer reads the graph: without this, an api instance that
+    // did not press the fill kept the manifest it had cached before it (the two api instances of madarch-8bdc.9).
+    await this.followStoreFill();
+    // The manifest, the Markdown and the templates are the product repository's files as the files producer stored them:
+    // read once per graph revision (madarch-hsqs stage C), and never from the checkout.
+    const files = await this.productFiles(snapshot);
+    const read = await this.manifestFrom(files, product.folder);
     if (!read.present) return { absent: true, file: read.file };
     const owner = snapshot?.owner ?? await this.open();
     const kinds = graphKindsOf(read.manifest);
-    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, kinds.declared, kinds.generated);
+    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction, kinds.declared, kinds.generated, kinds.edges);
     const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope ?? undefined;
     const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
     const pins = snapshot?.pins ?? this.pins;
@@ -1744,13 +1710,27 @@ export class KnowledgeProduct {
     const graph = history === undefined ? currentGraph : currentGraph.at(history.effectiveAt!, scope!);
     // Guide payloads enter their strict host verifier, never the generic YAML materializer.
     const ordinaryKinds = new Map([...read.manifest.kinds].filter(([kind]) => !Object.hasOwn(GUIDE_OUTPUTS, kind)));
-    const markdownRead = history === undefined ? readMarkdownEntities(product.folder, { ...read.manifest, kinds: ordinaryKinds }) : { entities: [], findings: [] };
+    const markdownKinds = { ...read.manifest, kinds: ordinaryKinds };
+    // The files the Markdown kinds stand in, and every template a kind names, are fetched in one statement each: the
+    // parse below is synchronous, and a file this read forgot is refused by name, never answered absent.
+    if (history === undefined) {
+      const paths: string[] = [];
+      for (const kind of ordinaryKinds.values()) {
+        if (kind.source !== 'markdown') continue;
+        if (kind.file !== undefined) paths.push(kind.file);
+        else if (kind.folder !== undefined) paths.push(...files.filesBelow(kind.folder).filter((path) => path.endsWith('.md')));
+      }
+      for (const kind of read.manifest.kinds.values()) paths.push(kind.template);
+      await files.ensure(paths);
+      await files.ensureBelow('templates');
+    }
+    const markdownRead = history === undefined ? readMarkdownEntitiesFrom(files, markdownKinds) : { entities: [], findings: [] };
     if (history === undefined) for (const [kind, output] of Object.entries(GUIDE_OUTPUTS)) {
       const declaration = read.manifest.kinds.get(kind);
       if (declaration?.source !== 'markdown' || declaration.file === undefined) continue;
-      if (!existsSync(join(product.folder, declaration.file))) continue;
+      if (!files.has(declaration.file)) continue;
       const title = declaration.labels?.[read.manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind;
-      markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: declaration.file, front: {} });
+      markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: declaration.file, source: '', front: {} });
     }
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const language = read.manifest.language ?? 'en';
@@ -1793,28 +1773,34 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, problemCount: () => this.problemsCache?.listing.open, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, files, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, problemCount: () => this.problemsCache?.listing.open, resolver, repoOfScope, readSource },
+
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
     };
   }
 
-  /** The planned-change marks, read once per revision and per head of the product's repositories: a commit makes them read again. */
+  /** The planned-change marks, read once per graph revision: a fill that stores the tasks again makes them read again. */
   private marksMemo: { key: string; marks: PlannedMarks } | undefined;
 
-  /** What the planned-change marks depend on besides the wiki's revision: the tasks folder and every repository's head. */
-  private marksKey(): string {
-    const parts: string[] = [String(this.revision)];
-    try { parts.push(String(statSync(join(this.options.productFolder, TASKS_FOLDER)).mtimeMs)); } catch { parts.push('-'); }
-    // A head is a ref, and a ref is a file: the key reads it from the checkout's own Git folder (`headCommitOf`), never
-    // by starting git. Every page asks for this key before it is drawn, and `git rev-parse HEAD` here started two
-    // subprocesses and waited for them on the serving thread: while a fill ran, every other answer queued behind them
-    // (measured: `marks key` p50 2 ms, p99 8 ms of blocked thread per answer; the page's own p50 fell from 3 ms to 1 ms
-    // once the key read the files).
-    for (const repository of [{ path: this.options.productFolder }, ...this.repositories().filter((repo) => repo.present)]) {
-      parts.push(headCommitOf(repository.path)?.commit ?? '-');
+  /**
+   * What the planned-change marks depend on: the graph revision, the writer's plan and this process's own revision, all of
+   * them counts rather than files — a read of a page never stamps the checkout (madarch-hsqs stage C).
+   */
+  private async marksKey(): Promise<string> {
+    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
+    return `${await this.graphRevision()}|${String(this.revision)}|${plan}`;
+  }
+
+  /** The graph revision the answers stand on: the store's publication stamp, or '' before the store is open. */
+  private async graphRevision(): Promise<string> {
+    const owner = this.reader?.owner;
+    if (owner === undefined) return '';
+    try {
+      return await readStoreStamp(owner);
+    } catch {
+      return '';
     }
-    return parts.join('|');
   }
 
   /** The language the writer last wrote the pages in whole, as kept beside the store; absent when none was recorded. */
@@ -1858,7 +1844,7 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     let key = '';
     try {
-      key = this.statusKey();
+      key = await this.statusKey();
     } catch {
       // A product whose inputs cannot be stamped is answered afresh: a key that cannot be computed caches nothing.
       key = '';
@@ -1918,7 +1904,7 @@ export class KnowledgeProduct {
       const owner = await this.open();
       const kinds = graphKindsOf(context.manifest);
       generated = kinds.generated;
-      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
+      ctx = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
     } catch {
       // The store cannot be opened: the counts stand as the context read them, and the catalogue still lists its kinds.
     }
@@ -2015,6 +2001,9 @@ export class KnowledgeProduct {
         this.reader = { owner: this.reader.owner, seq: this.generation };
         this.storeOf = undefined;
         await this.loadPins(this.reader.owner).catch(() => undefined);
+        // The graph a fill just published has a manifest and templates the worker has not opened yet: warm them beside
+        // the answer, never inside it — a status during a fill answers within its own bound (madarch-64o5.3).
+        void this.warmReader().catch(() => undefined);
       }
     } catch {
       // The store cannot be read: the answer is what this process last knew.
@@ -2039,6 +2028,9 @@ export class KnowledgeProduct {
       const end = await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
       if (end === null) return;
       await this.published(undefined).catch(() => undefined);
+      // The answer that reads the settled run warms the worker and the repository aggregates: the page a person opens
+      // next does not pay the template set's first open (madarch-64o5.3).
+      await this.warmReader().catch(() => undefined);
       this.changedLoaded = false;
       const unread = end.unread === undefined ? this.unreadOf() : [...end.unread];
       const finishedAt = (this.options.now?.() ?? new Date()).toISOString();
@@ -2054,13 +2046,13 @@ export class KnowledgeProduct {
 
   private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined): Promise<WikiStatus> {
     await this.followStoreFill();
-    const problems = this.problemsKeySafe();
+    const problems = await this.problemsKeySafe();
     const collected = this.problemsCache;
     let loop = body.loop;
     if (problems === '' || collected === undefined || collected.key !== problems) {
       // No listing for these inputs yet: the count is pending (the collection runs beside the answer, and the next poll
       // carries it), and a reader shows the corrections it counts from their files.
-      this.openProblems();
+      await this.openProblems();
       const { problemsOpen: _pending, ...rest } = loop;
       loop = rest;
     } else {
@@ -2108,7 +2100,7 @@ export class KnowledgeProduct {
     try {
       const owner = await this.open();
       const kinds = graphKindsOf(ctx.manifest);
-      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated) };
+      bound = { ...ctx, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
 
     } catch {
       // The store cannot be opened: the counts stand as the body read them and the answer still says how the fill is.
@@ -2140,7 +2132,9 @@ export class KnowledgeProduct {
       ...(kinds === undefined ? {} : { kinds }),
       ...(repository === undefined ? {} : { repository }),
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: this.pins.size > 0,
+      // The product's own repository is filled when its manifest is in the graph, even with no code repository declared:
+      // the what-to-do card offers the fill only while it is not (madarch-hsqs stage C).
+      filled: this.pins.size > 0 || ctx.files.has(KINDS_FILE),
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
     };
   }
@@ -2150,57 +2144,23 @@ export class KnowledgeProduct {
 
   /**
    * Every file and store state the answer reads besides the fill and the writer, as one key: the Problems listing's
-   * own key (the snapshot, the pins, the plan, the starter set and every file the page reads) and the three the listing
+   * own key (the snapshot, the pins, the plan, the manifest, the templates and every file the page reads) and the three the listing
    * leaves out — the task files, whose closures the menu counts, the store's last finish, which the menu shows, and the
    * commit each repository's default branch stands at, which is what a task closure reads (madarch-u3vw.8).
    *
    * A file's own content is the stamp: an edit that keeps its size and restores its mtime is still an edit, and the
    * content hash is kept beside the metadata so an unchanged file is not read again on every poll.
    */
-  private statusKey(): string {
+  private async statusKey(): Promise<string> {
     let finished = '-';
     try {
       finished = this.contentStamp(join(this.storeFolder(), 'last-fill.json'));
     } catch {
       // No fill has finished yet, or the store is not open: nothing to stamp.
     }
-    const tasks = this.folderStamp(TASKS_FOLDER);
-    // A product with no task file has no closure to read: a branch that moves cannot close a task that is not there.
-    const branches = tasks.endsWith(':absent') || tasks.endsWith(':empty') ? '-' : this.defaultBranchHeads();
-    // The files and the plan and nothing of the store: a snapshot the fill publishes moves the numbers a body states,
-    // and those are read for every answer (`numbersOf`), not by making the body again.
-    return `${this.problemInputsKey()}|tasks:${tasks}|finished:${finished}|branches:${branches}`;
-  }
-
-  /** The files of one product-relative folder, each by its content; absent and empty folders are different stamps. */
-  private folderStamp(relative: string): string {
-    const path = join(this.options.productFolder, relative);
-    let names: string[];
-    try {
-      names = readdirSync(path).sort(byCodePoint);
-    } catch {
-      return `${path}:absent`;
-    }
-    const files = names.filter((name) => name.endsWith('.md')).map((name) => this.contentStamp(join(path, name)));
-    return files.length === 0 ? `${path}:empty` : files.join(';');
-  }
-
-  /**
-   * The commit each repository's default branch stands at, as the closure check reads it. A commit on the default
-   * branch closes a task without touching a product file or moving a filled pin, so the status key names it too.
-   */
-  private defaultBranchHeads(): string {
-    const parts: string[] = [];
-    for (const repository of this.taskRepositories()) {
-      const branch = defaultBranch(repository.path);
-      try {
-        const commit = execFileSync('git', ['-C', repository.path, 'rev-parse', branch], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-        parts.push(`${repository.name}@${branch}@${commit}`);
-      } catch {
-        parts.push(`${repository.name}@${branch}@-`);
-      }
-    }
-    return parts.join(',');
+    // The graph revision is the key of every product file the body reads; the store's own last finish is madarch's
+    // operational state, kept beside the store, and its content stamp is what moves the menu when a run ends.
+    return `${await this.problemInputsKey()}|finished:${finished}`;
   }
 
   /**
@@ -2313,33 +2273,48 @@ export class KnowledgeProduct {
   private async statusNow(): Promise<StatusRead> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    const declared = this.repositories();
+    // A product nobody has filled has no store, and its whole answer is the folder's: the manifest's presence and the
+    // repositories the product manifest declares. Nothing is opened, so the first status after `madarch new` reads two
+    // paths (fast, and the same on every platform) and says `no-manifest` or `not-filled`; the graph is asked once a
+    // fill has made a store. A store that is there but unfilled keeps the read below, which is the graph's answer.
+    if (!existsSync(storeDatabasePath(this.storeFolder()))) {
+      const file = join(product.folder, KINDS_FILE);
+      const stands = existsSync(file);
+      return { body: { product: { name: product.name, id: product.id }, manifest: stands ? 'not-filled' : 'no-manifest', manifestFile: file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: 0 } }, ctx: undefined };
+    }
+    // A publication of a fill this process did not run is taken before the body is made: the body reads the product's
+    // files at the graph revision the store states, and a revision followed only after it would answer the last one.
+    await this.followStoreFill();
     // A run a person paused before the server stopped stands as it was: its pages are named from the store it left.
     this.restorePause();
     const common = { product: { name: product.name, id: product.id } };
-    const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { body: { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 }, ctx: undefined };
+      // Three states, never mixed: the file is absent (`no-manifest`), it stands in the repository but no fill has read
+      // it into the graph yet (`not-filled`), or the graph holds it (`ok`). The presence is read from the folder and
+      // nothing is written: the graph changes only when the person presses Fill.
+      const stands = existsSync(context.file);
+      return { body: { ...common, manifest: stands ? 'not-filled' : 'no-manifest', manifestFile: context.file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: await this.loopCounts() }, ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
     // The body is the files' reading: the kinds' counts and the repository's numbers are read for every answer
     // (`numbersOf`), because a snapshot moves them without moving a file.
-    const loop = this.loopCounts();
+    const loop = await this.loopCounts();
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const body: WikiStatus = {
       ...common,
       manifest: 'ok',
       manifestFile: context.manifest.file,
       language: context.manifest.language ?? 'en',
-      seeded: this.seeded,
       findingCount: context.findings.length,
       // A store the answer cannot read (a lock a writer holds, a connection gone) must not take the whole answer with
       // it: the fill state and the files' reading stand, and the kinds stand as they were last read.
       kinds: await kindSummaries(context.ctx).catch(() => this.statusMemo?.body.kinds ?? []),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      filled: this.pins.size > 0,
+      filled: this.pins.size > 0 || context.ctx.files.has(KINDS_FILE),
       incomplete,
       fill: this.statusFill(),
       writer: { ...this.writer, units: this.unitsOf(context.ctx) },
@@ -2348,20 +2323,10 @@ export class KnowledgeProduct {
       home: homeEntity?.id ?? null,
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop,
-      starterOffers: this.starterOffers().length,
     };
     return { body, ctx: context.ctx };
   }
 
-  /**
-   * The manifest's declarations as a stamp reads them: which files to look at, never what to make of them. The
-   * manifest costs a YAML parse of every kind (eleven milliseconds of a status answer the menu polls), and the
-   * declaration a stamp needs changes only with the file: the paths stay the same when a template is deleted, and the
-   * stamp says `absent` for it either way. A template's appearance is the one thing outside the manifest that changes
-   * which declarations are accepted, so it is compared too (madarch-u3vw.8). What the manifest *means* is read fresh
-   * where it is drawn, findings and all.
-   */
-  private stampKinds: { manifest: string; templates: string; read: ReturnType<typeof readKinds> } | undefined;
   /** A file's content hash, kept beside the metadata that says whether it can have changed since the last poll. */
   private readonly contentStamps = new Map<string, { mtimeMs: number; ctimeMs: number; size: number; ino: number; hash: string }>();
 
@@ -2390,86 +2355,12 @@ export class KnowledgeProduct {
     return `${path}:${hash}`;
   }
 
-  private kindsForStamp(folder: string, seed = true): ReturnType<typeof readKinds> {
-    // The manifest's declarations are stamped by content too: an edit that keeps its size and mtime is still an edit.
-    // The workflows manifest is read beside it, so its own edit moves the same key: a saved workflow's finding
-    // appears, or goes, at the next read.
-    const manifest = `${this.contentStamp(join(folder, KINDS_FILE))}\n${this.contentStamp(join(folder, WORKFLOWS_FILE))}`;
-    const held = this.stampKinds;
-    // Which declarations the manifest accepts also depends on the files it names: a template written after the answer
-    // was warmed accepts a kind the read refused, and the files of that kind must be stamped from then on
-    // (madarch-u3vw.8). The comparison is a stat per named template, never a parse.
-    if (held !== undefined && held.manifest === manifest && this.templateStamps(folder, held.read) === held.templates) return held.read;
-    // A reading that must not write asks for the manifest as it stands: an absent one is not made the starter set, and
-    // is not kept, so the next reading that opens the product still seeds it.
-    const read = seed ? this.kinds(folder) : readKinds(folder);
-    if (!read.present) return read;
-    this.stampKinds = { manifest, templates: this.templateStamps(folder, read), read };
-    return read;
-  }
-
   /**
-   * The template paths a declaration names, and the Liquid fallback the parser takes for a named `.md` that does not
-   * exist: writing the fallback accepts a kind, so the path is stamped before either file exists (madarch-u3vw.8).
+   * The open problems of the Problems page. Status is polled, so the count is read once per graph revision and the
+   * unplaced units; a product whose page cannot be read falls back to the corrections, which are read from the graph.
    */
-  private templatePaths(read: ReturnType<typeof readKinds>): string[] {
-    if (!read.present) return [];
-    const named = new Set<string>(read.manifest.declaredTemplates ?? []);
-    for (const kind of read.manifest.kinds.values()) named.add(kind.template);
-    const paths = new Set<string>();
-    for (const path of named) {
-      paths.add(path);
-      if (path.endsWith('.md')) paths.add(`${path.slice(0, -'.md'.length)}.liquid`);
-    }
-    return [...paths];
-  }
-
-  /** The template candidates of a read, each by its content; the paths are compared to say whether a kind can have appeared. */
-  private templateStamps(folder: string, read: ReturnType<typeof readKinds>): string {
-    return this.templatePaths(read).map((path) => this.contentStamp(join(folder, path))).join('\n');
-  }
-
-  /**
-   * A stamp of every file the Problems page reads besides the pinned graph: the product's manifest, the kinds manifest,
-   * the workflows manifest, every template path a declaration names, the files of the Markdown kinds, the product's
-   * documents, the questions and the corrections. Status is polled, so
-   * the page's count is kept; an edit of any of these — a manifest a person changed, a document, a question — must
-   * change this key, or the menu keeps a count the page no longer shows (madarch-m38l.24, the review; the template
-   * paths and the content hashes are madarch-u3vw.8).
-   */
-  private problemInputsStamp(): string {
-    const folder = this.options.productFolder;
-    const parts: string[] = [];
-    parts.push(this.contentStamp(join(folder, MANIFEST_FILE)));
-    parts.push(this.contentStamp(join(folder, KINDS_FILE)));
-    // The workflows manifest is read beside the kinds manifest, so its findings are the listing's too: an edit of it
-    // must move this key, or the page keeps the listing of the file it no longer holds.
-    parts.push(this.contentStamp(join(folder, WORKFLOWS_FILE)));
-    const manifest = this.kindsForStamp(folder);
-    if (manifest.present) {
-      // Every path a declaration names is stamped, even one whose kind was refused, and the Liquid fallback of a named
-      // `.md` before it exists: creating either is what makes the kind and clears its finding, and the manifest's own
-      // mtime may not move when only that file is written (madarch-u3vw.8).
-      for (const template of this.templatePaths(manifest)) parts.push(this.contentStamp(join(folder, template)));
-      for (const kind of manifest.manifest.kinds.values()) {
-        if (kind.source !== 'markdown') continue;
-        if (kind.file !== undefined) parts.push(this.contentStamp(join(folder, kind.file)));
-        else if (kind.folder !== undefined) for (const path of markdownFilesBelow(folder, kind.folder)) parts.push(this.contentStamp(join(folder, path)));
-      }
-    }
-    for (const path of productDocumentPaths(folder)) parts.push(this.contentStamp(join(folder, path)));
-    parts.push(this.folderStamp(QUESTIONS_FOLDER));
-    parts.push(this.folderStamp(CORRECTIONS_FOLDER));
-    return parts.join('\n');
-  }
-
-  /**
-   * The open problems of the Problems page. Status is polled, so the count is read once per revision of the product's
-   * files, every repository's head and the unplaced units; a product whose page cannot be read falls back to the
-   * corrections, which are read from their files without the page resolver.
-   */
-  private openProblems(): { count: number; key: string } | undefined {
-    const key = this.problemsKeySafe();
+  private async openProblems(): Promise<{ count: number; key: string } | undefined> {
+    const key = await this.problemsKeySafe();
     if (key === '') return undefined;
     const cached = this.problemsCache;
     // The listing already collected for exactly these inputs: no walk.
@@ -2481,13 +2372,17 @@ export class KnowledgeProduct {
     return undefined;
   }
 
-  /** How many questions wait for an answer or for a refresh, and how many corrections wait for one, from their files. */
-  private loopCounts(): WikiStatus['loop'] {
-    const questions = listQuestions(this.options.productFolder);
-    const correctionsOpen = readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length;
+  /**
+   * How many questions wait for an answer or for a refresh, and how many corrections wait for one, as the graph holds
+   * them at this revision: the same files the Questions and Tasks pages draw from (madarch-hsqs stage C).
+   */
+  private async loopCounts(): Promise<WikiStatus['loop']> {
+    const files = await this.productFiles();
+    const questions = await listQuestions(files);
+    const correctionsOpen = (await readCorrectionsIn(files)).items.filter((correction) => correction.status === 'open').length;
     // The menu says what the Tasks page says: the closure of each task, not the status its file still carries.
-    const tasksOpen = openTasks(this.options.productFolder, this.taskRepositories(), this.pageFiles());
-    // Until the Problems page can be read, an open correction is the count that is known from the files alone; the
+    const tasksOpen = await openTasks(files, this.taskRepositories(), await this.pageFiles());
+    // Until the Problems page can be read, an open correction is the count that is known from the graph alone; the
     // status replaces it with the page's own open count once that page can be built (openProblems).
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen, tasksOpen, problemsOpen: correctionsOpen };
   }
@@ -2553,7 +2448,7 @@ export class KnowledgeProduct {
       if (this.fill.state === 'running') return rendered;
       try {
         const owner = await this.open();
-        const listing = await this.problemsFor(this.problemsKey(), owner);
+        const listing = await this.problemsFor(await this.problemsKey(), owner);
         return { ok: true, page: { ...rendered.page, problems: openProblemsOf(listing.problems, id) } };
       } catch (error) {
         return { ok: true, page: { ...rendered.page, notes: [...rendered.page.notes, `the problems of this entity could not be counted: ${(error as Error).message}`] } };
@@ -2581,7 +2476,7 @@ export class KnowledgeProduct {
       const byStatement = marksForPage(marks, id);
       const statements: (PlannedMarkView & { sentence: string })[] = [];
       if (byStatement.size > 0) {
-        for (const statement of readKnowledgePages(this.options.productFolder).pages.find((candidate) => candidate.id === id)?.statements ?? []) {
+        for (const statement of (await this.indexPages()).find((candidate) => candidate.id === id)?.statements ?? []) {
           const mark = byStatement.get(statement.id);
           if (mark !== undefined) statements.push({ task: mark.task, how: mark.how, sentence: statement.text });
         }
@@ -2616,9 +2511,29 @@ export class KnowledgeProduct {
     }
   }
 
+  /**
+   * The product's Markdown pages as the graph holds them, read from the product repository's stored files: the page
+   * index reads the same entities the pages draw, and never a second copy of the checkout (madarch-hsqs stage C).
+   */
+  private async indexPages(): Promise<IndexedPage[]> {
+    const product = this.product();
+    if ('message' in product) return [];
+    const files = await this.productFiles();
+    const read = await this.manifestFrom(files, product.folder);
+    if (!read.present) return [];
+    const ordinaryKinds = new Map([...read.manifest.kinds].filter(([, decl]) => decl.source === 'markdown'));
+    const paths: string[] = [];
+    for (const kind of ordinaryKinds.values()) {
+      if (kind.file !== undefined) paths.push(kind.file);
+      else if (kind.folder !== undefined) paths.push(...files.filesBelow(kind.folder).filter((path) => path.endsWith('.md')));
+    }
+    await files.ensure(paths);
+    return readKnowledgePagesFrom(files, read.manifest).pages;
+  }
+
   /** The file each page of the product is written in: what a task's statement scope names when a commit closes it. */
-  private pageFiles(): Map<string, string> {
-    return new Map(readKnowledgePages(this.options.productFolder).pages.map((page) => [page.id, page.file] as const));
+  private async pageFiles(): Promise<Map<string, string>> {
+    return new Map((await this.indexPages()).map((page) => [page.id, page.file] as const));
   }
 
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
@@ -2773,9 +2688,10 @@ export class KnowledgeProduct {
   async documents(): Promise<DocumentListing> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files, so
-    // the read never seeds the starter set. A manifest that is there is parsed once per revision, never once per listing.
-    const read = this.kindsForStamp(product.folder, false);
+    // The manifest is the graph's, at this revision: a product the graph holds no kinds file of has no pages of kinds and
+    // no excluded files, and the read never writes the starter set (madarch-hsqs stage C).
+    const files = await this.productFiles();
+    const read = await this.manifestFrom(files, product.folder);
     const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
     const context = await this.context();
     if ('absent' in context) return { documents: [], truncated: [] };
@@ -2829,7 +2745,7 @@ export class KnowledgeProduct {
   async document(repo: string | null, path: string): Promise<DocumentPage | undefined> {
     const identity = this.product();
     if ('message' in identity) throw new WikiReadError(identity.message);
-    const registry = readKinds(this.options.productFolder);
+    const registry = await this.manifestRead(this.options.productFolder);
     const guideKind = repo === null && registry.present ? (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => registry.manifest.kinds.get(kind)?.source === 'markdown' && registry.manifest.kinds.get(kind)?.file === path) : undefined;
     if (guideKind !== undefined) {
       const assembled = await this.page(GUIDE_OUTPUTS[guideKind].id);
@@ -2886,9 +2802,9 @@ export class KnowledgeProduct {
 
   // ---- the loop of questions and corrections (madarch-m38l.7) ---------------------------------
 
-  /** The questions of the product, from their files; they need no graph and no fill. */
-  questions(): QuestionListing {
-    return listQuestions(this.options.productFolder);
+  /** The questions of the product as the graph holds them; a question's file is read once per graph revision. */
+  async questions(): Promise<QuestionListing> {
+    return await listQuestions(await this.productFiles());
   }
 
   async question(slug: string): Promise<QuestionDetail | undefined> {
@@ -2896,7 +2812,7 @@ export class KnowledgeProduct {
     const resolve = 'absent' in context
       ? async (url: string) => ({ state: 'broken' as const, target: url, reason: `the product has no ${context.file}` })
       : (url: string) => context.ctx.resolver.resolve(url);
-    return await questionDetail(this.options.productFolder, slug, resolve);
+    return await questionDetail(await this.productFiles(), slug, resolve);
   }
 
   /** A person's answer: written into the question's file and committed with the person as author. */
@@ -2917,40 +2833,62 @@ export class KnowledgeProduct {
 
   /** Where planned changes show now, read once per revision of the product's files and its graph. */
   private async marks(): Promise<PlannedMarks> {
-    const key = this.marksKey();
+    const key = await this.marksKey();
     const held = this.marksMemo;
     if (held !== undefined && held.key === key) return held.marks;
     const product = this.product();
     if ('message' in product) return NO_MARKS;
     const owner = await this.open();
     const repositories = this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }));
+    const files = await this.productFiles();
+    const read = await this.manifestFrom(files, product.folder);
+    if (!read.present) return NO_MARKS;
     const marks = await plannedMarks({
-      owner, productFolder: this.options.productFolder,
+      owner, productFolder: this.options.productFolder, files, manifest: read.manifest,
       // The product's own repository closes a task as a code repository does: its documents are in it.
       repositories: [{ name: '', path: product.folder }, ...repositories],
-      productFiles: productDocumentPaths(product.folder),
-      pageFiles: this.pageFiles(),
+      // The product repository's own Markdown, as the graph holds it: a path here belongs to the product, not to a code repository.
+      productFiles: files.paths().filter((path) => path.endsWith('.md')),
+      pageFiles: await this.pageFiles(),
     });
     this.marksMemo = { key, marks };
     return marks;
   }
 
+  /** The task reading's inputs: the product's own files as the graph holds them, and the manifest they declare. */
+  private async taskRead(): Promise<{ owner: DatabaseOwner; files: StoredProductFiles; manifest: KindsManifest }> {
+    const owner = await this.open();
+    const files = await this.productFiles();
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const read = await this.manifestFrom(files, product.folder);
+    if (!read.present) throw new WikiReadError(`the product has no ${read.file}: the wiki shows the kinds that file declares`);
+    return { owner, files, manifest: read.manifest };
+  }
+
   /** The product's tasks, open first, each with what its change reaches through the graph. */
   async tasks(): Promise<TaskListing> {
-    const owner = await this.open();
-    return await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) });
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    // A product the graph holds no kinds manifest of holds no task it can read: the page says so by answering none.
+    if (!(await this.manifestRead(product.folder)).present) return { tasks: [], open: 0, closed: 0, problems: [], notes: [] };
+    const { owner, files, manifest } = await this.taskRead();
+    return await listTasks({ productFolder: this.options.productFolder, owner, files, manifest, repositories: this.taskRepositories(), pageFiles: await this.pageFiles(), placeOf: (scope) => this.placeOf(scope) });
   }
 
   /** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
   async task(id: string): Promise<TaskDetail | undefined> {
-    const owner = await this.open();
-    return await taskDetail({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) }, id, await this.marks());
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    if (!(await this.manifestRead(product.folder)).present) return undefined;
+    const { owner, files, manifest } = await this.taskRead();
+    return await taskDetail({ productFolder: this.options.productFolder, owner, files, manifest, repositories: this.taskRepositories(), pageFiles: await this.pageFiles(), placeOf: (scope) => this.placeOf(scope) }, id, await this.marks());
   }
 
   /** The task an answer proposes: the scope its grounds name and its impact through the graph, before anything is written. */
   async proposeTask(question: string, choice: TaskChoice, asked?: 'en' | 'ru'): Promise<TaskProposal> {
     const owner = await this.open();
-    const read = readKinds(this.options.productFolder);
+    const read = await this.manifestRead(this.options.productFolder);
     // The reader's interface language when it says one, else the language the product's pages are written in.
     const language = asked ?? (read.present && read.manifest.language === 'ru' ? 'ru' : 'en');
     const proposal = await proposeTask({ owner, productFolder: this.options.productFolder, question, choice, language });
@@ -2966,8 +2904,9 @@ export class KnowledgeProduct {
     const words = scopeWords(scope);
     // The product's own documents belong to no code repository; every other path belongs to the one repository the pages
     // are written from (asked of the declared checkouts, not of a fill: a place is shown before anything was read).
+    const own = (await this.productFiles()).paths();
     const repoOf = (path: string): string | null => {
-      if (productDocumentPaths(this.options.productFolder).includes(path)) return null;
+      if (own.includes(path)) return null;
       const present = this.repositories().filter((repo) => repo.present);
       return present.length === 1 ? present[0]!.name : null;
     };
@@ -2992,13 +2931,13 @@ export class KnowledgeProduct {
       return { kind: 'symbol', label: hash < 0 ? rest : rest.slice(hash + 1), where: hash < 0 ? null : rest.slice(0, hash), href: entityAddress(key), path: hash < 0 ? rest : rest.slice(0, hash), words };
     }
     const page = scope.key.slice(0, scope.key.indexOf('#'));
-    const title = readKnowledgePages(this.options.productFolder).pages.find((candidate) => candidate.id === page)?.title ?? page;
+    const title = (await this.indexPages()).find((candidate) => candidate.id === page)?.title ?? page;
     return { kind: 'statement', label: title, where: null, href: entityAddress(page), path: null, words };
   }
 
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
   async createTask(input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    const question = this.questions().rows.find((row) => row.slug === input.question);
+    const question = (await this.questions()).rows.find((row) => row.slug === input.question);
     if (question === undefined || question.state === 'open') throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: a task needs a saved answer to an existing question`);
     const detail = await this.question(input.question);
     if (detail?.answer === null || detail?.answer === undefined) throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: the saved answer cannot be read`);
@@ -3054,7 +2993,7 @@ export class KnowledgeProduct {
     if (task.status === 'closed') throw new LoopRefusal(409, `${task.file}:1: the task ${task.slug} is already closed`);
     let closing: ReturnType<typeof closingCommit>;
     try {
-      closing = closingCommit(task, this.taskRepositories(), { pageFiles: this.pageFiles() });
+      closing = closingCommit(task, this.taskRepositories(), { pageFiles: await this.pageFiles() });
     } catch (error) {
       throw new LoopRefusal(409, (error as Error).message);
     }
@@ -3081,7 +3020,7 @@ export class KnowledgeProduct {
     const owner = await this.open();
     // A task a commit already closed writes nothing: its change is in the history.
     try {
-      const closing = closingCommit(task, this.taskRepositories(), { pageFiles: this.pageFiles() });
+      const closing = closingCommit(task, this.taskRepositories(), { pageFiles: await this.pageFiles() });
       if (closing !== undefined) return { ok: false, message: `the task ${task.slug} is closed by the commit ${closing.commit} of ${closing.repository || 'the product'}, so its pages are not written again` };
     } catch (error) {
       return { ok: false, message: (error as Error).message };
@@ -3141,7 +3080,6 @@ export class KnowledgeProduct {
       dismissed: listing.dismissed,
       sections, severities,
       notes: listing.notes,
-      starter: listing.starter,
     };
   }
 
@@ -3211,27 +3149,29 @@ export class KnowledgeProduct {
   /** The listing as the page reads it: the same collection `problems()` cached, for the three levels. */
   private async problemListing(): Promise<ProblemListing> {
     const context = await this.context();
-    if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
+    if ('absent' in context) {
+      // A product the graph holds no kinds manifest of is not judged: the page says so, and answers no problem, rather
+      // than a count of a checkout the wiki no longer reads (madarch-hsqs stage C).
+      return { problems: [], categories: [], sections: { code: 0, documents: 0, wiki: 0 }, open: 0, closed: 0, dismissed: 0, notes: [{ message: `the product has no ${context.file} in the graph yet: start a fill to read the product repository` }] };
+    }
     const owner = await this.open();
-    return await this.problemsFor(this.problemsKey(), owner);
+    return await this.problemsFor(await this.problemsKey(), owner);
   }
 
   /**
-   * What the Problems page reads, as one key: the graph snapshot, the pins it is shown beside, the writer's unplaced
-   * plan, the starter set, and every file the page reads. The revision the change stream moves with is not part of it:
-   * a fill that reads a commit moves that revision without changing a single problem (madarch-m38l.19).
+   * What the Problems page reads, as one key: the graph revision (every product file the page reads is the graph's at
+   * that revision), the pins it is shown beside, the writer's unplaced plan and the manifest. The revision the change
+   * stream moves with is not part of it: a fill that reads a commit moves that revision without changing a problem
+   * (madarch-m38l.19). A read of a page never stamps the checkout (madarch-hsqs stage C).
    */
-  private problemsKey(): string {
-    return `${this.problemInputsKey()}|${this.storeKey()}`;
+  private async problemsKey(): Promise<string> {
+    return `${await this.problemInputsKey()}|${this.storeKey()}`;
   }
 
-  /**
-   * What the Problems listing reads besides the store: the manifest, the templates and documents it names, the
-   * product's Markdown and the writer's plan. A snapshot the fill publishes does not change any of them.
-   */
-  private problemInputsKey(): string {
+  /** What the Problems listing reads besides the store: the graph revision and the writer's plan. */
+  private async problemInputsKey(): Promise<string> {
     const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
-    return `${plan}|${this.starterOffers().length}|${this.problemInputsStamp()}`;
+    return `${plan}|${await this.graphRevision()}`;
   }
 
   /** The store as a listing reads it: the snapshot the pages show and what each repository was filled to. */
@@ -3241,10 +3181,10 @@ export class KnowledgeProduct {
     return `${snapshot}|${pins}`;
   }
 
-  /** The key where a missing file or a folder that cannot be read is no reason to fail an answer: the background refresh. */
-  private problemsKeySafe(): string {
+  /** The key where a store that cannot answer is no reason to fail an answer: the background refresh. */
+  private async problemsKeySafe(): Promise<string> {
     try {
-      return this.problemsKey();
+      return await this.problemsKey();
     } catch {
       return '';
     }
@@ -3275,12 +3215,12 @@ export class KnowledgeProduct {
    * collection failed is not walked again on every poll of the menu: a change of the inputs, or a listing that lands,
    * is what tries it again (madarch-u3vw.8).
    */
-  private refreshProblems(key: string = this.problemsKeySafe()): void {
+  private refreshProblems(key: string): void {
     if (this.fill.state === 'running' || this.problemsFlight !== undefined) return;
     if (key === '' || this.problemsCache?.key === key || this.problemsFailed === key) return;
     void this.open()
-      .then((owner) => {
-        const current = this.problemsKeySafe();
+      .then(async (owner) => {
+        const current = await this.problemsKeySafe();
         if (current === '' || this.problemsCache?.key === current) return undefined;
         return this.problemsFor(current, owner);
       })
@@ -3291,17 +3231,19 @@ export class KnowledgeProduct {
     const context = await this.context();
     if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const repository = this.singleRepository();
-    const dismissals = readProblemDismissals(this.options.productFolder);
+    const files = await this.productFiles();
+    const dismissals = await readProblemDismissalsIn(files);
     const dismissed = new Set(dismissals.items.map((item) => item.id));
     const listing = await collectProblems({
-      productFolder: this.options.productFolder, owner,
+      productFolder: this.options.productFolder, owner, files, manifest: context.manifest,
       // The Problems page reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
-      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, graphKindsOf(context.manifest).declared, graphKindsOf(context.manifest).generated),
+      graph: new GraphReader(owner, () => this.validAt(), undefined, undefined, graphKindsOf(context.manifest).declared, graphKindsOf(context.manifest).generated, graphKindsOf(context.manifest).edges),
+      findingKinds: [...context.manifest.kinds.values()].filter((kind) => kind.findings === true).map((kind) => kind.name).sort(),
       settings: context.manifest.problems ?? defaultSettings(),
       ...(repository === undefined ? {} : { repository }),
       resolve: (url) => context.ctx.resolver.resolve(url), findings: [...context.findings, ...dismissals.problems.map((problem) => ({ file: problem.file, line: problem.line, message: problem.message }))],
       ...(this.writer.plan === undefined ? {} : { unplaced: this.writer.plan.unplaced }),
-      starter: this.starterOffers(), dismissed,
+      dismissed,
     });
     return listing;
   }
@@ -3378,7 +3320,8 @@ export class KnowledgeProduct {
    */
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {
     const context = await this.context();
-    if ('absent' in context) return { available: false, reason: `the product has no ${context.file}` };
+    // A product with no publication yet is said so by the one sentence a reader can act on: start the fill once.
+    if ('absent' in context) return { available: false, reason: this.pins.size === 0 ? 'nothing has been read from the code yet: start the fill once to read it' : `the product has no ${context.file} in the graph` };
     const repository = this.singleRepository();
     if (repository === undefined) return { available: false, reason: this.pins.size === 0 ? 'nothing has been read from the code yet: start the fill once to read it' : 'the pages are written from one code repository and this product declares more or fewer' };
     const current = context.manifest.language ?? 'en';

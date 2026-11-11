@@ -26,6 +26,8 @@ export const GIT_TABLES = {
   gitlink: generatedTableName('gitlink', 'vertex'),
   commit: generatedTableName('commit', 'vertex'),
   signature: generatedTableName('signature', 'vertex'),
+  // The mechanism's path index and blob text, under the dictionary names stage B used: the files producer stores every
+  // product repository's tree there, and the file opinions name the same blob rows (src/graph/one-graph.ts).
   path: generatedTableName('path', 'dictionary'),
   blob: generatedTableName('blob', 'dictionary'),
   language: generatedTableName('language', 'dictionary'),
@@ -60,11 +62,10 @@ const edge: readonly EdgeContract[] = [
 ];
 
 const dictionary = [
-  { name: 'path', fields: [text('text')], key: ['text'] },
+  // The path index and the blob text are mechanism state (`src/graph/one-graph.ts`): every product's own repository is
+  // stored there, with or without the code kinds, and the file opinions name the same blob rows. The language is the
+  // product's opinion layer.
   { name: 'language', fields: [text('name')], key: ['name'] },
-  // A text file's bytes are stored once per blob (decision 0035, item 9: only the files producer reads the source), so
-  // two files with the same bytes share one row, and a binary file's bytes are kept nowhere.
-  { name: 'blob', fields: [text('hash'), text('algorithm'), bigint('bytes'), text('form'), bigint('lines', true), ({ name: 'content', type: 'text', nullable: true } as const)], key: ['hash'], checks: [`(algorithm = 'sha1' AND length(hash) = 40) OR (algorithm = 'sha256' AND length(hash) = 64)`, `(form = 'binary') = (lines IS NULL)`, `(form = 'text') OR (content IS NULL)`] },
 ];
 
 /** The graph kinds the git capability fills, and the manifest's own names for them. */
@@ -141,9 +142,12 @@ export const GIT_MANIFEST_EDGES: Readonly<Record<string, string>> = {
  * declare. A product that declares no code kind gets the empty contract and the fill runs no git pass.
  */
 export function gitContractOf(manifest: KindsManifest): GraphContract {
-  // A manifest that binds any kind to the git capability takes the capability's whole contract: the outputs it
-  // produces are one reader's, and a repository's tree has a gitlink even when the product declares no page for it.
-  const bound = [...manifest.kinds.values()].some((kind) => kind.capability === 'git') || [...(manifest.edges?.values() ?? [])].some((edge) => edge.capability === 'git');
-  if (!bound) return { vertex: [], edge: [], dictionary: [] };
-  return contractOf([{ kinds: Object.values(GIT_MANIFEST_KINDS), edges: Object.values(GIT_MANIFEST_EDGES), contract: GIT_CONTRACT }], Object.values(GIT_MANIFEST_KINDS), Object.values(GIT_MANIFEST_EDGES));
+  // Only the kinds the manifest declares take a table: a product that declares code.file and not code.repository gets
+  // the file's table and no repository's, and the tree pass writes the file entities alone (madarch-hsqs stage C: an
+  // engine never publishes an entity the manifest does not declare). A product that declares no git kind gets the
+  // empty contract and the fill runs no git pass.
+  const kinds = Object.entries(GIT_MANIFEST_KINDS).filter(([manifestName]) => manifest.kinds.get(manifestName)?.capability === 'git').map(([, graphName]) => graphName);
+  const edges = Object.entries(GIT_MANIFEST_EDGES).filter(([manifestName]) => manifest.edges?.get(manifestName)?.capability === 'git').map(([, graphName]) => graphName);
+  if (kinds.length === 0 && edges.length === 0) return { vertex: [], edge: [], dictionary: [] };
+  return contractOf([{ kinds: Object.values(GIT_MANIFEST_KINDS), edges: Object.values(GIT_MANIFEST_EDGES), contract: GIT_CONTRACT }], kinds, edges);
 }

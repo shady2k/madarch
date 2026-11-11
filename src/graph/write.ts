@@ -28,7 +28,9 @@
 import { randomUUID } from 'node:crypto';
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import { type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
+import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
+export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
+import { FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { keyUid } from './uid.js';
 
 /** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
@@ -345,10 +347,34 @@ function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefi
 /** One entity a draft's reference names, as the node that holds it, or undefined when no vertex does. */
 async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
   const vertex = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
-  const key = canonicalKeyOf(contract, vertex, ref.key, where);
-  const uid = keyUid(ref.kind, [JSON.stringify(key)]);
+  const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
+  // The uid is the graph kind's: a draft may name the wiki's name of a git kind (`code.file`), and the node was made
+  // under the contract's own (`file`).
+  const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
   const found = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
   return found.rows[0]?.id;
+}
+
+/**
+ * A key value that names a reference, carried as the referenced entity's name, lifted back to `{kind, key}`: the
+ * plugin protocol's key values are strings (a file's key is its repository's name and its path), while the graph
+ * declares a repository as a reference with a key of its own. A value already shaped as a reference, and a field
+ * that names no reference, are left as they stand.
+ */
+function liftedReferences(contract: GraphContract, vertex: VertexContract | undefined, key: Readonly<Record<string, KeyValueDraft>>): Readonly<Record<string, KeyValueDraft>> {
+  if (vertex === undefined) return key;
+  const out: Record<string, KeyValueDraft> = { ...key };
+  for (const field of vertex.key) {
+    const declared = vertex.fields.find((held) => held.name === field);
+    if (declared?.reference === undefined) continue;
+    const value = out[field];
+    if (typeof value !== 'string' || value === '') continue;
+    const target = contract.vertex.find((held) => held.name === declared.reference);
+    const targetKey = target?.key[0];
+    if (targetKey === undefined) continue;
+    out[field] = { kind: declared.reference, key: { [targetKey]: value } };
+  }
+  return out;
 }
 
 /**
@@ -626,16 +652,18 @@ export interface UnresolvedReference {
   readonly producer: string;
   /** The other end of the edge, when that end stands. */
   readonly against?: string | null;
+  /** What tells two edges of one kind and one target apart, for an edge end. */
+  readonly discriminator?: string;
   readonly contextId: number;
 }
 
 /** Records one unresolved reference; the same one stated twice — by one producer — stands once. */
 async function recordUnresolved(executor: SqlExecutor, reference: UnresolvedReference): Promise<void> {
   await executor.query(
-    `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id)
-     VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8::bigint)
-     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, context_id) DO NOTHING`,
-    [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, String(reference.contextId)],
+    `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
+     VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8, $9::bigint)
+     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`,
+    [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, reference.discriminator ?? null, String(reference.contextId)],
   );
 }
 
@@ -667,24 +695,12 @@ async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract
   }
 }
 
-/** One edge a producer states: its ends by kind and key, its discriminator and the opinion that it exists. */
-export interface EdgeDraft {
-  readonly kind: string;
-  readonly from: EntityRefDraft;
-  readonly to: EntityRefDraft;
-  readonly discriminator?: string;
-  readonly values?: Readonly<Record<string, unknown>>;
-  readonly evidence?: readonly EvidenceDraft[];
-  readonly lang?: string;
-  readonly producer: string;
-  readonly producerVersion: string;
-}
-
 /** The drafts one publication applies, by the kind of write they are. */
 export interface GraphDrafts {
   readonly vertices: readonly VertexDraft[];
   readonly edges?: readonly EdgeDraft[];
   readonly removals: readonly VertexRemovalDraft[];
+  readonly edgeRemovals?: readonly EdgeRemovalDraft[];
 }
 
 /** The producer an entry's author falls back to: the first draft's producer, whichever kind of draft it is. */
@@ -694,7 +710,29 @@ function producerOf(drafts: GraphDrafts): string | undefined {
   const edge = (drafts.edges ?? [])[0];
   if (edge !== undefined) return `${edge.producer}@${edge.producerVersion}`;
   const removal = drafts.removals[0];
-  return removal === undefined ? undefined : removal.producer;
+  if (removal !== undefined) return removal.producer;
+  return drafts.edgeRemovals?.[0]?.producer;
+}
+
+/**
+ * One edge a producer withdraws: its ends are found the way a declaration's are (by uid of the kind and key), the edge
+ * row between them by its discriminator, and the row is removed with its opinions. A removal that names an edge the
+ * store does not hold writes nothing — a rerun of the same answer and an edge never made are the same silence.
+ */
+async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, draft: EdgeRemovalDraft, contextId: number, journal?: Journal): Promise<boolean> {
+  const declared = contract.edge.find((held) => held.name === draft.kind);
+  if (declared === undefined || declared.table === undefined) return false;
+  const from = await referencedNodeOf(executor, contract, draft.from, `the from of the removed edge ${JSON.stringify(draft.kind)}`);
+  const to = await referencedNodeOf(executor, contract, draft.to, `the to of the removed edge ${JSON.stringify(draft.kind)}`);
+  if (from === undefined || to === undefined) return false;
+  const found = await executor.query<{ id: string }>(
+    `SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
+     WHERE e.from_node = $2::bigint AND e.to_node = $3::bigint AND e.discriminator = $4 AND e.context_id = $5::bigint`,
+    [draft.kind, from, to, draft.discriminator ?? '', String(contextId)],
+  );
+  const id = found.rows[0]?.id;
+  if (id === undefined) return false;
+  return await removeEdgeById(executor, contract, draft.kind, id, journal);
 }
 
 /** A declaration's node, and where each vertex's key names its references. */
@@ -724,6 +762,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   for (const record of options.reads ?? []) journal.read(record);
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
   for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
+  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;
   const declared: Declared[] = [];
   for (const draft of drafts.vertices) {
     const made = await ensureVertex(executor, contract, draft, contextId, journal);
@@ -748,8 +787,8 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
         const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
         await recordUnresolved(executor, {
           referrer: other ?? null, edgeEntity: draft.kind, field, targetEntity: ref.kind,
-          targetKey: canonicalKeyOf(contract, target, ref.key, `the ${field} of ${JSON.stringify(draft.kind)}`),
-          producer: `${draft.producer}@${draft.producerVersion}`, against: null, contextId,
+          targetKey: canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of ${JSON.stringify(draft.kind)}`),
+          producer: `${draft.producer}@${draft.producerVersion}`, against: null, discriminator: draft.discriminator ?? '', contextId,
         });
       }
       continue;
@@ -759,11 +798,105 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
     if (await publishEdgeOpinion(executor, contract, draft.kind, edge.id, draft, contextId, journal)) written += 1;
     await executor.query(
       `DELETE FROM unresolved_reference WHERE edge_entity = $1 AND producer = $2 AND context_id = $3::bigint
-         AND (referrer_node = $4::bigint OR referrer_node = $5::bigint OR referrer_node IS NULL)`,
-      [draft.kind, `${draft.producer}@${draft.producerVersion}`, String(contextId), fromNode, toNode],
+         AND (referrer_node = $4::bigint OR referrer_node = $5::bigint OR referrer_node IS NULL)
+         AND edge_discriminator = $6`,
+      [draft.kind, `${draft.producer}@${draft.producerVersion}`, String(contextId), fromNode, toNode, draft.discriminator ?? ''],
     );
   }
   for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);
   await writeJournal(executor, journal);
   return written;
+}
+
+// ---- the product repository's files as mechanism state ----------------------------------------------------------
+
+/** One file of a repository's tree, as the files producer read it: its path, its mode and the blob its text stands in. */
+export interface FileEntryDraft {
+  readonly path: string;
+  readonly mode: string | null;
+  readonly blob: string;
+}
+
+/** What one publication of the mechanism file entries wrote. */
+export interface FileEntryCounts {
+  readonly inserted: number;
+  readonly updated: number;
+  readonly deleted: number;
+  readonly unchanged: number;
+}
+
+/** One file entry the mechanism holds: the path's id, its mode and the blob id its bytes stand in. */
+interface HeldFileEntry {
+  readonly pathId: string;
+  readonly mode: string | null;
+  readonly blobId: string | null;
+  readonly hash: string | null;
+}
+
+/** The mechanism's entries of one repository, by path. */
+async function heldFileEntries(executor: SqlExecutor, repository: string): Promise<Map<string, HeldFileEntry>> {
+  const found = await executor.query<{ path: string; path_id: string; mode: string | null; blob_id: string | null; hash: string | null }>(
+    `SELECT p.text AS path, f.path_id::text AS path_id, f.mode, f.blob_id::text AS blob_id, b.hash
+     FROM ${FILE_ENTRY_TABLE} f JOIN ${FILE_PATH_TABLE} p ON p.id = f.path_id
+     LEFT JOIN ${FILE_BLOB_TABLE} b ON b.id = f.blob_id WHERE f.repository = $1`,
+    [repository],
+  );
+  return new Map(found.rows.map((row) => [row.path, { pathId: row.path_id, mode: row.mode, blobId: row.blob_id, hash: row.hash }] as const));
+}
+
+/** The ids of the path texts, interned once each in the mechanism's path index. */
+async function internPaths(executor: SqlExecutor, paths: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(paths)];
+  if (unique.length > 0) {
+    await executor.query(`INSERT INTO ${FILE_PATH_TABLE} (text) SELECT value FROM jsonb_array_elements_text($1::jsonb) ON CONFLICT (text) DO NOTHING`, [JSON.stringify(unique)]);
+  }
+  const found = await executor.query<{ id: string; text: string }>(
+    `SELECT id::text AS id, text FROM ${FILE_PATH_TABLE} WHERE text IN (SELECT value FROM jsonb_array_elements_text($1::jsonb))`,
+    [JSON.stringify(unique)],
+  );
+  return new Map(found.rows.map((row) => [row.text, row.id]));
+}
+
+/**
+ * The product repository's files as mechanism state (decision 0034, item 14; the stage C review of madarch-hsqs): one
+ * `file_entry` row per path, which names the path index row and the blob row its bytes stand in, for every product,
+ * whatever entities its manifest declares. A scoped publication replaces only its scope. The blob text itself is
+ * interned once per blob by the files producer (`src/graph/records.ts`), so two paths with the same bytes share one
+ * row; the code kinds' file opinions name the same blob rows. Answers the blob id of every file named.
+ */
+export async function publishFileEntries(executor: SqlExecutor, input: {
+  readonly repository: string;
+  readonly files: readonly FileEntryDraft[];
+  /** The blob ids of the files whose text moved or is new; an unchanged entry keeps the id it stands on. */
+  readonly blobIds: ReadonlyMap<string, string>;
+  readonly scope?: readonly string[];
+}): Promise<{ counts: FileEntryCounts; blobIds: Map<string, string> }> {
+  const within = (path: string): boolean => input.scope === undefined || input.scope.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
+  const paths = await internPaths(executor, input.files.map((file) => file.path));
+  const held = await heldFileEntries(executor, input.repository);
+  const blobs = new Map<string, string>();
+  let counts: FileEntryCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
+  for (const file of input.files) {
+    const known = held.get(file.path);
+    const pathId = paths.get(file.path);
+    if (pathId === undefined) throw new Error(`src/graph/write.ts:1: the path ${JSON.stringify(file.path)} of ${JSON.stringify(input.repository)} was not interned`);
+    const blobId = input.blobIds.get(file.blob) ?? (known?.hash === file.blob ? known.blobId : null) ?? input.blobIds.get(file.blob);
+    if (blobId === undefined || blobId === null) throw new Error(`src/graph/write.ts:1: the blob ${file.blob} of ${JSON.stringify(file.path)} has no row: the files producer interns it first`);
+    blobs.set(file.blob, blobId);
+    if (known === undefined) {
+      await executor.query(`INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id) VALUES ($1, $2::bigint, $3, $4::bigint)`, [input.repository, pathId, file.mode, blobId]);
+      counts = { ...counts, inserted: counts.inserted + 1 };
+    } else if (known.mode !== file.mode || known.hash !== file.blob) {
+      await executor.query(`UPDATE ${FILE_ENTRY_TABLE} SET mode = $2, blob_id = $3::bigint WHERE repository = $1 AND path_id = $4::bigint`, [input.repository, file.mode, blobId, known.pathId]);
+      counts = { ...counts, updated: counts.updated + 1 };
+    } else {
+      counts = { ...counts, unchanged: counts.unchanged + 1 };
+    }
+  }
+  for (const [path, known] of held) {
+    if (input.files.some((file) => file.path === path) || !within(path)) continue;
+    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = $2::bigint`, [input.repository, known.pathId]);
+    counts = { ...counts, deleted: counts.deleted + 1 };
+  }
+  return { counts, blobIds: blobs };
 }

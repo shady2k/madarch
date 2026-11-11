@@ -1,8 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(60_000);
 import { serveWiki, type ServeResult } from '../src/product-wiki/serve.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { StartedServer } from '../src/server/http.js';
 
 const folders: string[] = [];
@@ -60,6 +63,8 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const run = (args: string[]): void => runIn(source, args);
     run(['init', '--quiet', '--initial-branch=main']); run(['add', '-A']); run(['commit', '--quiet', '-m', 'Source']);
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
+    // The product's own copy of the starter set: the engine knows no entities (decision 0034, item 24).
+    seedStarterSet(product);
     runIn(product, ['init', '--quiet', '--initial-branch=main']); runIn(product, ['add', '-A']); runIn(product, ['commit', '--quiet', '-m', 'Product']);
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     // The documents are the graph's now: the files producer reads the checkout into the store first (decision 0035, item 9).
@@ -110,25 +115,36 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(folder);
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: manifest-id\nname: Manifest name\n');
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const status = await (await fetch(`${result.url}/api/status`)).json() as { product: { id: string; name: string }; seeded: string[] };
+    const status = await (await fetch(`${result.url}/api/status`)).json() as { product: { id: string; name: string }; manifest: string; seeded?: string[] };
     expect(status.product).toEqual({ id: 'manifest-id', name: 'Manifest name' });
-    // The product had no kinds manifest: it was given the starter set, and the wiki says which files.
-    expect(status.seeded).toContain('madarch/kinds.yaml');
+    // The wiki copies nothing into the folder: it lacks its kinds manifest, and the status names that file.
+    expect(status.manifest).toBe('no-manifest');
+    expect(status.seeded).toBeUndefined();
+    const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(pressed.status).toBe(409);
+    expect(JSON.stringify(await pressed.json())).toContain('madarch/kinds.yaml');
   }, 60_000);
 
-  test('a product without a kinds manifest is given the starter set by the wiki that serves it, and a file of a person is never replaced', async () => {
+  test('a product without a kinds manifest is given nothing by the wiki that serves it: the file is named and the folder stands as it is', async () => {
     const base = scratch();
     const folder = join(base, 'no-manifest');
     mkdirSync(join(folder, 'templates'), { recursive: true });
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: bare-id\nname: Bare\n');
     writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
+    // The product repository's commit is what a fill stores: git is given it here, as madarch's own commands do.
+    const git = (args: string[]): void => { execFileSync('git', args, { cwd: folder, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); };
+    git(['init', '--quiet', '--initial-branch=main']);
+    const before = readdirSync(folder).sort();
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const status = await (await fetch(`${result.url}/api/status`)).json() as { manifest: string; seeded: string[]; kinds: { kind: string }[] };
-    expect(status.manifest).toBe('ok');
-    expect(status.seeded).not.toContain('templates/domain.liquid');
-    expect(status.seeded).toContain('templates/product.liquid');
-    expect(status.kinds.map((kind) => kind.kind)).toContain('code.file');
+    const first = await (await fetch(`${result.url}/api/status`)).json() as { manifest: string; seeded?: string[] };
+    expect(first.manifest).toBe('no-manifest');
+    expect(first.seeded).toBeUndefined();
+    expect(readdirSync(folder).sort()).toEqual(before);
     expect(readFileSync(join(folder, 'templates', 'domain.liquid'), 'utf8')).toBe('my own template\n');
+    const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(pressed.status).toBe(409);
+    expect(JSON.stringify(await pressed.json())).toContain('madarch/kinds.yaml');
+    expect(readdirSync(folder).sort()).toEqual(before);
   }, 60_000);
 
   test('does not fall back for a missing path, non-directory, invalid manifest or dangling manifest symlink', async () => {

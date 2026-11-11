@@ -9,7 +9,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { STARTER_FILES, STARTER_KINDS, GROUPS, starterManifest } from '../src/knowledge/seed.js';
+import { STARTER_FILES, GROUPS } from '../src/knowledge/seed.js';
+import { starterKinds, starterManifestText } from './knowledge-fixture.js';
 import { CATALOG_KINDS } from '../src/knowledge/starter-catalog.js';
 
 const folder = mkdtempSync(join(tmpdir(), 'madarch-subgroups-'));
@@ -86,10 +87,10 @@ describe('sub-areas read from the manifest', () => {
     expect(read.groups.get('product')!.open).toBe(true);
     expect(read.groups.get('code')!.open).toBeUndefined();
     // The manifest's own comment block says what the group field means, beside `parent`, and its product group says it.
-    const starter = parse(starterManifest());
+    const starter = parse(starterManifestText());
     expect(starter.findings).toEqual([]);
     expect(starter.groups.get('strategy')!.open).toBe(true);
-    expect(starterManifest()).toContain('`open: true`');
+    expect(starterManifestText()).toContain('`open: true`');
     const broken = parse([
       'groups:',
       '  product: { en: Product, open: yes }',
@@ -117,10 +118,10 @@ describe('sub-areas read from the manifest', () => {
     expect(byName.get('code.ci-workflow')).toBe('delivery.pipeline');
     expect(byName.get('code.process')).toBe('infrastructure.compute');
     expect(byName.get('code.newcomer-command')).toBe('documentation.newcomer');
-    const read = parse(starterManifest('ru'));
+    const read = parse(starterManifestText('ru'));
     expect(read.findings).toEqual([]);
     for (const group of GROUPS.filter((entry) => entry.parent !== undefined)) expect(read.groups.get(group.name)!.parent).toBe(group.parent);
-    for (const kind of STARTER_KINDS) expect(read.kinds.get(kind.name)!.group).toBe(kind.group);
+    for (const kind of starterKinds()) expect(read.kinds.get(kind.name)!.group).toBe(kind.group);
     for (const kind of read.catalog!.kinds.values()) expect(read.groups.get(kind.subgroup)!.parent).toBe(kind.area);
   });
 });

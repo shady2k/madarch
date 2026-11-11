@@ -6,6 +6,7 @@ import { byCodePoint } from '../model/order.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { taskId } from './ids.js';
 import type { Author } from './entities.js';
+import type { ProductFileSource } from '../knowledge/product-files.js';
 
 export const TASKS_FOLDER = 'docs/tasks';
 /**
@@ -116,6 +117,22 @@ export function parseTask(file: string, source: string): PlannedTask {
   // A file that says closed and names no commit was closed by hand: the status is kept, and the closure says how.
   const how: string | null = typeof closedBy === 'string' ? closedBy : r['status'] === 'closed' ? 'person' : null;
   return { slug, id: `task:${slug}`, file, title: text('title'), status: r['status'], question: text('question'), answer: text('answer'), ...(text('problem') === '' ? {} : { problem: text('problem') }), grounds: grounds as string[], scope: parsed, by: by as Author, at: text('created-at'), closedBy: how, closedAt: text('closed-at') || null };
+}
+
+/**
+ * The tasks as one source of the product's files holds them: the graph's stored files for a reader of a page, the working
+ * tree for a writer that edits them. Every task file the folder lists is fetched before it is parsed (stage C).
+ */
+export async function readTasksIn(files: ProductFileSource): Promise<{ tasks: PlannedTask[]; findings: TaskFinding[] }> {
+  const paths = files.filesIn(TASKS_FOLDER).filter((path) => path.endsWith('.md')).sort(byCodePoint);
+  await files.ensure(paths);
+  const tasks: PlannedTask[] = [], findings: TaskFinding[] = [];
+  for (const file of paths) {
+    const text = files.text(file);
+    if (text === undefined) { findings.push({ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }); continue; }
+    try { tasks.push(parseTask(file, text)); } catch (e) { findings.push({ file, line: 1, message: (e as Error).message }); }
+  }
+  return { tasks, findings };
 }
 
 export function readTasks(folder: string): { tasks: PlannedTask[]; findings: TaskFinding[] } {

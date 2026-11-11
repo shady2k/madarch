@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
 import { readKinds } from '../src/knowledge/kinds.js';
@@ -103,24 +104,44 @@ afterAll(async () => {
 });
 
 describe('an empty product', () => {
-  test('a product without a manifest is given the starter set and then reads as any empty product; one with a manifest and no graph says what to do: connect a repository, or start the fill', async () => {
+  test('a product without a manifest is given nothing by the server, and before a fill it answers no kinds: the graph is the one source', async () => {
     const bare = await get('/products/bare/api/status');
-    expect(bare.body).toMatchObject({ manifest: 'ok', filled: false, home: null });
-    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml']);
-    expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'doc.use-case', 'code.service', 'code.file', 'code.symbol', 'code.route', 'code.table']));
-    // The kinds carry their names in both languages, from the manifest.
-    expect(bare.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.file').labels).toEqual({ en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } });
+    // The engine knows no entities: nothing was written into the folder, so the wiki shows no kind and says
+    // which file it lacks (decision 0034, item 24).
+    expect(bare.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, kinds: [] });
+    // The state names the file it lacks, and the wiki's page links the guide that writes one.
+    expect(String(bare.body.manifestFile)).toBe(join(home, 'bare', 'madarch', 'kinds.yaml'));
+    expect(bare.body.seeded).toBeUndefined();
+    expect(readKinds(join(home, 'bare')).present).toBe(false);
+    const refused = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(await refused.json())).toContain('madarch/kinds.yaml');
+    // Its manifest stands in the repository and no fill has read it: the second state, never `no-manifest`, and nothing
+    // was written to the graph to say so.
     const tiny = await get('/products/tiny/api/status');
-    expect(tiny.body).toMatchObject({ manifest: 'ok', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
-    expect(tiny.body.kinds.map((kind: { kind: string; count: number }) => kind.count)).toEqual(tiny.body.kinds.map(() => 0));
-    expect(tiny.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'code.service', 'code.file', 'code.symbol']));
+    expect(tiny.body).toMatchObject({ manifest: 'not-filled', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
+    expect(String(tiny.body.manifestFile)).toBe(join(home, 'tiny', 'madarch', 'kinds.yaml'));
+    expect(tiny.body.kinds).toEqual([]);
     const unconnected = await get('/products/unconnected/api/status');
     expect(unconnected.body.repositories).toEqual([]);
   });
 
-  test('the catalogue lists every kind the manifest declares, with a zero count for one nothing filled, and its own answer stays under the size bound', async () => {
+  test('after a fill the catalogue lists every kind the manifest declares, with a zero count for one nothing filled, and its own answer stays under the size bound', async () => {
+    // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
+    // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
+    seedStarterSet(join(home, 'bare'));
+    git(join(home, 'bare'), 'add', '-A');
+    git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
+    const started = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
+    expect(started.status).toBe(202);
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const state = (await get('/products/bare/api/status')).body.fill.state as string;
+      if (state !== 'running') break;
+      await new Promise((rest) => setTimeout(rest, 250));
+    }
     const status = await get('/products/bare/api/status');
-    // The status still names the kinds with pages (and a member's row), and holds no catalogue of its own.
+    // The status names the kinds with pages (and a member's row), and holds no catalogue of its own.
+    expect(status.body.manifest).toBe('ok');
     expect(status.body.kinds.length).toBe(67);
     expect(status.body.catalog).toBeUndefined();
     const response = await fetch(`${server.url}/products/bare/api/catalog`);
@@ -166,9 +187,10 @@ describe('an empty product', () => {
   });
 
   test('a page that does not exist is a 404 that names why, and an id is required', async () => {
+    // Before its fill the product's kinds are not in the graph, and the answer names the file it lacks.
     const missing = await get(`/products/tiny/api/page?id=${encodeURIComponent('code.symbol:nothing')}`);
     expect(missing.status).toBe(404);
-    expect(missing.body.message).toBe('no entity "code.symbol:nothing" in the graph or among the product\'s Markdown pages');
+    expect(missing.body.message).toBe(`the product has no ${join(home, 'tiny', 'madarch', 'kinds.yaml')}: the wiki shows the kinds that file declares`);
     expect((await get('/products/tiny/api/page')).status).toBe(400);
     expect((await get('/products/tiny/api/entities?kind=nothing')).status).toBe(404);
   });

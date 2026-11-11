@@ -17,7 +17,9 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { closingCommit, type RepositoryRef } from './closure.js';
 import { impactOf, type ImpactedStatement } from './impact.js';
-import { readTasks, scopePath, type PlannedTask, type TaskScope } from './tasks.js';
+import { readTasksIn, scopePath, type PlannedTask, type TaskScope } from './tasks.js';
+import type { ProductFileSource } from '../knowledge/product-files.js';
+import type { KindsManifest } from '../knowledge/kinds.js';
 
 /** The task a mark points at: enough for the badge to name it and to link to it. */
 export interface PlannedTaskRef {
@@ -71,8 +73,8 @@ const refOf = (task: PlannedTask): PlannedTaskRef => ({ id: task.id, slug: task.
  * tasks a commit has closed; `productFiles` are the product's own documents,
  * which belong to no code repository.
  */
-export async function plannedMarks(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[]; readonly pageFiles: ReadonlyMap<string, string> }): Promise<PlannedMarks> {
-  const read = readTasks(input.productFolder);
+export async function plannedMarks(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly files: ProductFileSource; readonly manifest: KindsManifest; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[]; readonly pageFiles: ReadonlyMap<string, string> }): Promise<PlannedMarks> {
+  const read = await readTasksIn(input.files);
   const notes: string[] = read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`);
   const repositoriesOf = (path: string): string | null => (input.productFiles.includes(path) ? null : input.repositories.length === 1 ? input.repositories[0]!.name : null);
   const sections = new Map<string, PlannedSection>();
@@ -105,7 +107,7 @@ export async function plannedMarks(input: { readonly owner: DatabaseOwner; reado
       for (const key of groundsOfScope(scope)) entities.set(key, { id: key, task: refOf(task), how });
     }
     // What the task's own scope reaches through the graph: a section the reader removed marks nothing, and one added marks what it reaches.
-    const impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task));
+    const impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task), { files: input.files, manifest: input.manifest });
     for (const statement of impact.statements) markStatement(statements, statement, refOf(task));
     for (const key of impact.entities) if (!entities.has(key)) entities.set(key, { id: key, task: refOf(task), how });
     for (const page of impact.pages) if (!entities.has(page.id)) entities.set(page.id, { id: page.id, task: refOf(task), how: 'impact' });

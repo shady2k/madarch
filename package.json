@@ -11,7 +11,9 @@
     "check:architecture-base": "bun scripts/check-architecture.ts --base-guard",
     "test": "bun test test/",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
-    "wiki:shots": "bun scripts/wiki-shots.ts"
+    "wiki:shots": "bun scripts/wiki-shots.ts",
+    "install:plugins": "bun scripts/plugin-deps.ts",
+    "postinstall": "bun run install:plugins"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.9.0",
@@ -32,6 +34,7 @@
     "tree-sitter-wasms": "^0.1.13",
     "typebox": "1.3.34",
     "unified": "11.0.5",
+    "vscode-oniguruma": "1.7.0",
     "web-tree-sitter": "0.25.10",
     "xstate": "5.33.3",
     "yaml": "2.9.1",

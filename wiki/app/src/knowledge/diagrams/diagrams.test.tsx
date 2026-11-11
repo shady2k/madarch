@@ -9,16 +9,18 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import type { IFetchInterceptor } from 'happy-dom';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { flushSync } from 'react-dom';
 import { setWikiLanguage } from '../../i18n.js';
 import { BlockView } from '../blocks.js';
 import { DiagramOpenProvider } from './open.js';
 import { frontTab } from '../tabs.js';
 import { resetTabs } from '../../../test/reset.js';
-import type { Block, DiagramView, Neighborhood } from '../types.js';
+import type { Block, DiagramView, FilesMap, Neighborhood } from '../types.js';
 import { bindMermaid, mermaidPicture } from './views.js';
 import { viewFrameAddress } from '../api.js';
-import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.js';
+import { folderLevel } from '../../../../../src/knowledge/files-treemap.js';
+import { contrastOf, fillOf, inkFor, labelFits, mapOption, rampColourAt } from './files-echart.js';
+import { crumbSegments } from './treemap.js';
+import { RAMPS } from '../files-measure.js';
 
 /**
  * The page inside an archify frame is a navigation of the browser itself, not a call of the app's `fetch`: the React
@@ -368,158 +370,177 @@ describe('a deferred diagram', () => {
   });
 });
 
-describe('the treemap', () => {
-  test('a treemap whose files were changed once says so in the singular', async () => {
-    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
+/** The Files page's read as the server answers it: three files of one repository with their rhythm. */
+const treemapData = (over: Partial<FilesMap> = {}): FilesMap => ({
+  repository: 'shop',
+  folder: 'src',
+  files: [
+    { id: 'code.file:shop/src/order.go', path: 'src/order.go', href: '/e/f1', lines: 400, bytes: 9000, language: 'Go', languages: [{ language: 'Go', saidBy: 'linguist@9.5.0' }], heat: [1, 4, 7, 9] as [number, number, number, number], last: '2026-11-01T10:00:00Z', authors: ['Ada', 'Linus'] },
+    { id: 'code.file:shop/src/pricing.go', path: 'src/pricing.go', href: '/e/f2', lines: 100, bytes: 3000, language: 'Go', languages: [{ language: 'Go', saidBy: 'linguist@9.5.0' }], heat: [0, 1, 2, 2] as [number, number, number, number], last: '2026-10-20T10:00:00Z', authors: ['Ada'] },
+    { id: 'code.file:shop/src/README.md', path: 'src/README.md', href: '/e/f3', lines: 40, bytes: 800, language: null, languages: [], heat: [0, 0, 0, 0] as [number, number, number, number], last: null, authors: [] },
+  ],
+  totals: { files: 3, lines: 540, bytes: 12800, withoutLines: 0, other: 1, languages: [{ name: 'Go', files: 2, lines: 500, bytes: 12000 }] },
+  windows: { d30: '2026-10-01T00:00:00Z', d90: '2026-08-01T00:00:00Z', d365: '2025-11-01T00:00:00Z' },
+  graphTotal: 3,
+  ...over,
+});
+
+const treemap = (over: Partial<Extract<Block, { type: 'treemap' }>> = {}): Block => ({
+  type: 'treemap',
+  title: 'Repository map',
+  data: treemapData(),
+  area: 'lines',
+  colour: 'language',
+  window: '90d',
+  engine: 'mermaid',
+  mermaid: 'treemap\n    "order.go": 400\n',
+  mermaidDrawn: 3,
+  mermaidOmitted: 0,
+  notes: [],
+  ...over,
+});
+
+describe('the repository map', () => {
+  test('the totals sentence and the language legend read in English and in Russian', async () => {
+    const container = into(createElement(BlockView, { block: treemap(), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=files-totals]') !== null, 'the totals');
+    expect(container.querySelector('[data-testid=files-totals]')!.textContent).toBe('3 files across 540 lines in one language.');
+    const legend = container.querySelector('[data-testid=files-legend]')!;
+    expect(legend.getAttribute('data-measure')).toBe('language');
+    expect([...legend.querySelectorAll('li')].map((entry) => entry.textContent)).toEqual(['Go', 'Other']);
+    await setWikiLanguage('ru');
     try {
-      const block: Block = { type: 'treemap', title: 'Files by size and change', scope: '', total: 1, maxChurn: 1, notes: [], files: [{ id: 'f1', path: 'src/order_service.go', href: '/e/f1', lines: 40, churn: 1 }] };
-      const container = into(createElement(BlockView, { block, resolutions: {} }));
-      await until(() => container.querySelector('[data-testid=treemap-file]') !== null, 'the cells');
-      expect(container.querySelector('[data-testid=treemap-legend]')!.textContent).toContain('(up to 1 commit)');
-      await setWikiLanguage('ru');
-      try {
-        const russian = into(createElement(BlockView, { block, resolutions: {} }));
-        await until(() => russian.querySelector('[data-testid=treemap-file]') !== null, 'the cells');
-        expect(russian.querySelector('[data-testid=treemap-legend]')!.textContent).toContain('(до 1 коммита)');
-      } finally {
-        await setWikiLanguage('en');
-      }
+      const russian = into(createElement(BlockView, { block: treemap(), resolutions: {} }));
+      await until(() => russian.querySelector('[data-testid=files-totals]') !== null, 'the totals');
+      expect(russian.querySelector('[data-testid=files-totals]')!.textContent).toBe('3 файлов, строк: 540, язык один.');
     } finally {
-      delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
+      await setWikiLanguage('en');
     }
   });
-  test('area follows the lines, warmth follows the churn, and each file is a link with its numbers in the title', async () => {
-    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
-    try {
-      const block: Block = {
-        type: 'treemap', title: 'Files by size and change', scope: '', total: 3, maxChurn: 28, notes: [],
-        files: [
-          { id: 'f1', path: 'src/order_service.go', href: '/e/f1', lines: 400, churn: 28 },
-          { id: 'f2', path: 'src/pricing.go', href: '/e/f2', lines: 100, churn: 2 },
-          { id: 'f3', path: 'README.md', href: null, lines: 40, churn: 0 },
-        ],
-      };
-      const container = into(createElement(BlockView, { block, resolutions: {} }));
-      await until(() => container.querySelector('[data-testid=treemap-file]') !== null, 'the cells');
-      const cells = [...container.querySelectorAll('[data-testid=treemap-file]')];
-      const area = (cell: Element): number => { const rect = cell.querySelector('rect')!; return Number(rect.getAttribute('width')) * Number(rect.getAttribute('height')); };
-      const byLines = new Map(cells.map((cell) => [cell.getAttribute('data-lines'), cell]));
-      expect(area(byLines.get('400')!) / area(byLines.get('100')!)).toBeGreaterThan(3);
-      expect(byLines.get('400')!.querySelector('rect')!.getAttribute('style')).toContain('--heat: 1.000');
-      expect(byLines.get('40')!.querySelector('a')).toBeNull();
-      expect(byLines.get('400')!.querySelector('title')!.textContent).toBe('src/order_service.go — 400 lines, 28 commits');
-      expect(container.querySelector('[data-testid=treemap-legend]')!.textContent).toContain('Area is the lines of the file.');
-    } finally {
-      delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
-    }
+
+  test('each group of controls is a segmented choice with its own label', async () => {
+    const container = into(createElement(BlockView, { block: treemap({ colour: 'heat' }), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=files-area]') !== null, 'the controls');
+    const groups = [...container.querySelectorAll('.dg-seg')].map((group) => ({
+      label: group.querySelector('.dg-seg-label')?.textContent,
+      role: group.querySelector('[role=radiogroup]')?.getAttribute('aria-label'),
+      options: [...group.querySelectorAll('[role=radio]')].map((option) => option.textContent),
+      checked: [...group.querySelectorAll('[role=radio]')].filter((option) => option.getAttribute('aria-checked') === 'true').map((option) => option.textContent),
+    }));
+    expect(groups).toEqual([
+      { label: 'Area', role: 'Area', options: ['Lines', 'Bytes'], checked: ['Lines'] },
+      { label: 'Colour', role: 'Colour', options: ['Language', 'Heat', 'Age', 'Authors'], checked: ['Heat'] },
+      { label: 'Window', role: 'Window', options: ['30 days', '90 days', 'A year', 'All time'], checked: ['90 days'] },
+      { label: 'Engine', role: 'Engine', options: ['ECharts', 'Mermaid'], checked: ['Mermaid'] },
+    ]);
+  });
+
+  test('the heat colour offers its window and draws the ramp its range stands for', async () => {
+    const container = into(createElement(BlockView, { block: treemap({ colour: 'heat', window: '90d' }), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=files-window]') !== null, 'the window switch');
+    const legend = container.querySelector('[data-testid=files-legend]')!;
+    expect(legend.getAttribute('data-measure')).toBe('heat');
+    // The legend is the chosen measure's own: what the colour counts, the window, and the ramp's two ends.
+    expect(legend.textContent).toContain('Heat: commits, 90 days');
+    expect(legend.textContent).toContain('0 commits');
+    expect(legend.textContent).toContain('4 commits');
+    expect(container.querySelector('[data-testid=files-window-1y]')!.getAttribute('aria-checked')).toBe('false');
+    container.querySelector<HTMLButtonElement>('[data-testid=files-window-1y]')!.click();
+    await until(() => container.querySelector('[data-testid=files-window-1y]')!.getAttribute('aria-checked') === 'true', 'the year window');
+    // The colour measure the reader leaves is not a window's: the window switch is only heat's.
+    container.querySelector<HTMLButtonElement>('[data-testid=files-colour-authors]')!.click();
+    await until(() => container.querySelector('[data-testid=files-window]') === null, 'the window switch to go');
+    const authors = container.querySelector('[data-testid=files-legend]')!;
+    expect(authors.getAttribute('data-measure')).toBe('authors');
+    expect(authors.textContent).toContain('Authors: distinct writers');
+    expect(authors.textContent).toContain('1 author');
+    expect(authors.textContent).toContain('2 authors');
+  });
+
+  test('a folder page breadcrumbs from its own root, and the segments name what is below it', async () => {
+    const container = into(createElement(BlockView, { block: treemap({ data: { ...treemapData(), folder: 'src' } }), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=files-breadcrumb]') !== null, 'the breadcrumb');
+    // The page covers src: its root crumb is src itself, and nothing lies above it in this map.
+    expect([...container.querySelectorAll('[data-testid=files-crumb]')]).toEqual([]);
+    const rootCrumb = container.querySelector('[data-testid=files-crumb-root]')!;
+    expect(rootCrumb.textContent).toBe('src');
+    expect(rootCrumb.getAttribute('data-current')).toBe('true');
+    expect(crumbSegments('', '')).toEqual([]);
+    expect(crumbSegments('', 'src/knowledge')).toEqual(['src', 'knowledge']);
+    expect(crumbSegments('src', 'src')).toEqual([]);
+    expect(crumbSegments('src', 'src/knowledge/files')).toEqual(['knowledge', 'files']);
+  });
+
+  test('the static picture is Mermaid by default and the reader may switch to the drawn map', async () => {
+    const container = into(createElement(BlockView, { block: treemap(), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=mermaid-diagram]') !== null, 'the Mermaid picture');
+    expect(container.querySelector('[data-testid=files-engine-mermaid]')!.getAttribute('aria-checked')).toBe('true');
+    expect(container.querySelector('[data-testid=files-engine-echarts]')!.getAttribute('aria-checked')).toBe('false');
   });
 });
 
+describe('the map cells and their labels', () => {
+  test('the ink is the one that reads on the tile: white on a dark fill, near-black on a light one, at 4.5 : 1 or better', () => {
+    for (const fill of ['#8c5a14', '#1c1c1c', '#4f7f79', '#f3efe6', '#ffffff', '#eeeeee']) {
+      const ink = inkFor(fill);
+      // The ink is the better of the two on that fill, and it clears WCAG's 4.5 : 1 for body text.
+      expect(contrastOf(fill, ink)).toBeGreaterThanOrEqual(contrastOf(fill, ink === '#ffffff' ? '#1c1c1c' : '#ffffff'));
+      expect(contrastOf(fill, ink)).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(inkFor('#1c1c1c')).toBe('#ffffff');
+    expect(inkFor('#ffffff')).toBe('#1c1c1c');
+  });
 
-test('asynchronous network and malformed JSON failures leave a visible LikeC4 error', async () => {
-  (globalThis as {fetch?:unknown}).fetch = async () => { throw new Error('connection reset'); };
-  const container = into(createElement(BlockView,{block:viewsBlock(CONTAINER),resolutions:{}}));
-  await until(() => container.querySelector('[role=alert]')?.textContent?.includes('connection reset'), 'the network error');
-  expect(container.querySelector('.dg-likec4-view')).toBeNull();
-  expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('likec4');
+  test('a cell too small for its words draws none, and a cell with room draws them', () => {
+    // A folder wants two lines and an icon; a file one line. The estimate is the cell's share of the frame.
+    expect(labelFits(1000, 1000, 792 * 520, true)).toBe(true);
+    expect(labelFits(1, 1000, 792 * 520, true)).toBe(false);
+    expect(labelFits(1000, 1000, 792 * 520, false)).toBe(true);
+    expect(labelFits(2, 1000, 792 * 520, false)).toBe(false);
+  });
+
+  test('the fill the label ink is chosen against is the fill the visual map paints', () => {
+    const colouring = { colour: 'heat' as const, ramp: RAMPS.heat.light, max: 10, languageColours: [] };
+    expect(fillOf(-1, colouring)).toBe(RAMPS.heat.light.none);
+    expect(fillOf(0, colouring)).toBe(rampColourAt(RAMPS.heat.light.colors, 0));
+    expect(fillOf(10, colouring)).toBe(rampColourAt(RAMPS.heat.light.colors, 1));
+    const languages = { colour: 'language' as const, ramp: RAMPS.heat.light, max: 3, languageColours: ['#7a9e7e', '#b08a5a', '#7f8fb3'] };
+    expect(fillOf(1, languages)).toBe('#b08a5a');
+    expect(fillOf(9, languages)).toBe(RAMPS.heat.light.none);
+  });
 });
 
-test('malformed JSON is reported instead of a blank diagram', async () => {
-  (globalThis as {fetch?:unknown}).fetch = async () => new Response('{invalid',{status:200});
-  const container = into(createElement(BlockView,{block:viewsBlock(CONTAINER),resolutions:{}}));
-  await until(() => Boolean(container.querySelector('[role=alert]')?.textContent), 'the JSON error');
-  expect(container.querySelector('.dg-likec4-view')).toBeNull();
-});
-
-test('Mermaid gives the bilingual reading hint', async () => {
-  await setWikiLanguage('ru');
-  const container = into(createElement(BlockView,{block:viewsBlock(SEQUENCE),resolutions:{}}));
-  await until(() => container.querySelector('[data-testid=zoom-box] .dg-view-hint') !== null, 'the Mermaid hint');
-  expect(container.querySelector('[data-testid=zoom-box] .dg-view-hint')!.textContent).not.toContain('knowledge.views.');
-  expect(container.querySelector('[data-testid=zoom-box] .dg-view-hint')!.textContent).toContain('на телефоне — окно для чтения');
-  await setWikiLanguage('en');
-  await until(() => container.querySelector('[data-testid=zoom-box] .dg-view-hint')!.textContent?.includes('phone full screen keeps a reading window'), 'the English phone fullscreen hint');
-});
-
-
-test('only the selected archify iframe can request fallback, and its reason remains visible', async () => {
-  const container=into(createElement(BlockView,{block:{...viewsBlock(CONTAINER),renderer:'archify'} as Block,resolutions:{}}));
-  await until(()=>container.querySelector('iframe')!==null,'the archify iframe');
-  const frame=container.querySelector('iframe')!;
-  // The exact frame the server would answer, and the one navigation the browser makes for it, isolated rather than sent.
-  const source=`${viewFrameAddress(CONTAINER.query,'archify','en')}&fullscreen=0`;
-  const address=new URL(source,location.origin).href;
-  expect(frame.getAttribute('src')).toBe(source);
-  expect(frame.getAttribute('data-renderer')).toBe('archify');
-  await until(()=>frame.contentDocument?.querySelector('[data-frame-document=archify]')!==null,'the iframe document');
-  expect(frame.contentWindow).not.toBeNull();
-  expect(frame.contentWindow!.location.href).toBe(address);
-  expect(frameNavigations).toEqual([{method:'GET',url:address}]);
-  flushSync(() => window.dispatchEvent(new window.MessageEvent('message',{origin:location.origin,source:window,data:{madarch:'failed',renderer:'archify',message:'forged failure'}})));
-  expect(container.querySelector('[data-testid=renderer-fallback]')).toBeNull();
-  flushSync(() => window.dispatchEvent(new window.MessageEvent('message',{origin:'https://elsewhere.invalid',source:frame.contentWindow,data:{madarch:'failed',renderer:'archify',message:'wrong-origin failure'}})));
-  expect(container.querySelector('[data-testid=renderer-fallback]')).toBeNull();
-  window.dispatchEvent(new window.MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data:{madarch:'failed',renderer:'archify',message:'/tmp/view/document.json:1: renderer exit 1'}}));
-  await until(()=>container.querySelector('[data-testid=renderer-fallback]')!==null,'the explicit fallback');
-  expect(container.querySelector('[data-testid=renderer-fallback]')!.textContent).toContain('/tmp/view/document.json:1: renderer exit 1');
-});
-
-
-test('renderer title definitions include group names, exclude ER attributes and associate whole nodes', () => {
-  const root = document.createElement('div');
-  root.innerHTML = '<svg><g class="node" id="table"><g class="name"><text>orders</text></g><g class="attribute"><text>customer_id UUID FK</text></g><rect width="400" height="600"/></g><g class="cluster"><g class="cluster-label"><text>Billing</text></g></g></svg>';
-  const er = diagramTitleNodes(root, 'mermaid', 'er');
-  expect(er).toHaveLength(1);
-  expect((er[0]!.title as Element).textContent).toBe('orders');
-  expect((er[0]!.node as Element).id).toBe('table');
-  root.querySelector('g.name')!.setAttribute('class', 'nodeLabel');
-  const grouped = diagramTitleNodes(root, 'mermaid', 'domain-map');
-  expect(grouped.map(pair => (pair.title as Element).textContent)).toContain('Billing');
-  root.innerHTML = '<svg><rect data-graph-role="structural-frame" data-composition-frame-id="2"/><g data-composition-frame-id="2"><text data-boundary-label="">Deployment</text></g><g id="node-api"><rect/><text data-node-label="">api</text></g></svg>';
-  const archify = diagramTitleNodes(root, 'archify', 'deployment');
-  expect(archify).toHaveLength(2);
-  expect((archify[0]!.node as Element).getAttribute('data-graph-role')).toBe('structural-frame');
-  root.innerHTML = '<div class="react-flow__node"><div class="likec4-compound-title">Compose</div></div>';
-  const likec4 = diagramTitleNodes(root, 'likec4', 'deployment');
-  expect(likec4).toHaveLength(1);
-  expect((likec4[0]!.node as Element).className).toBe('react-flow__node');
-});
-
-
-test('an oversized picture links to all raw members and relationships in the adjacent list', async () => {
-  const elements = Array.from({ length: 45 }, (_, index) => ({ id: `member:${index}`, label: `member-${index}`, kind: 'node', href: `/e/${index}`, dashed: false }));
-  const view: DiagramView = { ...CONTAINER, elements: elements.slice(0, 40), fullElements: elements, fullEdges: [{ from: 'member:43', to: 'member:44', label: 'not lost', dashed: false }], marker: 'Showing 40 of 45.' };
-  const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
-  await until(() => container.querySelector('[data-testid=view-full-list-link]') !== null, 'the full-list link');
-  const link = container.querySelector('[data-testid=view-full-list-link]')!;
-  const target = container.querySelector('[data-testid=view-full-list]')!;
-  expect(link.getAttribute('href')).toBe(`#${target.id}`);
-  expect(container.querySelectorAll('[data-testid=view-element]')).toHaveLength(45);
-  expect(container.querySelector('[data-testid=view]')!.getAttribute('data-adjacent-list-count')).toBe('45');
-  expect(target.textContent).toContain('member-44');
-  expect(container.querySelector('[data-testid=view-full-relationships]')!.textContent).toContain('member-43 → member-44: not lost');
-});
-
-test('an ER table offers only Mermaid and keeps its page link under the picture', async () => {
-  const view: DiagramView = { ...CONTAINER, spec: { type: 'er', subject: 'orders' }, renderers: ['mermaid'], mermaidSource: 'erDiagram\n orders {\n uuid id PK\n }' };
-  const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
-  await until(() => container.querySelector('[data-testid=renderer-mermaid]') !== null, 'the Mermaid ER tab');
-  expect(container.querySelectorAll('[data-testid=renderer-archify], [data-testid=renderer-likec4]')).toHaveLength(0);
-  expect(container.querySelector('[data-testid=view-elements] a')!.getAttribute('href')).toBe('/e/code.service%3Apayments');
-});
-
-test('folded synthetic groups keep separate drill controls while the complete raw list stays unchanged', async () => {
-  const raw = Array.from({ length: 42 }, (_, index) => ({ id: `service:${index}`, label: `service-${index}`, kind: 'container', href: `/e/service-${index}`, dashed: false }));
-  const groups = ['a', 'z'].map(folder => ({ id: `folder:${folder}`, label: folder, kind: 'container', href: null, dashed: false, standsFor: 21, drill: { spec: { type: 'c4-container' as const, subject: '', scope: folder }, title: folder } }));
-  const view: DiagramView = { ...CONTAINER, elements: groups, fullElements: raw, fullEdges: [], marker: '42 elements fold into 2 folders; open a folder to see its members.' };
-  const asked: string[] = [];
-  Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: async (input: string) => { asked.push(String(input)); return new Response(JSON.stringify({ views: [COMPONENTS] }), { status: 200 }); } });
-  const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
-  await until(() => container.querySelectorAll('[data-testid=view-folded-groups] [data-testid=view-drill]').length === 2, 'both synthetic folder controls');
-  expect([...container.querySelectorAll('[data-testid=view-elements] > li')].map(row => row.getAttribute('data-element'))).toEqual(raw.map(element => element.id));
-  const button = container.querySelector<HTMLButtonElement>('[data-testid=view-folded-groups] [data-testid=view-drill]');
-  if (!button) throw new Error('the first folded group has no drill control');
-  button.click();
-  await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'folder drill answer');
-  expect(asked.filter(url => url.startsWith('/api/view?'))).toEqual(['/api/view?type=c4-container&subject=&scope=a&lang=en']);
+describe('the map option an engine draws from', () => {
+  test('a cell carries its area and its measure, and the visual map colours the measure dimension', () => {
+    const files = treemapData().files;
+    const level = folderLevel(files, 'src');
+    const cells = [
+      ...level.folders.map((group) => ({ name: group.name, path: group.path, value: group.files.reduce((sum, file) => sum + (file.lines ?? 0), 0), measure: -1, file: false, href: null, tip: group.path, files: group.files.length })),
+      ...level.files.map((file) => ({ name: file.path.slice(file.path.lastIndexOf('/') + 1), path: file.path, value: file.lines ?? 0, measure: file.heat[1], file: true, href: file.href, tip: file.path })),
+    ];
+    const option = mapOption({
+      cells,
+      dark: false,
+      height: 400,
+      label: 'Repository map',
+      onDrill: () => {},
+      onOpen: () => {},
+      colouring: { colour: 'heat', ramp: RAMPS.heat.light, max: 7, languageColours: ['#7a9e7e', '#b08a5a'] },
+    }) as { visualMap: { dimension: number; max: number; inRange: { color: string[] } }; series: { visualDimension: number; data: { name: string; value: [number, number] }[] }[] };
+    expect(option.visualMap.dimension).toBe(1);
+    expect(option.visualMap.max).toBe(7);
+    expect(option.visualMap.inRange.color).toEqual([...RAMPS.heat.light.colors]);
+    expect(option.series[0]!.visualDimension).toBe(1);
+    // The folder is one cell, the sum of its files; each file keeps its own area and its measure.
+    expect(option.series[0]!.data.map((cell) => [cell.name, cell.value])).toEqual([['README.md', [40, 0]], ['order.go', [400, 4]], ['pricing.go', [100, 1]]]);
+    // Every cell names itself in a label of at least 12 px, in ink chosen against its own fill.
+    const rich = (option.series[0] as unknown as { label: { rich: Record<string, { fontSize?: number; color?: string }> } }).label.rich;
+    for (const name of ['nameLight', 'nameDark', 'folderLight', 'folderDark', 'countLight', 'countDark']) {
+      expect(rich[name]!.fontSize).toBeGreaterThanOrEqual(12);
+      expect(rich[name]!.color === '#ffffff' || rich[name]!.color === '#1c1c1c').toBe(true);
+    }
+    const order = (option.series[0] as unknown as { data: { name: string; label: { show: boolean; formatter: string } }[] }).data.find((cell) => cell.name === 'order.go')!;
+    expect(order.label.show).toBe(true);
+    expect(order.label.formatter).toContain('order.go');
+  });
 });

@@ -406,6 +406,36 @@ describe('the architecture check', () => {
     expect(missing.refusal).toContain('the list of accepted violations is missing');
   });
 
+  test('an engine module importing the starter set fails, while the copy madarch new makes passes', async () => {
+    const root = fixtureProject();
+    // The starter set's data modules stand in the fixture, and the copy `madarch new` makes imports them.
+    writeModule(root, 'src/knowledge/starter-catalog.ts', ["export const CATALOG = 'catalog';"]);
+    writeModule(root, 'src/knowledge/seed.ts', ["import { CATALOG } from './starter-catalog.js';", 'export const STARTER = CATALOG;']);
+    writeModule(root, 'src/product/draft.ts', ["import { STARTER } from '../knowledge/seed.js';", 'export const copied = STARTER;']);
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['starter-data-when-copying'] }))).toEqual([]);
+
+    const plant = [
+      '/**',
+      ' * A serving module that reads the engine\'s own starter set, planted by the test.',
+      ' */',
+      "import { STARTER } from './knowledge/seed.js';",
+      '',
+      'export const served = STARTER;',
+    ];
+    writeModule(root, 'src/serving.ts', plant);
+    const planted = await architectureCheck({ root, rules: ['starter-data-when-copying'] });
+    expect(planted.comparison.unlisted).toEqual([
+      { rule: 'starter-data-when-copying', file: 'src/serving.ts', line: lineOf(plant, 'knowledge/seed.js'), symbol: 'src/knowledge/seed.ts' },
+    ]);
+    const problems = architectureProblemLines(planted);
+    expect(problems.length).toBe(1);
+    expect(problems[0]).toContain(`${join(root, 'src', 'serving.ts')}:${lineOf(plant, 'knowledge/seed.js')}: starter-data-when-copying:`);
+    expect(problems[0]).toContain('imports the starter set src/knowledge/seed.ts');
+
+    rmSync(join(root, 'src', 'serving.ts'));
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['starter-data-when-copying'] }))).toEqual([]);
+  });
+
 });
 
 describe('the base guard', () => {

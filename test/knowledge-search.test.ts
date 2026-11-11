@@ -44,11 +44,19 @@ beforeAll(async () => {
   mkdirSync(app, { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
   server = await startServer({ productFolder: product, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
-  // The starter set is seeded by the first answer; the pages then stand in the product's repository.
+  // The fixture product holds its own copy of the starter set; the pages then stand in the product's repository.
   const seeded = await fetch(`${server.url}/api/status`);
   expect(seeded.status).toBe(200);
   writeSamplePages(product);
-}, 180_000);
+  // The pages and the manifest are the graph's for a reader: a fill reads the product repository into it.
+  const started = await fetch(`${server.url}/api/fill`, { method: 'POST' });
+  expect(started.status).toBe(202);
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    const state = (await (await fetch(`${server.url}/api/status`)).json() as { fill: { state: string } }).fill.state;
+    if (state !== 'running') break;
+    await new Promise((rest) => setTimeout(rest, 250));
+  }
+}, 300_000);
 
 afterAll(async () => {
   await server.stop();

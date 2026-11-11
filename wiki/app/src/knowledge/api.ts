@@ -173,9 +173,6 @@ export const fillSelected = (selection: { selected: string[]; agent: string | nu
 
 export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', API.productSettings, settings);
 
-/** Adds items of the starter set to the product's manifest; answers the files written. */
-export const addStarter = (ids: string[]): Promise<{ written: string[] }> => post<{ written: string[] }>('add to the manifest', API.starter, { ids });
-
 /** «Rewrite the pages»: the agent's pages go, the graph stays, a fill writes them again. */
 export const rewritePages = (): Promise<unknown> => post<unknown>('rewrite the pages', API.rewritePages, {});
 

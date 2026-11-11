@@ -14,10 +14,11 @@ import { Type } from 'typebox';
 import { readKinds } from '../src/knowledge/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
-import { parseWorkflows, readWorkflows, WORKFLOWS_FILE, type WorkflowsRead } from '../src/knowledge/workflows.js';
+import { parseWorkflows, readWorkflowsFrom, WORKFLOWS_FILE, type WorkflowsRead } from '../src/knowledge/workflows.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { createEngineStageRegistry } from '../src/fill/stages/index.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const FILE = 'madarch/workflows.yaml';
 
@@ -70,7 +71,7 @@ function refusals(text: string): [number, string][] {
 
 describe('the workflows the starter set declares', () => {
   test('`madarch new` writes four workflows, and every stage they name is one the engine\'s registry holds', () => {
-    const read = readWorkflows(product());
+    const read = readWorkflowsFrom(workingTreeFiles(product()), product());
     expect(read.present).toBe(true);
     expect(read.findings).toEqual([]);
     expect([...read.workflows.keys()]).toEqual(['branch-worktree', 'first-fill', 'history-point', 'update-by-commit']);
@@ -106,7 +107,7 @@ describe('the workflows the starter set declares', () => {
   test('a product without a workflows manifest has none, and a product\'s kinds manifest reads with no workflows field', () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-workflows-none-'));
     made.push(folder);
-    expect(readWorkflows(folder)).toMatchObject({ present: false, findings: [] });
+    expect(readWorkflowsFrom(workingTreeFiles(folder), folder)).toMatchObject({ present: false, findings: [] });
     // The wiki's read of a product with a kinds manifest alone gains no workflows and no finding of its own.
     const kinds = mkdtempSync(join(tmpdir(), 'madarch-workflows-none-kinds-'));
     made.push(kinds);
@@ -198,15 +199,16 @@ describe('the refusals of the workflow check', () => {
     expect(twice.workflows.size).toBe(0);
   });
 
-  test('a workflows path that cannot be read is a finding naming the file, and the product still has no workflows', () => {
+  test('a workflows path that is a directory is no workflows manifest, and the product still has no workflows', () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-workflows-unreadable-'));
     made.push(folder);
     mkdirSync(join(folder, WORKFLOWS_FILE), { recursive: true });
-    const read = readWorkflows(folder);
-    expect(read.present).toBe(true);
+    const read = readWorkflowsFrom(workingTreeFiles(folder), folder);
+    // A directory where the file stands is no file of the product: the product holds no workflows manifest, and no
+    // finding says otherwise (there is nothing to read, not a file that failed to read).
+    expect(read.present).toBe(false);
     expect(read.workflows.size).toBe(0);
-    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([[join(folder, WORKFLOWS_FILE), 1]]);
-    expect(read.findings[0]!.message.startsWith('the file cannot be read: ')).toBe(true);
+    expect(read.findings).toEqual([]);
   });
 });
 

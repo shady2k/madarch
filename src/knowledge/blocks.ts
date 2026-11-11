@@ -16,6 +16,7 @@ import { byCodePoint } from '../model/order.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, HistoryEvidence, SourceSpan } from './graph-read.js';
 import type { KindsManifest, MemberDecl, PropertyDecl } from './kinds.js';
+import type { ProductFileSource } from './product-files.js';
 import type { MarkdownEntity } from './markdown.js';
 import { readBody } from './markdown.js';
 import type { Block, CallRow, CodeLocation, EntityRef, MemberRow, PropertyRow, RelatedGroup } from './model.js';
@@ -25,6 +26,8 @@ export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'mark
 
 export interface RenderContext {
   productFolder: string;
+  /** The product repository's own files as the graph holds them: the manifest's templates and kinds are read here (stage C). */
+  files: ProductFileSource;
   manifest: KindsManifest;
   graph: GraphReader;
   /** The repository's history evidence, cached for the product's snapshot; the history block asks this, never the graph twice. */

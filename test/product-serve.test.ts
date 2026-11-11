@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { stopDaemon } from '../src/product/daemon.js';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 
 /** A port the machine holds free right now, for a daemon the test stops again. */
 async function freePort(): Promise<number> {
@@ -200,6 +201,8 @@ function product(base: string, name = 'demo'): string {
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: demo-id\nname: " + name + "\n");
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
+  // A hand-made folder stands as `madarch new` would leave it: its own copy of the starter set.
+  seedStarterSet(folder);
   gitCheckout(folder);
   return folder;
 }
@@ -433,6 +436,8 @@ describe('madarch serve: an existing product served', () => {
     const manifest = join(setMade, 'workspace.yaml');
     const text = await Bun.file(manifest).text();
     writeFileSync(manifest, text.slice(0, text.indexOf('\nrepos:')) + '\n');
+    // The example folder stands as the set leaves a product now: it holds its own copy of the starter set.
+    seedStarterSet(setMade);
     gitCheckout(setMade);
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });
@@ -579,19 +584,47 @@ describe('madarch new serving the draft it just created', () => {
     const built = builtApp(base);
     const opener = injectableOpener('ok');
     const port = await freePort();
-    const serve = serveLive(['new', '--home', base, '--port', String(port), '--no-open'],
+    const serve = serveLive(['new', '--home', base, '--port', String(port), '--template', 'everything', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_BROWSER: opener });
     // The command returns at once where serve would keep running.
     await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
     // The draft's facts come first, one per line, then the address.
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
     expect(lines[0]).toContain('✓ Created the product');
+    // The newcomer bar names the template the product was made from, and the next step offers the fill.
+    expect(lines.some((line) => line.startsWith('✓ Template "Everything":'))).toBeTrue();
     expect(lines.some((line) => line.startsWith('Next:'))).toBeTrue();
     const url = lines.find((line) => line.startsWith('The wiki is running at '))!.match(/(https?:\/\/\S+)/)![1];
     expect(url).toBe(`http://127.0.0.1:${port}/products/${basename(lines[0]!.match(/ in (.+)$/)?.[1]!)}/`);
     const body = (await (await fetch(`${url}api/product`)).json()) as { name: string };
     expect(body.name).toStartWith('idea-');
     expect(stopDaemon({ home: base })).toBe(0);
+  }, 30_000);
+
+  test('new with no terminal and no --template takes the first declared template and says so', async () => {
+    const base = scratchFolder();
+    const built = builtApp(base);
+    const port = await freePort();
+    const serve = serveLive(['new', '--home', base, '--port', String(port), '--no-open'],
+      { MADARCH_HOME: base, MADARCH_APP: built });
+    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
+    const lines = serve.stdout.split('\n').filter((line) => line !== '');
+    // The default is the first entry of the declared list, and the line says which template was used and how to pick
+    // another: a script gets a product, and nothing about the choice is silent.
+    expect(lines.some((line) => line.includes('No terminal asks which template to use: using "Everything", the first declared'))).toBeTrue();
+    expect(lines.some((line) => line.includes('--template <id>') && line.includes('everything') && line.includes('none'))).toBeTrue();
+    expect(lines.some((line) => line.startsWith('✓ Template "Everything":'))).toBeTrue();
+    expect(stopDaemon({ home: base })).toBe(0);
+  }, 30_000);
+
+  test('new refuses a template no entry declares, naming the ids, and makes no product', () => {
+    const base = scratchFolder();
+    const run = runCommand(['new', '--home', base, '--template', 'nope', '--no-open'], { MADARCH_HOME: base });
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('nope');
+    for (const id of ['everything', 'none']) expect(run.stderr).toContain(id);
+    const products = join(base, 'products');
+    expect(existsSync(products) ? readdirSync(products) : []).toEqual([]);
   }, 30_000);
 
   test('new keeps refusing an unknown option with exit 2, before any draft is created', () => {

@@ -20,7 +20,7 @@ import { readBody, splitFrontMatter, parseTarget } from '../src/knowledge/markdo
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { parse as parseYaml } from 'yaml';
 import { isDeepStrictEqual } from 'node:util';
-import { STARTER_FILES, starterManifest } from '../src/knowledge/seed.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 function argument(name: string, fallback: string): string { const at = process.argv.indexOf(`--${name}`); return at < 0 ? fallback : process.argv[at + 1] ?? fallback; }
 const out = resolve(argument('out', 'shots-questions-once'));
@@ -312,8 +312,10 @@ await capture('empty-');
       const confirmation = await deadline('settings confirmation HTTP body', HTTP_MS, () => confirmed.json()); requireWalk(confirmation.ok === true && confirmation.plan?.unansweredQuestions?.length === 0 && confirmation.plan?.keptAnswers?.length === 1, `${product}: settings confirmation result shape/count mismatch`); evidence.observe('settings-confirmed', { language, confirmation });
       return confirmation;
     }, () => { void evidence.closePage(page).catch((error) => evidence.observe('settings-timeout-close-failed', { error: String(error) })); });
-    for (const entry of STARTER_FILES) requireWalk(readFileSync(join(product, entry.path), 'utf8') === (entry.path === 'madarch/kinds.yaml' ? starterManifest(language) : entry.content), `${join(product, entry.path)}: fresh reset did not produce exact held starter content`);
-    const starterAfter = hashFiles(starterPaths); evidence.observe('intentional-starter-reset-transition', { language, before: starterBefore, after: starterAfter, changed: confirmation.starter });
+    // The reset removes agent pages and the store; the product's own manifest and templates are a person's files and stay.
+    const starterAfter = hashFiles(starterPaths);
+    requireWalk(JSON.stringify(starterBefore) === JSON.stringify(starterAfter), `${product}: the reset changed the product's own starter files`);
+    evidence.observe('starter-files-after-reset', { language, before: starterBefore, after: starterAfter });
     kindsExpected = hashFiles([kindsFile]);
     inputChecks.push(() => { const after = hashFiles(starterPaths); evidence.immutable(`${language}-starter-after.json`, after); assertHashes(starterAfter, after, `${language}: starter reset inputs`); });
     const refill = await settled(confirmation, 'fresh refill'); await evidence.closePage(page);

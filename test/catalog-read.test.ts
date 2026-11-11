@@ -32,7 +32,7 @@ function product(): string {
   for (const file of STARTER_FILES) {
     const path = join(folder, file.path);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, file.content);
+    writeFileSync(path, file.bytes ?? file.content);
   }
   return folder;
 }

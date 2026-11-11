@@ -39,6 +39,8 @@ export interface RunFillOptions {
    * them in, and with a vertex the one entity it rewrites. Left out, the fill takes every kind as a whole fill does.
    */
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  /** The plugin closures this run trusts beside the release's: a test's fixture, or a person's approval. */
+  readonly releaseHashes?: readonly string[];
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
   /** The content language the press named, when it named one: recorded on the run's root span, never a statement. */
@@ -157,7 +159,7 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }) });
+  const fill = await createStagesFill({ product, database: options.database, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
   // Reading the pins is what names a checkout with no commit: the answer says what the run did for
   // it once the run has settled, and a run of this product still reads every other repository.
@@ -177,8 +179,12 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   try {
     const result = await service.run({ product: fill.product, runId });
     const unread = fill.unread();
-    if (unread.length === 0) return result;
-    return result.ok ? { ...result, unread: [...unread] } : result;
+    // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
+    const kinds = fill.kinds;
+    const declaredKinds = kinds === undefined ? undefined : kinds === false ? [] : [...kinds.vertex, ...kinds.edge];
+    const withKind = declaredKinds === undefined ? result : { ...result, declaredKinds };
+    if (unread.length === 0) return withKind;
+    return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
   } finally {
     if (options.keepService !== true) await service.stop();
   }

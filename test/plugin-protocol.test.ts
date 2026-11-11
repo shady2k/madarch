@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { PluginProtocolMessage, type PluginContractDeclaration } from '../src/plugin/protocol.js';
+import { graphReadsOf, PluginContractFile, PluginProtocolMessage, type PluginContractDeclaration } from '../src/plugin/protocol.js';
 import { canonicalKey, validateUnitResult } from '../src/plugin/results.js';
 import { closureHashOf, closureOf, interpreterPinProblem, readPluginManifest, sdkClosureFiles, ClosureRefusal } from '../src/plugin/closure.js';
 import { closureTrustProblem, isReleaseClosure, snapshotClosure } from '../src/plugin/snapshot.js';
@@ -56,6 +56,22 @@ function answer(overrides: Record<string, unknown> = {}): Parameters<typeof vali
     ...overrides,
   } as Parameters<typeof validateUnitResult>[1];
 }
+
+describe('the graph reads a contract declares', () => {
+  test('a graph right with no named reads is files and value, and a named read is what the contract grants', () => {
+    expect(graphReadsOf({ network: 'none', graph: true })).toEqual(['files', 'value']);
+    expect(graphReadsOf({ network: 'none', graph: true, graphReads: ['unresolved', 'removedEnds', 'unevidenced'] })).toEqual(['unresolved', 'removedEnds', 'unevidenced']);
+    expect(graphReadsOf({ network: 'none' })).toEqual([]);
+    expect(graphReadsOf(undefined)).toEqual([]);
+  });
+
+  test('a contract declares its reads, and an unknown read is refused', () => {
+    const contract = { id: 'g', version: '1.0.0', reads: 'whole-graph', outputs: CONTRACT, rights: { network: 'none', graph: true, graphReads: ['unresolved', 'removedEnds', 'unevidenced'] } };
+    expect(Value.Check(PluginContractFile, contract)).toBe(true);
+    expect(Value.Check(PluginContractFile, { ...contract, reads: 'everything' })).toBe(false);
+    expect(Value.Check(PluginContractFile, { ...contract, rights: { ...contract.rights, graphReads: ['unresolved', 'everything'] } })).toBe(false);
+  });
+});
 
 describe('the published schema is the module render', () => {
   test('schema/plugin-protocol.schema.json holds exactly what protocol.ts renders', () => {

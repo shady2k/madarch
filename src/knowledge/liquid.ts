@@ -25,16 +25,15 @@
  */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { selfCommand } from '../product/self-command.js';
 import type { Block } from './model.js';
 import type { Finding } from './kinds.js';
 import { linesOf } from './lines.js';
-import { createTemplateEngine, type BlockRequest, type RenderLimits, type RenderPart, type TemplateEngine } from './liquid-engine.js';
+import { type BlockRequest, type RenderLimits, type RenderPart } from './liquid-engine.js';
 import { type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
-import { TEMPLATES as STARTER_TEMPLATES } from './seed.js';
 import { BLOCK_NAMES, blockIdentity, foldLanguageParams } from './template.js';
+import type { ProductFileSource } from './product-files.js';
 import { decodeWire, encodeWire } from './wire.js';
 
 /** The bounds a page's template runs under, counted by Liquid; a test names its own to see one fire. */
@@ -46,13 +45,6 @@ const RENDER_LIMITS: RenderLimits = {
   blocks: 64,
   outputChars: 4 << 20,
 };
-
-/**
- * The hashes of the templates the starter set ships, by their content: a template byte-identical to one of them is the
- * engine's own, written by nobody, and a page drawn from such templates is drawn by the server itself. A person's
- * template — edited, or written from nothing — matches none of them and is drawn in the worker.
- */
-const STARTER_TEMPLATE_HASHES: ReadonlySet<string> = new Set(Object.values(STARTER_TEMPLATES).map((text) => createHash('sha256').update(text).digest('hex')));
 
 /** The bounds the server enforces itself: the wall clock of a page, the memory its worker may hold, the sizes of a set. */
 const RENDER_BOUNDS = {
@@ -71,86 +63,53 @@ interface TemplateSet {
   findings: Finding[];
 }
 
-const templateCache = new Map<string, { stamp: string; set: TemplateSet }>();
+/** The template set of one source of the product repository's files: one read per source, which is one graph revision. */
+const templateSets = new WeakMap<object, TemplateSet>();
 
 /**
- * Reads the templates of a product: every regular `.liquid` file under
- * `templates`, as `/`-separated paths from the product's root. A link is not
- * read, since it may point anywhere, and a set past the caps is refused with a
- * finding, so a product cannot make the wiki hold a template it could not have
- * written. The set is cached until one of the files changes.
+ * Reads the templates of a product: every `.liquid` file under `templates`, as `/`-separated paths from the product's
+ * root. The source is the graph's stored files for a reader of the wiki, and the fill's working tree for the fill; a
+ * symlink is not in the graph's file index (its mode is the link's), so no template is read through one. A set past the
+ * caps is refused with a finding, so a product cannot make the wiki hold a template it could not have written. The set
+ * is kept with the source: the source of a graph revision is read once.
  */
-export function templateSetOf(productFolder: string): TemplateSet {
-  const found: { path: string; mtimeMs: number; size: number }[] = [];
+export function templateSetOf(source: ProductFileSource): TemplateSet {
+  const cached = templateSets.get(source);
+  if (cached !== undefined) return cached;
   const findings: Finding[] = [];
-  // The folder itself is contained first: a `templates` that is a link out of the product would make every path below a
-  // file of somebody else's tree.
-  let root: string | undefined;
-  try {
-    root = realpathSync(join(productFolder, 'templates'));
-    const product = realpathSync(productFolder);
-    if (root !== join(product, 'templates')) {
-      findings.push({ file: 'templates', line: 1, message: `the templates folder is a link to ${root}, outside the product ${product}: no template is read` });
-      root = undefined;
-    }
-  } catch {
-    root = undefined;
-  }
-  const walk = (folder: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(join(productFolder, folder), { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const path = `${folder}/${entry.name}`;
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) { walk(path); continue; }
-      if (!entry.isFile() || !entry.name.endsWith('.liquid')) continue;
-      const stat = statSync(join(productFolder, path), { throwIfNoEntry: false });
-      // A file's own real path is inside the folder: the walk already skips links, and this is the second showing.
-      if (stat === undefined || (root !== undefined && !realpathSync(join(productFolder, path)).startsWith(`${root}${sep}`) && realpathSync(join(productFolder, path)) !== root)) {
-        findings.push({ file: path, line: 1, message: 'the template is a link or a path outside the templates folder: it is not read' });
-        continue;
-      }
-      found.push({ path, mtimeMs: stat.mtimeMs, size: stat.size });
-    }
-  };
-  if (root !== undefined) walk('templates');
-  const stamp = found.map((entry) => `${entry.path}:${entry.mtimeMs}:${entry.size}`).join('|');
-  const cached = templateCache.get(productFolder);
-  if (cached !== undefined && cached.stamp === stamp) return cached.set;
+  const found = source.filesBelow('templates').filter((path) => path.endsWith('.liquid'));
   const files: Record<string, string> = {};
   let chars = 0;
   if (found.length > RENDER_BOUNDS.templateFiles) {
     findings.push({ file: 'templates', line: 1, message: `the product holds ${found.length} templates and a page reads at most ${RENDER_BOUNDS.templateFiles}: the rest are not read` });
   }
-  for (const entry of found.slice(0, RENDER_BOUNDS.templateFiles)) {
-    // The caps are read from the sizes the walk took, before a byte is held: a file past them is not opened.
-    if (chars + entry.size > RENDER_BOUNDS.templateChars) {
-      findings.push({ file: entry.path, line: 1, message: `the templates of the product hold more than ${RENDER_BOUNDS.templateChars} characters: this one and the ones after it are not read` });
+  for (const path of found.slice(0, RENDER_BOUNDS.templateFiles)) {
+    // The caps are read from the sizes the source holds, before a byte is held: a file past them is not opened.
+    const size = source.size(path) ?? 0;
+    if (chars + size > RENDER_BOUNDS.templateChars) {
+      findings.push({ file: path, line: 1, message: `the templates of the product hold more than ${RENDER_BOUNDS.templateChars} characters: this one and the ones after it are not read` });
       break;
     }
-    let text: string;
-    try {
-      text = readFileSync(join(productFolder, entry.path), 'utf8');
-    } catch (error) {
-      findings.push({ file: entry.path, line: 1, message: `the template cannot be read: ${(error as Error).message}` });
+    const text = source.text(path);
+    if (text === undefined) {
+      findings.push({ file: path, line: 1, message: 'the template cannot be read: the source holds no text of it' });
       continue;
     }
     chars += text.length;
-    files[entry.path] = text;
+    files[path] = text;
   }
   const digest = createHash('sha256').update(JSON.stringify(files)).digest('hex');
   const set: TemplateSet = { files, digest, findings };
-  templateCache.set(productFolder, { stamp, set });
+  templateSets.set(source, set);
   return set;
 }
 
 /** One page drawn from its templates: the kind's template, the page's attributes, and where its blocks are read. */
 export interface LiquidPageInput {
+  /** The product folder: the identity of the product's render worker, never a source of files. */
   productFolder: string;
+  /** The product repository's files as the graph holds them: the templates are read here, never from the checkout. */
+  files: ProductFileSource;
   /** The kind's template, product relative: `templates/service.liquid`. */
   template: string;
   /** The page's attributes, read as `{{ label }}` and as `{{ page.label }}`. */
@@ -175,8 +134,8 @@ export interface LiquidPageOutcome {
   findings: Finding[];
   /** A refusal no template line belongs to: the template is not in the product's set, or the worker could not answer. */
   refused?: string;
-  /** Which way the page was drawn: by the server itself (the starter set's own templates), or by a worker of its own. */
-  renderedIn?: 'inline' | 'worker';
+  /** Which way the page was drawn: always by a worker of the product's own, since the engine holds no template of its own. */
+  renderedIn?: 'worker';
 }
 
 // ---- the worker ---------------------------------------------------------------------------------
@@ -331,13 +290,15 @@ async function nextLine(connection: Connection): Promise<string | undefined> {
  * round trip instead of a process's start. A worker that cannot start is no page's problem yet; the page that needs it
  * says why.
  */
-export function warmRenderWorker(productFolder: string): void {
+export async function warmRenderWorker(files: ProductFileSource, productFolder: string): Promise<void> {
+  // The worker's process start and its template set are what the first page would otherwise pay: the warm-up awaits
+  // them, so a server that warms before it answers has a worker ready for its first page (madarch-64o5.3's walk).
   const slot = slotOf(productFolder);
-  if (slot.connection !== undefined || slot.busy) return;
+  if (slot.opening !== undefined) return void await slot.opening;
+  if (slot.connection !== undefined && !slot.connection.ended && slot.busy) return;
   try {
-    startWorker(slot);
-    const set = templateSetOf(productFolder);
-    void open(slot, set, RENDER_LIMITS, { wallClockMs: RENDER_BOUNDS.wallClockMs, memoryMiB: RENDER_BOUNDS.memoryMiB }).catch(() => undefined);
+    const set = templateSetOf(files);
+    await open(slot, set, RENDER_LIMITS, { wallClockMs: RENDER_BOUNDS.wallClockMs, memoryMiB: RENDER_BOUNDS.memoryMiB });
   } catch {
     // the page that needs a worker starts one and says what went wrong
   }
@@ -425,14 +386,14 @@ async function open(slot: Slot, set: TemplateSet, limits: RenderLimits, bounds: 
 }
 
 /**
- * Draws one page's templates. A page whose every template is byte-identical to one the starter set ships is drawn by the
- * server itself — nobody wrote it, and the engine's own cooperative limits bound it. A page that reaches a template a
- * person wrote or edited is drawn in a process of the product's own, which the server kills past a wall clock and a
- * memory bound. Either way the page's blocks are read in one go after it is rendered — one hop, not one per block — and
- * a page that tested a block's own data is rendered once more with that data in hand.
+ * Draws one page's templates in a process of the product's own, which the server kills past a wall clock and a memory
+ * bound. The engine holds no copy of any template: the set is the product repository's rows, and whether a template is
+ * one madarch wrote into the product is nothing the engine knows. The page's blocks are read in one go after it is
+ * rendered — one hop, not one per block — and a page that tested a block's own data is rendered once more with that
+ * data in hand.
  */
 export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPageOutcome> {
-  const set = templateSetOf(input.productFolder);
+  const set = templateSetOf(input.files);
   const findings: Finding[] = [...set.findings];
   if (!(input.template in set.files)) {
     return { blocks: [], findings, refused: `the template ${input.template} is not among the templates of the product: a kind's template is a .liquid file under templates` };
@@ -443,13 +404,6 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
     memoryMiB: input.bounds?.memoryMiB ?? RENDER_BOUNDS.memoryMiB,
   };
   const read = new Map<string, Block>();
-  // A set of the engine's own templates goes to the server's own engine; one file a person wrote sends the page to the
-  // worker (a layout or a partial a person edited is reached by every page that renders it).
-  const inline = engineOwnSet(set);
-  if (inline) {
-    const drawn = await renderInline(input, set, limits, read, findings);
-    return { ...drawn, renderedIn: 'inline' };
-  }
   const slot = slotOf(input.productFolder);
   await turn(slot);
   try {
@@ -478,42 +432,6 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
       slot.idle.unref?.();
     }
   }
-}
-
-/** Whether the product's pages are drawn by the server itself: every template of its set is one the starter set ships. */
-export function rendersInProcess(productFolder: string): boolean {
-  return engineOwnSet(templateSetOf(productFolder));
-}
-
-/** Whether every template of the set is one the starter set ships, byte for byte: nothing of it was written by a person. */
-function engineOwnSet(set: TemplateSet): boolean {
-  const files = Object.values(set.files);
-  return files.length > 0 && files.every((text) => STARTER_TEMPLATE_HASHES.has(createHash('sha256').update(text).digest('hex')));
-}
-
-/** The page drawn by the server's own engine: the blocks read here, and no process to kill. */
-async function renderInline(input: LiquidPageInput, set: TemplateSet, limits: RenderLimits, read: Map<string, Block>, findings: Finding[]): Promise<LiquidPageOutcome> {
-  const engine: TemplateEngine = createTemplateEngine({ templates: set.files, blocks: BLOCK_NAMES, limits });
-  const drawn = async (data: Readonly<Record<string, unknown>>) => {
-    try {
-      return { ok: true as const, answered: await engine.render(input.template, data) };
-    } catch (error) {
-      const held = error as { message?: string; file?: string; line?: number };
-      return { ok: false as const, message: held.message ?? String(error), file: held.file ?? input.template, line: held.line ?? 1 };
-    }
-  };
-  let reply = await drawn(input.data);
-  if (reply.ok && reply.answered.dataMisses.length > 0) {
-    const data: Record<string, unknown> = { ...input.data };
-    for (const name of reply.answered.dataMisses) data[name] = await readBlock(input, { name, params: {}, file: input.template, line: 1 }, read);
-    reply = await drawn(data);
-  }
-  if (!reply.ok) {
-    findings.push({ file: reply.file, line: reply.line, message: reply.message });
-    return { blocks: [{ type: 'problem', block: input.template, file: reply.file, line: reply.line, message: reply.message }], findings };
-  }
-  const blocks = await Promise.all(reply.answered.requests.map((request) => readBlock(input, request, read)));
-  return { blocks: assemble(reply.answered.parts, blocks, input.only), findings };
 }
 
 /** What the templates answered: the page's blocks read and put in the order they stand, and what the templates got wrong. */
