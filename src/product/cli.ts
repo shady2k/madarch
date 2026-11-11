@@ -678,8 +678,15 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         try { process.kill(parent, 0); } catch { process.kill(process.pid, 'SIGTERM'); }
       }, 50) : undefined;
       watching?.unref();
-      try { return await main(rest, deps); }
-      finally { if (watching !== undefined) clearInterval(watching); }
+      try {
+        const code = await main(rest, deps);
+        // A successful serve returns while its HTTP server still runs: its parent watch lives with the process.
+        if (code !== 0 && watching !== undefined) clearInterval(watching);
+        return code;
+      } catch (error) {
+        if (watching !== undefined) clearInterval(watching);
+        throw error;
+      }
     }
     console.error(`unknown role "${role ?? ''}": the roles are "api" (serves the pages and the press) and "fill" (runs the fills the press asks for)`);
     return 2;
