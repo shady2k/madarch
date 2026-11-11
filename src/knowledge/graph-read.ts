@@ -556,10 +556,18 @@ function entityOf(row: Raw, sources = true): GraphEntity {
  * context is read, a field they all agree on is its value, and a field they differ on is the list of their values —
  * no producer's opinion is picked, and the newest row is not privileged (the review of stage 1c, finding 4).
  */
-async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: string, declared?: GeneratedEdgeRead): Promise<Record<string, unknown>> {
-  const opinions = async (table: string, columns: readonly string[]): Promise<Record<string, unknown>[]> => {
-    const found = await tx.query<Record<string, unknown>>(`SELECT ${columns.map((column) => `o."${column}"`).join(', ')} FROM ${table} o WHERE o."edge_id" = $1::bigint AND o."state" = 'open' AND o."context_id" = 1 ORDER BY o."id"`, [edgeId]);
-    return found.rows;
+async function edgePropertiesOf(tx: OuterTransaction, edgeIds: readonly string[], graphKind: string, declared?: GeneratedEdgeRead): Promise<Map<string, Record<string, unknown>>> {
+  const properties = new Map<string, Record<string, unknown>>();
+  if (edgeIds.length === 0) return properties;
+  const opinions = async (table: string, columns: readonly string[]): Promise<Map<string, Record<string, unknown>[]>> => {
+    const found = await tx.query<Record<string, unknown> & { edge_id: string }>(`SELECT o."edge_id"::text AS edge_id, ${columns.map((column) => `o."${column}"`).join(', ')} FROM ${table} o WHERE o."edge_id" = ANY($1::bigint[]) AND o."state" = 'open' AND o."context_id" = 1 ORDER BY o."id"`, [`{${edgeIds.join(',')}}`]);
+    const grouped = new Map<string, Record<string, unknown>[]>();
+    for (const row of found.rows) {
+      const rows = grouped.get(row.edge_id) ?? [];
+      rows.push(row);
+      grouped.set(row.edge_id, rows);
+    }
+    return grouped;
   };
   const agreed = (rows: readonly Record<string, unknown>[], field: string): unknown => {
     const values = rows.map((row) => row[field]).filter((value) => value !== null && value !== undefined);
@@ -567,22 +575,26 @@ async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: s
     if (distinct.size === 0) return undefined;
     return distinct.size === 1 ? values[0] : [...distinct.values()];
   };
-  // A kind the manifest's `edges:` declarations made keeps its fields in its own table, whose columns are the fields;
-  // a kind with no fields has no table and answers nothing.
-  if (declared !== undefined) {
-    if (declared.table === undefined || declared.columns.length === 0) return {};
-    const rows = await opinions(declared.table, declared.columns);
-    return Object.fromEntries(declared.columns.map((field) => [field, agreed(rows, field)]));
+  // One read loads the whole relation's opinions; agreement is still computed separately for each edge.
+  const columns = declared?.columns ?? (graphKind === `${GIT_KINDS.touched}` ? ['change', 'added', 'removed'] : graphKind === `${GIT_KINDS.parent}` ? ['position'] : graphKind === `${GIT_KINDS.history}` ? ['walk'] : []);
+  const table = declared === undefined
+    ? graphKind === `${GIT_KINDS.touched}` ? GIT_TABLES.touched : graphKind === `${GIT_KINDS.parent}` ? GIT_TABLES.parent_position : graphKind === `${GIT_KINDS.history}` ? GIT_TABLES.history : undefined
+    : declared.table;
+  if (table === undefined || columns.length === 0) return properties;
+  const grouped = await opinions(table, columns);
+  for (const edgeId of edgeIds) {
+    const rows = grouped.get(edgeId) ?? [];
+    const values = Object.fromEntries(columns.map((field) => [field, agreed(rows, field)]));
+    if (declared === undefined && graphKind === `${GIT_KINDS.touched}`) {
+      for (const field of ['added', 'removed']) if (values[field] !== undefined) values[field] = Number(values[field]);
+    }
+    properties.set(edgeId, values);
   }
-  if (graphKind === `${GIT_KINDS.touched}`) {
-    const rows = await opinions(GIT_TABLES.touched, ['change', 'added', 'removed']);
-    const added = agreed(rows, 'added');
-    const removed = agreed(rows, 'removed');
-    return { change: agreed(rows, 'change'), added: added === undefined ? undefined : Number(added), removed: removed === undefined ? undefined : Number(removed) };
-  }
-  if (graphKind === `${GIT_KINDS.parent}`) return { position: agreed(await opinions(GIT_TABLES.parent_position, ['position']), 'position') };
-  if (graphKind === `${GIT_KINDS.history}`) return { walk: agreed(await opinions(GIT_TABLES.history, ['walk']), 'walk') };
-  return {};
+  return properties;
+}
+
+async function edgeProperties(tx: OuterTransaction, edgeId: string, graphKind: string, declared?: GeneratedEdgeRead): Promise<Record<string, unknown>> {
+  return (await edgePropertiesOf(tx, [edgeId], graphKind, declared)).get(edgeId) ?? {};
 }
 
 
@@ -1395,8 +1407,10 @@ export class GraphReader {
         [graph.kind],
       );
       const entities = await this.entitiesOfIds(tx, [...new Set(found.rows.flatMap((row) => [row.from_node, row.to_node]))]);
+      const shown = found.rows.slice(0, limit);
+      const properties = await edgePropertiesOf(tx, shown.map((row) => row.id), graph.kind, this.generatedEdges?.get(graph.kind));
       const rows: RelationEdge[] = [];
-      for (const row of found.rows.slice(0, limit)) {
+      for (const row of shown) {
         const from = entities.get(row.from_node);
         const to = entities.get(row.to_node);
         if (from === undefined || to === undefined) continue;
@@ -1406,7 +1420,7 @@ export class GraphReader {
           discriminator: row.discriminator,
           from: { key: from.key, kind: from.kind, label: from.label, properties: from.properties },
           to: { key: to.key, kind: to.kind, label: to.label, properties: to.properties },
-          properties: await edgeProperties(tx, row.id, graph.kind, this.generatedEdges?.get(graph.kind)),
+          properties: properties.get(row.id) ?? {},
         });
       }
       return { total: found.rows.length, rows };
