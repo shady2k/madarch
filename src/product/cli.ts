@@ -13,7 +13,7 @@
 import { installOwnWiki, ownWikiOff } from './own-wiki.js';
 import { readPinnedGraphContract } from './fill-stages.js';
 import { validateProductManifests } from '../graph/manifest-publication.js';
-import { prepareDaemonProduct, withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
+import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { mkdir } from 'node:fs/promises';
@@ -1086,8 +1086,6 @@ function nextSteps(folder: string, init: boolean): void {
 async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>): Promise<number> {
   const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
   if (!started.ok) { console.error(started.message); return 1; }
-  const ownerHome = resolve(productsHome(process.env as DraftEnv, parsed.home));
-  await prepareDaemonProduct(ownerHome, storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(ownerHome))), await readPinnedGraphContract(folder));
   const name = encodeURIComponent(basename(folder));
   const url = `${started.url}/products/${name}/`;
   const env: ServeEnv = deps.app?.env ?? process.env;

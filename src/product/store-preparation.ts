@@ -24,11 +24,6 @@ export async function requestHistoryPreparation(store: string, database?: string
 export async function requestHistoryRename(store: string, from: string, to: string): Promise<void> {
   await request({ store, rename: { from, to } });
 }
-/** Activate a newly created product in an already running daemon before opening its wiki. */
-export async function prepareDaemonProduct(home: string, store: string, contract: GraphContract): Promise<void> {
-  const descriptor = JSON.parse(readFileSync(join(home, '.madarch-store-owner.json'), 'utf8')) as { url: string; token: string };
-  await sendRequest({ store, contract }, descriptor.url, descriptor.token);
-}
 /** A separate CLI invocation borrows the live daemon's preparation service, never its ownership. */
 export async function withDaemonStorePreparation<T>(home: string, work: () => Promise<T>): Promise<T> {
   const descriptor = JSON.parse(readFileSync(join(home, '.madarch-store-owner.json'), 'utf8')) as { url: string; token: string };
