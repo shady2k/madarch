@@ -13,6 +13,7 @@ import { GraphReader, type FileFactRow, type GraphEntity } from '../src/knowledg
 import type { Block } from '../src/knowledge/model.js';
 import { byCodePoint } from '../src/model/order.js';
 import { Resolver } from '../src/knowledge/resolve.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const unusedOwner: DatabaseOwner = {
   location: 'unused treemap fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false,
@@ -100,6 +101,7 @@ const fixture = (rows: GraphEntity[], sources: ReadonlyMap<string, string> = new
   const reads: string[] = [];
   const ctx: RenderContext = {
     productFolder: '',
+    files: workingTreeFiles(''),
     manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     graph: reader,
     markdown: new Map(),

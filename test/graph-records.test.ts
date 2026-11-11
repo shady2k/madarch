@@ -191,10 +191,11 @@ describe('the two passes over one fixture', () => {
     const historyCounts = await publishHistory(owner, history);
     // One file's blob moved: the file's row is updated, the new commit's vertex and its row and the
     // as-is edge are added, and the edge to the commit the repository stood at before is removed.
-    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 2 (the file's
-    // opinion and the dataset's, each now resting on the new commit as its evidence), deleted 1 (the old as-is edge).
+    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 3 (the file's
+    // mechanism entry, its opinion and the dataset's opinion — the last two now resting on the new commit as their
+    // evidence), deleted 1 (the old as-is edge).
     expect(treeCounts.inserted).toBe(3);
-    expect(treeCounts.updated).toBe(2);
+    expect(treeCounts.updated).toBe(3);
     expect(treeCounts.deleted).toBe(1);
     expect(historyCounts.inserted).toBeGreaterThan(0);
     expect(historyCounts.updated + historyCounts.unchanged).toBeGreaterThan(0);

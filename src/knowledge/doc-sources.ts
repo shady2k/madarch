@@ -3,12 +3,8 @@
  * repository's, as the graph holds them at the commit the fill read. The documents the wiki lists, and the ones the
  * entities of the manifest's document kinds are read from, are the same set: the product's pages (the files of its
  * Markdown kinds) and the documents the manifest excludes are neither. The graph is the one source: `product.ts` reads
- * the paths and the text through `GraphReader`, and `productDocumentPaths` remains only for the product's own
- * working-tree stamps and the reset plan.
+ * the paths and the text through `GraphReader`; a reader of a page never walks the working tree (madarch-hsqs stage C).
  */
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
-import { join, sep } from 'node:path';
-import { byCodePoint } from '../model/order.js';
 import { matchesAny, type KindsManifest } from './kinds.js';
 
 /** The endings a Markdown document's name carries: the graph's document query filters on these, and the path rule is theirs. */
@@ -48,31 +44,3 @@ export function listedDocument(manifest: KindsManifest, repo: string | null, pat
   return !matchesAny(manifest.excludeDocuments, path);
 }
 
-/** Where the product's `docs` folder really is when it is a link out of the product repository; undefined when it is inside or absent. */
-function docsLinkedOutside(productFolder: string): string | undefined {
-  try {
-    const real = realpathSync(join(productFolder, 'docs'));
-    const root = realpathSync(productFolder);
-    return real === root || real.startsWith(`${root}${sep}`) ? undefined : real;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The product repository's Markdown documents, `/`-separated and in code point order; a `docs` folder that links out of the product is not walked. */
-export function productDocumentPaths(productFolder: string): string[] {
-  const found: string[] = [];
-  const walk = (folder: string, relativeFolder: string): void => {
-    for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
-      if (entry.name.startsWith('.')) continue;
-      const relative = relativeFolder === '' ? entry.name : `${relativeFolder}/${entry.name}`;
-      if (entry.isDirectory()) walk(join(folder, entry.name), relative);
-      else if (entry.isFile() && DOCUMENT_PATH.test(entry.name)) found.push(relative);
-    }
-  };
-  for (const entry of readdirSync(productFolder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
-    if (entry.isFile() && DOCUMENT_PATH.test(entry.name) && !entry.name.startsWith('.')) found.push(entry.name);
-  }
-  if (existsSync(join(productFolder, 'docs')) && docsLinkedOutside(productFolder) === undefined) walk(join(productFolder, 'docs'), 'docs');
-  return found;
-}

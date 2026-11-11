@@ -66,7 +66,7 @@ const MANIFEST = [
 ].join('\n');
 
 function page(id: string, kind: string, title: string, body: string): MarkdownEntity {
-  return { id, kind, title, relates: [], producer: 'agent', sources: [], body, bodyLine: 1, file: kind === 'product' ? 'docs/product.md' : 'docs/glossary.md', front: {} };
+  return { id, kind, title, relates: [], producer: 'agent', sources: [], body, bodyLine: 1, file: kind === 'product' ? 'docs/product.md' : 'docs/glossary.md', source: body, front: {} };
 }
 
 const milestone: GraphEntity = {

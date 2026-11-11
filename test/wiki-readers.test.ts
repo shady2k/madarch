@@ -124,6 +124,21 @@ describe('the products-home server with madarch\'s own wiki', () => {
   let empty: StartedServer;
   let busy: StartedServer;
   const errors: string[] = [];
+  /** Fills one product and waits for the store a page reads. */
+  const fillProduct = async (server: StartedServer, name: string): Promise<void> => {
+    let started = await fetch(`${server.url}/products/${name}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    for (let attempt = 0; attempt < 600 && started.status === 409; attempt += 1) {
+      await new Promise((rest) => setTimeout(rest, 100));
+      started = await fetch(`${server.url}/products/${name}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    }
+    if (started.status !== 202) throw new Error(`the fill of ${name} answered ${started.status}`);
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      const state = (await get(server, `/products/${name}/api/status`)).body.fill?.state as string | undefined;
+      if (state !== 'running') return;
+      await new Promise((rest) => setTimeout(rest, 100));
+    }
+    throw new Error(`the fill of ${name} did not end`);
+  };
   const get = async (server: StartedServer, path: string, init?: RequestInit): Promise<{ status: number; body: any; location: string | null }> => {
     const response = await fetch(`${server.url}${path}`, { redirect: 'manual', ...init });
     const text = await response.text();
@@ -158,7 +173,10 @@ describe('the products-home server with madarch\'s own wiki', () => {
         await new Promise((rest) => setTimeout(rest, 500));
       }
     }
-  }, 120_000);
+    // Each server's own wiki is a product repository: its pages are the graph's, so a fill stores it once here.
+    for (const server of [empty, busy]) await fillProduct(server, 'madarch-wiki');
+    await fillProduct(busy, 'my-product');
+  }, 300_000);
 
   afterAll(async () => {
     await empty.stop();
@@ -201,18 +219,24 @@ describe('the products-home server with madarch\'s own wiki', () => {
     expect(html).toContain('src="/products/my-product/assets/index.js"');
   });
 
-  test('the own wiki is documentation: no fill, no start over', async () => {
-    const fill = await get(busy, '/products/madarch-wiki/api/fill', { method: 'POST' });
-    expect(fill.status).toBe(409);
-    expect(fill.body.message).toContain('documentation');
+  test("the own wiki is documentation: its own repository is filled like a product's, and it has no start over", async () => {
+    // The pages are the graph's (madarch-hsqs stage C): the install filled its repository, and a press fills it again.
+    const fill = await get(busy, '/products/madarch-wiki/api/fill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect([202, 409]).toContain(fill.status);
+    const status = await get(busy, '/products/madarch-wiki/api/status');
+    expect(status.body.filled).toBe(true);
     expect((await get(busy, '/products/madarch-wiki/api/reset', { method: 'POST' })).status).toBe(403);
   });
 
-  test('the glossary reads only the store: no fill stage writes its terms yet, so it answers none', async () => {
+  test("the glossary reads the store: the terms are the ones the fill stored from the wiki's own glossary", async () => {
     const answer = await get(busy, '/products/madarch-wiki/api/glossary');
     if (answer.status !== 200) throw new Error(`the glossary answered ${answer.status} ${JSON.stringify(answer.body)}; the server said:\n${errors.join('\n')}`);
-    // The answer carries a count, never the list (madarch-8bdc.2.5): no stage writes a term, so the count is zero.
-    expect(answer.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
+    // The terms are the graph's, written by the files producer's plugin turn (madarch-hsqs stage C): never a request-time
+    // read of the checkout.
+    const terms = answer.body.terms as { definition: string }[];
+    expect(terms.length).toBeGreaterThan(0);
+    expect(terms.some((term) => term.definition.includes('money is taken'))).toBe(true);
+    expect(answer.body.findingCount).toBe(0);
   });
 
   test('a document section is no page: no fill stage reads the products documents at request time', async () => {

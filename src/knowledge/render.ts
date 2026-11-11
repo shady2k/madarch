@@ -6,11 +6,9 @@ import { contentLanguage } from './plural.js';
  * rendered over the graph and the Markdown. Nothing here names a kind: the
  * kind's declaration and its template say what the page shows.
  */
-import { readFileSync } from 'node:fs';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
@@ -85,6 +83,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   if (decl.template.endsWith('.liquid')) {
     const outcome = await renderLiquidPage({
       productFolder: ctx.productFolder,
+      files: ctx.files,
       template: decl.template,
       data: { ...pageAttributes(subject, decl.attributes), lang: lang ?? ctx.language },
       ...(lang === undefined ? {} : { lang }),
@@ -100,11 +99,10 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     }
     if (outcome.refused !== undefined && outcome.blocks.length === 0) return { ok: false, status: 500, message: outcome.refused };
   } else {
-    let templateText: string;
-    try {
-      templateText = readFileSync(join(ctx.productFolder, decl.template), 'utf8');
-    } catch (error) {
-      return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: ${(error as Error).message}` };
+    // The template is the product repository's file as the graph holds it: a reader of a page never opens the checkout.
+    const templateText = ctx.files.text(decl.template);
+    if (templateText === undefined) {
+      return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: the graph holds no text of it (src/knowledge/render.ts)` };
     }
     for (const part of parseTemplate(templateText)) {
       // One block asked for by its identity is the whole page a deferred diagram reads: its text is not part of the answer.

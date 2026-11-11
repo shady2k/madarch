@@ -28,9 +28,7 @@
  * a later madarch still opens, the manifest's own rule for a field it does
  * not know.
  */
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { lineOf, MANIFEST_FILE, parseManifest } from '../product/manifest.js';
+import { lineOf, parseManifest } from '../product/manifest.js';
 import { STAGE_ID_PATTERN } from './stage.js';
 
 /** One problem found in the product's fill configuration, named where it stands. */
@@ -74,15 +72,14 @@ function shown(value: unknown): string {
  * the manifest's own refusal, at its own line — since the same file standing
  * damaged cannot be half trusted for the fill.
  */
-export function readFillStageConfiguration(productFolder: string): FillStageConfigurationRead {
-  const file = join(resolve(productFolder), MANIFEST_FILE);
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: true, file, stages: {}, lines: {} };
-    return refused(file, 1, '', `${file} could not be read: ${(error as Error).message}`);
-  }
+
+/**
+ * Reads the fill configuration from a manifest's text, as the pinned tree of the fill's product repository holds it:
+ * the fill reads the file it stores, never the working tree beside it (madarch-hsqs stage C). `text` undefined is a
+ * product holding no manifest, which configures no stage.
+ */
+export function parseFillStageConfiguration(text: string | undefined, file: string): FillStageConfigurationRead {
+  if (text === undefined) return { ok: true, file, stages: {}, lines: {} };
   const parsed = parseManifest(text, file);
   if (!parsed.ok) return refused(file, parsed.line, '', parsed.message);
   const value = parsed.value as unknown;

@@ -511,6 +511,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   if (productHome !== undefined) {
     refreshProducts();
     for (const entry of productEntries.values()) await knowledgeHost.of(entry.wiki.product.folder).warmNow();
+  } else if (productWiki !== undefined) {
+    // One product's server warms it before its first answer, the worker included (the same warm-up the home does).
+    await knowledgeHost.of(productWiki.product.folder).warmNow();
   }
   return {
     hostname: server.url.hostname,

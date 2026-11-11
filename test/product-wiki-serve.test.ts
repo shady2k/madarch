@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(60_000);
 import { serveWiki, type ServeResult } from '../src/product-wiki/serve.js';
 import type { StartedServer } from '../src/server/http.js';
 
@@ -122,11 +124,24 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(join(folder, 'templates'), { recursive: true });
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: bare-id\nname: Bare\n');
     writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
+    // The product repository's commit is what a fill stores: git is given it here, as madarch's own commands do.
+    const git = (args: string[]): void => { execFileSync('git', args, { cwd: folder, env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' } }); };
+    git(['init', '--quiet', '--initial-branch=main']);
     const result = serving(await serveWiki({ productFolder: folder, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
+    const first = await (await fetch(`${result.url}/api/status`)).json() as { manifest: string; seeded: string[] };
+    // The init wrote the starter set and committed it; the graph holds it after the fill.
+    expect(first.seeded).not.toContain('templates/domain.liquid');
+    expect(first.seeded).toContain('templates/product.liquid');
+    expect(first.manifest).toBe('no-manifest');
+    const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(pressed.status).toBe(202);
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      const state = (await (await fetch(`${result.url}/api/status`)).json() as { fill: { state: string } }).fill.state;
+      if (state !== 'running') break;
+      await new Promise((rest) => setTimeout(rest, 100));
+    }
     const status = await (await fetch(`${result.url}/api/status`)).json() as { manifest: string; seeded: string[]; kinds: { kind: string }[] };
     expect(status.manifest).toBe('ok');
-    expect(status.seeded).not.toContain('templates/domain.liquid');
-    expect(status.seeded).toContain('templates/product.liquid');
     expect(status.kinds.map((kind) => kind.kind)).toContain('code.file');
     expect(readFileSync(join(folder, 'templates', 'domain.liquid'), 'utf8')).toBe('my own template\n');
   }, 60_000);

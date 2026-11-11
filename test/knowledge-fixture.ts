@@ -89,11 +89,31 @@ export function makeProduct(home: string, name: string, repository: string, repo
   return draft.folder;
 }
 
-/** The two pages an agent would write, as files of the product repository. */
+/**
+ * Runs no plugin turns in a fixture: a fill runs one unit per term the glossary plugin emits, and a test that presses a
+ * fill after every loop write pays for plugin turns it does not assert. The manifest is unchanged; the fill's own
+ * configuration in `workspace.yaml` disables the stage.
+ */
+export function withoutPluginTurns(folder: string): void {
+  const file = join(folder, 'workspace.yaml');
+  const text = readFileSync(file, 'utf8');
+  if (text.includes('plugin-turns')) return;
+  writeFileSync(file, `${text.trimEnd()}\nfill:\n  stages:\n    plugin-turns:\n      enabled: false\n`);
+  commitProduct(folder, 'Run no plugin turns in this fixture');
+}
+
+/** The two pages an agent would write, committed as the agent: the wiki reads the product repository's commit. */
 export function writeSamplePages(folder: string): void {
   mkdirSync(join(folder, 'docs', 'domains'), { recursive: true });
   writeFileSync(join(folder, 'docs', 'product.md'), SAMPLE_PRODUCT);
   writeFileSync(join(folder, 'docs', 'domains', 'payment.md'), SAMPLE_DOMAIN);
+  commitProduct(folder, 'Write the sample pages');
+}
+
+/** Commits every change of a product folder as the fixture's agent, the way the loop commits its own writes. */
+export function commitProduct(folder: string, message: string): void {
+  execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '--allow-empty', '-m', message], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
 }
 
 /**
@@ -108,4 +128,5 @@ export function withoutEnrichmentKind(folder: string): void {
   if (!manifest.hasIn(['kinds', 'enrichment'])) return;
   manifest.deleteIn(['kinds', 'enrichment']);
   writeFileSync(file, manifest.toString());
+  commitProduct(folder, 'Drop the enrichment kind');
 }

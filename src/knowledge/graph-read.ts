@@ -11,7 +11,7 @@ import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner
 import { byCodePoint } from '../model/order.js';
 import type { LandmarkPlan } from './history-landmarks.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
-import { commitWithPaths, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts } from '../graph/index.js';
+import { RecordGap, commitWithPaths, fileContent, fileContents, fileFacts, fileHistory, fileTextAt, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts, repositoryFileIndex } from '../graph/index.js';
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
 import { entityAddress } from './addresses.js';
 import { DOCUMENT_SUFFIXES } from './doc-sources.js';
@@ -115,8 +115,6 @@ export interface HistoryEvidence {
 type Raw = Record<string, unknown>;
 
 /** A store that declares no code kind holds no file or repository table: an empty answer, never an error. */
-const missingTable = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === '42P01';
-
 const WIKI_KIND: Readonly<Record<string, string>> = {
   repository: 'code.repository',
   directory: 'code.directory',
@@ -209,23 +207,49 @@ const OPINIONS_OF = (table: string, node: string, columns: readonly string[], va
   `(SELECT jsonb_agg(jsonb_build_object(${values ? '' : `'id', o."id"::text, 'said_by', o."said_by", `}'lang', o."lang"${values ? '' : `, 'evidence', o."evidence"`}${columns.map((column) => `, '${column}', o."${column}"`).join('')}) ORDER BY o."id")
      FROM ${table} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND o."context_id" = 1)`;
 
-/** The opinion columns of an entity row: every open opinion of the entity's kind, as jsonb arrays. */
-const ENTITY_OPINION_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
+/**
+ * The opinion columns of an entity row: every open opinion of the entity's kind, as jsonb arrays. A product declares
+ * only some of the code kinds, so a table the manifest does not declare is not named at all: its column is NULL and the
+ * SQL never reaches a table the store does not hold (madarch-hsqs stage C).
+ */
+function entityOpinionColumns(declared?: ReadonlySet<string>): string {
+  const columns: string[] = [];
+  if (declared === undefined || declared.has(GIT_KINDS.file)) {
+    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
       'mode', o."mode", 'language', o."language", 'languages', o."languages",
+
       'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
     FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
-    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
-  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'])} END AS commit_opinions,
-  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'])} END AS repository_opinions,`;
+    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions`);
+  } else columns.push('  NULL AS file_opinions');
+  if (declared === undefined || declared.has(GIT_KINDS.commit)) {
+    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'])} END AS commit_opinions`);
+  } else columns.push('  NULL AS commit_opinions');
+  if (declared === undefined || declared.has(GIT_KINDS.repository)) {
+    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'])} END AS repository_opinions`);
+  } else columns.push('  NULL AS repository_opinions');
+  return `${columns.join(',\n')},`;
+}
 
 /** The same opinions without their sources: a bulk read of a kind's entities answers every value and no evidence. */
-const ENTITY_VALUE_COLUMNS = `  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('lang', o."lang",
+function entityValueColumns(declared?: ReadonlySet<string>): string {
+  const columns: string[] = [];
+  if (declared === undefined || declared.has(GIT_KINDS.file)) {
+    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('lang', o."lang",
       'mode', o."mode", 'language', o."language", 'languages', o."languages",
+
       'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
     FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
-    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions,
-  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], true)} END AS commit_opinions,
-  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'], true)} END AS repository_opinions,`;
+    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions`);
+  } else columns.push('  NULL AS file_opinions');
+  if (declared === undefined || declared.has(GIT_KINDS.commit)) {
+    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], true)} END AS commit_opinions`);
+  } else columns.push('  NULL AS commit_opinions');
+  if (declared === undefined || declared.has(GIT_KINDS.repository)) {
+    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'], true)} END AS repository_opinions`);
+  } else columns.push('  NULL AS repository_opinions');
+  return `${columns.join(',\n')},`;
+}
 
 /** The same columns without the opinions: the history and graph reads answer keys, labels and edges only. */
 const ENTITY_PLAIN_COLUMNS = `  NULL AS file_opinions, NULL AS commit_opinions, NULL AS repository_opinions,`;
@@ -244,14 +268,14 @@ const ENTITY_SCOPE_EXPRESSION = `(CASE WHEN k.name = '${GIT_KINDS.repository}' T
  * knows the scope — a history read of one repository — passes it, and every row carries it as a constant, so no row looks
  * its repository up; a caller that names none gets the correlated lookup, and reads few rows.
  */
-function entitySelectSql(scope: string | null, columns: 'full' | 'values' | 'plain'): string {
+function entitySelectSql(scope: string | null, columns: 'full' | 'values' | 'plain', declared?: ReadonlySet<string>): string {
   const scopeColumn = scope !== null && /^\d+$/u.test(scope) ? `'${scope}'::text` : ENTITY_SCOPE_EXPRESSION;
   return `SELECT n.id::text AS node_id, k.name AS kind,
   CASE WHEN k.name = '${GIT_KINDS.repository}' THEN (n.key->>'name') ELSE ${REPOSITORY_KEY('n')} END AS repository_name,
   ${REPOSITORY_KEY('n')} AS scope_repository_name,
   ${PATH_KEY('n')} AS path,
   (n.key->>'hash') AS commit_hash, (n.key->>'name') AS signature_name, (n.key->>'email') AS email,
-${columns === 'plain' ? ENTITY_PLAIN_COLUMNS : columns === 'values' ? ENTITY_VALUE_COLUMNS : ENTITY_OPINION_COLUMNS}
+${columns === 'plain' ? ENTITY_PLAIN_COLUMNS : columns === 'values' ? entityValueColumns(declared) : entityOpinionColumns(declared)}
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id AND pe.context_id = 1) ELSE 0 END AS parent_count,
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'name' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 LIMIT 1) END AS commit_author_name,
   CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'email' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 LIMIT 1) END AS commit_author_email,
@@ -677,7 +701,7 @@ export class GraphReader {
           : graphKind === `${GIT_KINDS.signature}` ? "(n.key->>'email') = $2"
             : referenceKind && repository !== '' ? `(${REPOSITORY_KEY('n')} = $2 AND ${PATH_KEY('n')} = $3)` : `${PATH_KEY('n')} = $2`;
       const params = referenceKind && repository !== '' ? [graphKind, repository, path] : [graphKind, referenceKind ? path : tail];
-      const found = await tx.query<Raw>(`${entitySelectSql(this.scope ?? null, 'full')} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
+      const found = await tx.query<Raw>(`${entitySelectSql(this.scope ?? null, 'full', this.declared)} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
       return this.scoped(found.rows.map((row) => entityOf(row)));
     });
   }
@@ -714,7 +738,9 @@ export class GraphReader {
 
   /** The repository's facts, read once for the page that holds this reader. */
   private async repositoryOnce(name: string): Promise<GraphRepositoryFacts | null> {
-    const facts = await repositoryFacts(this.storeOwner(), name).catch((error: unknown) => { if (missingTable(error)) return null; throw error; });
+    // A product that declares no repository kind has no repository table: the declared contract decides, never a failed read.
+    if (!this.holds(GIT_KINDS.repository)) return null;
+    const facts = await repositoryFacts(this.storeOwner(), name, this.declared);
     if (facts === null) return null;
     return {
       nodeId: facts.nodeId, id: `code.repository:${facts.name}`, name: facts.name, url: facts.url,
@@ -727,7 +753,9 @@ export class GraphReader {
 
   /** Every repository the graph holds, in code point order of the names, each read as its page states it. */
   async repositoryFactsAll(): Promise<GraphRepositoryFacts[]> {
-    const held = await listRepositories(this.storeOwner());
+    // A store with no contract tables holds no repository: it answers none, and its pages say the product is not filled.
+    if (!this.holds(GIT_KINDS.repository)) return [];
+    const held = await listRepositories(this.storeOwner(), this.declared);
     const out: GraphRepositoryFacts[] = [];
     for (const one of held) {
       const facts = await this.repository(one.name);
@@ -738,12 +766,20 @@ export class GraphReader {
 
   /** The text of one file the files producer stored: null when the graph holds none (binary, no fill read it, or the path left the tree). */
   async content(repository: string, path: string): Promise<string | null> {
-    return await fileContent(this.storeOwner(), repository, path).catch((error: unknown) => { if (missingTable(error)) return null; throw error; });
+    return await fileContent(this.storeOwner(), repository, path);
+  }
+
+  /** Every file of a repository's current tree, in code point order: the product repository read whole once per revision. */
+  async fileIndex(repository: string): Promise<readonly FileRecord[]> {
+    return await repositoryFileIndex(this.storeOwner(), repository).catch((error: unknown) => {
+      if (error instanceof RecordGap) return [] as readonly FileRecord[];
+      throw error;
+    });
   }
 
   /** The text of many files at once, by path: the listing's titles read in one statement, never one per file. */
   async contentsOf(repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
-    return await fileContents(this.storeOwner(), repository, paths).catch((error: unknown) => { if (missingTable(error)) return new Map<string, string | null>(); throw error; });
+    return await fileContents(this.storeOwner(), repository, paths);
   }
 
   /**
@@ -751,10 +787,9 @@ export class GraphReader {
    * touched stands on the blob it has now, and a path one did touch is absent by name, never answered with today's text.
    */
   async contentAt(repository: string, path: string, commit: string): Promise<ContentAt> {
-    const held = await fileTextAt(this.storeOwner(), repository, path, commit).catch((error: unknown) => {
-      if (missingTable(error)) return { absent: 'no-file' as const };
-      throw error;
-    });
+    // The text one commit held is the history's: a manifest without those kinds has none to read.
+    if (!this.holds(GIT_KINDS.commit) || !this.holds(GIT_KINDS.touched) || !this.holds(GIT_KINDS.history)) return { absent: 'commit-not-in-history' };
+    const held = await fileTextAt(this.storeOwner(), repository, path, commit);
     if ('text' in held) return held;
     const where = `${JSON.stringify(path)} of ${JSON.stringify(repository)}`;
     switch (held.absent) {
@@ -772,18 +807,18 @@ export class GraphReader {
    * repository answers an empty page.
    */
   async documents(repository: string, options: { readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-    return await listDocuments(this.storeOwner(), { repository, suffixes: DOCUMENT_SUFFIXES, ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit })
-      .catch((error: unknown) => { if (missingTable(error)) return { rows: [] as readonly FileRecord[], next: null }; throw error; });
+    return await listDocuments(this.storeOwner(), { repository, suffixes: DOCUMENT_SUFFIXES, ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
   }
 
   /** One page of a repository's files, for an agent's listing: the graph's own answer, never a checkout's. */
   async files(repository: string, options: { readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit }).catch((error: unknown) => { if (missingTable(error)) return { rows: [], next: null }; throw error; });
+    if (!this.holds(GIT_KINDS.file)) return { rows: [], next: null };
+    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
   }
 
   /** One file with its dates and authors, as the graph holds it. */
   async file(repository: string, path: string): Promise<GraphFileFacts | null> {
-    const facts = await fileFacts(this.storeOwner(), repository, path);
+    const facts = await fileFacts(this.storeOwner(), repository, path, { history: this.holds(GIT_KINDS.commit) && this.holds(GIT_KINDS.touched) && this.holds(GIT_KINDS.history) });
     if (facts === null) return null;
     return {
       repository, path, id: `code.file:${repository}/${path}`, href: entityAddress(`code.file:${repository}/${path}`),
@@ -796,11 +831,13 @@ export class GraphReader {
 
   /** One page of the commits that touched a path. */
   async fileHistory(repository: string, path: string, options: { readonly after?: { readonly walk: number; readonly commit: string }; readonly limit: number }): Promise<{ readonly rows: readonly FileHistoryRow[]; readonly next: { readonly walk: number; readonly commit: string } | null }> {
+    if (!this.holds(GIT_KINDS.commit) || !this.holds(GIT_KINDS.touched) || !this.holds(GIT_KINDS.history)) return { rows: [], next: null };
     return await fileHistory(this.storeOwner(), { repository, path, limit: options.limit, ...(options.after === undefined ? {} : { after: options.after }) });
   }
 
   /** One commit of a repository with its author, dates, parents and changed paths. */
   async commit(repository: string, hash: string): Promise<GraphCommitFacts | null> {
+    if (!this.holds(GIT_KINDS.commit)) return null;
     const facts = await commitWithPaths(this.storeOwner(), repository, hash);
     if (facts === null) return null;
     const hrefOf = (path: string): string | null => entityAddress(`code.file:${repository}/${path}`);
@@ -816,16 +853,16 @@ export class GraphReader {
   async folder(repository: string, folder: string, after: string | undefined, limit: number): Promise<GraphFolderFacts | null> {
     const facts = await this.repository(repository);
     if (facts === null || facts.asIsCommit === null) return null;
-    const directories = await listDirectories(this.storeOwner(), repository);
+    const directories = this.holds(GIT_KINDS.directory) ? await listDirectories(this.storeOwner(), repository) : [];
     const found = folder === '' ? undefined : directories.find((one) => one.path === folder);
     if (folder !== '' && found === undefined) return null;
     const parent = folder === '' ? null : found?.parent ?? '';
-    const page = await folderFiles(this.storeOwner(), { repository, folder, limit, ...(after === undefined ? {} : { after }) });
+    const page = this.holds(GIT_KINDS.file) ? await folderFiles(this.storeOwner(), { repository, folder, limit, ...(after === undefined ? {} : { after }) }) : { rows: [] as readonly FileRecord[], next: null };
     const files: GraphFolderFile[] = page.rows.map((row) => ({
       path: row.path, id: `code.file:${repository}/${row.path}`, href: entityAddress(`code.file:${repository}/${row.path}`),
       mode: row.mode, blob: row.blob, bytes: row.bytes, lines: row.lines, form: row.form, language: row.language, candidates: [...row.candidates],
     }));
-    const children = await folderChildrenOf(this.storeOwner(), repository, folder);
+    const children = this.holds(GIT_KINDS.directory) ? await folderChildrenOf(this.storeOwner(), repository, folder) : [];
     const id = folder === '' ? `code.repository:${repository}` : `code.directory:${repository}/${folder}`;
     return {
       repository, id, folder,
@@ -986,7 +1023,7 @@ export class GraphReader {
     // A read of no code kind asks the store nothing: a product that declares only its own kinds holds no code table.
     if (graphKinds.length === 0) return [];
     const found = await tx.query<Raw>(
-      `${entitySelectSql(this.scope ?? null, 'values')} WHERE k.name = ANY($1::text[])
+      `${entitySelectSql(this.scope ?? null, 'values', this.declared)} WHERE k.name = ANY($1::text[])
        AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')})
        AND (k.name <> '${GIT_KINDS.commit}' OR ${EDGE_EXISTS('to_node', GIT_KINDS.history, 'n')})
        AND (k.name <> '${GIT_KINDS.signature}' OR ${EDGE_EXISTS('from_node', GIT_KINDS.authored, 'n')})
@@ -1379,34 +1416,44 @@ export class GraphReader {
     authorRows: { entity: GraphEntity; commits: number }[];
     authorsTotal: number;
   }> {
+    if (!this.holds(GIT_KINDS.history) || !this.holds(GIT_KINDS.commit)) return { commits: 0, firstParent: 0, merges: 0, nonMerge: 0, authors: 0, hotspots: [], hotspotsTotal: 0, authorRows: [], authorsTotal: 0 };
     return await this.run(async (tx) => {
+      // Every commit's parent count is aggregated once, not counted by a subquery per commit: the first plan's 2 554
+      // correlated counts were 19 ms on the own wiki's store, and the same shape under hotspots was 40 ms (madarch-64o5.3).
       const summary = await tx.query<{ commits: number; merges: number; authors: number; since: string | null; until: string | null }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
-           WHERE he.from_node = $1::bigint
+           SELECT DISTINCT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
+           WHERE he.from_node = $1::bigint AND he.context_id = 1
+         ), parents AS (
+           SELECT pe.from_node AS commit, count(*)::int AS n FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}'
+           WHERE pe.from_node IN (SELECT commit FROM hc) AND pe.context_id = 1 GROUP BY 1
+         ), authors AS (
+           SELECT count(DISTINCT ae.from_node)::int AS n FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
+           JOIN hc ON hc.commit = ae.to_node WHERE ae.context_id = 1
          )
-         SELECT count(DISTINCT hc.commit)::int AS commits,
-                count(DISTINCT hc.commit) FILTER (WHERE (
-                  SELECT count(*) FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}'
-                  WHERE pe.from_node = hc.commit
-                ) > 1)::int AS merges,
-                (SELECT count(DISTINCT ae.from_node)::int FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
-                  JOIN hc h2 ON h2.commit = ae.to_node) AS authors,
+         SELECT count(*)::int AS commits,
+                count(*) FILTER (WHERE coalesce(p.n, 0) > 1)::int AS merges,
+                (SELECT n FROM authors) AS authors,
                 to_char(min(o.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS since,
                 to_char(max(o.commit_date AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS until
-         FROM hc JOIN ${GIT_TABLES.commit} o ON o.node_id = hc.commit AND o.state = 'open' AND o.context_id = 1`,
+         FROM hc LEFT JOIN parents p ON p.commit = hc.commit
+         JOIN ${GIT_TABLES.commit} o ON o.node_id = hc.commit AND o.state = 'open' AND o.context_id = 1`,
         [scope],
       );
       const row = summary.rows[0] ?? { commits: 0, merges: 0, authors: 0, since: null, until: null };
       const hotspots = await tx.query<{ node: string; n: number }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
-           WHERE he.from_node = $1::bigint
+           SELECT DISTINCT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
+           WHERE he.from_node = $1::bigint AND he.context_id = 1
+         ), parents AS (
+           SELECT pe.from_node AS commit, count(*)::int AS n FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}'
+           WHERE pe.from_node IN (SELECT commit FROM hc) AND pe.context_id = 1 GROUP BY 1
          )
          SELECT e.to_node::text AS node, count(*)::int AS n
          FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
          JOIN hc ON hc.commit = e.from_node
-         WHERE (SELECT count(*) FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = e.from_node) <= 1
+         LEFT JOIN parents p ON p.commit = e.from_node
+         WHERE coalesce(p.n, 0) <= 1 AND e.context_id = 1
          GROUP BY 1`,
         [scope],
       );
@@ -1425,15 +1472,18 @@ export class GraphReader {
       };
       const merged = new Map<string, number>();
       for (const one of hotspots.rows) { const root = rootOf(one.node); merged.set(root, (merged.get(root) ?? 0) + one.n); }
-      const hotspotEntities = await this.entitiesOfIds(tx, [...merged.keys()], scope);
+      // Only the rows the block shows are resolved to their labels: the history block reads `limit` hotspots, and the
+      // whole repository's 2 800 files were read as entities to sort them (madarch-64o5.3's own wiki).
+      const hottest = [...merged.entries()].sort((left, right) => right[1] - left[1] || byCodePoint(left[0], right[0])).slice(0, limit);
+      const hotspotEntities = await this.entitiesOfIds(tx, hottest.map(([node]) => node), scope);
       const authors = await tx.query<{ node: string; n: number }>(
         `WITH hc AS (
-           SELECT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
-           WHERE he.from_node = $1::bigint
+           SELECT DISTINCT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
+           WHERE he.from_node = $1::bigint AND he.context_id = 1
          )
          SELECT ae.from_node::text AS node, count(*)::int AS n
          FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
-         JOIN hc ON hc.commit = ae.to_node GROUP BY 1`,
+         JOIN hc ON hc.commit = ae.to_node WHERE ae.context_id = 1 GROUP BY 1`,
         [scope],
       );
       const authorEntities = await this.entitiesOfIds(tx, authors.rows.map((one) => one.node));
@@ -1444,7 +1494,7 @@ export class GraphReader {
       return {
         commits: row.commits, firstParent: row.commits, merges: row.merges, nonMerge: row.commits - row.merges,
         authors: row.authors, ...(row.since === null ? {} : { since: row.since }), ...(row.until === null ? {} : { until: row.until }),
-        hotspots: sort([...merged].map(([node, n]) => ({ node, n })), hotspotEntities), hotspotsTotal: merged.size,
+        hotspots: sort(hottest.map(([node, n]) => ({ node, n })), hotspotEntities), hotspotsTotal: merged.size,
         authorRows: sort(authors.rows, authorEntities), authorsTotal: authors.rows.length,
       };
     });
@@ -1462,6 +1512,7 @@ export class GraphReader {
 
   /** The history evidence of one scope, read once for the page that holds this reader. */
   private async historyEvidenceOnce(scope: string): Promise<HistoryEvidence> {
+    if (!this.holds(GIT_KINDS.history) || !this.holds(GIT_KINDS.commit)) return { entities: [], edges: [] };
     return await this.run(async (tx) => {
       const found = await tx.query<Raw>(
         `${entitySelectSql(scope, 'plain')} WHERE
@@ -1520,6 +1571,7 @@ export class GraphReader {
    */
   async historyEvidenceFor(subject: GraphEntity, shape: 'path' | 'author', limit: number): Promise<HistoryEvidence> {
     if (this.declared !== undefined && this.declared.size === 0) return { entities: [], edges: [] };
+    if (!this.holds(GIT_KINDS.commit) || !this.holds(GIT_KINDS.touched) || !this.holds(GIT_KINDS.history)) return { entities: [], edges: [] };
     return await this.run(async (tx) => {
       const ids = `{${subject.nodeIds.join(',')}}`;
       const edgeRows = shape === 'author'

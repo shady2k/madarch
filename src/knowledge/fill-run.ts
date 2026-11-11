@@ -154,14 +154,14 @@ interface StorePin {
  * as-is commit and the commit count of every repository, so the pins a reader opens are the
  * facts the fill published and not a second reading of the checkout.
  */
-async function pinsOf(owner: StoreOwner): Promise<StorePin[]> {
+async function pinsOf(owner: StoreOwner, declared?: ReadonlySet<string>): Promise<StorePin[]> {
   const now = new Date().toISOString();
   const pins: StorePin[] = [];
-  for (const repository of await listRepositories(owner)) {
+  for (const repository of await listRepositories(owner, declared)) {
     // The counts are the store's own: the history pass wrote the commits, and the history pass is
     // the one that says whether a repository is complete. A repository with a tree and no commit
     // row is a run that read the tree and not the history, and the page says so.
-    const facts = await repositoryFacts(owner, repository.name);
+    const facts = await repositoryFacts(owner, repository.name, declared);
     const commits = facts?.commitCount ?? 0;
     pins.push({
       name: repository.name, scope: facts?.nodeId ?? null, head: repository.asIsCommit ?? '', commit: repository.asIsCommit ?? '',
@@ -179,10 +179,16 @@ export interface FinishedKnowledgeStore {
 /**
  * Finishes one store after a run that settled: the repositories the graph now holds and what each was filled to, read
  * from the graph — the repository entity, its as-is edge and the counts of its rows. Nothing is written: a pin is not a
- * table of the fill's (stage 3: `knowledge_fill` is gone), and a reader opens the same rows the pages read.
+ * table of the fill's (stage 3: `knowledge_fill` is gone). The statistics a page plans from are left after it.
  */
-export async function finishKnowledgeStore(owner: StoreOwner): Promise<FinishedKnowledgeStore> {
-  return { pins: (await pinsOf(owner)).length };
+export async function finishKnowledgeStore(owner: StoreOwner, declared?: ReadonlySet<string>, analyze = true): Promise<FinishedKnowledgeStore> {
+  const pins = (await pinsOf(owner, declared)).length;
+  // The tables a run wrote have no statistics until something reads enough of them or autovacuum arrives. A repository
+  // page of a few thousand commits planned its history aggregate from estimates off by two orders of magnitude (measured:
+  // 1 078 ms against 3.7 ms after ANALYZE, madarch-64o5.3). A store that cannot analyze still answers from its estimates.
+  if (analyze) await owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE')).catch(() => undefined);
+  return { pins };
+
 }
 
 /**
@@ -260,8 +266,9 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           };
         }
         // The run is finished after the store's last publication is committed: a page asked after the fill reads the
-        // graph's own rows, and a run whose end was visible before them would let the pressing side read an empty store.
-        await finishKnowledgeStore(owner);
+        // graph's own rows, and the statistics of those rows are left for the next page's plan.
+        await finishKnowledgeStore(owner, result.declaredKinds === undefined ? undefined : new Set(result.declaredKinds));
+
         return {
           ok: true, state: result.state, units: result.units.length,
           ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),

@@ -29,6 +29,7 @@ import { randomUUID } from 'node:crypto';
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
+import { FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { keyUid } from './uid.js';
 
 /** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
@@ -766,4 +767,97 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);
   await writeJournal(executor, journal);
   return written;
+}
+
+// ---- the product repository's files as mechanism state ----------------------------------------------------------
+
+/** One file of a repository's tree, as the files producer read it: its path, its mode and the blob its text stands in. */
+export interface FileEntryDraft {
+  readonly path: string;
+  readonly mode: string | null;
+  readonly blob: string;
+}
+
+/** What one publication of the mechanism file entries wrote. */
+export interface FileEntryCounts {
+  readonly inserted: number;
+  readonly updated: number;
+  readonly deleted: number;
+  readonly unchanged: number;
+}
+
+/** One file entry the mechanism holds: the path's id, its mode and the blob id its bytes stand in. */
+interface HeldFileEntry {
+  readonly pathId: string;
+  readonly mode: string | null;
+  readonly blobId: string | null;
+  readonly hash: string | null;
+}
+
+/** The mechanism's entries of one repository, by path. */
+async function heldFileEntries(executor: SqlExecutor, repository: string): Promise<Map<string, HeldFileEntry>> {
+  const found = await executor.query<{ path: string; path_id: string; mode: string | null; blob_id: string | null; hash: string | null }>(
+    `SELECT p.text AS path, f.path_id::text AS path_id, f.mode, f.blob_id::text AS blob_id, b.hash
+     FROM ${FILE_ENTRY_TABLE} f JOIN ${FILE_PATH_TABLE} p ON p.id = f.path_id
+     LEFT JOIN ${FILE_BLOB_TABLE} b ON b.id = f.blob_id WHERE f.repository = $1`,
+    [repository],
+  );
+  return new Map(found.rows.map((row) => [row.path, { pathId: row.path_id, mode: row.mode, blobId: row.blob_id, hash: row.hash }] as const));
+}
+
+/** The ids of the path texts, interned once each in the mechanism's path index. */
+async function internPaths(executor: SqlExecutor, paths: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(paths)];
+  if (unique.length > 0) {
+    await executor.query(`INSERT INTO ${FILE_PATH_TABLE} (text) SELECT value FROM jsonb_array_elements_text($1::jsonb) ON CONFLICT (text) DO NOTHING`, [JSON.stringify(unique)]);
+  }
+  const found = await executor.query<{ id: string; text: string }>(
+    `SELECT id::text AS id, text FROM ${FILE_PATH_TABLE} WHERE text IN (SELECT value FROM jsonb_array_elements_text($1::jsonb))`,
+    [JSON.stringify(unique)],
+  );
+  return new Map(found.rows.map((row) => [row.text, row.id]));
+}
+
+/**
+ * The product repository's files as mechanism state (decision 0034, item 14; the stage C review of madarch-hsqs): one
+ * `file_entry` row per path, which names the path index row and the blob row its bytes stand in, for every product,
+ * whatever entities its manifest declares. A scoped publication replaces only its scope. The blob text itself is
+ * interned once per blob by the files producer (`src/graph/records.ts`), so two paths with the same bytes share one
+ * row; the code kinds' file opinions name the same blob rows. Answers the blob id of every file named.
+ */
+export async function publishFileEntries(executor: SqlExecutor, input: {
+  readonly repository: string;
+  readonly files: readonly FileEntryDraft[];
+  /** The blob ids of the files whose text moved or is new; an unchanged entry keeps the id it stands on. */
+  readonly blobIds: ReadonlyMap<string, string>;
+  readonly scope?: readonly string[];
+}): Promise<{ counts: FileEntryCounts; blobIds: Map<string, string> }> {
+  const within = (path: string): boolean => input.scope === undefined || input.scope.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
+  const paths = await internPaths(executor, input.files.map((file) => file.path));
+  const held = await heldFileEntries(executor, input.repository);
+  const blobs = new Map<string, string>();
+  let counts: FileEntryCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
+  for (const file of input.files) {
+    const known = held.get(file.path);
+    const pathId = paths.get(file.path);
+    if (pathId === undefined) throw new Error(`src/graph/write.ts:1: the path ${JSON.stringify(file.path)} of ${JSON.stringify(input.repository)} was not interned`);
+    const blobId = input.blobIds.get(file.blob) ?? (known?.hash === file.blob ? known.blobId : null) ?? input.blobIds.get(file.blob);
+    if (blobId === undefined || blobId === null) throw new Error(`src/graph/write.ts:1: the blob ${file.blob} of ${JSON.stringify(file.path)} has no row: the files producer interns it first`);
+    blobs.set(file.blob, blobId);
+    if (known === undefined) {
+      await executor.query(`INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id) VALUES ($1, $2::bigint, $3, $4::bigint)`, [input.repository, pathId, file.mode, blobId]);
+      counts = { ...counts, inserted: counts.inserted + 1 };
+    } else if (known.mode !== file.mode || known.hash !== file.blob) {
+      await executor.query(`UPDATE ${FILE_ENTRY_TABLE} SET mode = $2, blob_id = $3::bigint WHERE repository = $1 AND path_id = $4::bigint`, [input.repository, file.mode, blobId, known.pathId]);
+      counts = { ...counts, updated: counts.updated + 1 };
+    } else {
+      counts = { ...counts, unchanged: counts.unchanged + 1 };
+    }
+  }
+  for (const [path, known] of held) {
+    if (input.files.some((file) => file.path === path) || !within(path)) continue;
+    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = $2::bigint`, [input.repository, known.pathId]);
+    counts = { ...counts, deleted: counts.deleted + 1 };
+  }
+  return { counts, blobIds: blobs };
 }

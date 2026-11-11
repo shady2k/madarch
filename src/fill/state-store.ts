@@ -460,6 +460,7 @@ export async function readStoreStamp(database: FillStateDatabase): Promise<strin
                                         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash
                                    FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = 'repository'
                                   WHERE n.context_id = 1 AND NOT n.removed) r) AS stamp`,
+
     );
     return rows[0]?.stamp ?? '0:-:-';
   }, 'snapshot');

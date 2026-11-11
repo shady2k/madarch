@@ -26,6 +26,7 @@ import { byCodePoint } from '../model/order.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { readWrittenAt, type WrittenAt } from '../knowledge/index/page.js';
 import { questionFootnoteId } from './ids.js';
+import type { ProductFileSource } from '../knowledge/product-files.js';
 import { groundLinks } from '../writer/sentences.js';
 
 export const QUESTIONS_FOLDER = 'docs/questions';
@@ -403,3 +404,36 @@ function readFolder<T>(productFolder: string, folder: string, parse: (file: stri
 /** The questions of a product, in id order, and the files that are none. */
 export const readQuestions = (productFolder: string): Read<Question> => readFolder(productFolder, QUESTIONS_FOLDER, parseQuestion);
 export const readCorrections = (productFolder: string): Read<Correction> => readFolder(productFolder, CORRECTIONS_FOLDER, parseCorrection);
+
+/**
+ * The questions of a product as one source of its files holds them: the graph's stored files for a reader of a page, the
+ * working tree for a writer that edits them. Every file the folder lists is fetched before it is parsed (stage C).
+ */
+export async function readQuestionsIn(files: ProductFileSource): Promise<Read<Question>> {
+  return await readFolderIn(files, QUESTIONS_FOLDER, parseQuestion);
+}
+
+/** The corrections of a product as one source of its files holds them. */
+export async function readCorrectionsIn(files: ProductFileSource): Promise<Read<Correction>> {
+  return await readFolderIn(files, CORRECTIONS_FOLDER, parseCorrection);
+}
+
+async function readFolderIn<T>(files: ProductFileSource, folder: string, parse: (file: string, text: string) => T): Promise<Read<T>> {
+  const paths = files.filesIn(folder).filter((path) => path.endsWith('.md')).sort(byCodePoint);
+  await files.ensure(paths);
+  const items: T[] = [];
+  const problems: LoopFileError[] = [];
+  for (const file of paths) {
+    const text = files.text(file);
+    if (text === undefined) {
+      problems.push(new LoopFileError(file, 1, 'the file cannot be read: the source holds no text of it'));
+      continue;
+    }
+    try {
+      items.push(parse(file, text));
+    } catch (error) {
+      problems.push(error instanceof LoopFileError ? error : new LoopFileError(file, 1, (error as Error).message));
+    }
+  }
+  return { items, problems };
+}

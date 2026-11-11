@@ -711,7 +711,10 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     // A run that succeeded finishes its store the way the button does: the wiki's reader and `madarch mcp` read the
     // store this update wrote.
     if (result.ok && result.settled && result.state === 'succeeded') {
-      await finishKnowledgeStore(held.owner);
+      // The daemon's update runs finish beside a service it keeps open: the pins come first, and the statistics are
+      // written beside the answer, never inside it, so the update's answer is not held behind an analyze.
+      await finishKnowledgeStore(held.owner, undefined, false);
+      void held.owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE')).catch(() => undefined);
     }
     return result;
   };

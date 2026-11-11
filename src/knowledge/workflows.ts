@@ -26,8 +26,8 @@
  *     stages: []
  * ```
  */
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ProductFileRead } from './product-files.js';
 import { LineCounter, parseDocument } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import { lineForPath } from '../model/yaml-position.js';
@@ -85,18 +85,6 @@ function engineStageRegistry(): StageRegistry {
   return (engineStages ??= createEngineStageRegistry());
 }
 
-/** Reads `madarch/workflows.yaml` of a product folder; absent when the product holds none. */
-export function readWorkflows(productFolder: string, registry: StageRegistry = engineStageRegistry()): WorkflowsRead {
-  const file = join(productFolder, WORKFLOWS_FILE);
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    if ((error as { code?: string }).code === 'ENOENT') return { file, present: false, workflows: new Map(), findings: [] };
-    return { file, present: true, workflows: new Map(), findings: [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }] };
-  }
-  return { ...parseWorkflows(text, file, registry), present: true };
-}
 
 /**
  * Parses the workflows manifest's text and checks every workflow against the
@@ -244,8 +232,26 @@ export type FirstFillRead =
  * an agent holds no agent stage, so a named stage the registry does not hold is
  * not enabled by that run.
  */
-export function firstFillStagesOf(folder: string, registry: StageRegistry = engineStageRegistry()): FirstFillRead {
-  const read = readWorkflows(folder, registry);
+
+/**
+ * The stages a fill runs, from the product repository's files as one source holds them: a pinned tree at a fill, the
+ * working tree for a test's fixture. The checks are the reader's own.
+ */
+export function firstFillStagesOfFiles(files: ProductFileRead, folder: string, registry: StageRegistry = engineStageRegistry()): FirstFillRead {
+  return firstFillOf(readWorkflowsFrom(files, folder, registry));
+}
+
+/** The workflows manifest as a source of the product repository's files holds it. */
+export function readWorkflowsFrom(files: ProductFileRead, folder: string, registry: StageRegistry = engineStageRegistry()): WorkflowsRead {
+  const file = join(folder, WORKFLOWS_FILE);
+  if (!files.has(WORKFLOWS_FILE)) return { file, present: false, workflows: new Map(), findings: [] };
+  const text = files.text(WORKFLOWS_FILE);
+  if (text === undefined) return { file, present: true, workflows: new Map(), findings: [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }] };
+  return { ...parseWorkflows(text, file, registry), present: true };
+}
+
+/** The stages one read of the workflows manifest names, or the refusal that says why a run cannot read them. */
+function firstFillOf(read: WorkflowsRead): FirstFillRead {
   if (!read.present) {
     return { ok: false, refusal: { file: read.file, line: 1, message: `the product holds no workflows manifest, and its fill reads the stages its \`${FIRST_FILL_WORKFLOW}\` workflow names: write ${WORKFLOWS_FILE} (\`madarch new\` writes the starter set, which names the engine's stages)` } };
   }

@@ -66,8 +66,9 @@ describe('a kind\'s table comes from the manifest', () => {
     expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
     expect(contract.vertex[0]?.key).toEqual(['name']);
     expect(contract.vertex[0]?.capability).toBe('g');
-    // The path dictionary stands with the kind, for the evidence paths a producer names.
-    expect(contract.dictionary.map((one) => one.name)).toEqual(['path']);
+    // The path index an evidence row names stands in the mechanism (`src/graph/one-graph.ts`), not in the contract a
+    // manifest's bindings make.
+    expect(contract.dictionary).toEqual([]);
   });
 
   test('a reader knows the columns, their types and the key of a kind the manifest makes', () => {

@@ -48,7 +48,15 @@ beforeAll(async () => {
   const seeded = await fetch(`${server.url}/api/status`);
   expect(seeded.status).toBe(200);
   writeSamplePages(product);
-}, 180_000);
+  // The pages and the manifest are the graph's for a reader: a fill reads the product repository into it.
+  const started = await fetch(`${server.url}/api/fill`, { method: 'POST' });
+  expect(started.status).toBe(202);
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    const state = (await (await fetch(`${server.url}/api/status`)).json() as { fill: { state: string } }).fill.state;
+    if (state !== 'running') break;
+    await new Promise((rest) => setTimeout(rest, 250));
+  }
+}, 300_000);
 
 afterAll(async () => {
   await server.stop();

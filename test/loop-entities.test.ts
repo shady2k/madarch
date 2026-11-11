@@ -22,6 +22,7 @@ import { decide } from '../src/loop/plan.js';
 import { symlinkSync } from 'node:fs';
 import { listQuestions, rowOf } from '../src/loop/views.js';
 import { gitEnv } from './git-env.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const folders: string[] = [];
 const scratch = (): string => {
@@ -116,7 +117,7 @@ describe('a question file', () => {
   });
 
   
-  test('the listing puts open first, then answered, then closed, each by id', () => {
+  test('the listing puts open first, then answered, then closed, each by id', async () => {
     const by = { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' };
     const folder = product();
     mkdirSync(join(folder, 'docs/questions'), { recursive: true });
@@ -125,7 +126,7 @@ describe('a question file', () => {
     put('a-closed', { status: 'answered', answer: { text: 'x', by, at: '2026-10-23T11:00:00.000Z' }, resolvedBy: ['domain:orders'], resolvedAt: '2026-10-23T12:00:00.000Z' });
     put('m-answered', { status: 'answered', answer: { text: 'x', by, at: '2026-10-23T11:00:00.000Z' } });
     put('b-open', {});
-    const listing = listQuestions(folder);
+    const listing = await listQuestions(workingTreeFiles(folder));
     expect(listing.rows.map((row) => `${row.slug}:${row.state}`)).toEqual(['b-open:open', 'z-open:open', 'm-answered:answered', 'a-closed:closed']);
     expect([listing.open, listing.answered, listing.closed]).toEqual([2, 1, 1]);
     expect(rowOf(readQuestions(folder).items.find((q) => q.slug === 'a-closed')!).closedBy).toEqual(['domain:orders']);

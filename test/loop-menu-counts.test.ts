@@ -3,7 +3,8 @@
  * shows as open — a task a commit of a default branch closed is not open — and the problems entry follows the files the
  * Problems page reads, so a manifest edit shows at once instead of waiting for another revision.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(60_000);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +12,8 @@ import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { writeTask } from '../src/loop/tasks.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
+import { fillInProcess } from './fill-inline.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, args: string[], extra: Record<string, string> = {}): string =>
@@ -24,6 +26,7 @@ const READER = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local
 const AT = '2026-10-24T09:00:00.000Z';
 
 let work: string;
+let home: string;
 let folder: string;
 let repository: string;
 let server: StartedServer;
@@ -68,9 +71,10 @@ beforeAll(async () => {
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const price = 10;\n');
   git(repository, ['add', '.']);
   git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'first']);
-  const home = join(work, 'home');
+  home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
+  withoutPluginTurns(folder);
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
   const app = join(work, 'app');
@@ -79,7 +83,14 @@ beforeAll(async () => {
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   const warmed = await fetch(`${server.url}/products/${SHOP}/api/status`);
   expect(warmed.status).toBe(200);
-}, 120_000);
+  await fill();
+}, 180_000);
+
+/** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
+async function fill(): Promise<void> {
+  await fillInProcess(folder, home, join(work, 'store'));
+  await get('/api/status');
+}
 
 afterAll(async () => {
   await server.stop();
@@ -100,6 +111,9 @@ describe('the problems entry of the menu', () => {
     const manifest = readFileSync(join(folder, 'madarch/kinds.yaml'), 'utf8');
     expect(manifest).toContain('groups:\n');
     writeFileSync(join(folder, 'madarch/kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, parent: nowhere }\n'));
+    // The edit is the product repository's commit, and the fill stores it: a reader of a page reads the graph.
+    commitProduct(folder, 'Declare a group whose parent is not declared');
+    await fill();
 
     const problems = await get('/api/problems');
     expect(problems.status).toBe(200);
@@ -127,6 +141,7 @@ describe('the tasks entry of the menu', () => {
     // The planning commit names the task but touches none of its scope: the task is still open after it.
     git(folder, ['add', '--', 'docs/tasks/fix-price.md']);
     git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Plan the task fix-price']);
+    await fill();
     const stillOpen = await get('/api/tasks');
     expect([stillOpen.body.open, stillOpen.body.closed]).toEqual([1, 0]);
 
@@ -135,6 +150,7 @@ describe('the tasks entry of the menu', () => {
     const dated = { GIT_AUTHOR_DATE: '2026-10-24T09:01:00.000Z', GIT_COMMITTER_DATE: '2026-10-24T09:01:00.000Z' };
     git(folder, ['add', '--', 'docs/product.md'], dated);
     git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Fix the price\n\nTask: fix-price'], dated);
+    await fill();
 
     const tasks = await get('/api/tasks');
     expect(tasks.status).toBe(200);

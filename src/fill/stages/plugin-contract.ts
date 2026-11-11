@@ -12,13 +12,10 @@
  * document kind whose entities only the agent writes — is no part of this
  * contract, and no table stands for it.
  */
-import { generatedTableName, type DictionaryContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
+import { generatedTableName, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindDecl, KindsManifest } from '../../knowledge/kinds.js';
 import { gitContractOf } from './git-contract.js';
-
-/** The path dictionary the one graph interns evidence paths in: the same declaration the git contract carries. */
-const PATH_DICTIONARY: DictionaryContract = { name: 'path', fields: [{ name: 'text', type: 'text' }], key: ['text'] };
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
@@ -34,7 +31,7 @@ function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { 
 /**
  * The vertex tables a manifest's own declarations make: one for every kind whose
  * fields name a producer, with every bound field as a column of its opinion table,
- * and the path dictionary its evidence paths are interned in.
+ * one row per opinion of each.
  */
 export function manifestContractOf(manifest: KindsManifest): GraphContract {
   const vertex: VertexContract[] = [];
@@ -56,8 +53,8 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     if (!bound || !keyFields.every((field) => fields.some((held) => held.name === field))) continue;
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
-  if (vertex.length === 0) return { vertex: [], edge: [], dictionary: [] };
-  return { vertex, edge: [], dictionary: [PATH_DICTIONARY] };
+  // The path index evidence names is mechanism state (`src/graph/one-graph.ts`), not a kind the manifest declares.
+  return { vertex, edge: [], dictionary: [] };
 }
 
 /**

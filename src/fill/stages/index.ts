@@ -15,6 +15,7 @@
 import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
 import type { RecordPassWiring } from '../steps.js';
+import type { DeclaredKinds } from '../../graph/records.js';
 import { createRepositoryHistoryStage, createRepositoryTreeStage } from './repository-facts.js';
 import { createPluginTurnStage, type GraphOwner, type PluginTurnWiring } from '../plugin-turns.js';
 
@@ -26,6 +27,8 @@ export interface FillStageWiring {
   readonly records?: RecordPassWiring;
   /** Whether the product declares the git capability; a product that does not runs neither pass. */
   readonly git?: boolean;
+  /** The code entities the passes may write, by graph kind; left out, every kind of the git contract. */
+  readonly kinds?: false | DeclaredKinds;
   /** The product's plugins and the graph their turns read, when the product holds a manifest with plugins. */
   readonly plugins?: PluginTurnWiring;
 }
@@ -88,12 +91,12 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   // A product that declares no kind the git reader fills runs neither pass: the manifest's capability binding is what
   // puts the reader in the fill's path (decision 0034, item 14). The engine's registry still names both stages for the
   // workflow check, because a product may declare the binding.
-  if (wiring.git !== false) {
-    registry
-      // This step's two passes (madarch-8bdc.2.5): the tree and the history, published into the record store.
-      .register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records }))
-      .register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records }));
-  }
+  // The product repository's files are mechanism state for every product (madarch-hsqs stage C): the tree pass runs
+  // always, and a product that binds no code kind publishes the mechanism entries alone. The history and the code kinds
+  // are the product's opinion layer, and run only when it binds the git kinds.
+  const kinds = wiring.kinds === undefined ? {} : { kinds: wiring.kinds };
+  registry.register(createRepositoryTreeStage({ sources: wiring.snapshots, ...records, ...kinds }));
+  if (wiring.git !== false) registry.register(createRepositoryHistoryStage({ sources: wiring.snapshots, ...records, ...kinds }));
   // A product's plugins run after the tree stands: their units are the file vertices it published (decision 0035, item 15).
   if (wiring.plugins !== undefined) registry.register(createPluginTurnStage(wiring.plugins));
   return registry;

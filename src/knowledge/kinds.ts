@@ -31,19 +31,20 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from './catalog.js';
-import { readWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
+import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 import { PREDICATES } from '../problems/rules.js';
 import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../problems/types.js';
 import { Value } from 'typebox/value';
 import { PluginContractFile, type PluginContractDeclaration } from '../plugin/protocol.js';
-import { majorOf, PLUGINS_LOCK_FILE, readPluginLock } from '../plugin/lock.js';
+import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
+import { workingTreeFiles, type ProductFileRead } from './product-files.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -778,27 +779,36 @@ function nothing(file: string, findings: Finding[]): KindsManifest {
  * The manifest with the product's workflows beside it: a product that holds `madarch/workflows.yaml` reads its
  * workflows here, and their findings stand with the manifest's own, each naming its own file and line.
  */
-function withWorkflows(manifest: KindsManifest, productFolder: string): KindsManifest {
-  const read = readWorkflows(productFolder);
-  if (!read.present) return manifest;
+function withWorkflows(manifest: KindsManifest, files: ProductFileRead, productFolder: string): KindsManifest {
+  const file = join(productFolder, WORKFLOWS_FILE);
+  const text = files.has(WORKFLOWS_FILE) ? files.text(WORKFLOWS_FILE) : undefined;
+  if (text === undefined) {
+    if (!files.has(WORKFLOWS_FILE)) return manifest;
+    return { ...manifest, workflows: { file, workflows: new Map(), findings: [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }] }, findings: [...manifest.findings, { file, line: 1, message: 'the file cannot be read: the source holds no text of it' }] };
+  }
+  const read = { ...parseWorkflows(text, file), present: true };
   return {
     ...manifest,
-    workflows: { file: read.file, workflows: read.workflows, findings: read.findings },
+    workflows: { file, workflows: read.workflows, findings: read.findings },
     findings: [...manifest.findings, ...read.findings],
   };
 }
 
-/** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
+/** Reads `madarch/kinds.yaml` of a product folder's working tree; absent when the product holds none. */
 export function readKinds(productFolder: string): KindsRead {
+  return readKindsFrom(workingTreeFiles(productFolder), productFolder);
+}
+
+/**
+ * Reads `madarch/kinds.yaml` and the declaration files beside it from a source of the product repository's files: the
+ * fill's working tree, or the graph's stored text for a reader of the wiki. Nothing is read from a checkout here.
+ */
+export function readKindsFrom(files: ProductFileRead, productFolder: string): KindsRead {
   const file = join(productFolder, KINDS_FILE);
-  let text: string;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    if ((error as { code?: string }).code === 'ENOENT') return { present: false, file };
-    return { present: true, manifest: nothing(file, [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }]) };
-  }
-  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder), productFolder) };
+  if (!files.has(KINDS_FILE)) return { present: false, file };
+  const text = files.text(KINDS_FILE);
+  if (text === undefined) return { present: true, manifest: nothing(file, [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }]) };
+  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder, files), files, productFolder) };
 }
 
 /**
@@ -840,13 +850,11 @@ function parsedManifest(text: string, file: string): { readonly doc: Document; r
  * cannot read is a finding naming the file and the line, and the plugin stands without one, so every binding to it is
  * refused rather than trusted.
  */
-function readPluginContract(productFolder: string, id: string, path: string, manifestFile: string, line: number, findings: Finding[]): PluginContract | undefined {
+function readPluginContract(files: ProductFileRead, id: string, path: string, manifestFile: string, line: number, findings: Finding[]): PluginContract | undefined {
   const file = `${path}/contract.json`;
-  let text: string;
-  try {
-    text = readFileSync(join(productFolder, file), 'utf8');
-  } catch (error) {
-    findings.push({ file: manifestFile, line, message: `plugin "${id}": the contract ${file} cannot be read (${(error as Error).message}): a plugin's folder holds its contract.json` });
+  const text = files.has(file) ? files.text(file) : undefined;
+  if (text === undefined) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": the contract ${file} cannot be read (${files.has(file) ? 'the source holds no text of it' : 'the product repository holds no such file'}): a plugin's folder holds its contract.json` });
     return undefined;
   }
   let value: unknown;
@@ -890,7 +898,7 @@ function jsonLine(text: string, segment: number): number {
   return text.slice(0, at).split('\n').length;
 }
 
-export function parseKinds(text: string, file: string, productFolder: string): KindsManifest {
+export function parseKinds(text: string, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
   const findings: Finding[] = [];
   const { doc, lines } = parsedManifest(text, file);
   const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
@@ -1201,12 +1209,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     let template = named;
     if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
     else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
-    else if (!existsSync(join(productFolder, template)) || !statSync(join(productFolder, template)).isFile()) {
+    else if (!files.has(template)) {
       // A kind that names a Markdown template of 0029 and a product that holds the Liquid template of the same name (the
       // starter set of 0032 was written beside the old files) is drawn by that one: the rename is madarch's, and a
       // product need not edit its manifest for it (madarch-u3vw.1).
       const liquid = typeof template === 'string' && template.endsWith('.md') ? `${template.slice(0, -'.md'.length)}.liquid` : undefined;
-      if (liquid !== undefined && existsSync(join(productFolder, liquid)) && statSync(join(productFolder, liquid)).isFile()) template = liquid;
+      if (liquid !== undefined && files.has(liquid)) template = liquid;
       else problem(['template'], `the template "${String(named)}" does not exist in the product repository`);
     }
     const folder = decl['folder'];
@@ -1536,14 +1544,14 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       if (plugins.has(id)) { findings.push({ file, line: at(['plugins', index, 'id']), message: `plugin "${id}": a plugin id stands once` }); return; }
       const path = body['path'];
       if (typeof path !== 'string' || path === '' || path.startsWith('/') || path.split('/').some((leg) => leg === '' || leg === '.' || leg === '..')) { findings.push({ file, line: at(['plugins', index, 'path']), message: `plugin "${id}": "path" is the plugin's folder in the product repository, relative and with no ".."` }); return; }
-      const contract = readPluginContract(productFolder, id, path, file, at(['plugins', index, 'path']), findings);
+      const contract = readPluginContract(files, id, path, file, at(['plugins', index, 'path']), findings);
       plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), line });
     });
   }
   // The plugin lock and the field bindings (decision 0035, items 17, 18, 19 and 20): the lock names each plugin's exact
   // version and closure, a field binds to a field its plugin declares, the type is the plugin's, and a required field
   // the manifest leaves out is the manifest's error. Every problem names the manifest or the contract and its line.
-  const lockRead = readPluginLock(productFolder);
+  const lockRead = parsePluginLock(files.has(PLUGINS_LOCK_FILE) ? files.text(PLUGINS_LOCK_FILE) : undefined);
   if (!lockRead.ok) findings.push({ file: lockRead.file, line: lockRead.line, message: lockRead.message });
   const locked = new Map((lockRead.ok ? lockRead.entries : []).map((entry) => [entry.id, entry] as const));
   for (const plugin of plugins.values()) {

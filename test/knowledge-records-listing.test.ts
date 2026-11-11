@@ -7,6 +7,7 @@ import { kindSummaries, listEntities } from '../src/knowledge/render.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import type { KindsManifest } from '../src/knowledge/kinds.js';
 import type { GraphEntity } from '../src/knowledge/graph-read.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const decl = (name: string): KindsManifest['kinds'] extends ReadonlyMap<string, infer Decl> ? Decl : never => ({ name, source: 'graph' } as never);
 
@@ -19,6 +20,7 @@ const entity = (repository: string, path: string): GraphEntity => ({
 function context(files: readonly GraphEntity[], asked: { after?: string; prefix?: string }[], count = files.length): RenderContext {
   return {
     productFolder: '/nowhere',
+    files: workingTreeFiles('/nowhere'),
     manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map([['code.file', decl('code.file')]]), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as unknown as KindsManifest,
     graph: {
       kindCounts: async () => [{ kind: 'code.file', count }],

@@ -24,6 +24,17 @@ import { sha256Hex } from './digest.js';
 import { byCodePoint } from '../model/order.js';
 import { createContractTablesIn, EMPTY_CONTRACT, generatedTableName, type GraphContract } from './contract.js';
 
+/**
+ * The product repository's files as mechanism state (decision 0034, item 14; the stage C review of madarch-hsqs): the
+ * path index, the blob text and the entry that joins them to one repository. Every product's own repository is stored
+ * here by the files producer, whatever entities its manifest declares, so a product that binds no code kind still has
+ * its files in the graph. The names are the dictionary names stage B used, so a store keeps its ids; the entity kinds'
+ * opinion tables refer to the same blob rows.
+ */
+export const FILE_PATH_TABLE = generatedTableName('path', 'dictionary');
+export const FILE_BLOB_TABLE = generatedTableName('blob', 'dictionary');
+export const FILE_ENTRY_TABLE = 'file_entry';
+
 
 /** The metadata schema the stamp and the store's own marks stand in: engine metadata, never the graph. */
 const META_SCHEMA = 'madarch_meta';
@@ -40,8 +51,10 @@ const STORE_SCHEMA_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended('madarc
  * null for a language name; a file opinion written under revision 1 cannot be matched by the writer any more, and its
  * store is made again and filled. Revision 3: the store holds no table but the graph's and its mechanisms' —
  * `layer_entry`, `gap` and `knowledge_fill` are gone — and a store that still holds them is reset and filled once.
+ * Revision 4: the product repository's files are mechanism state (`file_entry` beside its path and blob dictionaries),
+ * so a store written under revision 3 holds no such table and is reset and filled once.
  */
-const SCHEMA_REVISION = 3;
+const SCHEMA_REVISION = 4;
 
 /** The tables a reset drops, in the order their foreign keys allow: the opinions and the catalogue before the nodes. */
 const GENERATED_PREFIXES = ['k_', 'e_', 'd_'] as const;
@@ -111,6 +124,33 @@ const SCHEMA: readonly string[] = [
     expectation jsonb,
     change jsonb NOT NULL
   )`,
+  // The product repository's files as mechanism state: a path's text once, a blob's bytes once, and the entry of each
+  // repository path. The code kinds' opinion rows name the same blob rows (see src/graph/write.ts).
+  `CREATE TABLE IF NOT EXISTS ${FILE_PATH_TABLE} (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    text text NOT NULL UNIQUE CHECK (text <> '')
+  )`,
+  `CREATE TABLE IF NOT EXISTS ${FILE_BLOB_TABLE} (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    hash text NOT NULL UNIQUE,
+    algorithm text NOT NULL,
+    bytes bigint NOT NULL,
+    form text NOT NULL,
+    lines bigint,
+    content text,
+    CHECK ((algorithm = 'sha1' AND length(hash) = 40) OR (algorithm = 'sha256' AND length(hash) = 64)),
+    CHECK ((form = 'binary') = (lines IS NULL)),
+    CHECK ((form = 'text') OR (content IS NULL))
+  )`,
+  `CREATE TABLE IF NOT EXISTS ${FILE_ENTRY_TABLE} (
+    repository text NOT NULL CHECK (repository <> ''),
+    path_id bigint NOT NULL REFERENCES ${FILE_PATH_TABLE} (id),
+    mode text,
+    blob_id bigint REFERENCES ${FILE_BLOB_TABLE} (id),
+    PRIMARY KEY (repository, path_id),
+    CHECK ((mode IS NULL) = (blob_id IS NULL))
+  )`,
+  `CREATE INDEX IF NOT EXISTS file_entry_blob ON ${FILE_ENTRY_TABLE} (blob_id)`,
   // A reference to a key no vertex holds: the publication records it and goes on (A2; the consistency plugin
   // madarch-stm0.7 reads these). A rerun of the same answer records the same row once (nulls not distinct); the row
   // names its producer and, for an edge end, the edge kind and the other endpoint; and it goes when the reference
@@ -176,7 +216,7 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
     // A journal row written before stage 2 may carry no default for its id; the writer names none, so the database does.
     await tx.query(`ALTER TABLE operation ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
   }
-  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
+  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', FILE_ENTRY_TABLE, ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
     await tx.query(`DROP TABLE IF EXISTS "${table}"`);
   }
 }

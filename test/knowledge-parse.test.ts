@@ -10,12 +10,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homeKind, parseKinds, readKinds } from '../src/knowledge/kinds.js';
-import { parseTarget, readBody, readMarkdownEntities, splitFrontMatter } from '../src/knowledge/markdown.js';
+import { parseTarget, readBody, readMarkdownEntitiesFrom, splitFrontMatter } from '../src/knowledge/markdown.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { BLOCK_NAMES, parseTemplate, substitute } from '../src/knowledge/template.js';
 import { renderLiquidPage, templateSetOf } from '../src/knowledge/liquid.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const folders: string[] = [];
 function scratch(): string {
@@ -144,7 +145,7 @@ describe('Markdown entities', () => {
   test('a file is an entity when its front matter gives the kind and an id that starts with it', () => {
     const root = scratch();
     put(root, 'docs/domains/pay.md', '---\nid: domain:pay\nkind: domain\ntitle: Pay\nrelates:\n  - code.service:x\nproducer: agent\nsources: [docs/a.md]\n---\nBody.\n');
-    const read = readMarkdownEntities(root, kinds(root));
+    const read = readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root));
     expect(read.findings).toEqual([]);
     expect(read.entities).toEqual([expect.objectContaining({ id: 'domain:pay', kind: 'domain', title: 'Pay', relates: ['code.service:x'], producer: 'agent', sources: ['docs/a.md'], body: 'Body.\n', bodyLine: 10, file: 'docs/domains/pay.md' })]);
   });
@@ -157,7 +158,7 @@ describe('Markdown entities', () => {
     put(root, 'docs/domains/one.md', '---\nid: domain:same\nkind: domain\n---\n');
     put(root, 'docs/domains/two.md', '---\nid: domain:same\nkind: domain\n---\n');
     put(root, 'docs/domains/bad-yaml.md', '---\nid: [\n---\n');
-    const read = readMarkdownEntities(root, kinds(root));
+    const read = readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root));
     expect(read.entities.map((entity) => entity.file)).toEqual(['docs/domains/one.md']);
     const said = read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).sort();
     const yaml = said.find((line) => line.startsWith('docs/domains/bad-yaml.md:'))!;
@@ -172,7 +173,7 @@ describe('Markdown entities', () => {
 
   test('the singleton kind is absent until its file is written, and that is no finding', () => {
     const root = scratch();
-    expect(readMarkdownEntities(root, kinds(root))).toEqual({ entities: [], findings: [] });
+    expect(readMarkdownEntitiesFrom(workingTreeFiles(root), kinds(root))).toEqual({ entities: [], findings: [] });
   });
 
   test('the front matter is split from the body at the line the body starts', () => {
@@ -246,11 +247,12 @@ describe('the starter set madarch new seeds', () => {
     expect(homeKind(read.manifest)!.name).toBe('product');
     // Every kind's template is one the product's templates hold, and the set reads and draws without a problem: the
     // engine parses each template it loads, so a template with a tag the library lacks is a finding on the page.
-    const templates = templateSetOf(draft.folder);
+    const templates = templateSetOf(workingTreeFiles(draft.folder));
     expect(templates.findings).toEqual([]);
     for (const decl of read.manifest.kinds.values()) expect(Object.keys(templates.files)).toContain(decl.template);
     const drawn = await renderLiquidPage({
       productFolder: draft.folder,
+      files: workingTreeFiles(draft.folder),
       template: 'templates/entity.liquid',
       data: {},
       defer: false,

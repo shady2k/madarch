@@ -177,8 +177,12 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   try {
     const result = await service.run({ product: fill.product, runId });
     const unread = fill.unread();
-    if (unread.length === 0) return result;
-    return result.ok ? { ...result, unread: [...unread] } : result;
+    // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
+    const kinds = fill.kinds;
+    const declaredKinds = kinds === undefined ? undefined : kinds === false ? [] : [...kinds.vertex, ...kinds.edge];
+    const withKind = declaredKinds === undefined ? result : { ...result, declaredKinds };
+    if (unread.length === 0) return withKind;
+    return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
   } finally {
     if (options.keepService !== true) await service.stop();
   }

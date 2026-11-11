@@ -12,11 +12,12 @@ import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
-import { readMarkdownEntities } from '../src/knowledge/markdown.js';
+import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { findAnchor } from '../src/knowledge/anchors.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 // Record keys are built by concatenation so the neutral-names scan reads no key as a repository source.
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
@@ -160,11 +161,12 @@ beforeAll(async () => {
 
   const read = parseKinds(await Bun.file(join(productFolder, 'madarch/kinds.yaml')).text(), join(productFolder, 'madarch/kinds.yaml'), productFolder);
   expect(read.findings).toEqual([]);
-  const markdown = new Map(readMarkdownEntities(productFolder, read).entities.map((entity) => [entity.id, entity]));
+  const markdown = new Map(readMarkdownEntitiesFrom(workingTreeFiles(productFolder), read).entities.map((entity) => [entity.id, entity]));
   const graph = fake.reader();
   const readSource = async (repo: string | null, path: string): Promise<string | undefined> => (repo === 'shop' ? documents.get(path) : undefined);
   ctx = {
     productFolder,
+    files: workingTreeFiles(productFolder),
     manifest: read,
     graph,
     markdown,

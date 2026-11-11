@@ -19,7 +19,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { readWorkflows, WORKFLOWS_FILE, type WorkflowStatus } from '../src/knowledge/workflows.js';
+import { readWorkflowsFrom, WORKFLOWS_FILE, type WorkflowStatus } from '../src/knowledge/workflows.js';
+import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const USAGE = 'usage: bun run check:workflows [--folder <product folder>]';
 
@@ -51,7 +52,7 @@ function folderOf(argv: readonly string[]): { folder: string; temporary: boolean
 function main(): void {
   const { folder, temporary } = folderOf(process.argv.slice(2));
   try {
-    const read = readWorkflows(folder);
+    const read = readWorkflowsFrom(workingTreeFiles(folder), folder);
     if (!read.present) {
       console.error(`${join(folder, WORKFLOWS_FILE)}:1: the product holds no workflows manifest, and the starter set writes one`);
       process.exit(1);

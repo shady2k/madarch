@@ -38,7 +38,7 @@ function product(name: string, write: (repository: string) => void): { folder: s
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
   git(folder, 'add', '-A');
-  git(folder, 'commit', '-qm', `the product ${name}`);
+  git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
   return { folder, repository };
 }
 
@@ -234,11 +234,14 @@ git(folder,'commit','-qm','the nested file moves');
       expect(empty.status).toBe(200);
       // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
       expect(empty.body['findingCount']).toBe(0);
-      expect((empty.body['kinds'] as { kind: string; count: number }[]).filter((kind) => kind.kind.startsWith('doc.')).map((kind) => kind.count)).toEqual([0, 0, 0, 0, 0]);
+      // The manifest is the graph's: before the fill the graph holds none, so the wiki names no kind at all.
+      expect(empty.body['kinds']).toEqual([]);
       const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
+      // No manifest in the graph is no kind at all: the listing refuses by name rather than answering an empty list.
       const useCases = await json(server, 'docs', '/api/entities?kind=doc.use-case');
-      expect(useCases.body).toMatchObject({ total: 0, rows: [], next: null });
+      expect(useCases.status).toBe(404);
+      expect(String(useCases.body['message'])).toContain('declares no kind "doc.use-case"');
       // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.
       const ended = await press(server, 'docs');
       const fill = ended['fill'] as Record<string, unknown>;
@@ -279,6 +282,14 @@ git(folder,'commit','-qm','the nested file moves');
       const emptyStatus = await json(server, 'half', '/api/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
+      // Before the fill the graph holds no manifest and no listing: the unanswered pages say so, and nothing is a finding.
+      const before = await json(server, 'half', '/api/problems');
+      expect(before.status).toBe(200);
+      expect(before.body['categories']).toEqual([]);
+      // The fill reads the committed repository and says what it did for the empty one.
+      const ended = await press(server, 'half');
+      const fill = ended['fill'] as Record<string, unknown>;
+      expect(fill['state']).toBe('done');
       // The finding now lives on the Problems page: its category, then the source the repository is,
       // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
       const categories = await json(server, 'half', '/api/problems');
@@ -295,10 +306,6 @@ git(folder,'commit','-qm','the nested file moves');
       expect(item).toBeDefined();
       expect(item!.reason).toContain('holds no commit yet');
       expect(item!.source).toBe(join(folder, 'repos', 'empty-code'));
-      // The fill reads the committed repository and says what it did for the empty one.
-      const ended = await press(server, 'half');
-      const fill = ended['fill'] as Record<string, unknown>;
-      expect(fill['state']).toBe('done');
       expect(fill['unread']).toEqual([{ repository: 'empty-code', path: join(folder, 'repos', 'empty-code'), reason: 'the checkout holds no commit yet' }]);
       const counts = (ended['repository'] as Record<string, unknown>)['counts'] as Record<string, unknown>;
       expect(counts['files']).toBe(1);
