@@ -12,7 +12,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { KMarkdown } from './blocks.js';
-import { GlossaryContext, GlossaryPage, TermBlockView, filterTerms, termIndex } from './glossary.js';
+import { GlossaryContext, GlossaryProvider, GlossaryPage, TermBlockView, filterTerms, termIndex } from './glossary.js';
 import { EntityPage } from './pages.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, blockOpen, chooseRole, leadGroups, loadSettings } from './roles.js';
@@ -400,5 +400,32 @@ describe('the «?» in the top bar', () => {
     const alone = into(createElement(HelpLink, { products: [{ name: 'Shop', folder: 'shop' }], current: 'shop' }));
     await new Promise((rest) => setTimeout(rest, 20));
     expect(alone.querySelector('[data-testid=help-link]')).toBeNull();
+  });
+});
+
+describe('glossary demand', () => {
+  test('does not request names for a page without Markdown, then requests once when text uses them', async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return Response.json({ terms: [term('Outbox')], resolutions: {}, findingCount: 0 });
+    }) as typeof fetch;
+    const container = into(createElement(GlossaryProvider, { version: 0, children: createElement('p', null, 'A kind table') }));
+    await until(() => container.textContent === 'A kind table', 'the static page');
+    expect(requests).toEqual([]);
+    rendered!.render(createElement(GlossaryProvider, { version: 0, children: createElement(KMarkdown, { text: 'Outbox delivers events.', resolutions: {} }) }));
+    await until(() => container.querySelector('.term-link') !== null, 'a linked term');
+    expect(requests).toEqual(['/api/glossary']);
+  });
+
+  test('the glossary page uses its own answer for term links, not a second global request', async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return Response.json({ terms: [term('Outbox'), term('Event', { definition: 'Outbox publishes it.' })], resolutions: {}, findingCount: 0 });
+    }) as typeof fetch;
+    const container = into(createElement(GlossaryProvider, { version: 0, children: createElement(GlossaryPage, { version: 0 }) }));
+    await until(() => container.querySelector('.term-link') !== null, 'glossary links');
+    expect(requests).toEqual(['/api/glossary']);
   });
 });

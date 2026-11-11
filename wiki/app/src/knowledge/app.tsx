@@ -28,7 +28,7 @@ import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, Fill
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
-import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
+import { GlossaryProvider, GlossaryPage } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
@@ -615,8 +615,6 @@ export function KnowledgeApp(): ReactElement {
   const content = useRef<HTMLDivElement>(null);
   const { status, error, version, refresh } = useWikiStatus();
   const settings = useSettings();
-  const { glossary } = useGlossary(version);
-  const glossaryValue = useGlossaryValue(glossary);
   useEffect(() => {
     const controller = new AbortController();
     void loadSettings(controller.signal);
@@ -701,7 +699,6 @@ export function KnowledgeApp(): ReactElement {
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <KindLabels.Provider value={status.kinds}>
       <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
-      <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
       <Stack layout="shell" data-testid="knowledge-app">
         {/* Navigation and page content have separate scroll areas within the viewport. */}
@@ -721,7 +718,7 @@ export function KnowledgeApp(): ReactElement {
                   {contentPage && status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : contentPage && status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
                       {status.own !== true && showsProgress(route, status) && <FillCard status={status} refresh={refresh} />}
-                      <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>
+                      <PendingPages.Provider value={pending}><GlossaryProvider key={frontAddress} version={version}>{view}</GlossaryProvider></PendingPages.Provider>
                     </>
                   )}
                 </main>
@@ -730,7 +727,6 @@ export function KnowledgeApp(): ReactElement {
           </ShellRow>
         </ShellMain>
       </Stack>
-      </GlossaryContext.Provider>
       </RoleContext.Provider>
       </KindLabels.Provider>
     </TooltipProvider>

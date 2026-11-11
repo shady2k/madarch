@@ -10,7 +10,7 @@ import { InlineCode, Strong } from '@/components/ui/inline-content.js';
  * synonyms) whole and in the same case; nothing is guessed. A name that two
  * terms both claim is linked to neither.
  */
-import { createContext, useContext, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
@@ -116,17 +116,18 @@ export function remarkTerms(index_: TermIndex, except?: string): () => (tree: MN
 }
 
 /** The product's glossary, read once per version of the wiki, for the links of the text and for the page. */
-export function useGlossary(version: number): { glossary: Glossary | null; error: string | null } {
+export function useGlossary(version: number, enabled = true): { glossary: Glossary | null; error: string | null } {
   const [glossary, setGlossary] = useState<Glossary | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     getGlossary(controller.signal).then(
       (answer) => { setGlossary(answer); setError(null); },
       (failure: unknown) => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure)); },
     );
     return () => controller.abort();
-  }, [version]);
+  }, [version, enabled]);
   return { glossary, error };
 }
 
@@ -134,7 +135,23 @@ export function useGlossaryValue(glossary: Glossary | null): { index: TermIndex;
   return useMemo(() => ({ index: glossary === null ? NO_TERMS : termIndex(glossary.terms), terms: glossary?.terms ?? [] }), [glossary]);
 }
 
-export const useTerms = (): { index: TermIndex; terms: readonly GlossaryTerm[] } => useContext(GlossaryContext);
+const noRequest = (): void => undefined;
+const RequestTerms = createContext<() => void>(noRequest);
+
+/** Fetch names only when rendered Markdown actually uses term linking. */
+export function GlossaryProvider({ version, children }: { version: number; children: ReactNode }): ReactElement {
+  const [needed, setNeeded] = useState(false);
+  const request = useCallback(() => setNeeded(true), []);
+  const { glossary } = useGlossary(version, needed);
+  const value = useGlossaryValue(glossary);
+  return <RequestTerms.Provider value={request}><GlossaryContext.Provider value={value}>{children}</GlossaryContext.Provider></RequestTerms.Provider>;
+}
+
+export function useTerms(): { index: TermIndex; terms: readonly GlossaryTerm[] } {
+  const request = useContext(RequestTerms);
+  useEffect(() => { request(); }, [request]);
+  return useContext(GlossaryContext);
+}
 
 function Names({ term }: { term: GlossaryTerm }): ReactElement | null {
   const { t } = useTranslation();
@@ -213,6 +230,7 @@ export function filterTerms(terms: readonly GlossaryTerm[], query: string): Glos
 export function GlossaryPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
   const { glossary, error } = useGlossary(version);
+  const value = useGlossaryValue(glossary);
   const [query, setQuery] = useState('');
   useTabTitle(t('knowledge.glossary.title'));
   if (glossary === null && error === null) return <PageSkeleton testId="glossary-loading" rows />;
@@ -221,7 +239,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
   // The names column is a column only when a term on the page has another name: an always-empty column is noise.
   const hasNames = shown.some((term) => term.synonyms.length > 0 || term.code.length > 0);
   return (
-    <PageSection data-testid="glossary-page">
+    <RequestTerms.Provider value={noRequest}><GlossaryContext.Provider value={value}><PageSection data-testid="glossary-page">
       <PageHeader className="mb-4">
         <InlineGroup>
           <PageTitle className="mb-0">{t('knowledge.glossary.title')}</PageTitle>
@@ -281,6 +299,6 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
         </Alert>
       )}
       {glossary.terms.length > 0 && shown.length === 0 && <Paragraph className="text-muted">{t('knowledge.nothingOfKind')}</Paragraph>}
-    </PageSection>
+    </PageSection></GlossaryContext.Provider></RequestTerms.Provider>
   );
 }
