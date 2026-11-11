@@ -1034,7 +1034,27 @@
     "pageProblems": "Проблем на странице: {{count}}",
     "findingsWhere": "Открыть проблемы",
     "findingsCount": "Находок: {{count}}",
-    "noStageYet": "Ни один этап заполнения пока не пишет этот вид."
+    "noStageYet": "Ни один этап заполнения пока не пишет этот вид.",
+    "usage": {
+      "title": "Сколько стоили вызовы модели",
+      "total": "{{tokens}} токенов ({{input}} на вход, {{output}} на выход) за {{runs}} запусков{{cost}}",
+      "runTotal": "{{tokens}} токенов ({{input}} на вход, {{output}} на выход) за {{turns}} ходов{{cost}}",
+      "costPart": ", {{cost}}",
+      "colRun": "Запуск",
+      "colPlugin": "Плагин",
+      "colField": "Поле",
+      "colModel": "Модель",
+      "colTokens": "Токены",
+      "colCost": "Стоимость",
+      "colState": "Состояние",
+      "wholeKind": "вид целиком",
+      "noModel": "модель не названа",
+      "tokens": "{{input}} на вход · {{output}} на выход · {{total}} всего",
+      "noTokens": "агент не сообщил токены",
+      "turns": "ходов: {{turns}}",
+      "stop": "остановлен: предел {{bound}}",
+      "moreRuns": "Старые запуски учтены в итоге и здесь не перечислены."
+    }
   },
   "loop": {
     "questionsTitle": "Вопросы",

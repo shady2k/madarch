@@ -93,6 +93,7 @@ export const API = {
   block: '/api/block',
   statement: '/api/statement',
   entities: '/api/entities',
+  kindUsage: '/api/kind-usage',
   neighborhood: '/api/neighborhood',
   view: '/api/view',
   viewFrame: '/api/view-frame',

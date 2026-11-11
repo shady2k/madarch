@@ -321,6 +321,70 @@ export type FillStepView = {
 };
 
 /** The newest run's trace: its wall clock, its spans and its steps. */
+/** One kind, field and model of a run's spend: the agent's own report, summed over its turns (madarch-stm0.4). */
+export type AgentUsageLine = {
+  kind: string;
+  field: string;
+  /** The model the adapter named; `''` when it named none. */
+  model: string;
+  plugin: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { currency: string; amount: number }[];
+  turns: number;
+  stopped: { bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' } | null;
+};
+
+/** What the run's model calls cost, read from the run's trace (madarch-stm0.4, decision 0035, item 22). */
+export type AgentUsageReport = {
+  lines: AgentUsageLine[];
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { currency: string; amount: number }[];
+  turns: number;
+  stops: { kind: string; field: string; model: string; bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' }[];
+};
+
+/** One plugin run's spend in one kind, field and model, as the store holds it. */
+export type KindUsageLine = {
+  run: string;
+  unit: string;
+  plugin: string;
+  pluginVersion: string;
+  kind: string;
+  field: string;
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { amount: number; currency: string } | null;
+  turns: number;
+  reported: boolean;
+  stopped: 'tokens' | 'cost' | null;
+};
+
+/** One run's spend on a kind: its rows and the numbers they make together. */
+export type KindUsageRun = {
+  run: string;
+  at: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { amount: number; currency: string }[];
+  stopped: 'tokens' | 'cost' | null;
+  rows: KindUsageLine[];
+};
+
+/** What a kind's page says about the agent's spend on it (madarch-stm0.4, decision 0035, item 22). */
+export type KindUsageView = {
+  kind: string;
+  runs: KindUsageRun[];
+  moreRuns: boolean;
+  total: { inputTokens: number; outputTokens: number; totalTokens: number; cost: { amount: number; currency: string }[]; runs: number };
+};
+
 export type FillRunView = {
   runId: string;
   startedAt: string;
@@ -329,6 +393,7 @@ export type FillRunView = {
   spans: number;
   slowest: { name: string; count: number; selfMs: number }[];
   steps: FillStepView[];
+  agentUsage: AgentUsageReport;
 };
 
 /** What a running fill has done so far, read from its trace. */

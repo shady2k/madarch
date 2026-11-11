@@ -53,6 +53,36 @@ interface UncoveredGap {
   readonly ms: number;
 }
 
+/** One kind, field and model as the run's `agent.usage` spans state it, summed over the turns that spent on it. */
+export interface AgentUsageLine {
+  readonly kind: string;
+  readonly field: string;
+  /** The model the adapter named; `''` when it named none. */
+  readonly model: string;
+  readonly plugin: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /** The tokens the agent reported for the line: the largest of its total and the sum of its parts. */
+  readonly totalTokens: number;
+  readonly cost: readonly { readonly currency: string; readonly amount: number }[];
+  /** How many prompt turns the line took. */
+  readonly turns: number;
+  /** The bound that ended this line's run, and which declaration it was. */
+  readonly stopped: { readonly bound: 'tokens' | 'cost'; readonly scope: 'plugin' | 'run' } | null;
+}
+
+/** What the run's model calls cost, as its `agent.usage` spans state it (madarch-stm0.4, decision 0035, item 22). */
+export interface AgentUsageReport {
+  readonly lines: readonly AgentUsageLine[];
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly cost: readonly { readonly currency: string; readonly amount: number }[];
+  readonly turns: number;
+  /** The bounds the run crossed, in the order the spans were written. */
+  readonly stops: readonly { readonly kind: string; readonly field: string; readonly model: string; readonly bound: 'tokens' | 'cost'; readonly scope: 'plugin' | 'run' }[];
+}
+
 /** The whole answer. */
 export interface TraceReport {
   readonly file: string;
@@ -67,6 +97,73 @@ export interface TraceReport {
   readonly uncoveredPercent: number;
   readonly gaps: readonly UncoveredGap[];
   readonly slowest: readonly { readonly name: string; readonly spanId: string; readonly ms: number }[];
+  /** What the run's model calls cost, per kind, field and model; empty for a run that made none (madarch-stm0.4). */
+  readonly agentUsage: AgentUsageReport;
+}
+
+/** One number a span states, or 0 when it states none. */
+function spanNumber(attributes: Readonly<Record<string, unknown>>, name: string): number {
+  const held = attributes[name];
+  return typeof held === 'number' && Number.isFinite(held) ? held : 0;
+}
+
+/**
+ * The run's model calls as its `agent.usage` spans state them (madarch-stm0.4): each span carries one turn's increment,
+ * never a cumulative total, so the report adds the spans and never a store. A line is one kind, field and model; the
+ * tokens are the largest of the span's total and the sum of its parts, the same reading the meter bounds by.
+ */
+export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
+  interface Held { kind: string; field: string; model: string; plugin: string; input: number; output: number; total: number; cost: Map<string, number>; turns: number; stopped: AgentUsageLine['stopped'] }
+  const lines = new Map<string, Held>();
+  const stops: { kind: string; field: string; model: string; bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' }[] = [];
+  for (const span of spans) {
+    if (span.name !== 'agent.usage') continue;
+    const kind = typeof span.attributes['agent.kind'] === 'string' ? span.attributes['agent.kind'] : '';
+    const field = typeof span.attributes['agent.field'] === 'string' ? span.attributes['agent.field'] : '';
+    const model = typeof span.attributes['agent.model'] === 'string' ? span.attributes['agent.model'] : '';
+    const plugin = typeof span.attributes['agent.plugin'] === 'string' ? span.attributes['agent.plugin'] : '';
+    const key = `${kind}\u0000${field}\u0000${model}`;
+    const held = lines.get(key) ?? { kind, field, model, plugin, input: 0, output: 0, total: 0, cost: new Map<string, number>(), turns: 0, stopped: null };
+    const input = spanNumber(span.attributes, 'agent.tokens.input');
+    const output = spanNumber(span.attributes, 'agent.tokens.output');
+    held.input += input;
+    held.output += output;
+    held.total += Math.max(spanNumber(span.attributes, 'agent.tokens.total'), input + output);
+    held.turns += 1;
+    for (const [name, value] of Object.entries(span.attributes)) {
+      if (!name.startsWith('agent.cost.') || typeof value !== 'number') continue;
+      const currency = name.slice('agent.cost.'.length);
+      held.cost.set(currency, (held.cost.get(currency) ?? 0) + value);
+    }
+    const bound = span.attributes['agent.bound.stop'];
+    const scope = span.attributes['agent.bound.scope'];
+    if ((bound === 'tokens' || bound === 'cost') && (scope === 'plugin' || scope === 'run')) {
+      held.stopped = { bound, scope };
+      stops.push({ kind, field, model, bound, scope });
+    }
+    lines.set(key, held);
+  }
+  const ordered = [...lines.values()].sort((left, right) => (left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0)
+    || (left.field < right.field ? -1 : left.field > right.field ? 1 : 0)
+    || (left.model < right.model ? -1 : left.model > right.model ? 1 : 0));
+  const money = (held: readonly Held[]): { currency: string; amount: number }[] => {
+    const byCurrency = new Map<string, number>();
+    for (const line of held) for (const [currency, amount] of line.cost) byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + amount);
+    return [...byCurrency.entries()].map(([currency, amount]) => ({ currency, amount: Number(amount.toFixed(6)) })).sort((left, right) => (left.currency < right.currency ? -1 : left.currency > right.currency ? 1 : 0));
+  };
+  return {
+    lines: ordered.map((line) => ({
+      kind: line.kind, field: line.field, model: line.model, plugin: line.plugin,
+      inputTokens: line.input, outputTokens: line.output, totalTokens: line.total,
+      cost: money([line]), turns: line.turns, stopped: line.stopped,
+    })),
+    inputTokens: ordered.reduce((sum, line) => sum + line.input, 0),
+    outputTokens: ordered.reduce((sum, line) => sum + line.output, 0),
+    totalTokens: ordered.reduce((sum, line) => sum + line.total, 0),
+    cost: money(ordered),
+    turns: ordered.reduce((sum, line) => sum + line.turns, 0),
+    stops,
+  };
 }
 
 function valueOf(attribute: { readonly value?: Record<string, unknown> }): unknown {
@@ -196,6 +293,7 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
     uncoveredMs, uncoveredPercent: wallMs === 0 ? 0 : (uncoveredMs / wallMs) * 100,
     gaps: gaps.slice(0, 10),
     slowest,
+    agentUsage: agentUsageOf(spans),
   };
 }
 
@@ -366,5 +464,15 @@ export function renderTraceReport(report: TraceReport): string {
   lines.push('');
   lines.push('The slowest single spans:');
   for (const held of report.slowest) lines.push(`  ${ms(held.ms).padStart(11)}  ${held.name}  (${held.spanId})`);
+  if (report.agentUsage.lines.length > 0) {
+    const usage = report.agentUsage;
+    lines.push('');
+    lines.push(`Agent usage: ${String(usage.turns)} prompt turns, ${String(usage.inputTokens)} tokens in, ${String(usage.outputTokens)} out, ${String(usage.totalTokens)} total${usage.cost.length === 0 ? '' : `, cost ${usage.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}`);
+    for (const line of usage.lines) {
+      const where = `${line.plugin} ${line.kind}${line.field === '' ? '' : `/${line.field}`}${line.model === '' ? '' : ` on ${line.model}`}`;
+      lines.push(`  ${String(line.inputTokens).padStart(9)} in  ${String(line.outputTokens).padStart(9)} out  ${String(line.totalTokens).padStart(9)} total${line.cost.length === 0 ? '' : `  ${line.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}  ${where}${line.stopped === null ? '' : `  [stopped: ${line.stopped.bound}, ${line.stopped.scope} bound]`}`);
+    }
+    for (const stop of usage.stops) lines.push(`  stopped: the ${stop.scope} ${stop.bound} bound ended the ${stop.kind}${stop.field === '' ? '' : `/${stop.field}`} turn${stop.model === '' ? '' : ` of ${stop.model}`}`);
+  }
   return `${lines.join('\n')}\n`;
 }

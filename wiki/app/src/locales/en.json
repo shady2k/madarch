@@ -1034,7 +1034,27 @@
     "pageProblems": "Problems on this page: {{count}}",
     "findingsWhere": "Open the problems",
     "findingsCount": "Findings: {{count}}",
-    "noStageYet": "No fill stage writes this kind yet."
+    "noStageYet": "No fill stage writes this kind yet.",
+    "usage": {
+      "title": "What the model calls cost",
+      "total": "{{tokens}} tokens ({{input}} in, {{output}} out) over {{runs}} runs{{cost}}",
+      "runTotal": "{{tokens}} tokens ({{input}} in, {{output}} out) over {{turns}} prompt turns{{cost}}",
+      "costPart": ", {{cost}}",
+      "colRun": "Run",
+      "colPlugin": "Plugin",
+      "colField": "Field",
+      "colModel": "Model",
+      "colTokens": "Tokens",
+      "colCost": "Cost",
+      "colState": "State",
+      "wholeKind": "the kind as a whole",
+      "noModel": "no model named",
+      "tokens": "{{input}} in · {{output}} out · {{total}} total",
+      "noTokens": "no token report",
+      "turns": "{{turns}} turns",
+      "stop": "stopped: {{bound}} bound",
+      "moreRuns": "Older runs are counted in the total and not listed here."
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

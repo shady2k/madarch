@@ -81,8 +81,8 @@ export interface AcpUpdate {
   raw: unknown;
 }
 
-/** A usage report, as the agent gave it. */
-interface AcpUsageReport {
+/** A usage report, as the agent gave it: the adapter's equivalent of the tokens a turn spent (see the meter). */
+export interface AcpUsageReport {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
@@ -108,7 +108,7 @@ interface AcpSessionUsage extends AcpUsageReport {
 }
 
 /** What one prompt turn ended with. */
-interface AcpPromptResult {
+export interface AcpPromptResult {
   /** The protocol's stop reason: `end_turn`, `cancelled`, `max_tokens` and the rest. */
   stopReason: string;
   /** The assistant's message text, in the order its chunks arrived. */
