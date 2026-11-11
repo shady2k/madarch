@@ -4,10 +4,9 @@ import { authoredEntity } from '../src/graph/authored.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { importAuthored, AUTHORED_ARCHIVE } from '../src/knowledge/import-authored.js';
-import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
+import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -68,7 +67,7 @@ test('imports bytes once, retries an interrupted archive, reports bad items and 
     expect((await owner.transaction('snapshot', async (tx) => (await tx.query('SELECT * FROM node')).rows)).length).toBe(1);
     expect((await importAuthored(folder, owner, manifest, '', 'reader')).imported).toEqual([]);
     const oldManifest = { ...manifest, kinds: new Map([...manifest.kinds].map(([name, decl]) => [name, { ...decl, source: 'markdown' as const, folder: 'old' }])) };
-    expect(readMarkdownEntitiesFrom(workingTreeFiles(folder), oldManifest)).toEqual({ entities: [], findings: [] });
+    expect(await graphMarkdownEntities({ list: async () => { throw new Error('person-authored kinds must not enter the page materializer'); } }, oldManifest)).toEqual({ entities: [], findings: [] });
   } finally { await owner.close(); }
 }, 15000);
 

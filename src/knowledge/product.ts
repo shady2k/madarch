@@ -2776,7 +2776,7 @@ export class KnowledgeProduct {
     const read = await this.manifestFrom(product.folder);
     if (!read.present) return NO_MARKS;
     const marks = await plannedMarks({
-      owner, graph: await this.loopGraph(), productFolder: this.options.productFolder, files, manifest: read.manifest,
+      owner, productFolder: this.options.productFolder, files, manifest: read.manifest,
       // The product's own repository closes a task as a code repository does: its documents are in it.
       repositories: [{ name: '', path: product.folder }, ...repositories],
       // The product repository's own Markdown, as the graph holds it: a path here belongs to the product, not to a code repository.
