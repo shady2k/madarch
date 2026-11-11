@@ -611,4 +611,15 @@ describe('what a refresh changed', () => {
     }
     expect((await refresh()).fill).toMatchObject({ state: 'done', changed: [] });
   }, 180_000);
+
+  test('a missing old file id is named, and the graph search finds the file whose path ends the same', async () => {
+    const id = 'code.file:a.ts';
+    const missing = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
+    expect(missing.status).toBe(404);
+    expect(missing.body.message).toContain(id);
+    const found = await get(`/products/tiny/api/search?q=${encodeURIComponent('a.ts')}`);
+    expect(found.status).toBe(200);
+    const ids = (found.body.groups as { rows: { id: string }[] }[]).flatMap((group) => group.rows.map((row) => row.id));
+    expect(ids).toContain(recordKey('code.file', 'tiny/src/a.ts'));
+  }, 60_000);
 });

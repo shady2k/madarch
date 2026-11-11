@@ -544,10 +544,10 @@ describe('where the settings are and where the progress is', () => {
     expect(wikiRouteOf('/products/shop/settings/')).toEqual({ name: 'settings' });
   });
 
-  test('the fill\'s card is drawn above the product\'s page and an entity, and above no other page', () => {
+  test('the fill\'s card is drawn above the product\'s page, never above an entity page', () => {
     const filled = status({ home: 'product:shop' });
     expect(showsProgress({ name: 'home' }, filled)).toBe(true);
-    expect(showsProgress({ name: 'entity', id: 'domain:x', after: null }, filled)).toBe(true);
+    expect(showsProgress({ name: 'entity', id: 'domain:x', after: null }, filled)).toBe(false);
     expect(showsProgress({ name: 'home' }, status({ home: null }))).toBe(false);
     // With no store the home is the introduction and draws its own card: the page above carries none.
     expect(showsProgress({ name: 'home' }, status({ home: 'product:shop', filled: false }))).toBe(false);

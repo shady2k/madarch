@@ -735,6 +735,38 @@ describe('the statement view', () => {
     expect(place.textContent).toContain('has no name on its page yet');
   });
 
+  test('a missing entity names its id, searches the graph for the last segment and never offers the agent', async () => {
+    const id = 'code.file:src/fill/acp-choices.ts';
+    const found = 'code.file:madarch/src/fill/acp-choices.ts';
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.includes('/api/page')) return new Response(JSON.stringify({ message: `no entity "${id}" in the graph or among the product's Markdown pages` }), { status: 404 });
+      if (url.includes('/api/search')) return new Response(JSON.stringify({ product: { name: 'shop', id: 'p' }, language: 'en', query: 'acp-choices.ts', total: 1, groups: [{ kind: 'code.file', total: 1, rows: [{ id: found, kind: 'code.file', title: 'acp-choices.ts', href: `/e/${encodeURIComponent(found)}` }] }] }), { status: 200 });
+      return new Response('{}', { status: 404 });
+    };
+    const page = into(createElement(EntityPage, { id, version: 0 }));
+    await until(() => page.querySelector('[data-testid=page-error]') !== null, 'the missing page');
+    await until(() => page.querySelector('[data-testid=missing-entity-result]') !== null, 'the graph search result');
+    expect(page.querySelector('[data-testid=missing-entity-id]')!.textContent).toBe(id);
+    expect(page.querySelector('[data-testid=missing-entity-query]')!.textContent).toBe('acp-choices.ts');
+    const result = page.querySelector('[data-testid=missing-entity-result]')!;
+    expect(result.getAttribute('data-entity')).toBe(found);
+    expect(result.querySelector('a')!.getAttribute('href')).toBe(`/e/${encodeURIComponent(found)}`);
+    // The agent's offer belongs wherever it can write the page; on a missing code file it is not drawn.
+    expect(page.querySelector('[data-testid=fill-card]')).toBeNull();
+    expect(page.textContent).not.toContain('Let an agent write the product pages');
+    expect(page.textContent).not.toContain('Поручите агенту');
+    // An existing id still opens its page, and draws no missing-entity search.
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/page')
+      ? new Response(JSON.stringify({ id, kind: 'code.file', title: 'acp-choices.ts', trail: [], resolutions: {}, findings: [], notes: [], blocks: [] }), { status: 200 })
+      : new Response('{}', { status: 404 });
+    const existing = into(createElement(EntityPage, { id, version: 1 }));
+    await until(() => existing.querySelector('[data-testid=entity-page]') !== null, 'the existing page');
+    expect(existing.querySelector('[data-testid=page-title]')!.textContent).toBe('acp-choices.ts');
+    expect(existing.querySelector('[data-testid=missing-entity-search]')).toBeNull();
+  });
+
   test('a sentence with no ground says the wiki does not show it as a fact, and a sentence the page lost is refused in the server\'s words', async () => {
     answer({ ...statement, grounded: false, grounds: [] });
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));

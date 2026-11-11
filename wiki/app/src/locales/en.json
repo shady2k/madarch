@@ -178,6 +178,8 @@
     "documents": "Sources",
     "source": "Source",
     "noSuchPage": "There is no such page",
+    "missingEntityBody": "The graph holds no entity with the id",
+    "missingEntityDetails": "Details",
     "filter": "Filter by name or key",
     "total": "{{count}} in all",
     "nothingOfKind": "Nothing of this kind is in the graph yet.",
