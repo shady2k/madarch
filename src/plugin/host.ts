@@ -363,6 +363,14 @@ export class PluginHost {
       declared = await this.awaitIntroduction();
     } catch (error) {
       await this.close();
+      const cause = error as UnitCause;
+      if (cause.code === 'plugin-exited' && this.sandbox !== undefined) {
+        const stderr = this.sandbox.stderr();
+        const text = readFileSync(stderr.file, 'utf8');
+        throw { ...cause, message: `${cause.message}
+Plugin stderr (${stderr.file}${stderr.truncated ? '; truncated to the log tail' : ''}):
+${text === '' ? '(empty)' : text}` };
+      }
       throw error;
     }
     this.declared = declared;

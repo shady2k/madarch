@@ -12,43 +12,9 @@
  * part of its hash, and the binary carries them as bytes the way it carries the code.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { closureHashOf, sdkClosureFiles } from './closure.js';
 
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import glossaryMain from '../../plugins/glossary/main.ts' with { type: 'text' };
-import glossaryContract from '../../plugins/glossary/contract.json' with { type: 'text' };
-import glossaryManifest from '../../plugins/glossary/plugin.json' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import agentFillMain from '../../plugins/agent-fill/main.ts' with { type: 'text' };
-import agentFillContract from '../../plugins/agent-fill/contract.json' with { type: 'text' };
-import agentFillManifest from '../../plugins/agent-fill/plugin.json' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import agentFillPrompt from '../../plugins/agent-fill/prompt.md' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaMain from '../../plugins/db-schema/main.ts' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaAmbient from '../../plugins/db-schema/ambient.d.ts' with { type: 'text' };
-import dbSchemaContract from '../../plugins/db-schema/contract.json' with { type: 'text' };
-import dbSchemaManifest from '../../plugins/db-schema/plugin.json' with { type: 'text' };
-import dbSchemaPostgresWasm from '../../plugins/db-schema/node_modules/libpg-query/wasm/libpg-query.wasm' with { type: 'file' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaPostgresGlue from '../../plugins/db-schema/node_modules/libpg-query/wasm/libpg-query.js' with { type: 'text' };
-import dbSchemaPostgresIndex from '../../plugins/db-schema/node_modules/libpg-query/wasm/index.js' with { type: 'text' };
-import dbSchemaPostgresPackage from '../../plugins/db-schema/node_modules/libpg-query/package.json' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaPostgresLicense from '../../plugins/db-schema/node_modules/libpg-query/LICENSE' with { type: 'text' };
-import dbSchemaTypesIndex from '../../plugins/db-schema/node_modules/@pgsql/types/index.js' with { type: 'text' };
-import dbSchemaTypesValues from '../../plugins/db-schema/node_modules/@pgsql/types/types.js' with { type: 'text' };
-import dbSchemaTypesEnums from '../../plugins/db-schema/node_modules/@pgsql/types/enums.js' with { type: 'text' };
-import dbSchemaTypesPackage from '../../plugins/db-schema/node_modules/@pgsql/types/package.json' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaTypesLicense from '../../plugins/db-schema/node_modules/@pgsql/types/LICENSE' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaParserIndex from '../../plugins/db-schema/node_modules/@babel/parser/lib/index.js' with { type: 'text' };
-import dbSchemaParserPackage from '../../plugins/db-schema/node_modules/@babel/parser/package.json' with { type: 'text' };
-// @ts-expect-error Bun's text loader answers the file's text as the default export; TypeScript has no such module.
-import dbSchemaParserLicense from '../../plugins/db-schema/node_modules/@babel/parser/LICENSE' with { type: 'text' };
+import { pluginFiles } from './bundled-files.js' with { type: 'macro' };
 
 /** One file of a bundled plugin: its text, or the bytes of a file the plugin loads as it is (a WebAssembly module). */
 export interface BundledFile {
@@ -65,6 +31,13 @@ export interface BundledPlugin {
   readonly version: string;
   /** The files that make its closure, in code point order of their paths inside the folder. */
   readonly files: readonly BundledFile[];
+}
+
+/** Preserve binary package assets as bytes; valid UTF-8 stays text for starter readers. */
+function contentOf(base64: string): string | Uint8Array {
+  const bytes = Buffer.from(base64, 'base64');
+  const text = bytes.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(bytes) ? text : bytes;
 }
 
 /** The plugins this build carries, in code point order of their ids. */
@@ -84,35 +57,13 @@ export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
     id: 'db-schema',
     folder: 'plugins/db-schema',
     version: '1.0.0',
-    files: [
-      { path: 'ambient.d.ts', content: dbSchemaAmbient as unknown as string },
-      { path: 'contract.json', content: dbSchemaContract as unknown as string },
-      { path: 'main.ts', content: dbSchemaMain as string },
-      { path: 'node_modules/@babel/parser/LICENSE', content: dbSchemaParserLicense as unknown as string },
-      { path: 'node_modules/@babel/parser/lib/index.js', content: dbSchemaParserIndex as unknown as string },
-      { path: 'node_modules/@babel/parser/package.json', content: dbSchemaParserPackage as unknown as string },
-      { path: 'node_modules/@pgsql/types/LICENSE', content: dbSchemaTypesLicense as unknown as string },
-      { path: 'node_modules/@pgsql/types/enums.js', content: dbSchemaTypesEnums as unknown as string },
-      { path: 'node_modules/@pgsql/types/index.js', content: dbSchemaTypesIndex as unknown as string },
-      { path: 'node_modules/@pgsql/types/package.json', content: dbSchemaTypesPackage as unknown as string },
-      { path: 'node_modules/@pgsql/types/types.js', content: dbSchemaTypesValues as unknown as string },
-      { path: 'node_modules/libpg-query/LICENSE', content: dbSchemaPostgresLicense as unknown as string },
-      { path: 'node_modules/libpg-query/package.json', content: dbSchemaPostgresPackage as unknown as string },
-      { path: 'node_modules/libpg-query/wasm/index.js', content: dbSchemaPostgresIndex as unknown as string },
-      { path: 'node_modules/libpg-query/wasm/libpg-query.js', content: dbSchemaPostgresGlue as unknown as string },
-      { path: 'node_modules/libpg-query/wasm/libpg-query.wasm', content: readFileSync(dbSchemaPostgresWasm as unknown as string) },
-      { path: 'plugin.json', content: dbSchemaManifest as unknown as string },
-    ],
+    files: pluginFiles('db-schema').map((file) => ({ path: file.path, content: contentOf(file.base64) })),
   },
   {
     id: 'glossary',
     folder: 'plugins/glossary',
     version: '1.0.0',
-    files: [
-      { path: 'contract.json', content: glossaryContract as unknown as string },
-      { path: 'main.ts', content: glossaryMain as string },
-      { path: 'plugin.json', content: glossaryManifest as unknown as string },
-    ],
+    files: pluginFiles('glossary').map((file) => ({ path: file.path, content: contentOf(file.base64) })),
   },
 ];
 

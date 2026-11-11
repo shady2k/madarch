@@ -12,8 +12,12 @@
  * whose runtime pin is not the runtime this host would run it with.
  */
 import { createHash } from 'node:crypto';
-import { lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { builtinModules } from 'node:module';
+import { ClosureRefusal } from './closure-refusal.js';
+export { ClosureRefusal } from './closure-refusal.js';
+import { walk, dependencyFiles } from './dependency-files.js';
 import { PluginContractFile, type PluginRights } from './protocol.js';
 import { SDK_SOURCE } from './sdk-asset.js';
 import { Type, type Static } from 'typebox';
@@ -77,42 +81,57 @@ export interface Closure {
   readonly hash: string;
 }
 
-/** A closure that cannot be read, or a snapshot whose bytes moved: the cause, and where. */
-export class ClosureRefusal extends Error {
-  readonly code: string;
-  readonly file: string;
-  readonly line: number;
-  constructor(code: string, message: string, file: string, line = 1) {
-    super(message);
-    this.name = 'ClosureRefusal';
-    this.code = code;
-    this.file = file;
-    this.line = line;
-  }
-}
-
-/** The path of one file, as the closure names it: relative, with `/` separators whatever the platform. */
-function closurePath(root: string, file: string): string {
-  return relative(root, file).split(sep).join('/');
-}
-
-/** Every file under a folder, in code point order of their closure paths; a symlink is refused by name. */
-function walk(folder: string): { path: string; file: string }[] {
-  const found: { path: string; file: string }[] = [];
-  const visit = (dir: string): void => {
-    const names = readdirSync(dir, { withFileTypes: true }).map((entry) => entry.name).sort(byCodePoint);
-    for (const name of names) {
-      const file = join(dir, name);
-      const stat = lstatSync(file);
-      if (stat.isSymbolicLink()) {
-        throw new ClosureRefusal('closure-symlink', `${WHERE}:1: ${file} is a symbolic link: a plugin's closure is its own files, and a link that answers elsewhere is not one of them. Replace it with the file it names, or keep the dependency inside the plugin's folder`, file);
-      }
-      if (stat.isDirectory()) visit(file);
-      else if (stat.isFile()) found.push({ path: closurePath(folder, file), file });
+/** Locate a runtime import's literal, ignoring comments and unrelated string values. */
+function importLine(text: string, name: string): number {
+  const tokens = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]/g;
+  const previous: string[] = [];
+  const scanner = new Bun.Transpiler({ loader: 'js' });
+  for (const token of text.matchAll(tokens)) {
+    const value = token[0];
+    if (value.startsWith('//') || value.startsWith('/*')) continue;
+    const last = previous.at(-1);
+    const beforeLast = previous.at(-2);
+    const isImport = last === 'from' || last === 'import' || (last === '(' && (beforeLast === 'import' || beforeLast === 'require'));
+    if (isImport && (value.startsWith('"') || value.startsWith("'"))) {
+      const imported = scanner.scanImports(`import ${value};`)[0];
+      if (imported?.path === name) return text.slice(0, token.index).split('\n').length;
     }
-  };
-  visit(folder);
-  return found.sort((left, right) => byCodePoint(left.path, right.path));
+    previous.push(value);
+    if (previous.length > 2) previous.shift();
+  }
+  throw new Error(`Cannot locate runtime import ${JSON.stringify(name)} in its scanned source`);
+}
+
+/** Resolve every statically named runtime import against precisely the files the snapshot will carry. */
+function validateImports(folder: string, files: readonly { path: string; file: string }[], entryPath: string): void {
+  const held = new Set(files.map((file) => resolve(file.file)));
+  const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`), 'bun', 'bun:ffi', 'bun:jsc', 'bun:sqlite', 'bun:test']);
+  const pending = [files.find((file) => file.path === entryPath)!];
+  const visited = new Set<string>();
+  for (const entry of pending) {
+    if (visited.has(entry.file)) continue;
+    visited.add(entry.file);
+    if (!/\.(?:[cm]?[jt]sx?)$/.test(entry.path) || /\.d\.[cm]?ts$/.test(entry.path)) continue;
+    const text = readFileSync(entry.file, 'utf8').replace(/^#![^\n]*/, (line) => ' '.repeat(line.length));
+    const loader = entry.path.endsWith('tsx') ? 'tsx' : entry.path.endsWith('jsx') ? 'jsx' : /\.[cm]?ts$/.test(entry.path) ? 'ts' : 'js';
+    let imports: ReturnType<Bun.Transpiler['scanImports']>;
+    try { imports = new Bun.Transpiler({ loader }).scanImports(text); }
+    catch (error) { throw new ClosureRefusal('plugin-import', `${entry.file}:1: cannot scan imports: ${(error as Error).message}`, entry.file); }
+    for (const imported of imports) {
+      if (builtins.has(imported.path) || imported.path === SDK_PACKAGE) continue;
+      let target: string;
+      try { target = Bun.resolveSync(imported.path, dirname(entry.file)); } catch (error) {
+        const line = importLine(text, imported.path);
+        throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder}: ${(error as Error).message}`, entry.file, line);
+      }
+      if (held.has(resolve(target))) {
+        pending.push(files.find((file) => resolve(file.file) === resolve(target))!);
+        continue;
+      }
+      const line = importLine(text, imported.path);
+      throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder} (resolved outside the closure to ${target})`, entry.file, line);
+    }
+  }
 }
 
 /** The sha256 of one file's bytes. */
@@ -213,23 +232,28 @@ export function sdkClosureFiles(): ClosureFile[] {
 }
 
 /**
- * One plugin folder's closure: its manifest, every file under it in code point
- * order of their paths, and the one hash over them. Reading a folder never
- * follows a link and never reads outside it.
+ * One plugin folder's closure: its own files and the installed packages reached
+ * through declared dependencies, in code point order. Imports are resolved before
+ * the hash is returned; nothing outside those files may satisfy an import.
  */
 export function closureOf(folder: string): Closure {
+  folder = resolve(folder);
   const manifest = readPluginManifest(folder);
-  const own = walk(folder).map((entry) => {
+  const missing: ClosureRefusal[] = [];
+  const entries = [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))];
+  const own = entries.map((entry) => {
     const stat = lstatSync(entry.file);
     return { path: entry.path, sha256: digestOf(entry.file), bytes: stat.size, mode: stat.mode & 0o777 };
   });
   if (!own.some((file) => file.path === manifest.entry)) {
     throw new ClosureRefusal('plugin-entry', `${WHERE}:1: ${join(folder, manifest.entry)} is the entry ${PLUGIN_MANIFEST_FILE} names, and the plugin folder holds no such file`, join(folder, manifest.entry));
   }
-  const ownSdk = own.find((file) => file.path.startsWith(`node_modules/${SDK_PACKAGE}/`));
+  const ownSdk = existsSync(join(folder, 'node_modules', SDK_PACKAGE)) ? { path: `node_modules/${SDK_PACKAGE}` } : undefined;
   if (ownSdk !== undefined) {
     throw new ClosureRefusal('plugin-sdk-conflict', `${WHERE}:1: ${join(folder, ownSdk.path)} stands in the plugin's folder, and madarch hands every plugin its own SDK at that name: remove the copy, and import ${SDK_PACKAGE} from the closure madarch builds`, join(folder, ownSdk.path));
   }
+  validateImports(folder, entries, manifest.entry);
+  if (missing[0] !== undefined) throw missing[0];
   const files = [...own, ...sdkClosureFiles()].sort((left, right) => byCodePoint(left.path, right.path));
   return { folder, manifest, files, hash: closureHashOf(files) };
 }
