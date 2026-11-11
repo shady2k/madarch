@@ -1,4 +1,4 @@
-# wiki-for-engine — madarch is developed through its own wiki
+# wiki-for-engine — madarch is developed through madarch
 
 Adopted 2026-11-10 (the owner's «Да» to the charter summary in conversation with
 the coordinator). Follows wiki-for-people, closed the same day («Да, веху
@@ -11,79 +11,111 @@ graph. The owner set the goal:
 взаимодействуют и так далее. Понимаешь? То есть я хочу использовать нашу вики
 для разработки нашего движка.»
 
-The engine fills nothing: every fact comes from a plugin, with static, agent and
-network parts (decision 0035, items 16-32), and the wiki, its API and MCP read
-only the graph. madarch's own wiki is the first product built on that
-foundation, and the owner develops madarch by reading it.
+Re-planned 2026-11-11, after a day in which work ran on all four first outcomes
+at once and none was accepted. The owner restated the goal:
+
+«Я хотел бы наш продукт собственный помогал нам разрабатывать наш собственный
+продукт… я сначала хотел сделать архитектуру у нас движок у нас есть каталог
+сущностей каждая сущность самодостаточная она по факту работает может работать
+без всякого кода до за счет того что есть один плагин агентского заполнения вот
+я это хочу и я хочу миграцию с моего трекера текущего»
+
+and named the work: «проверяем каталог сущностей и crud операции над ними;
+делаем агентский плагин заполнения; делаем возможность начать заполнения по
+выбранным сущностям и разделам; если что-то не получается, ты заполняешь граф
+за плагин, чтобы я уже сейчас мог видеть архитектуру; делаем mcp, чтобы агенты
+могли использовать граф». Work runs in parallel; the coordinator writes no code
+and reports progress against this charter, speed included, and every deviation
+(«Именно твоей задачей является отслеживание, что мы движемся к цели и
+подсвечивать мне отклонения, в том числе по скорости»). The owner approved the
+summary with one change: «песочницу как раз можно отложить» — the agent part
+runs without the sandbox in this milestone. The estimates are counted in hours
+(«Никаких дней. Пересмотри сроки. Там уже много что выполнено.»).
+
+The engine holds no entities: every kind is a declaration in the product's
+catalogue, with its description and fields, and a kind with no plugin of its
+own is filled by the one agent-fill plugin. The wiki, its API and MCP read only
+the graph (decision 0034, decision 0035 items 16-33).
 
 ## Outcomes and acceptance
 
-O1: The engine is the mechanism only: tables are built from the manifest's
-declarations alone, the git and files reader is the first plugin, the source
-filesystem is a capability a plugin requests, the wiki, API and MCP read only
-the graph, an invalid manifest is not loaded, and plugins carry versions, a lock
-and a failure state.
+O1: The catalogue and operations on entities: the kinds are declarations in the
+product's manifest and their tables are built from them alone; a person or an
+agent creates, edits and deletes an entity of any kind the manifest lets people
+author, through the wiki, the `madarch` CLI and MCP, stored in the database and
+journalled with its author.
 Serves: journeys 4, 6 and 7 of docs/vision.md.
-*Check:* adding a kind with fields to the manifest creates its table and removing
-it removes the table; a planted read around the graph in the read path, and a
-plugin opening a file without the capability, each fail `bun run check` or the
-host; the git plugin fills madarch's repository; a manifest with an error is
-refused with every error named; a fill on a second machine from the same
-`madarch/plugins.lock` runs the same plugin versions; a plugin failing past its
-bound is switched off with its reason shown, and switched on again.
-*Signal:* the owner finds no second surface on a walk of madarch's wiki.
+*Check:* on a fixture product, adding a kind with fields to the manifest
+creates its table and removing it removes the table; an entity is created,
+edited and deleted through each of the three ways; an invalid value is refused
+naming the field and the reason; each change is in the journal with its author.
+*Signal:* the owner creates a task of madarch's own in its wiki and edits it.
 
-O2: A fill walks the catalogue's kinds in their dependency order and runs each
-kind's plugins: a general agent plugin fills a kind that has no plugin of its
-own, the agent writes a static plugin inside a turn where one is cheaper, every
-model call is metered, a technical task appears where a static plugin could
-replace the agent, a fill can target part of the catalogue, and a consistency
-plugin checks the result.
+O2: The agent-fill plugin: a kind declared in the catalogue only by its
+description is filled by one general agent plugin, and every model call is
+metered: model, tokens and cost per run and per kind, on the kind's page. The
+agent part runs without the sandbox in this milestone.
 Serves: journey 6.
-*Check:* on a fixture product, a kind declared only by its description is filled
-by the agent plugin with its model and tokens shown on its page; the dependency
-graph page shows the order and progress; a fill of one kind with its
-dependencies runs only what is stale.
-*Signal:* the owner starts a fill of one section from the dependency graph page
-and reads what it cost.
+*Check:* on a fixture product, a kind with a description and no plugin of its
+own is filled by a real agent run within the cost cap the owner names, and its
+page shows the model, the tokens and the cost.
+*Signal:* the owner reads what a fill of a kind cost from its page.
 
-O3: madarch's own wiki shows its architecture: glossary terms, modules, entry
-points (CLI commands, HTTP routes, MCP tools), stores and database tables, and
-the relations imports, reads, writes and calls between them, each filled by a
-plugin, and the module, table and architecture pages carry text whose every
-sentence is a statement grounded in the graph (decision 0034, item 15).
+O3: A fill of a chosen part: a person starts a fill of the kinds or the sections
+they select, from the catalogue page or the CLI; only those and their stale
+dependencies run, and the dependency graph page shows the order and progress.
+Serves: journey 6.
+*Check:* selecting one section on the catalogue page and pressing Fill runs only
+that section's kinds and what they need; the dependency graph page shows each
+kind's state while the fill runs and after it; the CLI does the same.
+*Signal:* the owner fills one section and sees only it change.
+
+O4: madarch's architecture is seen now: madarch's own wiki shows its modules,
+entry points (CLI commands, HTTP routes, MCP tools), stores and database
+tables, glossary terms, and who imports, calls, reads and writes what. Where a
+plugin does not fill a kind yet, the coordinator states its entities through
+the operations of O1 and O5, as an author of its own, and a plugin's later fill
+replaces them.
 Serves: journeys 1, 4 and 7.
-*Check:* every term of madarch's docs/glossary.md is in its wiki with a link to
-its lines; every CLI command, HTTP route and MCP tool of madarch has its entry
-point page; the module map shows which module imports, calls, reads and writes
-which module, store and database table; a planted module reading around the
-graph appears on the map; every sentence on the module, table and architecture
-pages links to its grounds, and a sample of sentences is checked against them by
-a reviewer.
+*Check:* every module, entry point and database table of madarch has its page;
+each value names its author, a plugin or the coordinator.
 *Signal:* the owner answers from madarch's wiki alone which modules read which
-tables and where a second surface would be.
+tables.
 
-O4: The Files section serves a reader as the owner's reference screens do: a map
-of the repository with area and colour switches (lines, dependants, commits;
-change frequency, language, age), a file table with a filter, and a file page
-with its header (main authors, hotspot, figures) and the History and
-Co-change tabs; and the wiki's addresses carry no /k prefix.
+O5: MCP for agents: workers and the coordinator read the graph and write
+entities through `madarch mcp`.
+Serves: journey 7.
+*Check:* a worker answers a question about madarch's code through `madarch mcp`
+and its journal counts the questions the graph answered; an entity written
+through MCP appears in the wiki with its author.
+*Signal:* a worker's brief names `madarch mcp` and the worker uses it.
+
+O6: The Files section serves a reader as the owner's reference screens do: a
+map of the repository with area and colour switches, a file table with a
+filter, and a file page with its header (main authors, hotspot, figures) and
+the History and Co-change tabs (carried from the first plan; the owner: «Нам же
+нужен шаблон страницы файлов»).
 Serves: journey 4.
-*Check:* side by side with the owner's ten reference screens (kept with the task
-that builds it), each switch and the filter exercised; the figures of three
-files checked against git; every link on the Files pages opens its page; no
-address of the wiki starts with /k.
+*Check:* side by side with the owner's reference screens, each switch and the
+filter exercised; the figures of three files checked against git; every link on
+the Files pages opens its page.
 *Signal:* the owner finds a hotspot and its authors from the map in a minute.
 
 ## Exclusions
 
-- The public read-only wiki of madarch linked from the README and the landing
-  page (madarch-m5i7).
-- The Tests, Health and Packages tabs of a file page, and the architecture map's
-  communities and paths.
-- Plugins that read external systems (madarch-pmjm): the network part a plugin
-  may declare is built in O1, and no such plugin is written in this milestone.
-- Product templates and the choice of kinds at initialisation.
+- The move from br into madarch's database (the owner, 2026-11-11: «Убери
+  переезд из br в раздел позже»): next horizon, by the import rules agreed on
+  2026-11-08 (docs/vision/tracker-decisions-2026-11-08.md, Q1.17).
+- The sandbox for a plugin's agent part, and plugins on NixOS in the sandbox
+  (madarch-64o5.1): «песочницу как раз можно отложить».
+- Switching a failing plugin off (madarch-8bdc.2.22): needed, after this
+  milestone («сейчас, прямо сейчас, конечно, мы можем это отложить, но вообще
+  это обязательно нужно»).
+- Mutation survivors (madarch-8bdc.2.19) and the agent's check of the
+  documents' meaning (madarch-stm0.8).
+- The public read-only wiki of madarch, which is also its help and demo
+  (madarch-m5i7); until it exists there is no `madarch help` and no demo.
+- Plugins that read external systems (madarch-pmjm).
 - Updating by commit on every branch in the background, and people changing the
   wiki through the agent (madarch-8bdc.6, madarch-8bdc.7).
 
@@ -122,9 +154,8 @@ None set from outside the project.
 
 ## Next horizon
 
-- The public read-only wiki of madarch.
-- The Tests, Health and Packages tabs; the architecture map's communities and
-  paths.
+- The move from br, and then working in madarch instead of br.
+- The public read-only wiki of madarch with a version selector, opened by
+  `madarch help`.
+- Switching a failing plugin off; the sandbox; the agent's meaning check.
 - Plugins that read external systems.
-- Updating by commit on every branch; people changing the wiki through the
-  agent.
