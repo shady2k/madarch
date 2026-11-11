@@ -11,8 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { repositoryFacts } from '../src/graph/index.js';
-import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { runFill } from '../src/fill/run.js';
+import { storeDatabasePath } from '../src/product/store.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

@@ -31,12 +31,6 @@ import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
 import { readKinds } from '../src/knowledge/kinds.js';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { createRecordSchema } from '../src/graph/index.js';
-import { EMPTY_CONTRACT } from '../src/graph/contract.js';
-import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
-import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
