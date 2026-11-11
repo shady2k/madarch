@@ -395,6 +395,7 @@ describe('the empty home', () => {
   test('a document kind says plainly that no fill stage writes it yet', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/entities') ? emptyListing('doc.use-case') : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }));
     const kind: KindSummary = { kind: 'doc.use-case', source: 'document', single: false, count: 0, origins: ['person'] };
+    // The kind's page asks for the agent spend too; this kind's answer is the empty one an unfilled kind gives.
     const container = into(createElement(KindLabels.Provider, { value: [kind] }, createElement(KindPage, { kind: 'doc.use-case', version: 1 })));
     await until(() => container.querySelector('[data-testid=kind-empty]') !== null, 'the empty kind');
     expect(container.querySelector('[data-testid=kind-empty]')!.textContent).toBe('No fill stage writes this kind yet.');
@@ -1112,7 +1113,9 @@ describe('a kind\'s listing follows its declaration', () => {
     for (const drawn of [true, false]) {
       (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.startsWith('/api/entities')
         ? new Response(JSON.stringify({ kind: 'code.operation', total: 1, rows: [{ id: 'code.operation:api.yaml#GET:/items', kind: 'code.operation', label: 'GET /items', href: null }], next: null, ...(drawn ? { operations: {} } : {}) }))
-        : new Response(JSON.stringify({ renderer: 'mermaid', views: [] })));
+        : url.includes('/api/kind-usage')
+          ? new Response(JSON.stringify({ usage: { kind: 'code.operation', runs: [], moreRuns: false, total: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: [], runs: 0 } } }))
+          : new Response(JSON.stringify({ renderer: 'mermaid', views: [] })));
       const container = into(createElement(KindLabels.Provider, { value: [summary(drawn ? { listing: 'operations' } : {})] }, createElement(KindPage, { kind: 'code.operation', version: 1 })));
       await until(() => container.querySelector('[data-testid=kind-total]') !== null, 'the kind listing');
       await until(() => container.querySelector(drawn ? '[data-testid=operations-catalogue]' : '[data-entity]') !== null, 'the kind\'s rows');

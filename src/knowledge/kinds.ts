@@ -168,6 +168,18 @@ export interface PluginContract {
   readonly file: string;
 }
 
+/**
+ * The bounds one run of a plugin's agent part is held to (decision 0035, item 22): what the product's manifest declares,
+ * never a number the engine picks. A plugin declares none by leaving `bounds:` out; a bound declared here bounds one
+ * run of that plugin, the way the catalogue's token cap bounds one whole fill.
+ */
+export interface PluginBounds {
+  /** The most tokens one run may spend, input and output together; absent declares no token bound. */
+  readonly tokens?: number;
+  /** The most one run may cost, in the currency the agent itself reports; absent declares no cost bound. */
+  readonly cost?: { readonly amount: number; readonly currency: string };
+}
+
 /** One plugin the product holds, as its manifest declares it (decision 0035, item 11). */
 export interface PluginDecl {
   readonly id: string;
@@ -180,6 +192,8 @@ export interface PluginDecl {
   readonly closure: readonly string[];
   /** The plugin's own contract, read from its folder (`contract.json`); absent when the folder holds none. */
   readonly contract?: PluginContract;
+  /** The bounds one run of its agent part is held to (decision 0035, item 22); absent declares none. */
+  readonly bounds?: PluginBounds;
   readonly line: number;
 }
 
@@ -929,6 +943,45 @@ function readPluginContract(files: ProductFileRead, id: string, path: string, ma
   return { id, version: contract.version, reads: contract.reads ?? 'unit', vertices, edges, file, ...(agent === undefined ? {} : { agent }) };
 }
 
+/**
+ * The bounds a plugin's manifest entry declares for one run of its agent part (decision 0035, item 22), read whole: a
+ * bound the engine cannot hold a run to is the manifest's error, named with its line, and never a silently dropped one.
+ * `undefined` means the entry declares no bounds at all.
+ */
+function readPluginBounds(value: unknown, id: string, manifestFile: string, line: number, findings: Finding[]): PluginBounds | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" is { tokens: <whole number>, cost: { amount: <number>, currency: <code> } }` });
+    return undefined;
+  }
+  const body = value as Record<string, unknown>;
+  const extra = Object.keys(body).filter((key) => key !== 'tokens' && key !== 'cost');
+  if (extra.length > 0) { findings.push({ file: manifestFile, line, message: `plugin "${id}": "${extra[0]}" is not a bound: a plugin's bounds are "tokens" and "cost"` }); return undefined; }
+  const tokens = body['tokens'];
+  if (tokens !== undefined && (typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 1)) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds.tokens" is the most tokens one run may spend: a whole number of 1 or more, not ${JSON.stringify(tokens)}` });
+    return undefined;
+  }
+  const cost = body['cost'];
+  let declaredCost: PluginBounds['cost'];
+  if (cost !== undefined) {
+    const held = cost !== null && typeof cost === 'object' && !Array.isArray(cost) ? cost as Record<string, unknown> : undefined;
+    const amount = held?.['amount'];
+    const currency = held?.['currency'];
+    const costExtra = held === undefined ? [] : Object.keys(held).filter((key) => key !== 'amount' && key !== 'currency');
+    if (held === undefined || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || typeof currency !== 'string' || currency.trim() === '' || costExtra.length > 0) {
+      findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds.cost" is { amount: <a positive number>, currency: <the unit the agent reports> }, not ${JSON.stringify(cost)}` });
+      return undefined;
+    }
+    declaredCost = { amount, currency: currency.trim() };
+  }
+  if (tokens === undefined && declaredCost === undefined) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" declares no bound: name "tokens", "cost" or leave the key out` });
+    return undefined;
+  }
+  return { ...(tokens === undefined ? {} : { tokens }), ...(declaredCost === undefined ? {} : { cost: declaredCost }) };
+}
+
 /** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */
 function jsonLine(text: string, segment: number): number {
   if (segment === 0) return 1;
@@ -1586,14 +1639,15 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
         findings.push({ file, line, message: 'a plugin is { id: <lower-case name>, version: <the major version the manifest binds>, path: <its folder>, inputs: [<kind>, ...], outputs: [<kind>, ...], closure: [<path>, ...] }' });
         return;
       }
-      const extra = Object.keys(body).filter((key) => !['id', 'version', 'path', 'inputs', 'outputs', 'closure'].includes(key));
-      if (extra.length > 0) { findings.push({ file, line: at(['plugins', index, extra[0]!]), message: `"${extra[0]}" is not a field of a plugin: the fields are id, version, path, inputs, outputs and closure` }); return; }
+      const extra = Object.keys(body).filter((key) => !['id', 'version', 'path', 'inputs', 'outputs', 'closure', 'bounds'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['plugins', index, extra[0]!]), message: `"${extra[0]}" is not a field of a plugin: the fields are id, version, path, inputs, outputs, closure and bounds` }); return; }
       const id = body['id'] as string;
       if (plugins.has(id)) { findings.push({ file, line: at(['plugins', index, 'id']), message: `plugin "${id}": a plugin id stands once` }); return; }
       const path = body['path'];
       if (typeof path !== 'string' || path === '' || path.startsWith('/') || path.split('/').some((leg) => leg === '' || leg === '.' || leg === '..')) { findings.push({ file, line: at(['plugins', index, 'path']), message: `plugin "${id}": "path" is the plugin's folder in the product repository, relative and with no ".."` }); return; }
       const contract = readPluginContract(files, id, path, file, at(['plugins', index, 'path']), findings);
-      plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), line });
+      const bounds = readPluginBounds(body['bounds'], id, file, at(['plugins', index, 'bounds']), findings);
+      plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), ...(bounds === undefined ? {} : { bounds }), line });
     });
   }
   // A catalogue agent declares the algorithm, not product kinds. Its effective outputs come only from this manifest.

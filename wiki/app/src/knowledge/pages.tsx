@@ -31,6 +31,7 @@ import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
 import { DiagramsView } from './diagrams/views.js';
+import { KindUsage } from './usage.js';
 import type { AgentOffer, CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, FillSelectionView, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
@@ -179,6 +180,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
       </header>
       {listing?.agentUsage !== undefined && <p className="text-small text-muted" data-testid="kind-agent-usage">{t('knowledge.kindAgentModel', { model: listing.agentUsage.model ?? t('knowledge.kindNotReported') })} · {listing.agentUsage.tokens === undefined ? t('knowledge.kindTokensNotReported') : t('knowledge.kindAgentTokens', { count: listing.agentUsage.tokens })}</p>}
       <KindMap kind={kind} version={version} />
+      <KindUsage kind={kind} version={version} />
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
       {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{listing.agentFill === 'unconfigured' ? <>{t('knowledge.kindWaitingForAgent')} <KLink href={WIKI_DEPENDENCIES}>{t('knowledge.kindStartAgentFill')}</KLink></> : listing.agentFill === 'ready' ? <>{t('knowledge.kindWaitingForFill')} <KLink href={WIKI_DEPENDENCIES}>{t('knowledge.kindStartAgentFill')}</KLink></> : summary?.source === 'document' ? t('knowledge.noStageYet') : t('knowledge.nothingOfKind')}</p>}

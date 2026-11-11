@@ -7,6 +7,7 @@ import { byCodePoint } from '../model/order.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
+import type { AgentMeter } from '../fill/agent-meter.js';
 import { withSpan } from '../obs/trace.js';
 import type { PluginManifest } from './closure.js';
 import type { GraphAnswerer } from './host.js';
@@ -38,6 +39,8 @@ export interface PluginAgentOptions {
   readonly connect: (spec: AcpAgentSpec, options: ConnectAcpOptions) => Promise<PluginAgentConnection>;
   /** A catalogue agent's contract, derived by the host from the product's bound kinds. */
   readonly outputs?: PluginContractDeclaration;
+  /** Host-owned meter for this plugin unit; task text cannot choose its kind or field. */
+  readonly meter?: AgentMeter;
   /** Host attribution writer receives the actual session identity and its reported usage. */
   readonly onSession?: (metadata: PluginAgentReport) => void;
 }
@@ -151,7 +154,11 @@ export class PluginAgentBridge {
           else await session.setConfigOption(choice.configId, wanted);
         }
         const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(task ?? null)}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(this.outputs)}`;
-        const answer = await session.prompt(prompt, { signal: controller.signal });
+        const meter = this.options.meter;
+        meter?.beginSession();
+        const turn = meter === undefined ? undefined : await meter.runTurn(session, prompt, { model: session.model, signal: controller.signal });
+        if (turn?.stop !== undefined) throw new Error(turn.stop.message);
+        const answer = turn?.result ?? await session.prompt(prompt, { signal: controller.signal });
         if (controller.signal.aborted || this.closed) throw new Error(`${WHERE}: agent turn cancelled`);
         if (answer.stopReason !== 'end_turn') throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
         const usage = session.usage();

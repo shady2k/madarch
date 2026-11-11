@@ -2,7 +2,7 @@ import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillSelectionView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillSelectionView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
@@ -25,6 +25,11 @@ export function getEntities(kind: string, options: { q?: string; after?: string 
   if (options.q !== undefined && options.q !== '') query.set('q', options.q);
   if (options.after !== undefined) query.set('after', options.after);
   return readJson<EntityListing>(`list the entities of kind ${kind}`, `${API.entities}?${query.toString()}`, signal);
+}
+
+/** What the agent spent on a kind: every run counted, the newest listed (madarch-stm0.4, decision 0035, item 22). */
+export function getKindUsage(kind: string, signal?: AbortSignal): Promise<{ usage: KindUsageView }> {
+  return readJson<{ usage: KindUsageView }>(`read the agent spend on kind ${kind}`, `${API.kindUsage}?${new URLSearchParams({ kind }).toString()}`, signal);
 }
 
 /** One file of a repository, as the graph was filled from it. */

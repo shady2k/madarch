@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AcpConnection, AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
 import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
+import { AgentMeter } from '../src/fill/agent-meter.js';
 import type { PluginUnitResult } from '../src/plugin/protocol.js';
 
 const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
@@ -23,7 +24,7 @@ function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promi
       const session = {
         sessionId: 'session', model: 'fake-model', configOptions: [], models: null,
         usage: () => ({ reported: false, turns: 1, reports: 0 }),
-        prompt: async (_text: string, opts?: { signal?: AbortSignal }) => ({ stopReason: 'end_turn', text: JSON.stringify(await turn(options, opts?.signal)), updates: [] }),
+        prompt: async (_text: string, opts?: { signal?: AbortSignal }) => ({ usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 }, stopReason: 'end_turn', text: JSON.stringify(await turn(options, opts?.signal)), updates: [] }),
       } as unknown as AcpSession;
       return { initialize: async () => ({}), newSession: async () => session, close: async () => { state.closed++; }, freeze: () => { state.frozen++; }, thaw: () => { state.thawed++; } } as unknown as AcpConnection & { freeze(): void; thaw(): void };
     },
@@ -32,6 +33,37 @@ function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promi
 }
 
 describe('plugin agent graph bridge', () => {
+  test('meters the real prompt with host-owned kind and model, and enforces the unit bound', async () => {
+    const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary', bounds: { tokens: 90 } });
+    const { bridge, state } = setup(async () => result, { meter });
+    await expect(bridge.run('unit', { kind: 'made-up', field: 'title' })).rejects.toThrow('100 tokens');
+    expect(meter.rows()).toMatchObject([{ kind: 'summary', field: '', model: 'fake-model', inputTokens: 80, outputTokens: 20, totalTokens: 100, turns: 1, stopped: 'tokens' }]);
+    expect(state.closed).toBe(1);
+  });
+
+  test('meters an invalid answer before validation refuses it and does not replace its error', async () => {
+    const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary' });
+    const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }] }), { meter });
+    await expect(bridge.run('unit', {})).rejects.toThrow('declares');
+    expect(meter.rows()[0]).toMatchObject({ totalTokens: 100, turns: 1, stopped: null });
+  });
+
+  test('new agent sessions count their full usage even when their reports have the same total', async () => {
+    const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary' });
+    const { bridge } = setup(async () => result, { meter });
+    await bridge.run('unit', {});
+    await bridge.run('unit', {});
+    expect(meter.rows()[0]).toMatchObject({ totalTokens: 200, turns: 2 });
+  });
+
+  test('retains failed prompt errors and counts the attempted turn', async () => {
+    const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary' });
+    const failure = new Error('adapter disconnected');
+    const { bridge } = setup(async () => { throw failure; }, { meter });
+    await expect(bridge.run('unit', {})).rejects.toBe(failure);
+    expect(meter.rows()[0]).toMatchObject({ totalTokens: 0, turns: 1, reported: false });
+  });
+
   test('reads only allowed graph files, validates output and keeps credentials host-side', async () => {
     const { bridge, state } = setup(async (options) => {
       expect(await options.files!.readTextFile!({ sessionId: 'session', path: '/repo/docs/a.md', line: 2, limit: 1 })).toEqual({ content: 'second' });

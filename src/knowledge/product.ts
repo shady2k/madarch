@@ -90,6 +90,7 @@ import { WikiReadError } from './read-error.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { readProblemDismissalsIn, writeProblemDismissal } from '../loop/problem-files.js';
 import { readFillSelection, writeFillSelection } from '../adapters/fill-selection.js';
+import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { readUnitStates } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
 
@@ -1946,6 +1947,14 @@ export class KnowledgeProduct {
     return await readFillSelection(await this.open(), product.id);
   }
 
+  /**
+   * What the agent spent on one kind (madarch-stm0.4, decision 0035, item 22): every run's model, tokens in and out and
+   * cost, per plugin run and field, from the store's mechanism tables. The kind's page and its Markdown list state it.
+   */
+  async kindUsage(kind: string): Promise<KindUsageView> {
+    return await readKindUsage(await this.open(), kind);
+  }
+
   /** Writes the selection the catalogue page made; the checked kinds are the given ones, in code point order. */
   async saveFillSelection(selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null }): Promise<FillSelectionView> {
     const product = this.product();
@@ -2205,6 +2214,7 @@ export class KnowledgeProduct {
           step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
           slowest: step.slowest,
         })),
+        agentUsage: run.report.agentUsage,
       };
       this.runViewMemo = { key, view };
       return view;

@@ -11,6 +11,8 @@
  * process.
  */
 import { createHash } from 'node:crypto';
+import type { AgentUsageRecord } from '../adapters/agent-usage.js';
+import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +62,18 @@ export interface PluginTurnWiring {
   readonly cgroupParent?: string;
   /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
   readonly debug?: boolean;
+  /**
+   * The run's agent metering (madarch-stm0.4, decision 0035, item 22): the fill run's id, the counter the run's plugin
+   * meters share and where a unit's spend is written. A unit whose plugin has an agent part hands each of its ACP
+   * session updates to the meter; a unit without one metered nothing and writes nothing.
+   */
+  readonly agentUsage?: {
+    readonly run: string;
+    /** The counter the whole fill run is held to, when the catalogue's cap declares one. */
+    readonly budget?: AgentRunBudget;
+    /** Where a unit's rows go: `recordAgentUsage` over the store's mechanism tables. */
+    readonly save: (rows: readonly AgentUsageRecord[]) => Promise<void>;
+  };
 }
 
 /** One unit of a plugin's turn: the plugin and the kind whose documents it reads, or the whole graph. */
@@ -321,8 +335,27 @@ function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
   };
 }
 
+/** The meter of one plugin turn: the unit's own spend, in the kind it fills and one row per field and model. */
+function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentMeter | undefined {
+  const usage = wiring.agentUsage;
+  if (usage === undefined) return undefined;
+  return new AgentMeter({
+    run: usage.run,
+    unit: unit.id,
+    plugin: unit.plugin.id,
+    pluginVersion: unit.lock.version,
+    kind: unit.kind?.name ?? 'whole-graph',
+    ...(unit.plugin.bounds === undefined ? {} : { bounds: unit.plugin.bounds }),
+    ...(usage.budget === undefined ? {} : { budget: usage.budget }),
+    save: usage.save,
+  });
+}
+
 export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal): Promise<void> {
   const unit = unitOf(wiring, id);
+  // The unit's meter (madarch-stm0.4): the agent part of this plugin hands it each ACP session update, and what it holds
+  // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
+  const meter = pluginUnitMeter(wiring, unit);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
   const closure = closureOf(pluginFolder);
   if (closure.hash !== unit.lock.closure) {
@@ -338,11 +371,10 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       return { ...field, ...(reference === undefined ? {} : { reference }) };
     }) })),
     // Both ends must exist at publication: the later producer turn owns the edge, or the sole agent end does.
-    // The later agent endpoint owns the relation: earlier endpoints have published before this serial turn.
     edges: (unit.plugin.contract?.edges ?? []).filter((edge) => !catalogue || outputKindsOf(wiring.manifest, unit.plugin).filter((kind) => kind.name === edge.from || kind.name === edge.to).at(-1)?.name === unit.kind?.name).map((edge) => ({ ...edge, fields: edge.fields.map((field) => ({ ...field })) })),
   };
   const host = new PluginHost({
-    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
+    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
     repository: wiring.productFolder,
@@ -445,7 +477,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       signal?.removeEventListener('abort', cancel);
       await session.close();
     }
+    // The unit's spend goes to the store whatever the unit published: a bound that crossed is the unit's end, and the
+    // rows say what it spent before it stopped.
+    await meter?.flush();
+    const stop: AgentUsageStop | undefined = meter?.stop();
+    if (stop !== undefined) throw new Error(stop.message);
   } catch (error) {
+    // What the unit spent is evidence whatever it published: a unit that failed still writes its rows.
+    await meter?.flush().catch(() => undefined);
     // A unit that crashed or timed out publishes nothing, and its requests are evidence all the same: they go to the
     // journal in one transaction of their own, so the record survives the unit's failure (codex, stage 2 review, 5).
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);

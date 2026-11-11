@@ -13,6 +13,7 @@ import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
 import type { FilesMap, FilesMapArea, FilesMapColour, FilesMapEngine, FilesMapWindow } from './files-map.js';
+import type { AgentUsageReport } from '../obs/trace-report.js';
 
 /**
  * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
@@ -616,6 +617,11 @@ export interface FillRunView {
   /** The span names that took the most time of their own, the slowest first. */
   readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
   readonly steps: readonly FillStepView[];
+  /**
+   * What the run's model calls cost, per kind, field and model (madarch-stm0.4, decision 0035, item 22), read from the
+   * run's own trace: the model, the tokens in and out, the cost, and the bound a turn stopped at when one did.
+   */
+  readonly agentUsage: AgentUsageReport;
 }
 
 /** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */

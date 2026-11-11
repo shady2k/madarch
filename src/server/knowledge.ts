@@ -44,6 +44,8 @@ export interface KnowledgePart {
   block: (request: Request) => Promise<Handled>;
   statement: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
+  /** What the agent spent on one kind: per run, plugin run, field and model (madarch-stm0.4, decision 0035, item 22). */
+  kindUsage: (request: Request) => Promise<Handled>;
   neighborhood: (request: Request) => Promise<Handled>;
   view: (request: Request) => Promise<Handled>;
   viewFrame: (request: Request) => Promise<Handled>;
@@ -231,6 +233,11 @@ export function createKnowledgePart(
       const listing = await product.list(kind, { ...(query.get('q') === null ? {} : { q: query.get('q')! }), ...(query.get('after') === null ? {} : { after: query.get('after')! }), limit });
       if (listing === undefined) return refused(404, { field: 'kind', message: `the manifest declares no kind "${kind}"` });
       return { response: json(200, listing) };
+    }),
+    kindUsage: guarded('read the kind\'s agent spend', async (request) => {
+      const kind = new URL(request.url).searchParams.get('kind');
+      if (kind === null || kind.trim() === '') return refused(400, { field: 'kind', message: '"kind" is required: a kind the manifest declares' });
+      return { response: json(200, { usage: await product.kindUsage(kind) }) };
     }),
     neighborhood: guarded('read the neighbourhood', async (request) => {
       const query = new URL(request.url).searchParams;

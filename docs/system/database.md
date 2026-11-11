@@ -21,6 +21,7 @@ with the mechanism tables alone.
 | The graph's mechanism (`public`, the engine's DDL) | 6 | every publication |
 | Tables generated from the product's contracts | 15 here | the git capability's contract, through the one writer |
 | The fill's own tables (decision 0027) | 17 | the run, its stages and units |
+| The agent's spend (`agent_usage`, its schema) | 1 | every metered model call of a plugin's agent part |
 | The job queue (`pgboss`) | 14 | the fill's queue |
 | Store metadata (`madarch_meta`) | 1 | the store's open |
 
@@ -102,6 +103,20 @@ working record, not product data: what a page states of a repository is read fro
 | `fill_transition` | 19 | a unit's state changes |
 | `fill_control` | 0 | a person's pause or stop of a run another process owns |
 | `fill_end` | 0 | the answer a finished run states to the process that pressed it |
+
+## The agent's spend (`agent_usage`)
+
+What the model calls of a plugin's agent part cost (madarch-stm0.4, decision 0035, item 22): one row per fill run,
+plugin run (unit), kind, field and model, holding the tokens in and out and the cost the agent itself reported, the
+number of prompt turns, whether it reported anything at all, and the bound that ended the run when one did. The meter
+counts each cumulative report once (`src/fill/agent-meter.ts`), so a row is a sum of what the agent said, never a
+guess. The table is a schema of its own (`agent-usage` in `madarch_meta.schema_stamp`), beside the run's tables and
+never in the graph's: the graph's revision does not move for it, and the kind's page reads it through the server
+(`/api/kind-usage`).
+
+| Table | Rows here | What it holds |
+|---|---:|---|
+| `agent_usage` | 0 | one plugin run's spend in one kind, field and model: tokens in, out and total, the cost and its currency, the turns, `reported`, and the bound it stopped at (`tokens` or `cost`), with the run and its time |
 
 ## The job queue (`pgboss`)
 
