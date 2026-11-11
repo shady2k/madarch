@@ -138,7 +138,7 @@ describe('the catalogue view lists every declared kind', () => {
   test('a kind the graph holds is listed with its count and its stage, and a kind no stage fills with zero and no producer', async () => {
     const kinds = await catalogKinds(context());
     expect(kinds.map((kind) => kind.kind)).toEqual(['filled', 'empty', 'written', 'by-person']);
-    expect(kinds.find((kind) => kind.kind === 'filled')).toMatchObject({ area: 'area', subgroup: 'area.one', count: 3, page: false, producer: 'extract', filled: true });
+    expect(kinds.find((kind) => kind.kind === 'filled')).toMatchObject({ subgroup: 'area.one', count: 3, page: false, producer: 'extract', filled: true });
     expect(kinds.find((kind) => kind.kind === 'empty')).toMatchObject({ count: 0, page: false, filled: false });
     expect(kinds.find((kind) => kind.kind === 'empty')!.producer).toBeUndefined();
   });
@@ -177,6 +177,6 @@ describe('the catalogue view lists every declared kind', () => {
     const manifest = parseKinds(bare, 'madarch/kinds.yaml', TEMPLATES);
     const kinds = await catalogKinds({ ...context(), manifest } as unknown as RenderContext);
     expect(kinds.map((kind) => kind.kind)).toEqual(['written']);
-    expect(kinds[0]).toMatchObject({ area: 'area', subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
+    expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
   });
 });

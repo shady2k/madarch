@@ -220,6 +220,8 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       // The language the press named, as `madarch fill --language` names it: a run that asks for another language
       // translates the pages it writes (madarch-8bdc.12).
       ...(data.language === undefined ? {} : { language: data.language }),
+      // The entities the press asked for (madarch-stm0.6): the catalogue's selection, its dependencies added, in order.
+      ...(data.targets === undefined ? {} : { targets: data.targets }),
     });
     state.running = run;
     // A person's pause or stop is written to the store by the api role and taken here, on the run's own state machine.

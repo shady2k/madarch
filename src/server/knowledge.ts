@@ -19,6 +19,8 @@ import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
+import { readKinds } from '../knowledge/kinds.js';
+import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
 import type { EntityRef } from '../knowledge/model.js';
@@ -49,6 +51,10 @@ export interface KnowledgePart {
   /** The newest run's trace as the run page states it: per step its time, its memory and its names. */
   run: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
+  /** The catalogue's fill selection, read and written (madarch-stm0.6): the checked kinds, the agent and the cap. */
+  fillSelection: (request: Request) => Promise<Handled>;
+  /** Starts the fill the catalogue's panel asked for: the checked kinds, their dependencies added, in order. */
+  fillSelected: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
   /** A person's «Остановить»: the run ends now; the body's `confirm` is the second press that ends it. */
@@ -133,6 +139,35 @@ export function createKnowledgePart(
       return refused(500, { message: `the wiki could not ${what}; the cause is in the server's log` });
     }
   };
+  /**
+ * The body of a selection write or a press (madarch-stm0.6): the kinds checked, the agent and the cap. Every kind is one
+ * the manifest declares — a name the manifest does not hold is refused by name with the kinds it does, never dropped —
+ * the agent is a string or null, and the cap is a whole number of tokens, 1 or more, or null for no cap.
+ */
+  async function selectionBody(request: Request): Promise<
+    | { readonly selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null } }
+  | { readonly bad: Handled }
+> {
+  const plain = notJson(request);
+  if (plain !== undefined) return { bad: refused(415, { message: plain }) };
+  let body: unknown;
+  try { body = await request.json(); } catch (error) { return { bad: refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }) }; }
+  const asked = body as { selected?: unknown; agent?: unknown; tokenCap?: unknown } | null;
+  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: 'the body is { selected: [kind...], agent?, tokenCap? }' }) };
+  const selected = asked.selected;
+  if (!Array.isArray(selected) || selected.some((kind) => typeof kind !== 'string' || kind.trim() === '')) {
+    return { bad: refused(400, { field: 'selected', message: '"selected" is the list of entity kinds the catalogue has checked, each a kind of the product\'s manifest' }) };
+  }
+  if (asked.agent !== undefined && asked.agent !== null && typeof asked.agent !== 'string') {
+    return { bad: refused(400, { field: 'agent', message: '"agent" is the id of the agent the panel chose, or null for none' }) };
+  }
+  if (asked.tokenCap !== undefined && asked.tokenCap !== null && (typeof asked.tokenCap !== 'number' || !Number.isInteger(asked.tokenCap) || asked.tokenCap < 1)) {
+    return { bad: refused(400, { field: 'tokenCap', message: '"tokenCap" is the most tokens one run may spend: a whole number of 1 or more, or null for no cap' }) };
+  }
+  return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null } };
+}
+
+
   return {
     identity: guarded('read the product', async () => {
       const identity = product.product();
@@ -278,6 +313,36 @@ export function createKnowledgePart(
       const started = await product.startFill({ ...(expectAgent === undefined ? {} : { expectAgent }), ...(language === undefined ? {} : { language }) });
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
+    }),
+    fillSelection: guarded('read the fill selection', async (request) => {
+      if (request.method === 'GET') return { response: json(200, { selection: await product.fillSelection() }) };
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const asked = await selectionBody(request);
+      if ('bad' in asked) return asked.bad;
+      // A kind the manifest does not declare is refused by name with the kinds it does: a selection the store kept and no
+      // fill could honour would be a silently wrong state of the product.
+      const kinds = readKinds(product.folder);
+      if (kinds.present) {
+        const check = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
+        if (!check.ok) return refused(400, { field: 'selected', message: check.message });
+      }
+      return { response: json(200, { selection: await product.saveFillSelection(asked.selection) }) };
+    }),
+    fillSelected: guarded('fill the selected entities', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(409, { message: "madarch's own wiki is documentation: it has no code to read and no entities of a product to fill" });
+      const asked = await selectionBody(request);
+      if ('bad' in asked) return asked.bad;
+      const kinds = readKinds(product.folder);
+      if (!kinds.present) return refused(409, { message: `the product has no ${kinds.file}: the catalogue shows the kinds that file declares` });
+      const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
+      if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
+      // The selection is the product's current state (the owner's design of 2026-11-10): what the panel asked for is what
+      // a reload shows and what Sync refills, so it is written before the run starts, and never instead of starting it.
+      const saved = await product.saveFillSelection(asked.selection);
+      const started = await product.startFill({ targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
+      if (!started.started) return refused(409, { message: started.message });
+      return { response: json(202, { fill: started.fill, selection: saved, order: targets.targets.order }) };
     }),
     pause: guarded('pause the fill', async (request) => {
       const crossSite = foreign(request);

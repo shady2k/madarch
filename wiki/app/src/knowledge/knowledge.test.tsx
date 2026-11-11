@@ -18,6 +18,7 @@ import { FillCard, Overview } from './pages.js';
 import { WriterLine } from './writer.js';
 import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
+import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import { KindLabels } from './kind-names.js';
 import { KindPage } from './pages.js';
 import { addressOfDocument, wikiRouteOf, kindPlural, kindWord } from './routes.js';
@@ -330,6 +331,13 @@ function stubFetch(calls: string[], others: (url: string, init?: RequestInit) =>
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
     if (url.endsWith('/api/agents')) return new Response(JSON.stringify({ agents: OFFERS, chosen: null }));
+    // The fill panel reads the catalogue and the selection it opens: a section of two kinds, one filled by a plugin and
+    // one by the agent, and no stored selection (the panel then shows every entity, as the design says).
+    if (url.includes('/api/catalog')) return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, language: 'en', groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }], kinds: [
+      { kind: 'code.file', area: 'code', subgroup: '', count: 4, page: true, filled: true, plugins: ['files'], state: 'filled', estimate: { volume: 4, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+      { kind: 'doc.use-case', area: 'code', subgroup: '', count: 0, page: true, filled: false, state: 'never', estimate: { volume: null, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null } },
+    ], findings: [] }));
+    if (url.includes('/api/fill-selection')) return new Response(JSON.stringify({ selection: { selected: [], agent: null, tokenCap: null, savedAt: '' } }));
     return others(url, init);
   };
 }
@@ -615,22 +623,39 @@ describe('after the run', () => {
     expect(bar.querySelector('[data-testid=fill-chip]')!.getAttribute('aria-label')).toBe('Filled Oct 23, 5 pages');
   });
 
-  test('a filled store no agent has written a page in names the files and commits the fill read', async () => {
+  test('a filled store no agent has written a page in says Sync, and its dot names the commit and the counts', async () => {
     stubFetch([]);
     const read = status({
       kinds: [{ kind: 'domain', source: 'markdown', count: 0, single: false, origins: [] }],
       writer: { state: 'idle', agent: null, units: [] },
+      repositories: [{ name: 'training', filled: true }],
+      filled: true,
       repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
     });
     const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
-    // "0 pages" would read as if the fill found nothing: the badge says what it did read, and where it is from.
+    // The header keeps one word and one dot: the sentence "Заполнено · Файлов: — · Коммитов: —" is gone (the owner,
+    // 2026-11-10), and what the run read is the dot's tooltip.
     const chip = bar.querySelector('[data-testid=fill-chip]')!;
-    expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
-    // A phone keeps the same numbers without the date, as every other form of the badge keeps its count there.
-    expect(chip.querySelector('.fill-chip-count-narrow')!.textContent).toBe('Files: 114 · Commits: 72');
-    expect(chip.getAttribute('aria-label')).toBe('Filled Oct 23 · Files: 114 · Commits: 72');
+    expect(chip.textContent).toContain('Sync');
+    expect(chip.getAttribute('aria-label')).toBe('Sync');
+    expect(chip.textContent).not.toContain('Files:');
     expect(chip.textContent).not.toContain('pages');
+    const dot = chip.querySelector('[data-testid=fill-dot]')!;
+    expect(dot.getAttribute('data-state')).toBe('up-to-date');
+    expect(dot.getAttribute('title')).toBe('Up to date: the graph describes aaaaaaa · Files: 114 · Commits: 72');
+  });
+
+  test('the dot says stale when the graph is short of the checkouts, and failed when the last run failed', async () => {
+    stubFetch([]);
+    const stale = status({ repositories: [{ name: 'training', filled: false }], incomplete: true, filled: true });
+    const first = into(createElement(FillMenu, { status: stale, refresh: () => undefined }));
+    await until(() => first.querySelector('[data-testid=fill-dot]') !== null, 'the dot');
+    expect(first.querySelector('[data-testid=fill-dot]')!.getAttribute('data-state')).toBe('stale');
+    const failed = status({ filled: true, repositories: [{ name: 'training', filled: true }], fill: { state: 'failed', message: 'x' } });
+    const second = into(createElement(FillMenu, { status: failed, refresh: () => undefined }));
+    await until(() => second.querySelector('[data-testid=fill-dot]') !== null, 'the dot of the failed run');
+    expect(second.querySelector('[data-testid=fill-dot]')!.getAttribute('data-state')).toBe('failed');
   });
 
   test('a failed run stays on the page until the reader dismisses it', async () => {
@@ -660,10 +685,11 @@ describe('after the run', () => {
     expect(chip.className).toContain('fill-chip-writing');
     expect(chip.querySelector('.fill-chip-words')!.textContent).toBe('The agent is writing · ');
     expect(chip.querySelector('.fill-chip-count')!.textContent).toBe('1/7');
-    const dot = bar.querySelector('[data-testid=fill-chip-dot]')!;
-    expect(dot.getAttribute('aria-hidden')).toBe('true');
-    expect(dot.className).toContain('animate-pulse');
-    expect(dot.className).toContain('motion-reduce:animate-none');
+    // The dot on the badge is the run's state: it pulses while a run works, and stands still where motion is reduced.
+    const dot = bar.querySelector('[data-testid=fill-dot]')!;
+    expect(dot.getAttribute('data-state')).toBe('running');
+    expect(dot.querySelector('.animate-pulse')).not.toBeNull();
+    expect(dot.querySelector('.motion-reduce\\:animate-none')).not.toBeNull();
   });
 
   test('before the writer has counted the pages, the badge says how many it has written, with no denominator', async () => {
@@ -788,117 +814,6 @@ describe('document links', () => {
   });
 });
 
-describe('the sync button', () => {
-  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: null, home: null, ...over,
-  });
-  /** The top bar, so the button is proven where the reader sees it, not only as a component of its own. */
-  const bar = (state: WikiStatus, refresh: () => void): ReturnType<typeof createElement> => createElement(Toolbar, { status: state, route: { name: 'home' }, menu: null, refresh, products: [], current: 'shop' });
-
-  test('the top bar has a visible Sync button that runs the wiki\'s one refresh, once, and when the run ends lists the changed pages as links', async () => {
-    const calls: string[] = [];
-    stubFetch(calls);
-    let refreshed = 0;
-    const container = into(bar(status(), () => { refreshed += 1; }));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    const button = container.querySelector('[data-testid=sync]') as HTMLButtonElement;
-    expect(button.textContent).toBe('Sync');
-    expect(button.disabled).toBe(false);
-    // The whole sentence is the button's name, and its icon stands beside the words: below a phone's width the words go
-    // and the name stays (madarch-m38l.23).
-    expect(button.getAttribute('aria-label')).toBe('Sync');
-    expect(button.querySelector('.sync-words')!.textContent).toBe('Sync');
-    expect(button.querySelector('.sync-icon')).not.toBeNull();
-    button.click();
-    await until(() => refreshed === 1, 'the refresh');
-    // The press is the refresh the fill menu makes: the same request, the agent saved for the product named.
-    expect(calls.filter((call) => call.startsWith('POST '))).toEqual(['POST /api/fill {"agent":null}']);
-    // While it runs the button is spent and says so.
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z', commit: 3, commits: 9 } }), () => { refreshed += 1; }));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    expect(container.querySelector('[data-testid=sync]')!.textContent).toBe('Syncing…');
-    expect(container.querySelector('[data-testid=sync]')!.getAttribute('aria-label')).toBe('Syncing…');
-    // When it ends the changed pages open by themselves, each one a link to its page.
-    rendered!.render(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:12:00.000Z', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }, { id: 'domain:payment', title: 'Payment' }] } }), () => { refreshed += 1; }));
-    await until(() => container.querySelector('[data-testid=sync-changed]') !== null, 'the changed pages');
-    const links = [...container.querySelectorAll('[data-testid=sync-changed] a')].map((anchor) => [anchor.textContent, anchor.getAttribute('href')]);
-    expect(links).toEqual([
-      ['a.ts', appPath(`/e/${encodeURIComponent('code.file:src/a.ts')}`)],
-      ['Payment', appPath(`/e/${encodeURIComponent('domain:payment')}`)],
-    ]);
-    expect(container.querySelector('[data-testid=sync-count]')!.textContent).toBe('Changed pages: 2');
-    // The reader closes it; it stays closed.
-    (container.querySelector('[data-testid=sync-close]') as HTMLButtonElement).click();
-    await until(() => container.querySelector('[data-testid=sync-result]') === null, 'the closed result');
-  });
-
-  test('a run that changed no page says so, in one line', async () => {
-    stubFetch([]);
-    const container = into(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:00:00.000Z', changed: [] } }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    rendered!.render(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:12:00.000Z', changed: [] } }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync-nothing]') !== null, 'the empty result');
-    expect(container.querySelector('[data-testid=sync-nothing]')!.textContent).toBe('Nothing changed');
-    expect(container.querySelector('[data-testid=sync-changed]')).toBeNull();
-  });
-
-  test('the button stands only where a refresh can run: not on the product read as itself, not before a manifest, not over no repository', async () => {
-    for (const over of [
-      { own: true },
-      { manifest: 'no-manifest' as const },
-      { filled: false },
-      { repositories: [] },
-    ]) {
-      const container = into(bar(status(over), () => undefined));
-      await until(() => container.querySelector('header') !== null, 'the top bar');
-      expect(container.querySelector('[data-testid=sync]')).toBeNull();
-    }
-  });
-
-  test('a run whose enrichment failed shows the writer\'s failure, not an unavailable change list', async () => {
-    stubFetch([]);
-    const container = into(bar(status(), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    // The code fill completed; the agent's stage failed. The changed-page list was not recorded, and that is not
-    // a reason to tell the reader it could not be listed: the failure is what happened.
-    rendered!.render(bar(status({
-      fill: { state: 'done', startedAt: '2026-10-27T09:10:00.000Z', finishedAt: '2026-10-27T09:12:00.000Z' },
-      writer: { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'failed' }], code: 'units', message: 'the product page was not written: the agent refused 5 writes' },
-    }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync-result]') !== null, 'the ended result');
-    const note = container.querySelector('[data-testid=sync-writer-failed]')!;
-    expect(note.querySelector('[data-testid=failure-note]')!.getAttribute('data-code')).toBe('units');
-    (note.querySelector('[data-testid=failure-details]') as HTMLButtonElement).click();
-    await until(() => note.querySelector('[data-testid=failure-detail]') !== null, 'the failure detail');
-    expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toContain('the agent refused 5 writes');
-    expect(container.querySelector('[data-testid=sync-unknown]')).toBeNull();
-  });
-
-  test('a run that failed opens with its failure and no list', async () => {
-    stubFetch([]);
-    const container = into(bar(status(), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
-    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
-    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
-    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
-    rendered!.render(bar(status({ fill: { state: 'failed', startedAt: '2026-10-27T09:10:00.000Z', finishedAt: '2026-10-27T09:12:00.000Z', code: 'worker-exit', message: 'the fill worker ended with exit code 2' } }), () => undefined));
-    await until(() => container.querySelector('[data-testid=sync-result]') !== null, 'the failed result');
-    const note = container.querySelector('[data-testid=sync-failed]')!;
-    expect(note.querySelector('[data-testid=failure-note]')!.getAttribute('data-code')).toBe('worker-exit');
-    (note.querySelector('[data-testid=failure-details]') as HTMLButtonElement).click();
-    await until(() => note.querySelector('[data-testid=failure-detail]') !== null, 'the failure detail');
-    expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toContain('the fill worker ended with exit code 2');
-    expect(container.querySelector('[data-testid=sync-changed]')).toBeNull();
-    expect(container.querySelector('[data-testid=sync-nothing]')).toBeNull();
-  });
-});
-
 describe('the badge and the panel it opens', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
     product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findingCount: 0, kinds: [], groups: [], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop', journal: true }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
@@ -913,6 +828,41 @@ describe('the badge and the panel it opens', () => {
     },
   });
 
+  test('the top bar carries one fill button with the status dot, not a second Sync button beside it', async () => {
+    await setWikiLanguage('en');
+    stubFetch([]);
+    const line = into(createElement(Toolbar, { status: status(), route: { name: 'home' }, menu: null, refresh: () => undefined, products: [], current: 'shop' }));
+    await until(() => line.querySelector('[data-testid=fill-chip]') !== null, 'the fill button');
+    expect(line.querySelectorAll('[data-testid=fill-chip]').length).toBe(1);
+    expect(line.querySelector('[data-testid=sync]')).toBeNull();
+    const dot = line.querySelector('[data-testid=fill-chip] [data-testid=fill-dot]');
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute('title')).toContain('Files');
+    expect(dot!.getAttribute('title')).toContain('Commits');
+    expect(localeKeyIn(renderedText(line))).toBeUndefined();
+  });
+
+  test('a product with a repository and no fill yet offers Fill in the top bar, and its press opens the panel', async () => {
+    await setWikiLanguage('en');
+    stubFetch([]);
+    const empty = status({ filled: false, repositories: [{ name: 'training', filled: false }], fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, chosenAgent: null, home: null });
+    const container = into(createElement(FillMenu, { status: empty, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the Fill button');
+    const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
+    expect(chip.textContent).toBe('Fill');
+    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
+    chip.click();
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    // Nothing is filled yet, so the panel is where the person chooses sections, agent and cap before the one press.
+    expect(container.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
+    // A product with no repository has nothing to fill: it offers no button that cannot work.
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const bare = into(createElement(FillMenu, { status: status({ filled: false, repositories: [] }), refresh: () => undefined }));
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(bare.querySelector('[data-testid=fill-chip]')).toBeNull();
+  });
+
   test('Tab on the badge opens the panel and moves into it; Escape shuts it and gives the badge its focus back', async () => {
     stubFetch([]);
     const container = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
@@ -923,63 +873,59 @@ describe('the badge and the panel it opens', () => {
     expect(container.querySelector('[data-testid=fill-menu]')).toBeNull();
     chip.focus();
     chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-    await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
-    const panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    const panel = container.querySelector('[data-testid=fill-side-panel]') as HTMLElement;
     expect(panel.getAttribute('role')).toBe('dialog');
+    expect(panel.getAttribute('aria-modal')).toBe('false');
     expect(chip.getAttribute('aria-expanded')).toBe('true');
     expect(chip.getAttribute('aria-controls')).toBe(panel.id);
-    // The focus went in, on the way to the fill page — the panel's first control; the languages come after it.
+    // The focus went in, on the panel's first control: its Close. The run's own controls and the language choice follow,
+    // inside the panel's own text.
     await until(() => panel.contains(document.activeElement), 'the focus inside the panel');
-    expect(document.activeElement).toBe(panel.querySelector('[data-testid=fill-menu-open]') as HTMLElement);
-    const controls = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')].map((element) => element.getAttribute('data-testid') ?? `${element.getAttribute('type')}:${element.getAttribute('name')}`);
-    expect(controls).toEqual(['fill-menu-open', 'radio:menu-content-language', 'radio:menu-content-language']);
+    expect(document.activeElement).toBe(panel.querySelector('[data-testid=fill-side-close]') as HTMLElement);
+    expect(panel.querySelector('[data-testid=fill-side-sections]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid=fill-side-press]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid=fill-side-catalogue]')).not.toBeNull();
+    expect(localeKeyIn(renderedText(panel))).toBeUndefined();
     // The languages are reachable and offered: both radios are enabled with nothing running.
     expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([false, false]);
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the panel to close');
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') === null, 'the panel to close');
     expect(document.activeElement).toBe(chip);
     expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('the panel is no taller than the window leaves, opens above a badge near the bottom, and scrolls its words', async () => {
+  test('after a finished run the panel lists the pages the run changed, as links', async () => {
     stubFetch([]);
-    const height = Object.getOwnPropertyDescriptor(window, 'innerHeight');
-    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
-    try {
-      const container = into(createElement(FillMenu, { status: running(), refresh: () => undefined }));
-      await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
-      const chip = container.querySelector('[data-testid=fill-chip]') as HTMLElement;
-      const at = (top: number, bottom: number): DOMRect => ({ top, bottom, left: 100, right: 300, width: 200, height: bottom - top, x: 100, y: top, toJSON: () => ({}) }) as DOMRect;
-      chip.getBoundingClientRect = () => at(60, 84);
-      chip.click();
-      await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
-      let panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
-      // What the window leaves below the badge, less a margin: 400 - 84 - 12.
-      expect(panel.style.maxHeight).toBe('304px');
-      // It hangs from the badge's lower edge and stays where the window scrolls. Its right edge stands on the badge's
-      // when that keeps the panel inside the window; here the badge sits at 300 of a 1024 window and the panel is 416
-      // wide, so the panel moves left and its right edge is the window's, less the margin and its own width.
-      expect(panel.style.position).toBe('fixed');
-      expect(panel.style.top).toBe('91px');
-      expect(panel.style.bottom).toBe('');
-      expect(panel.style.right).toBe(`${window.innerWidth - 8 - 26 * 16}px`);
-      expect(panel.className).toContain('overflow-y-auto');
-      // The languages are spent while the run is under way.
-      expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
-      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      await until(() => container.querySelector('[data-testid=fill-menu]') === null, 'the panel to close');
-      // A badge near the bottom of a short window opens its panel upward, and the panel takes the room above it.
-      chip.getBoundingClientRect = () => at(300, 380);
-      chip.click();
-      await until(() => container.querySelector('[data-testid=fill-menu]') !== null, 'the panel above');
-      panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
-      expect(panel.style.top).toBe('');
-      expect(panel.style.bottom).toBe(`${400 - 300 + 7}px`);
-      expect(panel.style.maxHeight).toBe('288px');
-    } finally {
-      if (height === undefined) delete (window as unknown as { innerHeight?: number }).innerHeight;
-      else Object.defineProperty(window, 'innerHeight', height);
-    }
+    const changed = status({ fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }, { id: 'domain:payment', title: 'Payment' }] } });
+    const container = into(createElement(FillMenu, { status: changed, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    (container.querySelector('[data-testid=fill-chip]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=fill-side-changed]') !== null, 'the changed pages');
+    const links = [...container.querySelectorAll('[data-testid=fill-side-changed] a')].map((anchor) => [anchor.textContent, anchor.getAttribute('href')]);
+    expect(links).toEqual([
+      ['a.ts', appPath(`/e/${encodeURIComponent('code.file:src/a.ts')}`)],
+      ['Payment', appPath(`/e/${encodeURIComponent('domain:payment')}`)],
+    ]);
+    expect(container.querySelector('[data-testid=fill-side-changed]')!.textContent).toContain('Changed pages: 2');
+  });
+
+  test('the panel comes from the right over the page, full height, and scrolls its own words', async () => {
+    stubFetch([]);
+    const container = into(createElement(FillMenu, { status: running(), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
+    (container.querySelector('[data-testid=fill-chip]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    const panel = container.querySelector('[data-testid=fill-side-panel]') as HTMLElement;
+    // A panel from the right over the page, not a modal and not a page: it takes the window's height at its right edge,
+    // and its words scroll inside it.
+    for (const held of ['fixed', 'inset-y-0', 'right-0']) expect(panel.className).toContain(held);
+    // Its words scroll inside it: the panel itself is the frame and its body is the scroller.
+    expect(panel.querySelector('.overflow-y-auto')).not.toBeNull();
+    expect(panel.querySelector('[data-testid=fill-side-intro]')!.textContent).toContain('continue');
+    // A run under way is shown in the panel (its own controls), and the languages are spent while it runs.
+    expect(panel.querySelector('[data-testid=run-controls]')).not.toBeNull();
+    expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
   });
 });
 
@@ -1044,7 +990,7 @@ describe('a run a person pauses or stops', () => {
     const pause = chip.querySelector('[data-testid=fill-chip-pause]')!;
     expect(pause.getAttribute('aria-hidden')).toBe('true');
     expect(pause.className).toContain('fill-chip-state-icon');
-    expect(chip.querySelector('[data-testid=fill-chip-dot]')).toBeNull();
+    expect(chip.querySelector('.animate-pulse')).toBeNull();
     expect(chip.className).not.toContain('fill-chip-writing');
     rendered?.unmount();
     document.body.innerHTML = '';
@@ -1073,8 +1019,8 @@ describe('a run a person pauses or stops', () => {
     const bar = into(createElement(FillMenu, { status: graph, refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the badge');
     (bar.querySelector('[data-testid=fill-chip]') as HTMLButtonElement).click();
-    await until(() => bar.querySelector('[data-testid=fill-menu]') !== null, 'the panel');
-    const menu = bar.querySelector('[data-testid=fill-menu] [data-testid=run-controls]');
+    await until(() => bar.querySelector('[data-testid=fill-side-panel]') !== null, 'the panel');
+    const menu = bar.querySelector('[data-testid=fill-side-panel] [data-testid=run-controls]');
     expect(menu).not.toBeNull();
     expect([...menu!.children].map((child) => child.textContent)).toEqual(['Pause', 'Stop']);
   });

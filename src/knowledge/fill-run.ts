@@ -76,6 +76,11 @@ export interface KnowledgeFillOptions {
   /** The units the run holds in hand at once; 16 when it is left out. */
   readonly workers?: number;
   /**
+   * The kinds this fill was asked for (madarch-stm0.6, decision 0035 items 11 and 31): their plugin turns only, in this
+   * dependency order, and with a vertex the one entity it rewrites. Left out, the fill takes every kind.
+   */
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  /**
    * The content language the press named, when it named one: the run states it in its own record (its trace's root span,
    * `madarch.language`), so a run another process pressed is read with the language it was asked for (madarch-8bdc.12 —
    * the fill role dropped it, and a press's language reached nothing).
@@ -214,6 +219,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           home: options.storeFolder,
           workers: options.workers ?? 16,
           ...(options.language === undefined ? {} : { language: options.language }),
+          ...(options.targets === undefined ? {} : { targets: options.targets }),
           maxPasses: 100_000,
           onService: (started) => { service = started; },
           // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to

@@ -10,6 +10,7 @@ export type WikiRoute =
   | { name: 'docs' }
   | { name: 'doc'; repo: string | null; path: string }
   | { name: 'catalogue' }
+  | { name: 'dependencies' }
   | { name: 'glossary' }
   | { name: 'questions' }
   | { name: 'question'; slug: string }
@@ -24,6 +25,8 @@ export type WikiRoute =
 export const WIKI_HOME = '/';
 export const WIKI_DOCS = '/docs';
 export const WIKI_CATALOGUE = '/catalogue';
+/** The dependency graph of the catalogue's entities (madarch-stm0.6). */
+export const WIKI_DEPENDENCIES = '/dependencies';
 export const WIKI_GLOSSARY = '/glossary';
 export const WIKI_QUESTIONS = '/questions';
 export const WIKI_PROBLEMS = '/problems';
@@ -70,6 +73,9 @@ export const ENTITY_ADDRESS_PREFIX = '/e/';
 export const addressOfEntity = (id: string): string => `/e/${addressName(id)}`;
 export const addressOfKind = (kind: string): string => `/kind/${addressName(kind)}`;
 
+/** The address of the catalogue: the one place a graph page sends a reader to choose entities. */
+export const addressOfCatalogue = (): string => WIKI_CATALOGUE;
+
 /** The API the app reads: one address per answer. */
 export const API = {
   product: '/api/product',
@@ -87,6 +93,8 @@ export const API = {
   run: '/api/run',
   products: '/api/products',
   fill: '/api/fill',
+  fillSelection: '/api/fill-selection',
+  fillSelected: '/api/fill-selected',
   pause: '/api/pause',
   stop: '/api/stop',
   agents: '/api/agents',
@@ -169,6 +177,7 @@ export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
   }
   if (path === '/docs') return { name: 'docs' };
   if (path === '/catalogue') return { name: 'catalogue' };
+  if (path === '/dependencies') return { name: 'dependencies' };
   if (path === '/glossary') return { name: 'glossary' };
   if (path === '/statement') {
     const query = new URLSearchParams(search);
