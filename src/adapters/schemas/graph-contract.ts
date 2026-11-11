@@ -202,7 +202,8 @@ async function preserveAuthoredKeys(tx: OuterTransaction, contract: GraphContrac
     for (const row of held.rows) {
       const field = kind.fields.find((one) => one.name === row.field);
       const valid = field !== undefined && kind.key.includes(row.field) && (field.reference !== undefined
-        ? typeof row.value === 'object' && row.value !== null && 'kind' in row.value && row.value.kind === field.reference
+        ? typeof row.value === 'object' && row.value !== null && 'kind' in row.value && (row.value.kind === field.reference || row.value.kind === `code.${field.reference}`)
+        : field.type === 'boolean' ? typeof row.value === 'boolean'
         : field.type === 'text' ? typeof row.value === 'string'
         : field.type === 'integer' ? typeof row.value === 'number' && Number.isInteger(row.value) && row.value >= -2147483648 && row.value <= 2147483647
         : field.type === 'bigint' ? (typeof row.value === 'number' && Number.isSafeInteger(row.value)) || (typeof row.value === 'string' && /^-?\d+$/u.test(row.value) && BigInt(row.value) >= -9223372036854775808n && BigInt(row.value) <= 9223372036854775807n)

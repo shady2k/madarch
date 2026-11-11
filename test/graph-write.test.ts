@@ -334,6 +334,30 @@ describe('the manifest makes the table and the writer fills it', () => {
     }
   });
 
+  test('schema reconciliation preserves authored boolean keys and accepted reference aliases', async () => {
+    const durable = await createTestDatabaseOwner();
+    const table = generatedTableName('record', 'vertex');
+    const graph: GraphContract = {
+      vertex: [
+        { name: 'record', table, fields: [{ name: 'enabled', type: 'boolean' }, { name: 'target', type: 'text', reference: 'task' }, { name: 'value', type: 'text', nullable: true }], key: ['enabled', 'target'], capability: 'fixture' },
+        { name: 'task', table: generatedTableName('task', 'vertex'), fields: [{ name: 'name', type: 'text' }], key: ['name'], capability: 'fixture' },
+      ], edge: [], dictionary: [],
+    };
+    try {
+      await prepareStore(durable, { contract: graph });
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: { enabled: true, target: { kind: 'code.task', key: { name: 'repair' } } }, values: { value: 'Keep this opinion' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      const nodes = await durable.run((tx) => tx.query('SELECT * FROM node ORDER BY id'));
+      const opinions = await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`));
+      expect(nodes.rows).toHaveLength(1);
+      expect(opinions.rows.map((row) => row['value'])).toEqual(['Keep this opinion']);
+      // A different stamp forces reconciliation rather than the unchanged-contract fast path.
+      const changed: GraphContract = { ...graph, vertex: graph.vertex.map((kind) => kind.name === 'record' ? { ...kind, fields: [...kind.fields, { name: 'extra', type: 'text' as const, nullable: true }] } : kind) };
+      expect(await prepareStore(durable, { contract: changed })).toEqual({ reset: false });
+      expect((await durable.run((tx) => tx.query('SELECT * FROM node ORDER BY id'))).rows).toEqual(nodes.rows);
+      expect((await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`))).rows).toEqual(opinions.rows.map((row) => ({ ...row, extra: null })));
+    } finally { await durable.close(); }
+  });
+
   test('legacy opinion replacement refuses authored history without dropping the table', async () => {
     const durable = await createTestDatabaseOwner();
     const table = generatedTableName('record', 'vertex');
