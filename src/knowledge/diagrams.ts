@@ -16,7 +16,6 @@
  * is marked `unordered` and drawn apart.
  */
 import { byCodePoint } from '../model/order.js';
-import { entityAddress } from './addresses.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { RenderContext, Subject } from './blocks.js';
 import { idOf, locationOf, refOfGraph, refOfMarkdown, declaredNeighbors, relatesGroups } from './blocks.js';

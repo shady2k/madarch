@@ -82,8 +82,8 @@ const fileRow = (path: string, facts: FileFacts = {}): GraphEntity => {
   // The language opinions the file's open opinions state, as the file read answers them: every value with its source.
   if (facts.opinions !== undefined || facts.language !== undefined) {
     opinionsOfFile.set(entity, (facts.opinions ?? [{ language: facts.language as string, saidBy: 'linguist@9.5.0' }]).map((one, index) => ({
-      id: `opinion-${String(index)}`, saidBy: one.saidBy, producer: one.saidBy.split('@')[0]!, lang: one.language,
-      evidence: [], values: { lang: one.language },
+      id: `opinion-${String(index)}`, saidBy: one.saidBy, producer: one.saidBy.split('@')[0]!, lang: null,
+      evidence: [], values: { language: one.language, languages: [one.language] },
     })));
   }
   return entity;

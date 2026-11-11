@@ -48,7 +48,7 @@ export interface FilesMapFile {
   bytes: number | null;
   /** The one language every open opinion names, or null when they name several or none (one is never picked). */
   language: string | null;
-  /** Every open opinion's language and the producer that stated it, in code-point order of value then source. */
+  /** Every open opinion's `language` field and the producer that stated it, in code-point order of value then source. */
   languages: readonly FilesMapLanguageOpinion[];
   /** Commits that touched the file: the last 30 days, 90 days, a year, the whole history. */
   heat: readonly [number, number, number, number];
@@ -164,7 +164,7 @@ async function readFilesMapUncached(
   // One repository's files, read by its own pages: a page of the map may not walk every file of every repository the
   // product holds. The read stops at the block's limit, and the map says what it left out (its page knows the
   // repository's count; a folder's count is known only when its last page was read).
-  const inside: { path: string; lines: number | null; bytes: number | null; languages: FilesMapLanguageOpinion[] }[] = [];
+  const inside: { path: string; lines: number | null; bytes: number | null; language: string | null; languages: FilesMapLanguageOpinion[] }[] = [];
   let after: string | undefined;
   let exhausted = false;
   for (;;) {
@@ -175,10 +175,14 @@ async function readFilesMapUncached(
     });
     for (const row of page.rows) {
       if (inside.length >= options.limit) break;
-      // Every open opinion's language is a value with its source (decision 0034 item 7; A4): no producer is filtered
-      // out and no opinion is preferred over another.
-      const opinions = (row.opinions ?? []).flatMap((opinion) => (opinion.lang === null ? [] : [{ language: opinion.lang, saidBy: opinion.saidBy }]));
-      inside.push({ path: row.path, lines: row.lines, bytes: row.bytes, languages: opinions });
+      // A file's programming language is the opinion's field `language` (madarch-64o5.2; never `lang`, which names the
+      // natural language of a text): every open opinion that states one stands with its source (decision 0034 item 7;
+      // A4), and no producer is filtered out or preferred over another.
+      const opinions = (row.opinions ?? []).flatMap((opinion) => {
+        const value = opinion.values['language'];
+        return typeof value === 'string' ? [{ language: value, saidBy: opinion.saidBy }] : [];
+      });
+      inside.push({ path: row.path, lines: row.lines, bytes: row.bytes, language: row.language, languages: opinions });
     }
     if (page.next === null) { exhausted = true; break; }
     if (inside.length >= options.limit) break;
@@ -204,11 +208,10 @@ async function readFilesMapUncached(
   const files: FilesMapFile[] = inside.map((file) => {
     const path = file.path;
     const languageOpinions = [...file.languages].sort((left, right) => byCodePoint(left.language, right.language) || byCodePoint(left.saidBy, right.saidBy));
-    // A file's language is what its open opinions state. Where they name one language it is that language; where they
-    // name several the file has several values and the page never picks one (it draws the file as Other and lists every
-    // value with its source); the dataset's `unknown` names no language and reads as Other with the rest.
-    const distinct = [...new Set(languageOpinions.map((one) => (one.language === UNKNOWN_LANGUAGE ? null : one.language)))];
-    const drawn = distinct.length === 1 ? distinct[0] ?? null : null;
+    // The language a file is drawn by is the one its open opinions accept, computed by the read that holds them: the
+    // page never picks one. Where they name several, or the dataset's `unknown`, the value is null: the file is drawn
+    // as Other and every value it does state stands with its source.
+    const drawn = file.language === UNKNOWN_LANGUAGE ? null : file.language;
     const fileLines = file.lines;
     const fileBytes = file.bytes;
     if (fileLines === null) withoutLines += 1;
