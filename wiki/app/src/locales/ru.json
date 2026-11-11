@@ -934,6 +934,7 @@
     "historyDateTitle": "{{repo}} на {{date}}",
     "historyCurrent": "Вернуться к текущему коду",
     "historyRepository": "Репозиторий",
+    "historyDateFormat": "ГГГГ-ММ-ДД",
     "historyChooseDate": "Дата (UTC)",
     "historyOpenDate": "Открыть эту дату",
     "historyPointUnread": "структура не прочитана",
@@ -1043,6 +1044,7 @@
     "findingsCount": "Находок: {{count}}",
     "noStageYet": "Ни один этап заполнения пока не пишет этот вид.",
     "filePage": {
+      "cochangeShown": "Показано {{shown}} из {{total}} файлов, изменённых вместе не менее двух раз.",
       "overview": "Обзор",
       "history": "История",
       "cochange": "Совместные изменения",

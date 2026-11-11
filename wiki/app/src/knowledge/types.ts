@@ -501,6 +501,7 @@ export type FilePageBlock = {
   markdown: boolean;
   history: FileHistoryEntry[];
   cochange: FileCochangeEntry[];
+  cochangeTotal: number;
   commits: number;
 };
 

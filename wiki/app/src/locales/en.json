@@ -934,6 +934,7 @@
     "historyDateTitle": "{{repo}} at {{date}}",
     "historyCurrent": "Return to current code",
     "historyRepository": "Repository",
+    "historyDateFormat": "YYYY-MM-DD",
     "historyChooseDate": "Date (UTC)",
     "historyOpenDate": "Open this date",
     "historyPointUnread": "structure not read",
@@ -1043,6 +1044,7 @@
     "findingsCount": "Findings: {{count}}",
     "noStageYet": "No fill stage writes this kind yet.",
     "filePage": {
+      "cochangeShown": "Showing {{shown}} of {{total}} files changed together at least twice.",
       "overview": "Overview",
       "history": "History",
       "cochange": "Co-change",

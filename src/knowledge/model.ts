@@ -286,6 +286,7 @@ export interface FilePageBlockShape {
   markdown: boolean;
   history: FileHistoryEntry[];
   cochange: FileCochangeEntry[];
+  cochangeTotal: number;
   /** The number of commits in History: the denominator of a Co-change share. */
   commits: number;
 }

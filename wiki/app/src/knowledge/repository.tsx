@@ -4,7 +4,7 @@
  * and commit pages are gone — so every link they draw is the entity address the server put in the block, and the app
  * composes no id. The run page stays here as the one operational page of this file.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
@@ -182,11 +182,29 @@ export function FolderBlock({ data }: { data: FolderBlockData }): React.ReactEle
 }
 
 /** One file's facts as a block: every fact the graph holds of it, its dates and its authors. */
-/** The file page's text: Markdown rendered by the wiki's own renderer, or the source at the page's full width. */
+/** The file page's tabs and the reader's last choice, kept in the browser (madarch-j9ao.2.1). */
+type FileFace = 'overview' | 'history' | 'cochange';
+type FileView = 'rendered' | 'source';
+const storage = (key: string): string | null => { try { return window.localStorage.getItem(key); } catch { return null; } };
+const keep = (key: string, value: string): void => { try { window.localStorage.setItem(key, value); } catch { /* a private context keeps no choice */ } };
+
+/** The file page: the reference header, Overview with a Rendered/Source switch, History and Co-change. */
 export function FilePageView({ block, resolutions }: { block: FilePageBlock; resolutions: Record<string, Resolution> }): React.ReactElement {
   const { t } = useTranslation();
-  const [view, setView] = useState<'rendered' | 'source'>('rendered');
-  const [wrap, setWrap] = useState(false);
+  const [face, setFace] = useState<FileFace>(() => { const held = storage('madarch-file-face'); return held === 'history' || held === 'cochange' ? held : 'overview'; });
+  const [view, setView] = useState<FileView>(() => storage('madarch-file-view') === 'source' ? 'source' : 'rendered');
+  const [wrap, setWrap] = useState<boolean>(() => storage('madarch-file-wrap') === 'true');
+  useEffect(() => { keep('madarch-file-face', face); }, [face]);
+  useEffect(() => { keep('madarch-file-view', view); }, [view]);
+  useEffect(() => { keep('madarch-file-wrap', String(wrap)); }, [wrap]);
+  const data = block.data;
+  const created = data.created === null ? '—' : <><KLink href={data.created.href}><code>{data.created.commit.slice(0, 7)}</code></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</>;
+  const modified = data.modified === null ? '—' : <><KLink href={data.modified.href}><code>{data.modified.commit.slice(0, 7)}</code></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</>;
+  const tabs: { face: FileFace; label: string }[] = [
+    { face: 'overview', label: t('knowledge.filePage.overview') },
+    { face: 'history', label: t('knowledge.filePage.history') },
+    { face: 'cochange', label: t('knowledge.filePage.cochange') },
+  ];
   const sourcePanel = block.source === undefined ? <p className="text-small text-muted" data-testid="file-no-text">{t('knowledge.filePage.noSource')}</p> : (
     <>
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -200,18 +218,71 @@ export function FilePageView({ block, resolutions }: { block: FilePageBlock; res
   const markdown = block.source !== undefined && block.markdown;
   return (
     <article data-testid="file-page" className="file-page">
-      <section data-testid="file-overview">
-        {markdown && (
-          <div className="mb-3 flex max-w-[var(--measure)] flex-wrap items-center gap-2">
-            <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-rendered" aria-pressed={view === 'rendered'} onClick={() => setView('rendered')}>{t('knowledge.filePage.rendered')}</button>
-            <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-source" aria-pressed={view === 'source'} onClick={() => setView('source')}>{t('knowledge.filePage.source')}</button>
-            <KLink href={addressOfDocument(block.data.repository, block.data.path)} testId="file-sources-page">{t('knowledge.filePage.sourcesPage')}</KLink>
-          </div>
-        )}
-        {markdown && view === 'rendered' && block.source !== undefined
-          ? <div className="max-w-[var(--measure)]"><KMarkdown text={block.source.text} resolutions={resolutions} /></div>
-          : sourcePanel}
-      </section>
+      <header className="mb-6 max-w-[var(--measure)]">
+        <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small" data-testid="file-facts-header">
+          <dt className="text-muted">{t('knowledge.repository.language')}</dt><dd className="m-0" data-testid="file-header-language">{data.language ?? (/\.(md|markdown)$/iu.test(data.path) ? 'markdown' : data.candidates[0]) ?? '—'}</dd>
+          <dt className="text-muted">{t('knowledge.repository.lines')}</dt><dd className="m-0" data-testid="file-header-lines">{data.lines ?? '—'}</dd>
+          <dt className="text-muted">{t('knowledge.repository.bytes')}</dt><dd className="m-0" data-testid="file-header-size">{data.bytes === null ? '—' : bytesText(data.bytes)}</dd>
+          <dt className="text-muted">{t('knowledge.repository.created')}</dt><dd className="m-0" data-testid="file-header-created">{created}</dd>
+          <dt className="text-muted">{t('knowledge.repository.modified')}</dt><dd className="m-0" data-testid="file-header-modified">{modified}</dd>
+          <dt className="text-muted">{t('knowledge.repository.authors')}</dt><dd className="m-0" data-testid="file-header-authors">{data.authors.length === 0 ? '—' : data.authors.join(', ')}</dd>
+        </dl>
+      </header>
+      <div role="tablist" aria-label={t('knowledge.filePage.overview')} className="mb-4 flex flex-wrap gap-2" data-testid="file-tabs">
+        {tabs.map((tab) => (
+          <button key={tab.face} type="button" role="tab" aria-selected={face === tab.face} className="cursor-pointer rounded-[var(--radius-control)] border border-line px-3 py-1 text-small data-[on=true]:border-ink data-[on=true]:bg-ink data-[on=true]:text-page" data-on={face === tab.face} data-testid={`file-tab-${tab.face}`} onClick={() => setFace(tab.face)}>{tab.label}</button>
+        ))}
+      </div>
+      {face === 'overview' && (
+        <section data-testid="file-overview">
+          {markdown && (
+            <div className="mb-3 flex max-w-[var(--measure)] flex-wrap items-center gap-2">
+              <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-rendered" aria-pressed={view === 'rendered'} onClick={() => setView('rendered')}>{t('knowledge.filePage.rendered')}</button>
+              <button type="button" className="cursor-pointer rounded-[var(--radius-control)] border border-line px-2 py-1 text-small" data-testid="file-view-source" aria-pressed={view === 'source'} onClick={() => setView('source')}>{t('knowledge.filePage.source')}</button>
+              <KLink href={addressOfDocument(data.repository, data.path)} testId="file-sources-page">{t('knowledge.filePage.sourcesPage')}</KLink>
+            </div>
+          )}
+          {markdown && view === 'rendered' && block.source !== undefined
+            ? <div className="max-w-[var(--measure)]"><KMarkdown text={block.source.text} resolutions={resolutions} /></div>
+            : sourcePanel}
+        </section>
+      )}
+      {face === 'history' && (
+        <section className="max-w-[var(--measure)]" data-testid="file-history">
+          {block.history.length === 0 ? <p className="text-small text-muted" data-testid="file-history-empty">{t('knowledge.filePage.noHistory')}</p> : (
+            <div className="table-wrap">
+              <table className="w-full border-collapse text-small">
+                <thead><tr className="border-b border-line text-left text-muted"><th className="py-1 font-normal">{t('knowledge.historyColWhen')}</th><th className="py-1 font-normal">{t('knowledge.historyColWho')}</th><th className="py-1 font-normal">{t('knowledge.historyColWhat')}</th><th className="py-1 font-normal">{t('knowledge.historyColFigures')}</th></tr></thead>
+                <tbody>
+                  {block.history.map((row) => (
+                    <tr key={`${row.hash}-${row.when}`} className="border-b border-line align-top last:border-b-0" data-testid="file-history-row" data-commit={row.hash}>
+                      <td className="whitespace-nowrap py-1 pr-3">{row.when || '—'}</td>
+                      <td className="py-1 pr-3">{row.who ?? '—'}</td>
+                      <td className="py-1 pr-3 break-words">{row.href === null ? row.subject : <KLink href={row.href}>{row.subject}</KLink>}</td>
+                      <td className="whitespace-nowrap py-1">{row.added === null ? '' : t('knowledge.historyAdded', { count: row.added })} {row.removed === null ? '' : t('knowledge.historyRemoved', { count: row.removed })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+      {face === 'cochange' && (
+        <section className="max-w-[var(--measure)]" data-testid="file-cochange">
+          {block.cochangeTotal > block.cochange.length && <p className="text-small text-muted">{t('knowledge.filePage.cochangeShown', { shown: block.cochange.length, total: block.cochangeTotal })}</p>}
+          {block.cochange.length === 0 ? <p className="text-small text-muted" data-testid="file-cochange-empty">{t('knowledge.filePage.noCochange')}</p> : (
+            <ul className="m-0 list-none p-0" data-testid="file-cochange-list">
+              {block.cochange.map((row) => (
+                <li key={row.path} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-1.5 last:border-b-0" data-testid="file-cochange-row" data-path={row.path}>
+                  <span className="min-w-0 break-all">{row.href === null ? row.path : <KLink href={row.href}>{row.path}</KLink>}</span>
+                  <span className="text-small text-muted">{t('knowledge.filePage.share', { both: row.both, total: block.commits, share: Math.round(row.share * 100) })}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </article>
   );
 }
