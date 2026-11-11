@@ -47,6 +47,7 @@ test('the plugin reads every graph-held text and publishes usages with its defin
     const requests: string[] = [];
     const context: ExtractContext = {
       signal: new AbortController().signal, heartbeat() {}, progress() {},
+      async agent() { throw new Error('this extraction does not request an agent'); },
       graph: {
         async files(pattern) { requests.push(pattern); return pattern === '**/*' ? files : files.slice(0, 1); },
         async value<T>(_kind: string, key: Readonly<Record<string, string | number>>) {

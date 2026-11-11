@@ -75,7 +75,7 @@ beforeAll(async () => {
   git(['mv', 'docs/same-one.md', 'docs/renamed.md']);
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
-  two = commitAll('two');
+  commitAll('two');
   owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
 });
 

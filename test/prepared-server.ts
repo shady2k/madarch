@@ -2,7 +2,7 @@
 import { dirname, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { withStorePreparationOwner, requestStorePreparation } from '../src/product/store-preparation.js';

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
 import type { PluginAgentReport } from '../src/plugin/agent.js';
 import { parseDocument } from 'yaml';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { runFill } from '../src/fill/run.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { closureOf } from '../src/plugin/closure.js';

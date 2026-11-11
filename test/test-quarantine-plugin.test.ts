@@ -26,6 +26,7 @@ const file = { kind: 'code.file', key: { repository: 'repo', path: 'test/example
 function context(content: string): ExtractContext {
   return {
     signal: new AbortController().signal, heartbeat() {}, progress() {},
+      async agent() { throw new Error('this extraction does not request an agent'); },
     graph: {
       async files(pattern) { expect(['**/*.test.*', '**/quarantine-results.json']).toContain(pattern); return pattern === '**/*.test.*' ? [file] : []; },
       async value<T>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T> {

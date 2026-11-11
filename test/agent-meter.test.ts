@@ -17,7 +17,7 @@ import { KIND_USAGE_RUNS, readKindUsage, recordAgentUsage, type AgentUsageRecord
 import { connectAcpAgent, type AcpConnection, type AcpSession } from '../src/fill/acp.js';
 import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { closeTrace, openTrace } from '../src/obs/trace.js';
 import { readTraceSpans, renderTraceReport, traceReportOf } from '../src/obs/trace-report.js';
 import { createTestDatabaseOwner } from './test-database.js';

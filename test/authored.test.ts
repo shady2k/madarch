@@ -3,8 +3,8 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { AuthoredRefusal, authoredEntity, shortestUid } from '../src/graph/authored.js';
-import type { KindsManifest } from '../src/knowledge/kinds.js';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import type { KindsManifest } from '../src/product/manifest/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let owner: DatabaseOwner;

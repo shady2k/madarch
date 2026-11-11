@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
 import { closureOf, readPluginManifest } from '../src/plugin/closure.js';
