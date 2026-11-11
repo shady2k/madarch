@@ -6,8 +6,10 @@
  */
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
+import { Progress } from '@/components/ui/progress.js';
 import { CodeLines, KLink, KMarkdown } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { useRead } from './live.js';
@@ -67,29 +69,29 @@ export function FolderFileTable({ files }: { files: readonly FolderFileData[] })
   const { t } = useTranslation();
   return (
     <div className="table-wrap">
-    <table className="w-full border-collapse text-small" data-testid="file-rows">
-      <thead>
-        <tr className="border-b border-line text-left text-muted">
-          <th className="py-1 font-normal">{t('knowledge.repository.name')}</th>
-          <th className="py-1 font-normal">{t('knowledge.repository.language')}</th>
-          <th className="py-1 text-right font-normal">{t('knowledge.repository.lines')}</th>
-          <th className="py-1 text-right font-normal">{t('knowledge.repository.bytes')}</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table className="w-full border-collapse text-small" data-testid="file-rows">
+      <TableHeader>
+        <TableRow className="border-b border-line text-left text-muted">
+          <TableHead className="py-1 font-normal">{t('knowledge.repository.name')}</TableHead>
+          <TableHead className="py-1 font-normal">{t('knowledge.repository.language')}</TableHead>
+          <TableHead className="py-1 text-right font-normal">{t('knowledge.repository.lines')}</TableHead>
+          <TableHead className="py-1 text-right font-normal">{t('knowledge.repository.bytes')}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {files.map((file) => (
-          <tr key={file.path} className="border-b border-line align-top last:border-b-0" data-testid="file-row" data-path={file.path}>
-            <td className="py-1 pr-3">
+          <TableRow key={file.path} className="border-b border-line align-top last:border-b-0" data-testid="file-row" data-path={file.path}>
+            <TableCell className="py-1 pr-3">
               <KLink href={file.href} testId="file-link">{file.path.slice(file.path.lastIndexOf('/') + 1)}</KLink>
               {file.form === 'binary' && <Badge variant="outline" className="ml-2">{t('knowledge.repository.binary')}</Badge>}
-            </td>
-            <td className="py-1 pr-3 text-muted" data-testid="file-language" title={file.candidates.join(', ')}>{file.language === 'ambiguous' ? file.candidates.join(' / ') : file.language}</td>
-            <td className="py-1 text-right text-muted">{file.lines === null ? '—' : String(file.lines)}</td>
-            <td className="py-1 text-right text-muted">{bytesText(file.bytes ?? 0)}</td>
-          </tr>
+            </TableCell>
+            <TableCell className="py-1 pr-3 text-muted" data-testid="file-language" title={file.candidates.join(', ')}>{file.language === 'ambiguous' ? file.candidates.join(' / ') : file.language}</TableCell>
+            <TableCell className="py-1 text-right text-muted">{file.lines === null ? '—' : String(file.lines)}</TableCell>
+            <TableCell className="py-1 text-right text-muted">{bytesText(file.bytes ?? 0)}</TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
     </div>
   );
 }
@@ -305,16 +307,16 @@ export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactEl
   return (
     <section data-testid="file-block" data-path={data.path}>
       <div className="table-wrap mb-8">
-      <table className="w-full border-collapse text-small" data-testid="file-facts">
-        <tbody>
+      <Table className="w-full border-collapse text-small" data-testid="file-facts">
+        <TableBody>
           {facts.map(([name, value]) => (
-            <tr key={name} className="border-b border-line last:border-b-0">
-              <th scope="row" className="w-40 py-1 pr-3 text-left font-normal text-muted">{name}</th>
-              <td className="py-1 break-all">{value}</td>
-            </tr>
+            <TableRow key={name} className="border-b border-line last:border-b-0">
+              <TableHead scope="row" className="w-40 py-1 pr-3 text-left font-normal text-muted">{name}</TableHead>
+              <TableCell className="py-1 break-all">{value}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
       </div>
     </section>
   );
@@ -352,30 +354,30 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
       </header>
       <h2 className="mb-2 mt-0">{t('knowledge.run.steps')}</h2>
       <div className="table-wrap mb-8">
-      <table className="w-full border-collapse text-small" data-testid="run-steps">
-        <thead>
-          <tr className="border-b border-line text-left text-muted">
-            <th className="py-1 font-normal">{t('knowledge.run.step')}</th>
-            <th className="py-1 text-right font-normal">{t('knowledge.run.wall')}</th>
-            <th className="py-1 text-right font-normal">{t('knowledge.run.memory')}</th>
-            <th className="py-1 font-normal">{t('knowledge.run.slowest')}</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="w-full border-collapse text-small" data-testid="run-steps">
+        <TableHeader>
+          <TableRow className="border-b border-line text-left text-muted">
+            <TableHead className="py-1 font-normal">{t('knowledge.run.step')}</TableHead>
+            <TableHead className="py-1 text-right font-normal">{t('knowledge.run.wall')}</TableHead>
+            <TableHead className="py-1 text-right font-normal">{t('knowledge.run.memory')}</TableHead>
+            <TableHead className="py-1 font-normal">{t('knowledge.run.slowest')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {run.steps.map((step) => (
-            <tr key={step.step} className="border-b border-line align-top last:border-b-0" data-testid="run-step" data-step={step.step}>
-              <td className="py-1 pr-3"><code>{step.step}</code></td>
-              <td className="py-1 text-right whitespace-nowrap">{msText(step.wallMs)}</td>
-              <td className="py-1 text-right whitespace-nowrap">{mbText(step.peakRssBytes)}</td>
-              <td className="py-1">
+            <TableRow key={step.step} className="border-b border-line align-top last:border-b-0" data-testid="run-step" data-step={step.step}>
+              <TableCell className="py-1 pr-3"><code>{step.step}</code></TableCell>
+              <TableCell className="py-1 text-right whitespace-nowrap">{msText(step.wallMs)}</TableCell>
+              <TableCell className="py-1 text-right whitespace-nowrap">{mbText(step.peakRssBytes)}</TableCell>
+              <TableCell className="py-1">
                 <ol className="m-0 list-none p-0" data-testid="run-step-names">
                   {step.slowest.map((name) => <li key={name.name}><code>{name.name}</code> <span className="text-muted">{msText(name.selfMs)} ×{name.count}</span></li>)}
                 </ol>
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
       </div>
       <RunAgentUsage usage={run.agentUsage} />
       <h2 className="mb-2 mt-0">{t('knowledge.run.names')}</h2>
@@ -383,7 +385,7 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
         {run.slowest.map((name) => (
           <li key={name.name} className="border-b border-line py-1 last:border-b-0">
             <code>{name.name}</code> <span className="text-muted">{msText(name.selfMs)} ×{name.count}</span>
-            <div className="mt-1 h-1 rounded-full bg-[var(--surface-active)]"><div className="h-1 rounded-full bg-ink" style={{ width: `${run.wallMs === 0 ? 0 : Math.min(100, Math.round((name.selfMs / run.wallMs) * 100))}%` }} /></div>
+            <Progress className="mt-1 h-1" value={run.wallMs === 0 ? 0 : Math.min(100, Math.round((name.selfMs / run.wallMs) * 100))} aria-label={name.name} />
           </li>
         ))}
       </ol>

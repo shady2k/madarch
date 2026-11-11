@@ -447,13 +447,13 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
       <ul className="m-0 list-none p-0" data-testid="problem-categories">
         {data.categories.map((category) => (
           <li key={category.rule} className="border-b border-line py-3 last:border-b-0">
-            <button type="button" className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 bg-transparent p-0 text-left" data-testid="problem-category" data-rule={category.rule} onClick={() => setRule(category.rule)}>
+            <Button type="button" size="content" className="w-full justify-start flex-wrap gap-x-3 gap-y-1" data-testid="problem-category" data-rule={category.rule} onClick={() => setRule(category.rule)}>
               <span className="font-medium">{ruleName(category)}</span>
               <code className="text-small">{category.rule}</code>
               <Badge variant={category.severity === 'blocker' || category.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-category-severity">{t(`loop.severity.${category.severity}`)}</Badge>
               <span className="text-small text-secondary">{t(`loop.fixer.${category.fixer}`)}</span>
               <span className="ml-auto font-medium" data-testid="problem-category-count">{category.count}</span>
-            </button>
+            </Button>
             {meaning(category) !== '' && <p className="mb-0 mt-1 text-small text-secondary" data-testid="problem-category-meaning">{meaning(category)}</p>}
           </li>
         ))}
@@ -663,7 +663,7 @@ function ProposeTaskForm({ question, refresh }: { question: QuestionDetail; refr
             {scope.map((one) => (
               <li key={JSON.stringify(one)} className="flex flex-wrap items-center gap-2 text-small" data-testid="task-scope-item" data-scope={scopeWords(one)} data-type={one.type}>
                 <PlaceName place={places.get(JSON.stringify(one)) ?? { kind: one.type, label: scopeWords(one), where: null, href: null, path: null, words: scopeWords(one) }} />
-                <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" onClick={() => withScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</button>
+                <Button type="button" variant="link" size="content" onClick={() => withScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</Button>
               </li>
             ))}
           </ul>
@@ -744,7 +744,7 @@ function TaskBody({ task, refresh, headline = true }: { task: TaskDetail; refres
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button variant="default" size="default" type="button" disabled={working || nothingToRun} onClick={run} data-testid="task-fix-now">{t('loop.refreshNow')}</Button>
           <Button variant="default" size="default" type="button" disabled={working} onClick={() => setSaid(t('loop.refreshDeferred'))} data-testid="task-fix-later">{t('loop.laterAnswers')}</Button>
-          <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" disabled={working} onClick={close} data-testid="task-close">{t('loop.taskClose')}</button>
+          <Button type="button" variant="link" size="content" disabled={working} onClick={close} data-testid="task-close">{t('loop.taskClose')}</Button>
         </div>
       )}
       {nothingToRun && task.status === 'open' && <p className="m-0 mt-2 text-small text-muted" data-testid="task-nothing-to-run">{t('loop.refreshNothing')}</p>}

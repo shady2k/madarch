@@ -223,7 +223,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
           <h1 className="mb-0">{t('knowledge.glossary.title')}</h1>
           <Badge data-testid="glossary-count">{glossary.terms.length}</Badge>
         </div>
-        <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="glossary-filter" />
+        <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} data-testid="glossary-filter" />
       </header>
       {glossary.terms.length === 0 && <p className="text-muted" data-testid="glossary-empty">{t('knowledge.glossary.empty')}</p>}
       {shown.length > 0 && (

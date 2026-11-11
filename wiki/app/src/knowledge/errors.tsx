@@ -5,6 +5,7 @@
  */
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button.js';
 import { KLink } from './blocks.js';
 import { WIKI_PROBLEMS } from './routes.js';
 
@@ -23,9 +24,9 @@ export function FailureNote({ scope, code, message }: { scope: 'fill' | 'writer'
         {message !== undefined && message !== '' && (
           <>
             {' · '}
-            <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="failure-details">
+            <Button type="button" variant="link" size="content" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="failure-details">
               {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
-            </button>
+            </Button>
           </>
         )}
       </p>

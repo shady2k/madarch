@@ -4,6 +4,7 @@ import { appRoute } from '../app-base.js';
 export type WikiRoute =
   | { name: 'home' }
   | { name: 'authored'; kind: string; uid: string }
+  | { name: 'kit' }
   | { name: 'entity'; id: string; after: string | null }
   | { name: 'kind'; kind: string }
   | { name: 'source'; repo: string | null; path: string; line: number | null }
@@ -22,6 +23,7 @@ export type WikiRoute =
   | { name: 'task'; id: string }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
+export const WIKI_KIT = '/kit';
 export const WIKI_HOME = '/';
 export const WIKI_DOCS = '/docs';
 export const WIKI_CATALOGUE = '/catalogue';
@@ -126,6 +128,7 @@ export const API = {
 /** The route an address is, or null when the app answers no such path. */
 export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
   const path = appRoute(pathname);
+  if (path === WIKI_KIT || path === `${WIKI_KIT}/`) return { name: 'kit' };
   if (path === '/' || path === '') return { name: 'home' };
   if (path === '/authored') {
     const query = new URLSearchParams(search);

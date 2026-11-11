@@ -7,6 +7,7 @@
  */
 import { useEffect, type ReactElement } from 'react';
 import { appPath } from '../app-base.js';
+import { KitPage } from './kit-page.js';
 import { KnowledgeApp } from './app.js';
 import { WIKI_HOME, wikiRouteOf } from './routes.js';
 
@@ -15,5 +16,5 @@ export function Root(): ReactElement {
   useEffect(() => {
     if (wikiRouteOf(window.location.pathname, window.location.search) === null) window.history.replaceState({}, '', appPath(WIKI_HOME));
   }, []);
-  return <KnowledgeApp />;
+  return wikiRouteOf(window.location.pathname, window.location.search)?.name === 'kit' ? <KitPage /> : <KnowledgeApp />;
 }

@@ -145,13 +145,13 @@ export function JournalPage({ id, run, version }: { id: string; run: string | nu
             </p>
           )}
           <div className="mb-3 flex flex-wrap items-baseline gap-4">
-            <h2 style={{ margin: 0 }}>{t('journal.records')}</h2>
+            <h2 className="m-0">{t('journal.records')}</h2>
             <label className="flex items-center gap-2 text-small">
               <input type="checkbox" checked={onlyRefused} onChange={(event) => setOnlyRefused(event.target.checked)} data-testid="journal-only-refused" />
               {t('journal.onlyRefused')}
             </label>
           </div>
-          <ol style={{ listStyle: 'none', margin: 0, padding: 0 }} data-testid="journal-list">
+          <ol className="m-0 list-none p-0" data-testid="journal-list">
             {shown.map((record, index) => <RecordRow key={`${record.time}\0${index}`} record={record} index={data.records.indexOf(record)} />)}
           </ol>
         </>

@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { SearchIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { Input } from '@/components/ui/input.js';
+import { Button } from '@/components/ui/button.js';
 import { navigateTo } from '../hold.js';
 import { getSearch } from './api.js';
 import { useKindName } from './kind-names.js';
@@ -99,17 +100,17 @@ export function SearchBox(): ReactElement {
   let rowAt = 0;
   return (
     <div ref={box} className="shell-search" data-open={open ? 'true' : 'false'} data-testid="search-box">
-      <button
+      <Button
         type="button"
-        className="shell-search-toggle grid size-9 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-control)] text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink"
+        className="shell-search-toggle shrink-0"
         aria-label={t('knowledge.searchLabel')}
         aria-expanded={open}
         title={t('knowledge.searchHint')}
         data-testid="search-toggle"
         onClick={() => setOpen(!open)}
       >
-        <SearchIcon aria-hidden="true" className="size-[21px]" />
-      </button>
+        <SearchIcon aria-hidden="true" className="size-5" />
+      </Button>
       <Input
         ref={field}
         type="search"
@@ -135,7 +136,7 @@ export function SearchBox(): ReactElement {
             else { setOpen(false); event.currentTarget.blur(); }
           }
         }}
-        className="shell-search-input max-w-[15rem]"
+        className="shell-search-input "
         data-testid="search-input"
       />
       {shown && (

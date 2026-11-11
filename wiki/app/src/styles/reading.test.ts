@@ -87,7 +87,7 @@ describe('the entry stylesheet', () => {
 
   test('the work area is flush and its text measure is fluid, capped only on wide windows', () => {
     const workArea = indexCss.slice(indexCss.indexOf('.shell-document {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document {')));
-    const content = indexCss.slice(indexCss.indexOf('.shell-document > main {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document > main {')));
+    const content = indexCss.slice(indexCss.indexOf('.shell-document > main,'), indexCss.indexOf('}', indexCss.indexOf('.shell-document > main,')));
     expect(workArea).toContain('width: 100%;');
     expect(workArea).toContain('min-block-size: 100%;');
     expect(workArea).toContain('padding: 48px 48px 2.5em;');
@@ -132,7 +132,7 @@ describe('the entry stylesheet', () => {
     expect(group).toContain('border: 1px solid var(--border-subtle);');
     expect(group).toContain('border-radius: var(--radius-card);');
     expect(group).not.toContain('box-shadow:');
-    expect(indexCss).toContain('.shell-document > main {');
+    expect(indexCss).toContain('.shell-document > main,');
     expect(indexCss).toContain('max-inline-size: var(--measure);');
   });
 

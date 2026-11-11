@@ -125,7 +125,8 @@
   line-height: var(--leading);
 }
 
-.shell-document > main {
+.shell-document > main,
+.ui-kit-page {
   max-inline-size: var(--measure);
   margin-inline: auto;
 }
