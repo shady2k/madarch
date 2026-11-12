@@ -146,19 +146,22 @@ export interface PluginSnapshot {
 
 export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: string, scope: string): Promise<PluginSnapshot> {
   return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ unit_id: string; generation: number; writes: unknown }>(
-      `SELECT g.unit_id, g.generation, d.writes FROM fill_unit_generation g
+    const found = await tx.query<{ run_id: string; unit_id: string; generation: number; writes: unknown }>(
+      `SELECT g.run_id, g.unit_id, g.generation, d.writes FROM fill_unit_generation g
        JOIN fill_unit u ON u.unit_id = g.unit_id
        JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
        JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
-       WHERE g.run_id = $1 AND u.stage_id = 'plugin-turns' AND u.scope_key = $2 AND g.generation = u.generation AND g.state = 'published'
+       WHERE (g.run_id = $1 OR EXISTS (
+         SELECT 1 FROM fill_event e WHERE e.run_id = $1 AND e.unit_id = g.unit_id
+           AND e.generation = g.generation AND e.kind = 'unit-inherited'))
+         AND u.stage_id = 'plugin-turns' AND u.scope_key = $2 AND g.generation = u.generation AND g.state = 'published'
        ORDER BY g.generation DESC LIMIT 1`, [runId, scope]);
     const row = found.rows[0];
     if (row === undefined) throw new Error(`no successful current-run snapshot for ${scope}`);
     const writes = snapshotWrites(row.writes);
     const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
     if (!['completed', 'unchanged', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`producer ${scope} did not complete successfully in run ${runId}`);
-    return { runId, unitId: row.unit_id, generation: Number(row.generation) };
+    return { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation) };
   });
 }
 
