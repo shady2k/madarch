@@ -63,12 +63,16 @@ describe('template declarations', () => {
     const agent = [...read.manifest.plugins!.values()].find((plugin) => plugin.contract?.agent?.catalogue === true)!;
     const plan = planManifestFill(read.manifest, '/neutral-product', ['template'], false);
     expect(plan.requiresAgent).toBe(false);
-    expect(plan.order).toEqual(['manifest']);
+    // Manifest template publication is separate from executable plugin output planning.
+    expect(plan.order).toEqual([]);
     expect(plan.outputs.has(agent.id)).toBe(false);
-    expect(plan.unproducedKinds).toEqual([]);
+    expect(plan.unproducedKinds).toEqual([{
+      kind: 'template', outcome: 'abstained',
+      reason: 'kind template has no configured producer; configure an ordinary producer or kind.agent',
+    }]);
     for (const field of kind.fields!) {
-      expect(plan.producers('template', field.name)).toEqual(['manifest']);
-      expect(plan.lastProducer('template', field.name)).toBe('manifest');
+      expect(plan.producers('template', field.name)).toEqual([]);
+      expect(plan.lastProducer('template', field.name)).toBeUndefined();
     }
     expect(read.manifest.findings).toEqual([]);
   });
