@@ -217,6 +217,7 @@ class PostgresOwner implements DatabaseOwner {
     void this.ready.catch(() => {});
   }
 
+  /** Name database failures only; application callbacks must keep their own refusal message. */
   private async named<T>(work: () => Promise<T>): Promise<T> {
     try { return await work(); }
     catch (error) {
@@ -227,15 +228,15 @@ class PostgresOwner implements DatabaseOwner {
   }
 
   transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.named(() => this.transactionWork(kind, work));
+    return this.transactionWork(kind, work);
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.named(() => this.runWork(work));
+    return this.runWork(work);
   }
 
   exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
-    return this.named(() => this.execWork<Row>(text));
+    return this.execWork<Row>(text);
   }
 
   private ensureOpen(): void {
@@ -259,14 +260,14 @@ class PostgresOwner implements DatabaseOwner {
     this.ensureOutsideOwnWork();
     const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
       await this.ready;
-      return await this.pool.connect();
+      return await this.named(async () => await this.pool.connect());
     });
     let releaseError: Error | undefined;
     try {
       const begin = kind === 'snapshot'
         ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
         : 'BEGIN ISOLATION LEVEL READ COMMITTED';
-      await client.query(begin);
+      await this.named(async () => await client.query(begin));
       const value = await withSpan('db.transaction', { 'db.system': 'postgres', 'db.kind': kind }, async (span) => {
         let statements = 0;
         let rows = 0;
@@ -274,14 +275,14 @@ class PostgresOwner implements DatabaseOwner {
         const counted: OuterTransaction = {
           query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
             statements += 1;
-            const answer = (await spannedStatement(sql, async () => await client.query(sql, values === undefined ? undefined : [...values]) as { rows: unknown[] }, counts)) as { rows: Row[] };
+            const answer = (await spannedStatement(sql, async () => await this.named(async () => await client.query(sql, values === undefined ? undefined : [...values])) as { rows: unknown[] }, counts)) as { rows: Row[] };
             rows += answer.rows.length;
             return answer;
           },
         };
         const held = await this.ownWork.run(true, () => work(counted));
         if (kind === 'write') await refuseAborted(client, this.location);
-        await client.query('COMMIT');
+        await this.named(async () => await client.query('COMMIT'));
         span.setAttribute('db.statements', statements);
         span.setAttribute('db.rows', rows);
         span.setAttribute('db.selects', counts.select);
@@ -310,7 +311,7 @@ class PostgresOwner implements DatabaseOwner {
     await this.ready;
     const executor: OuterTransaction = {
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        const result = await spannedStatement(sql, async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values]));
+        const result = await spannedStatement(sql, async () => await this.named(async () => values === undefined ? await this.pool.query(sql) : await this.pool.query(sql, [...values])));
         return { rows: result.rows as Row[] };
       },
     };
@@ -322,7 +323,7 @@ class PostgresOwner implements DatabaseOwner {
     this.ensureOutsideOwnWork();
     const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
       await this.ready;
-      return await this.pool.connect();
+      return await this.named(async () => await this.pool.connect());
     });
     let releaseError: Error | undefined;
     try {
@@ -330,7 +331,7 @@ class PostgresOwner implements DatabaseOwner {
       // values through the simple protocol, so a `BEGIN … COMMIT` block is one
       // message on one connection and answers one result per statement.
       return await withSpan('db.batch', { 'db.system': 'postgres' }, async (span) => {
-        const result = await client.query(text);
+        const result = await this.named(async () => await client.query(text));
         const results = Array.isArray(result) ? result : [result];
         const answered = results.map((one) => ({ rows: one.rows as Row[] }));
         span.setAttribute('db.rows', answered.reduce((sum, one) => sum + one.rows.length, 0));
