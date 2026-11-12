@@ -34,7 +34,6 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
-import { publishRepositoryTemplates } from './structured-template-fixture.js';
 
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
@@ -283,7 +282,6 @@ describe('the fill the reader watches', () => {
       status = (await get('/products/tiny/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
-    await publishRepositoryTemplates(join(home, 'tiny'), home, join(work, 'store'));
     await new Promise((rest) => setTimeout(rest, 700));
     done = true;
     await reader.cancel();

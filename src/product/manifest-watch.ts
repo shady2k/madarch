@@ -8,6 +8,10 @@ import { validateProductManifests, type ValidatedManifests } from '../graph/mani
 export function createManifestWatch(folders: readonly string[], publish: (value: ValidatedManifests) => Promise<void>, report: (line: string) => void): { stop(): void; refresh(folder: string): Promise<void> } {
   const watchers: FSWatcher[] = [];
   const pending = new Map<string, Promise<void>>();
+  const templatePaths = new Map(folders.map((folder) => {
+    const read = validateProductManifests(folder);
+    return [folder, new Set(read.ok ? read.value?.templatePaths ?? [] : read.templatePaths)] as const;
+  }));
   let stopped = false;
   const refresh = async (folder: string): Promise<void> => {
     const previous = pending.get(folder) ?? Promise.resolve();
@@ -15,10 +19,14 @@ export function createManifestWatch(folders: readonly string[], publish: (value:
       if (stopped) return;
       const read = validateProductManifests(folder);
       if (!read.ok) {
+        templatePaths.set(folder, new Set([...(templatePaths.get(folder) ?? []), ...read.templatePaths]));
         for (const finding of read.findings) report(`${finding.file}:${finding.line}: ${finding.message}`);
         return;
       }
-      if (read.value !== undefined) await publish(read.value);
+      if (read.value !== undefined) {
+        await publish(read.value);
+        templatePaths.set(folder, new Set(read.value.templatePaths));
+      }
     }).catch((error: unknown) => report(`${folder}:1: the manifest catalogue could not be published: ${String(error)}`));
     pending.set(folder, work);
     await work;
@@ -28,7 +36,7 @@ export function createManifestWatch(folders: readonly string[], publish: (value:
     for (const folder of folders) {
       const watcher = watch(folder, { recursive: true, persistent: false }, (event, filename) => {
         const path = filename?.toString().replaceAll('\\', '/');
-        if (event === 'rename' || path === KINDS_FILE || path === WORKFLOWS_FILE || path === 'madarch/plugins.lock' || path?.endsWith('/plugin.json') || path?.endsWith('/contract.json')) void refresh(folder);
+        if (event === 'rename' || path === KINDS_FILE || path === WORKFLOWS_FILE || path === 'madarch/plugins.lock' || path?.endsWith('/plugin.json') || path?.endsWith('/contract.json') || (path !== undefined && templatePaths.get(folder)?.has(path))) void refresh(folder);
       });
       watcher.on('error', (error) => report(`${folder}:1: the manifest watcher failed: ${error.message}`));
       watchers.push(watcher);

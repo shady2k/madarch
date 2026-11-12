@@ -36,6 +36,7 @@ import { KINDS_FILE, readKindsFrom } from './kinds.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
 import { snapshotFiles, type ProductFileRead } from '../../plugin/product-files.js';
+import { ensureTemplateDeclarations } from '../../plugin/template-declarations.js';
 
 
 /** One problem found in the product's fill configuration, named where it stands. */
@@ -138,9 +139,11 @@ export function parseFillStageConfiguration(text: string | undefined, file: stri
 export async function readFillManifests(snapshot: Parameters<typeof snapshotFiles>[0], folder: string) {
   const files = await snapshotFiles(snapshot);
   await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json'))]);
+  const kindsRead = readKindsFrom(files, folder);
+  if (kindsRead.present) await ensureTemplateDeclarations(files, kindsRead.manifest);
   return {
     files,
-    kindsRead: readKindsFrom(files, folder),
+    kindsRead,
     lockRead: parsePluginLock(files.has(PLUGINS_LOCK_FILE) ? files.text(PLUGINS_LOCK_FILE) : undefined),
   };
 }
