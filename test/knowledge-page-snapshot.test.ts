@@ -30,7 +30,7 @@ const templates = new Map([['template', { kind: 'template', table: templateContr
 const graph = (database: DatabaseOwner, transaction?: OuterTransaction): GraphReader => new GraphReader(database, () => at, undefined, transaction, undefined, new Map([...repositoryKindReads, ...templates]), repositoryEdgeReads);
 
 const at = '2026-02-04T00:00:00.000Z';
-const id = 'code.author:walk@example.test';
+const id = 'code.author:Walk/walk@example.test';
 let owner: DatabaseOwner;
 
 beforeAll(async () => {
