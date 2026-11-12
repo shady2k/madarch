@@ -10,7 +10,6 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
-import { installOwnWiki, ownWikiOff } from './own-wiki.js';
 import { readPinnedGraphContract } from './fill-stages.js';
 import { validateProductManifests } from '../graph/manifest-publication.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
@@ -617,24 +616,16 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         const demo = args[0] === 'demo' ? prepareDemo({ ...(deps.demo ?? {}), home, env: deps.demo?.env ?? process.env }) : undefined;
         if (demo !== undefined && !demo.ok) { console.error(demo.message); return 1; }
         const servingArgs = demo?.ok ? ['serve', '--product', demo.folder, ...args.slice(1)] : args;
-        const folders = args[0] === 'daemon-serve'
-          ? (() => { const listed = listProducts({ home }); return listed.outcome === 'listed' ? listed.products.map((product) => product.folder) : []; })()
-          : [demo?.ok ? demo.folder : resolve(named('--product') ?? process.cwd())];
-        const own = args[0] === 'daemon-serve' && !ownWikiOff() ? installOwnWiki({ env: process.env }) : undefined;
-        if (own !== undefined && !own.ok) { console.error(own.message); return 1; }
-        if (own?.ok) folders.push(own.folder);
-        for (const folder of folders) {
+        // The daemon API validates every product before binding. Do not repeat its expensive
+        // validation and own-wiki installation in the preparation service process.
+        if (args[0] !== 'daemon-serve') {
+          const folder = demo?.ok ? demo.folder : resolve(named('--product') ?? process.cwd());
           const read = readProduct(folder);
           // A manifestless folder has no graph-backed product to activate.
-          if (!read.ok) {
-            if (args[0] !== 'daemon-serve') continue;
-            throw new Error(`${read.file}:${read.line}: ${read.message}`);
-          }
-          const manifests = validateProductManifests(folder);
-          if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
-          // The shared daemon publishes after listening. Standalone serve has no daemon publisher,
-          // so its owner activates the product before starting the connect-only API role.
-          if (args[0] !== 'daemon-serve') {
+          if (read.ok) {
+            const manifests = validateProductManifests(folder);
+            if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+            // Standalone serve has no daemon publisher: activate before its connect-only API role.
             await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(dirname(folder)))), await readPinnedGraphContract(folder));
           }
         }
