@@ -1852,7 +1852,7 @@ export function setKindsLanguage(productFolder: string, language: string): strin
   }
 }
 
-/** The kind whose single file is the product's home: the first kind with a `file`, in the manifest's order. */
+/** The first single-file Markdown kind is home; graph-backed products use the declared `product` kind. */
 export function homeKind(manifest: KindsManifest): KindDecl | undefined {
   for (const decl of manifest.kinds.values()) if (decl.source === 'markdown' && decl.file !== undefined) return decl;
   const product = manifest.kinds.get('product');
