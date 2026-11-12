@@ -858,6 +858,7 @@ async function planStageUnitsSpanned(
             // computation of the unit's inputs per unit, not two.
             const verdict = await generationFresh(orchestrator, answer, { digest, versions: stageCacheVersions(stage) });
             if (verdict.fresh) {
+              await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-inherited', summary: `${unitId} generation ${answer.generation} verified unchanged for this run` });
               reused.push(unitId);
               continue;
             }

@@ -19,11 +19,13 @@ describe('observable producer completion', () => {
   test('reads committed zero-Problem outcomes and terminal failures, not private failed drafts', async () => {
     const rows = [
       { run_id: 'zero', unit_id: 'plugin-turns/check:Problem', generation: 2, scope_key: 'check:Problem', state: 'published', writes: [{ kind: 'producer-outcome', value: { plugin: 'check', kind: 'Problem', outcome: 'empty', produced: 0 } }], published: true, reason: null },
+      { run_id: 'rechecked', unit_id: 'plugin-turns/check:Problem', generation: 2, scope_key: 'check:Problem', state: 'published', writes: [{ kind: 'producer-outcome', value: { plugin: 'check', kind: 'Problem', outcome: 'completed', produced: 1 } }], published: true, inherited: true, reason: null },
       { run_id: 'failed', unit_id: 'plugin-turns/check:Problem', generation: 3, scope_key: 'check:Problem', state: 'failed', writes: [{ kind: 'producer-outcome', value: { outcome: 'completed' } }], published: false, reason: 'adapter crashed' },
     ];
     const executor = { query: async () => ({ rows }) } as unknown as SqlExecutor;
     expect(await readProducerOutcomesIn(executor, { unitId: 'plugin-turns/check:Problem' })).toEqual([
       { runId: 'zero', unitId: 'plugin-turns/check:Problem', generation: 2, plugin: 'check', kind: 'Problem', outcome: 'empty', produced: 0 },
+      { runId: 'rechecked', unitId: 'plugin-turns/check:Problem', generation: 2, plugin: 'check', kind: 'Problem', outcome: 'unchanged', produced: 1 },
       { runId: 'failed', unitId: 'plugin-turns/check:Problem', generation: 3, plugin: 'check', kind: 'Problem', outcome: 'failed', produced: 0, reason: 'adapter crashed' },
     ]);
   });

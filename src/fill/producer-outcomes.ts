@@ -36,7 +36,8 @@ type OutcomeRow = Record<string, unknown> & { run_id: string; unit_id: string; g
 /** Reads committed completion metadata; a failed attempt never substitutes its private draft. */
 export async function readProducerOutcomesIn(executor: SqlExecutor, options: { readonly runId?: string; readonly unitId?: string; readonly generation?: number }): Promise<ProducerRunOutcome[]> {
   const found = await executor.query<OutcomeRow>(
-    `SELECT g.run_id, g.unit_id, g.generation, u.scope_key, g.state,
+    `SELECT COALESCE($1::text, g.run_id) AS run_id, g.unit_id, g.generation, u.scope_key, g.state,
+       ($1::text IS NOT NULL AND g.run_id <> $1) AS inherited,
        (SELECT jsonb_agg(w) FROM jsonb_array_elements(d.writes) w WHERE w->>'kind' = 'producer-outcome') AS writes,
        (p.unit_id IS NOT NULL) AS published,
        (SELECT e.summary FROM fill_event e WHERE e.unit_id = g.unit_id AND e.generation = g.generation
@@ -44,7 +45,9 @@ export async function readProducerOutcomesIn(executor: SqlExecutor, options: { r
      FROM fill_unit_generation g JOIN fill_unit u ON u.unit_id = g.unit_id
      LEFT JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
      LEFT JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-     WHERE u.stage_id = 'plugin-turns' AND ($1::text IS NULL OR g.run_id = $1)
+     WHERE u.stage_id = 'plugin-turns' AND ($1::text IS NULL OR g.run_id = $1 OR EXISTS (
+       SELECT 1 FROM fill_event inherited WHERE inherited.run_id = $1 AND inherited.unit_id = g.unit_id
+         AND inherited.generation = g.generation AND inherited.kind = 'unit-inherited'))
        AND ($2::text IS NULL OR g.unit_id = $2) AND ($3::integer IS NULL OR g.generation = $3)
      ORDER BY g.unit_id COLLATE "C", g.generation, g.run_id COLLATE "C"`,
     [options.runId ?? null, options.unitId ?? null, options.generation ?? null],
@@ -53,7 +56,7 @@ export async function readProducerOutcomesIn(executor: SqlExecutor, options: { r
     const identity = { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation) };
     if (row.published) {
       const writes = (typeof row.writes === 'string' ? JSON.parse(row.writes) : row.writes) as { kind: string; value: ProducerOutcomeDraft }[] | null;
-      return (writes ?? []).filter((write) => write.kind === 'producer-outcome').map((write) => ({ ...write.value, ...identity }));
+      return (writes ?? []).filter((write) => write.kind === 'producer-outcome').map((write) => ({ ...write.value, ...(row.inherited === true && producerSucceeded(write.value.outcome) ? { outcome: 'unchanged' as const } : {}), ...identity }));
     }
     if (!['failed', 'blocked', 'cancelled'].includes(row.state)) return [];
     const cut = row.scope_key.indexOf(':');
