@@ -18,6 +18,7 @@ export interface StoreSchema {
 const MODULE_SCHEMAS: readonly StoreSchema[] = [fillStateSchema, orchestratorSchema, agentUsageSchema];
 export interface PrepareStoreOptions {
   readonly contract?: GraphContract;
+  readonly reset?: boolean;
   readonly historyOnly?: boolean;
   readonly modules?: readonly StoreSchema[];
   readonly queue?: Parameters<typeof prepareQueueSchema>[1];
@@ -25,6 +26,22 @@ export interface PrepareStoreOptions {
 /** Called before publishing a store or changed contract to any client. */
 export async function prepareStore(owner: DatabaseOwner, options: PrepareStoreOptions = {}): Promise<{ reset: boolean }> {
   await owner.ready;
+  if (options.reset === true) {
+    await owner.transaction('write', async (tx) => {
+      await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+      // Writers that already started finish before these preservation checks; later writers cannot race the drop.
+      await tx.query('LOCK TABLE operation, fill_run IN ACCESS EXCLUSIVE MODE');
+      const authored = await tx.query<{ present: boolean }>("SELECT EXISTS (SELECT 1 FROM operation WHERE author LIKE 'person:%') AS present");
+      if (authored.rows[0]?.present === true) throw new Error(`${owner.location}:1: start over is refused: this store holds person-authored history; nothing was removed`);
+      const live = await tx.query("SELECT 1 FROM fill_run WHERE state IN ('created', 'planning', 'running', 'pausing', 'cancelling') LIMIT 1");
+      if (live.rows.length !== 0) throw new Error(`${owner.location}:1: a fill of this product is running; start over after it ends`);
+      await tx.query('DROP SCHEMA public CASCADE');
+      await tx.query('DROP SCHEMA IF EXISTS madarch_meta CASCADE');
+      await tx.query('DROP SCHEMA IF EXISTS pgboss CASCADE');
+      await tx.query('CREATE SCHEMA public');
+    });
+  }
+
   await owner.transaction('write', async (tx) => {
     await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
     await tx.query('CREATE EXTENSION IF NOT EXISTS btree_gist');
