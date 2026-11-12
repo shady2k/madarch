@@ -159,7 +159,7 @@ test('manifest planning requires a selected adapter for explicitly configured ag
   const plan = planManifestFill(configured, '/product', ['File'], true);
   expect(plan.order).toEqual(['general']);
   expect(plan.requiresAgent).toBe(true);
-  expect(plan.outputs.get('general')?.get('File')).toEqual(['description', 'title']);
+  expect(plan.outputs.get('general')?.get('File')).toEqual(['title', 'description']);
   expect(plan.unproducedKinds).toEqual([]);
   expect(fillRequirementsOf(configured, '/product')(['File'])).toEqual({ requiresAgent: true });
 });
