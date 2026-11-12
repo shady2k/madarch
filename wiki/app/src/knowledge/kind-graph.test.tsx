@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { KindGraph, graphLayers, graphStateOf, relatedKinds } from './kind-graph.js';
+import { GraphViewport } from '../components/ui/graph.js';
 import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import type { CatalogKindView, CatalogView } from './types.js';
 
@@ -58,58 +59,70 @@ function into(element: ReturnType<typeof createElement>): HTMLElement {
 }
 
 describe('the shared kind graph', () => {
-  test('draws every kind including independent kinds with dependency columns, states and records links', async () => {
-    const catalog = { ...CATALOG, kinds: [...CATALOG.kinds, kind({ kind: 'independent', page: false })] };
+  test('the graph kit pans the background and zooms with wheel and two pointers, without dragging controls', async () => {
+    const graph = into(createElement(GraphViewport, { 'data-testid': 'frame' } as never, createElement('button', {}, 'Action')));
+    await until(() => graph.querySelector('[data-testid="frame"]') !== null, 'viewport');
+    const frame = graph.querySelector('[data-testid="frame"]') as HTMLElement;
+    const transform = (): string | undefined => (graph.querySelector('[data-testid="graph-transform"]') as HTMLElement | null)?.style.transform;
+    const pointer = (type: string, id: number, x: number, y: number, target: Element = frame): void => {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: id, clientX: x, clientY: y }));
+    };
+    const original = transform();
+    pointer('pointerdown', 1, 20, 20);
+    pointer('pointermove', 1, 60, 50);
+    pointer('pointerup', 1, 60, 50);
+    await until(() => transform() !== original, 'background pan');
+    expect(transform()).toContain('translate(40px, 30px)');
+    const panned = transform();
+    pointer('pointerdown', 2, 20, 20, graph.querySelector('button')!);
+    pointer('pointermove', 2, 90, 90);
+    expect(transform()).toBe(panned);
+    frame.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100, clientX: 50, clientY: 50 }));
+    await until(() => transform() !== panned, 'wheel zoom');
+    const wheeled = transform();
+    pointer('pointerdown', 3, 0, 0);
+    pointer('pointerdown', 4, 50, 0);
+    pointer('pointermove', 4, 100, 0);
+    await until(() => transform() !== wheeled, 'pinch zoom');
+    pointer('pointerup', 3, 0, 0);
+    pointer('pointercancel', 4, 100, 0);
+  });
+
+  test('starts with purpose sections, counted dependencies, and expands only the chosen section', async () => {
+    const catalog = { ...CATALOG, groups: [
+      { group: 'code', labels: { en: 'Code' } }, { group: 'docs', labels: { en: 'Documents' } },
+    ], kinds: CATALOG.kinds.map((entry) => ({ ...entry, area: entry.kind.startsWith('code.') ? 'code' : 'docs' })) };
     const graph = into(createElement(KindGraph, { catalog }));
-    await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
-    const nodes = [...graph.querySelectorAll('[data-testid="dependency-node"]')];
-    expect(nodes.map((node) => node.getAttribute('data-kind'))).toEqual(['code.file', 'independent', 'doc.term', 'doc.use-case']);
-    expect(nodes.map((node) => node.getAttribute('data-depth'))).toEqual(['0', '0', '1', '1']);
-    expect(nodes.map((node) => node.getAttribute('data-state'))).toEqual(['done', 'done', 'partial', 'never']);
-    expect([...graph.querySelectorAll('[data-edge]')].map((edge) => edge.getAttribute('data-edge')).sort()).toEqual(['code.file->doc.term', 'code.file->doc.use-case']);
-    const term = graph.querySelector('[data-kind="doc.term"]')!;
-    expect(term.querySelector('[data-testid="dependency-state"]')!.textContent).toBe('Partial');
-    expect(term.querySelector('[data-testid="dependency-count"]')!.textContent).toBe('3');
-    expect(term.querySelector('a')!.getAttribute('href')).toBe('/kind/doc.term');
-    expect(term.querySelector('a')!.textContent).toContain('Terms');
-    expect(nodes.map((node) => node.querySelector('a')!.getAttribute('href'))).toEqual([
-      '/kind/code.file', '/kind/independent', '/kind/doc.term', '/kind/doc.use-case',
-    ]);
-    expect(nodes.every((node) => node.querySelector('a')!.contains(node.querySelector('[data-testid="dependency-count"]')))).toBe(true);
-    expect(graph.querySelector('button')).toBeNull();
-    expect(graph.querySelector('h1')).toBeNull();
-    expect(graph.querySelector('[data-testid="dependencies-graph"]')!.className).toContain('overflow-x-auto');
+    await until(() => graph.querySelector('[data-section="code"]') !== null, 'sections');
+    expect(graph.querySelectorAll('[data-testid="dependency-node"]')).toHaveLength(0);
+    expect(graph.querySelector('[data-section="code"]')!.textContent).toContain('12');
+    expect(graph.querySelector('[data-edge="section:code->section:docs"]')!.getAttribute('data-count')).toBe('2');
+    expect(graph.querySelector('[data-edge="section:code->section:docs"]')!.getAttribute('marker-end')).toMatch(/^url\(#.+\)$/u);
+    expect(graph.querySelector('marker path')).not.toBeNull();
+    (graph.querySelector('[data-section="docs"] button') as HTMLButtonElement).click();
+    await until(() => graph.querySelectorAll('[data-testid="dependency-node"]').length === 2, 'expanded section');
+    expect(graph.querySelector('[data-kind="code.file"]')).toBeNull();
+    expect(graph.querySelector('[data-section="code"]')).not.toBeNull();
     expect(localeKeyIn(renderedText(graph))).toBeUndefined();
   });
 
-  test('a chosen kind highlights dependencies and dependents without changing navigation', async () => {
-    const catalog = { ...CATALOG, kinds: [...CATALOG.kinds, kind({ kind: 'root', dependsOn: ['doc.term'] })] };
+  test('selection renders only the bounded dependency and dependent neighbourhood and keeps record links', async () => {
+    const catalog = { ...CATALOG, kinds: [...CATALOG.kinds, kind({ kind: 'root', dependsOn: ['doc.term'] }), kind({ kind: 'far', dependsOn: ['root'] })] };
     const graph = into(createElement(KindGraph, { catalog, chosen: 'doc.term' }));
-    await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
-    const chosen = graph.querySelector('[data-kind="doc.term"]')!;
-    expect(chosen.getAttribute('data-chosen')).toBe('true');
-    expect(chosen.querySelector('a')!.getAttribute('href')).toBe('/kind/doc.term');
-    expect(graph.querySelector('button')).toBeNull();
-    expect([...graph.querySelectorAll('[data-highlighted="true"]')].map((node) => node.getAttribute('data-kind'))).toEqual(['code.file', 'doc.term', 'root']);
-    expect(graph.querySelector('[data-kind="doc.use-case"]')!.getAttribute('data-highlighted')).toBe('false');
-    expect(graph.querySelector('[data-edge="code.file->doc.term"]')!.getAttribute('data-active')).toBe('true');
-    expect(graph.querySelector('[data-edge="code.file->doc.use-case"]')!.getAttribute('data-active')).toBe('false');
-  });
-
-  test('external highlights work without graph selection or fill controls', async () => {
-    const graph = into(createElement(KindGraph, { catalog: CATALOG, highlighted: new Set(['code.file', 'doc.term']) }));
-    await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
-    expect(graph.querySelector('[data-kind="doc.term"]')!.getAttribute('data-highlighted')).toBe('true');
-    expect(graph.querySelectorAll('input')).toHaveLength(0);
-    expect(graph.querySelector('button')).toBeNull();
-    expect(graph.querySelectorAll('a')).toHaveLength(CATALOG.kinds.length);
+    await until(() => graph.querySelector('[data-kind="doc.term"]') !== null, 'focus');
+    expect([...graph.querySelectorAll('[data-kind]')].map((node) => node.getAttribute('data-kind')).sort()).toEqual(['code.file', 'doc.term', 'root']);
+    expect(graph.querySelector('[data-kind="doc.term"] a')!.getAttribute('href')).toBe('/kind/doc.term');
+    (graph.querySelector('[data-testid="graph-two-steps"]') as HTMLButtonElement).click();
+    await until(() => graph.querySelector('[data-kind="far"]') !== null, 'two steps');
+    expect(graph.querySelector('[data-kind="doc.use-case"]')).toBeNull();
+    expect([...relatedKinds(catalog.kinds, 'doc.term')].sort()).toEqual(['code.file', 'doc.term', 'root']);
   });
 
   test('layers follow longest chains, missing kinds are retained as dependencies, and cycles stay visible', async () => {
     expect(graphLayers([kind({ kind: 'a' }), kind({ kind: 'b', dependsOn: ['a'] }), kind({ kind: 'c', dependsOn: ['b'] })]).layers).toEqual([['a'], ['b'], ['c']]);
     const kinds = [kind({ kind: 'a', dependsOn: ['b'] }), kind({ kind: 'b', dependsOn: ['a'] })];
     expect(graphLayers(kinds).cycles).toEqual(['a -> b -> a']);
-    const graph = into(createElement(KindGraph, { catalog: { ...CATALOG, kinds } }));
+    const graph = into(createElement(KindGraph, { catalog: { ...CATALOG, kinds }, chosen: 'a' }));
     await until(() => graph.querySelector('[role="alert"]') !== null, 'the cycle');
     expect(graph.querySelector('[role="alert"]')!.textContent).toContain('a -> b -> a');
     expect(graph.querySelectorAll('[data-testid="dependency-node"]')).toHaveLength(2);
@@ -122,9 +135,12 @@ describe('the shared kind graph', () => {
 
   test('fill states use turns and catalog outcomes', async () => {
     const kinds = [kind({ kind: 'a', turn: 'published' }), kind({ kind: 'b', turn: 'running' }), kind({ kind: 'c', state: 'never' })];
-    const graph = into(createElement(KindGraph, { catalog: { ...CATALOG, kinds }, filling: true }));
+    const graph = into(createElement(KindGraph, { catalog: { ...CATALOG, kinds }, filling: true, highlighted: new Set(['a', 'b', 'c']) }));
     await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
     expect([...graph.querySelectorAll('[data-state]')].map((node) => node.getAttribute('data-state'))).toEqual(['done', 'running', 'waiting']);
+    expect(graphStateOf(kind({ kind: 'a', turn: 'running' }), true)).toBe('running');
+    expect(graphStateOf(kind({ kind: 'a', state: 'never' }), true)).toBe('waiting');
+    expect(graphStateOf(kind({ kind: 'a', state: 'partial' }), false)).toBe('partial');
     expect(graphStateOf(kind({ kind: 'a', turn: 'ready' }), true)).toBe('waiting');
     expect(graphStateOf(kind({ kind: 'a', turn: 'blocked' }), false)).toBe('failed');
     expect(graphStateOf(kind({ kind: 'a', state: 'never' }), false)).toBe('never');
