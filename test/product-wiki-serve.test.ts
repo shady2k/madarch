@@ -6,10 +6,12 @@ import { afterEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
 import { serveWiki, type ServeResult } from '../src/product-wiki/serve.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { prepareTestProduct } from './prepared-server.js';
 import type { StartedServer } from '../src/server/http.js';
 
 const folders: string[] = [];
 const servers: StartedServer[] = [];
+const preparationOwners: (() => Promise<void>)[] = [];
 
 function scratch(): string {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-product-wiki-serve-'));
@@ -32,6 +34,7 @@ function serving(result: ServeResult): Extract<ServeResult, { outcome: 'serving'
 
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
+  for (const close of preparationOwners.splice(0)) await close();
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
@@ -66,6 +69,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     // The product's own copy of the starter set: the engine knows no entities (decision 0034, item 24).
     seedStarterSet(product);
     runIn(product, ['init', '--quiet', '--initial-branch=main']); runIn(product, ['add', '-A']); runIn(product, ['commit', '--quiet', '-m', 'Product']);
+    preparationOwners.push(await prepareTestProduct(product, base));
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     // The documents are the graph's now: the files producer reads the checkout into the store first (decision 0035, item 9).
     const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });

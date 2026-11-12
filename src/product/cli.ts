@@ -632,6 +632,11 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
           }
           const manifests = validateProductManifests(folder);
           if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+          // The shared daemon publishes after listening. Standalone serve has no daemon publisher,
+          // so its owner activates the product before starting the connect-only API role.
+          if (args[0] !== 'daemon-serve') {
+            await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(dirname(folder)))), await readPinnedGraphContract(folder));
+          }
         }
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
