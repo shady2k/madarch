@@ -14,6 +14,8 @@ import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { successfulPluginSnapshot } from '../src/graph/plugin-turns.js';
+import { KnowledgeProduct } from '../src/knowledge/product.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 let folder = '';
 afterAll(() => { if (folder) rmSync(folder, { recursive: true, force: true }); });
@@ -78,10 +80,12 @@ async extract(unit, context) {
     return hash;
   };
   let release = configure('bad');
-  const owner = await createTestDatabaseOwner({ btreeGist: true });
+  const storeRoot = join(folder, 'store');
+  const store = productStoreFolder(product, storeRoot);
+  const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
   try {
     const graph = await readPinnedGraphContract(product); await prepareStore(owner, { contract: graph });
-    const run = async (runId: string) => await runFill({ product, database: owner, releaseHashes: [release], steps: ['plugin-turns'], targets: { kinds: ['Problem'] }, runId, home,
+    const run = async (runId: string) => await runFill({ product, database: owner, releaseHashes: [release], steps: ['plugin-turns'], targets: { kinds: ['Problem'] }, runId, home, store,
       prepareContract: async (held) => { await prepareStore(owner, { contract: held }); } });
     const table = generatedTableName('Problem', 'vertex');
     const problems = async () => (await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string; detail: string | null; said_by: string; evidence: unknown[] }>(`SELECT title, detail, said_by, evidence FROM ${table} WHERE state='open' ORDER BY title`))).rows;
@@ -119,5 +123,10 @@ async extract(unit, context) {
     expect(await problems()).toEqual([]);
     expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));
     expect(await readProducerOutcomes(owner, { runId: 'bad' })).toEqual(history);
+    const reader = new KnowledgeProduct({ productFolder: product, storeRoot });
+    try {
+      const status = await reader.status();
+      expect(status.fill.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));
+    } finally { await reader.close(); }
   } finally { await owner.close(); }
 }, 300_000);
