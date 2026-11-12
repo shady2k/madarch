@@ -371,6 +371,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         draft.write({ kind: 'vertex', evidence: vertex.kind, value: {
           kind: vertex.kind,
           key: vertex.key,
+          selectedFields: allowedFields,
           ...(vertex.values === undefined ? {} : { values: vertex.values }),
           ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
           producer: unit.plugin.id,
@@ -405,7 +406,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           const held = answered.get(kind) ?? new Set<string>();
           for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
             if (held.has(canonicalKey(entity.key))) continue;
-            draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: unit.plugin.id } });
+            draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: unit.plugin.id, selectedFields: allowedFields } });
           }
         }
         for (const kind of [...unitEdges].sort(byCodePoint)) {
