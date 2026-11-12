@@ -425,10 +425,13 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
   const connection = process.platform === 'win32'
     ? `-h 127.0.0.1 -p ${String(await freeTcpPort())} -c unix_socket_directories=`
     : `-k "${socketDir}" -p ${String(CLUSTER_PORT)} -c listen_addresses=`;
+  const started = performance.now();
   try {
     runBinary(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-w', '-l', logFile, '-t', '60', '-o', connection, 'start']);
   } catch (error) {
     throw new Error(`${logFile}:1: PostgreSQL startup failed: ${String(error)}\n${readFileSync(logFile, 'utf8')}`);
+  } finally {
+    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.start ${(performance.now() - started).toFixed(1)} ms`);
   }
   lowerPriorityOf(dataDir);
 }
@@ -454,7 +457,12 @@ function createDataDir(dataDir: string, bin: string, log: (line: string) => void
     if (!existsSync(passwordFile)) writeFileSync(passwordFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
     authentication.splice(0, 1, '--auth=scram-sha-256', `--pwfile=${passwordFile}`);
   }
-  runBinary(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C']);
+  const started = performance.now();
+  try {
+    runBinary(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C']);
+  } finally {
+    if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.initdb ${(performance.now() - started).toFixed(1)} ms`);
+  }
 }
 
 /**

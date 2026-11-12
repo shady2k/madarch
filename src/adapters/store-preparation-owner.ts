@@ -39,7 +39,13 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
       } finally { await lease.close(); }
       return;
     }
-    await prepareStore(await ownerOf(body.store, body.database), { ...(body.database === undefined ? {} : { historyOnly: true }), ...(body.contract === undefined ? {} : { contract: withManifestContract(body.contract) }) });
+    const owner = await ownerOf(body.store, body.database);
+    const started = performance.now();
+    try {
+      await prepareStore(owner, { ...(body.database === undefined ? {} : { historyOnly: true }), ...(body.contract === undefined ? {} : { contract: withManifestContract(body.contract) }) });
+    } finally {
+      if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${resolve(body.store)}`);
+    }
   };
   const token = randomUUID();
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
