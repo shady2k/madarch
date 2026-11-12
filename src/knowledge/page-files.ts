@@ -433,13 +433,24 @@ function sectionOf(block: Block, page: PageModel, prefix: string): PageFileSecti
     case 'markdown':
       return { title: '', type: 'text', text: block.markdown, links: resolutionLinks(page.resolutions, prefix) };
     case 'term': {
-      const usageText = block.usages.map((usage) => `${usage.location} (${String(usage.count)})`).join('\n');
-      const text = [block.definition, block.definedIn === null ? '' : block.definedIn, usageText].filter(Boolean).join('\n\n');
+      const links = resolutionLinks(page.resolutions, prefix);
+      // These two fields hold generated source links, not authored Markdown.
+      const sourceLink = (location: string): string => {
+        const match = /^\[(.*)\]\((\/src\?[^)]*)\)$/u.exec(location);
+        if (match === null) return location;
+        const title = match[1]!;
+        const url = at(match[2]!, prefix)!;
+        links.push({ title, url });
+        return markdownLink(title, url);
+      };
+      const definedIn = block.definedIn === null ? '' : sourceLink(block.definedIn);
+      const usageText = block.usages.map((usage) => `${sourceLink(usage.location)} (${String(usage.count)})`).join('\n');
+      const text = [block.definition, definedIn, usageText].filter(Boolean).join('\n\n');
       return {
         title: block.title,
         type: 'text',
         text,
-        links: resolutionLinks(page.resolutions, prefix),
+        links,
         items: [
           ...block.synonyms.map((synonym) => ({ title: synonym, url: null, badge: 'synonym' })),
           ...block.code.map((entry) => ({ title: entry, url: null, badge: 'code' })),
