@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import * as childProcess from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { CONSTITUTION, createDraft, productsHome, whyNotADay } from '../src/product/draft.js';
 import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
 import { byCodePoint } from '../src/model/order.js';
@@ -104,6 +105,28 @@ describe('productsHome', () => {
 });
 
 describe('createDraft', () => {
+  test('the complete starter is staged without exceeding the Windows command-line limit', () => {
+    const spawn = spyOn(childProcess, 'spawnSync');
+    try {
+      const home = tempFolder('madarch-products-add-limit-');
+      const draft = draftIn(home);
+      expect(draft).toMatchObject({ outcome: 'created' });
+      const adds = spawn.mock.calls.filter(([command, args]) => command === 'git' && args?.[0] === 'add');
+      expect(adds).toHaveLength(1);
+      const [, args] = adds[0]!;
+      // Windows limits a process command line to 32,767 characters; even its unquoted arguments must fit.
+      expect(['git', ...args!].join(' ').length).toBeLessThan(32_767);
+      if (draft.outcome !== 'created') return;
+      const files = tracked(draft.folder);
+      for (const plugin of BUNDLED_PLUGINS) {
+        for (const file of plugin.files) expect(files).toContain(`${plugin.folder}/${file.path}`);
+      }
+      expect(git(['status', '--porcelain'], draft.folder).stdout).toBe('');
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
   test('one draft a day sits at idea-YYYY-MM-DD of the local date, a git repository with one skeleton commit', () => {
     const home = tempFolder('madarch-products-');
     const draft = draftIn(home);

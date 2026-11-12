@@ -32,9 +32,6 @@ export type { DraftEnv };
  */
 const FOLDERS = ['docs', 'model', 'skills', 'prototypes', 'repos'];
 const TRACKED_FOLDERS = ['docs', 'model', 'skills', 'prototypes'];
-/** The wiki's starter set (decision 0029): the kinds manifest and the page templates, the product's own files from the first commit. */
-const COMMITTED_FILES = ['AGENTS.md', 'CLAUDE.md', `${MANIFEST_FILE}`, '.gitignore',
-  'docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep'];
 
 /** The markers around the part of `AGENTS.md` madarch's commands maintain. */
 const MAINTAINED_OPEN = '<!-- product:maintained -->';
@@ -267,11 +264,12 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
     // The template's files are copied into the product repository by the one module that writes them: `madarch new`.
-    const starter = seedStarterSet(folder, template.id, options.templates);
+    seedStarterSet(folder, template.id, options.templates);
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);
-    const add = runGit(folder, ['add', ...COMMITTED_FILES, ...starter], options.gitEnv);
+    // Let git walk this newly reserved folder: bundled dependencies exceed Windows' command-line limit as paths.
+    const add = runGit(folder, ['add', '-A'], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${folder}: ${add.output}`);
     const commit = runGit(folder, ['commit', '--quiet', '-m', 'Create the draft product'], options.gitEnv);
     if (!commit.ok) throw new Error(`git commit failed in ${folder}: ${commit.output}`);
