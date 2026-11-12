@@ -105,6 +105,14 @@ function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>;
   return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest), edges: declaredEdgeReads(manifest) };
 }
 
+/** Only generated contracts that can project a body can contribute ordinary knowledge pages. */
+function pageOpinionKinds(manifest: KindsManifest, generated: ReadonlyMap<string, GeneratedKindRead>): KindsManifest {
+  return { ...manifest, kinds: new Map([...manifest.kinds].filter(([kind]) => {
+    const declared = generated.get(kind);
+    return !Object.hasOwn(GUIDE_OUTPUTS, kind) && declared !== undefined && (declared.columns.includes('body') || declared.key.includes('body'));
+  })) };
+}
+
 /** The most terms one listing of a glossary kind reads; a larger glossary is cut rather than read whole. */
 const GLOSSARY_TERM_LIMIT = 5000;
 
@@ -1744,9 +1752,8 @@ export class KnowledgeProduct {
     const pins = snapshot?.pins ?? this.pins;
     if (history !== undefined && (history.coverage !== 'covered' || history.effectiveAt === null || scope === undefined)) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: historical structure is not covered for ${history.repo} at ${history.at}`);
     const graph = history === undefined ? currentGraph : currentGraph.at(history.effectiveAt!, scope!);
-    // Guide payloads enter their strict host verifier, never the generic YAML materializer.
-    const ordinaryKinds = new Map([...read.manifest.kinds].filter(([kind]) => !Object.hasOwn(GUIDE_OUTPUTS, kind)));
-    const markdownKinds = { ...read.manifest, kinds: ordinaryKinds };
+    // Guide payloads have a strict host verifier; native code has no body opinion to materialize.
+    const markdownKinds = pageOpinionKinds(read.manifest, kinds.generated);
     const markdownRead = history === undefined ? await graphMarkdownEntities(graph, markdownKinds) : { entities: [], findings: [] };
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const language = read.manifest.language ?? 'en';
@@ -2525,7 +2532,7 @@ export class KnowledgeProduct {
   private async indexPages(): Promise<IndexedPage[]> {
     const context = await this.context();
     if ('absent' in context) return [];
-    return (await graphKnowledgePages(context.ctx.graph, context.manifest)).pages;
+    return (await graphKnowledgePages(context.ctx.graph, pageOpinionKinds(context.manifest, graphKindsOf(context.manifest).generated))).pages;
   }
 
   /** The file each page of the product is written in: what a task's statement scope names when a commit closes it. */
