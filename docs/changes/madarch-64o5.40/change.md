@@ -266,3 +266,20 @@ Glossary run four settled at six failures in 267.11 seconds, all the same
 15-children-over-8 fanout failure. Nested graph support `860b2ae5` and causal
 nine-key test `44774579` are committed; runtime integration and rerun evidence
 remain pending. These source commits do not prove repair or acceptance.
+
+
+## Nested partition rerun evidence
+
+The coordinator reports partition run seven green: all five cases / 44 assertions
+in 207.69 seconds, `/tmp/m28-partitions-seventh.log`. This run exercises the
+causal nine-key nested partition fixture across all five cases under unchanged
+fanout, depth, unit and message limits. It supplies actual passing nested-runtime
+evidence, unlike the earlier source-only support and failed fanout runs.
+Static root check nine is also green with the existing 18 architecture baseline
+findings unchanged.
+
+The fifth glossary run is now the serialized PostgreSQL validation in progress
+(`/tmp/m28-glossary-fifth.log`); source changes are held during that run.
+Its result, a successful after integration timing and whole-suite acceptance
+remain pending. Nested partition success is not a claim that those pending
+validations passed, nor a controlled performance comparison.
