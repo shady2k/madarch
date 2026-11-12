@@ -47,7 +47,8 @@ import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/tra
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
-import { adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
+import { planManifestFill } from '../plugin/fill-declarations.js';
+import { configuredPluginAgent, pluginAgentOptions, adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { WriterBounds } from './model.js';
 import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
@@ -816,7 +817,7 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -832,6 +833,13 @@ export class KnowledgeProduct {
     // read, never the graph it is about to write (madarch-hsqs stage C).
     const read = readKinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
+    try {
+      if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
+      const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
+      planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined);
+    } catch (error) {
+      return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
+    }
     const repositories = this.repositories();
     // A product with no code repository still has its own repository: the files producer reads it, so a product that is
     // documentation alone fills its documents and its own tree. A folder that is no Git checkout has nothing to read.
@@ -919,7 +927,7 @@ export class KnowledgeProduct {
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
     this.notify();
-    const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
+    const press = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
@@ -948,7 +956,7 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
@@ -960,6 +968,8 @@ export class KnowledgeProduct {
         runId,
         database: owner,
         env: this.env,
+        ...(asked.agent === undefined ? {} : { pluginAgent: asked.agent === null ? null : pluginAgentOptions(asked.agent, this.env, join(storeFolder, 'agent-runs')) }),
+        ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }),
         prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract),
         ...(asked.targets === undefined ? {} : { targets: asked.targets }),
         onPublish: () => { void this.published(undefined).catch(() => undefined); },
@@ -1001,7 +1011,7 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
     void product;
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
@@ -1012,7 +1022,7 @@ export class KnowledgeProduct {
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
-      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
+      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
       // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
       // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
       // answered — the reason it did not finish, the repositories it could not read — is written there too.
@@ -1970,7 +1980,7 @@ export class KnowledgeProduct {
     const generated = kinds.generated;
     const dependencies = await owner.run(async (tx) => await readPublishedDependencies(tx));
     const declarations = new Map([...context.manifest.kinds].map(([name, kind]) => [name, {
-      ...kind, dependsOn: dependencies.filter((edge) => edge.workflow === undefined && edge.to === name).map((edge) => edge.from).sort(byCodePoint),
+      ...kind, derivesFrom: dependencies.filter((edge) => edge.workflow === undefined && edge.to === name).map((edge) => edge.from).sort(byCodePoint),
     }]));
     const ctx = { ...context.ctx, manifest: { ...context.manifest, kinds: declarations }, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
     // The state of each kind's newest turn: what the catalogue says is filled, partial, or never filled (madarch-stm0.6).

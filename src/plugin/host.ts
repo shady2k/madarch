@@ -627,7 +627,7 @@ ${text === '' ? '(empty)' : text}` };
       return false;
     }
     const agentOutputs = this.options.agent?.outputs;
-    if (this.agentPart?.catalogue === true && agentOutputs !== undefined) declared.outputs = agentOutputs;
+    if (this.agentPart !== undefined && agentOutputs !== undefined) declared.outputs = agentOutputs;
     this.declared = declared;
     if (this.agentPart !== undefined && this.options.agent !== undefined && this.options.graph !== undefined) {
       this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onSession: (report) => {

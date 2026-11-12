@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AcpConnection, AcpSession, ConnectAcpOptions } from '../src/fill/acp.js';
 import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
-import { AgentMeter } from '../src/fill/agent-meter.js';
+import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
 import type { PluginUnitResult } from '../src/plugin/protocol.js';
 
 const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
@@ -33,6 +33,16 @@ function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promi
 }
 
 describe('plugin agent graph bridge', () => {
+  test('one run cap counts scripted turns from different plugin agents', async () => {
+    const budget = new AgentRunBudget({ tokens: 150 });
+    const make = (plugin: string) => new AgentMeter({ run: 'fill', unit: plugin, plugin, pluginVersion: '1', kind: 'summary', budget });
+    const first = make('first');
+    const second = make('second');
+    await setup(async () => result, { meter: first }).bridge.run('first', {});
+    await expect(setup(async () => result, { meter: second }).bridge.run('second', {})).rejects.toThrow('200 tokens');
+    expect(budget.tokens).toBe(200);
+    expect(second.stop()?.scope).toBe('run');
+  });
   test('meters the real prompt with host-owned kind and model, and enforces the unit bound', async () => {
     const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary', bounds: { tokens: 90 } });
     const { bridge, state } = setup(async () => result, { meter });

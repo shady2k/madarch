@@ -86,7 +86,9 @@ export interface KnowledgeFillOptions {
    */
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
   /** The ACP adapter chosen for this pressed fill; no adapter is started while reading pages. */
-  readonly pluginAgent?: PluginAgentOptions;
+  readonly pluginAgent?: PluginAgentOptions | null;
+  /** Maximum reported tokens shared by every plugin agent in this run. */
+  readonly tokenCap?: number;
   /** Adapter discovery and credential environment; the process environment when omitted. */
   readonly env?: DraftEnv;
   /**
@@ -228,7 +230,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
       try {
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
         // all start it here (madarch-8bdc.2.5, item 6).
-        const pluginAgent = options.pluginAgent ?? configuredPluginAgent(options.storeFolder, options.env ?? process.env);
+        const pluginAgent = options.pluginAgent === undefined ? configuredPluginAgent(options.storeFolder, options.env ?? process.env) : options.pluginAgent ?? undefined;
         const result = await runFill({
           product: options.productFolder,
           database: owner,
@@ -239,6 +241,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           ...(options.language === undefined ? {} : { language: options.language }),
           ...(options.targets === undefined ? {} : { targets: options.targets }),
           ...(pluginAgent === undefined ? {} : { pluginAgent }),
+          ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }),
           maxPasses: 100_000,
           onService: (started) => { service = started; },
           // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to

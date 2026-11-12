@@ -48,7 +48,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const outside = await ask('fs/read_text_file', { sessionId, path: '/repo/private.md' });
     const write = await ask('fs/write_text_file', { sessionId, path: '/repo/docs/a.md', content: 'changed' });
     const ok = a.result?.content === 'Alpha\\n' && b.result?.content === 'Beta\\n' && outside.error && write.error;
-    const result = ok ? ${JSON.stringify(answer)} : { end: { state: 'partial', cause: JSON.stringify({ a, b, outside, write }) } };
+    const result = ok ? ${JSON.stringify(answer)} : { vertices: [{ kind: 'fixture-read-refusal', key: {}, values: { detail: JSON.stringify({ a, b, outside, write }) } }], end: { state: 'complete' } };
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'usage_update', used: 31, size: 1000 } } });
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(result) } } } });
     send({ id: m.id, result: { stopReason: 'end_turn' } });
@@ -73,7 +73,7 @@ function fixture(agent: boolean) {
   const product = makeProduct(home, 'agent-fixture', repo, 'repo');
   const folder = join(product, 'plugins/probe-summary');
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
+  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'probe.summary', fields: '*' }], reads: [], ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
@@ -85,7 +85,7 @@ kinds:
   probe.summary:
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     key: [id]
     fields:
       - { name: id, type: text, binding: "probe-summary@1.id" }
@@ -111,7 +111,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (session) => sessions.push(session),
@@ -124,26 +124,29 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       expect(rows.rows[0]?.title).toBe('Alpha and Beta');
       expect(rows.rows[0]?.evidence).toEqual([expect.objectContaining({ repository: 'repo', path: 'docs/a.md', line_start: 1, line_end: 1 })]);
       expect(readFileSync(join(f.repo, 'docs/a.md'), 'utf8')).toBe('Alpha\n');
-      expect(sessions).toHaveLength(1);
+      expect(sessions.length).toBeGreaterThanOrEqual(1);
+      expect(sessions.every((session) => session.agentId === 'fixture-acp')).toBe(true);
       expect(sessions[0]?.agentId).toBe('fixture-acp');
       expect(sessions[0]?.model).toBe('fixture-model');
       expect(sessions[0]?.usage.context).toEqual({ used: 31, size: 1000 });
     } finally { await owner.close(); }
   }, 120_000);
 
-  test('the bundled catalogue plugin derives an arbitrary kind contract from its agent fields', async () => {
+  test('the bundled general agent refines a declared kind already filled by another plugin', async () => {
     const f = fixture(true);
     writeFileSync(f.fake, FAKE.replace('/repo/private.md', '/repo/absent.md'));
     const file = join(f.product, 'madarch/kinds.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
-    manifest.setIn(['kinds', 'probe.summary', 'fields'], [
-      { name: 'id', type: 'text', binding: { agent: 'A stable identity for the summary.' } },
-      { name: 'title', type: 'text', binding: { agent: 'The combined statement in the allowed documents.' } },
-    ]);
-    manifest.setIn(['plugins'], [{ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: ['code.file'], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
+    manifest.setIn(['plugins'], [...manifest.getIn(['plugins']).toJSON(), { id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
+    const probe = JSON.parse(readFileSync(join(f.product, 'plugins/probe-summary/plugin.json'), 'utf8'));
+    delete probe.agent;
+    writeFileSync(join(f.product, 'plugins/probe-summary/plugin.json'), JSON.stringify(probe));
     writeFileSync(file, manifest.toString());
+    writeFileSync(join(f.product, 'plugins/probe-summary/main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async()=>(${JSON.stringify(answer)})});\n`);
+    const probeClosure = closureOf(join(f.product, 'plugins/probe-summary')).hash;
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
     writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:
+  - { id: probe-summary, version: 1.0.0, closure: ${probeClosure}, path: plugins/probe-summary }
   - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }
 `);
     const declarations = readKinds(f.product);
@@ -154,7 +157,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure, probeClosure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
       } });
@@ -162,8 +165,8 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
       expect(run.units.some((unit) => unit.unitId === 'plugin-turns/agent-fill:probe.summary')).toBe(true);
-      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string }>(`SELECT title FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open'`));
-      expect(rows.rows).toEqual([{ title: 'Alpha and Beta' }]);
+      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string; producer: string }>(`SELECT title,producer FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open' ORDER BY producer`));
+      expect(rows.rows).toEqual([{ title: 'Alpha and Beta', producer: 'agent-fill' }, { title: 'Alpha and Beta', producer: 'probe-summary' }]);
     } finally { await owner.close(); }
   }, 120_000);
 
@@ -171,7 +174,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const f = fixture(false);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'] });
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'] });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');

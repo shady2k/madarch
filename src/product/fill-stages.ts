@@ -75,6 +75,7 @@ import { createRecordSchema, publishHistory, publishTree } from '../graph/index.
 import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
 import type { DeclaredKinds } from '../graph/records.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
+import { planManifestFill } from '../plugin/fill-declarations.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { publishGraphWrites } from '../graph/claims.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
@@ -212,6 +213,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     const own = await snapshots.open(productRepositoryId(identity));
     return readFillManifests(own, folder);
   });
+  if (kindsRead.present) planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined);
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
   // Each plugin declares its own bounds; a caller may supply a budget for this run.
   const budget = options.budget;
