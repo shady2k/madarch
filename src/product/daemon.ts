@@ -854,13 +854,16 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     const products = listProducts({ home });
     if (products.outcome !== 'listed') throw new Error(products.message);
     const findings = products.unreadable.map((one) => ({ file: one.file, line: one.line, message: one.message }));
+    const validated: ValidatedManifests[] = [];
     const folders = products.products.map((one) => one.folder);
     if (ownInstall?.ok && !folders.includes(ownInstall.folder)) folders.push(ownInstall.folder);
     for (const folder of folders) {
       const read = validateProductManifests(folder);
       if (!read.ok) findings.push(...read.findings);
+      else if (read.value !== undefined) validated.push(read.value);
     }
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
+    for (const value of validated) await fills.publishManifests(value);
     const manifests = createManifestWatch(folders, (value) => fills.publishManifests(value), (line) => console.error(line));
     const { startServer } = await import('../server/http.js');
     const server = await startServer({

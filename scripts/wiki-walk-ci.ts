@@ -60,6 +60,8 @@ if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).incl
   execFileSync('git', ['remote', 'add', 'origin', ['https://github.com', 'example', 'shop.git'].join('/')], { cwd: repository });
 }
 const home = join(work, 'home');
+// This walk owns only the generated product, not the installed documentation wiki or its network refresh.
+process.env.MADARCH_OWN_WIKI = 'off';
 mkdirSync(home, { recursive: true });
 const shop = makeProduct(home, PRODUCT, repository);
 // The two pages an agent writes, so the walk reads a product a person does, with

@@ -96,7 +96,7 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     writeFileSync(kinds, 'kinds: [\n');
     await until(async () => diagnostics.includes(`${kinds}:`));
     expect((await (await fetch(`${base}/catalog`)).json()).kinds.map((one: { kind: string }) => one.kind)).toEqual(['term']);
-    expect(diagnostics).toContain(`${kinds}:`);
+    expect(diagnostics).toMatch(new RegExp(kinds.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\d+:'));
   } finally {
     if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
     await output; await errors;

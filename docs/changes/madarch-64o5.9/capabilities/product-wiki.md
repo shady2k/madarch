@@ -1017,14 +1017,16 @@ A valid change replaces the catalogue, including removal of obsolete manifest op
 change reports every diagnostic and retains the last valid catalogue.
 
 ### Scenario: never-filled-manifest-catalogue
-Given a valid product never filled, when madarch starts, then the catalogue lists every declared kind,
-the dependency page shows the declared kind dependency graph, and MCP lists kinds, with no repository content
-in the graph.
+- Given: a valid product never filled
+- When: madarch starts
+- Then: the catalogue lists every declared kind, the dependency page shows the declared kind dependency graph, and MCP lists kinds, with no repository content in the graph
 
 ### Scenario: invalid-manifest-refuses-start
-Given a manifest with errors, when madarch starts, then it exits non-zero with full file paths and
-line numbers and serves no wiki.
+- Given: a manifest with errors
+- When: madarch starts
+- Then: it exits non-zero with full file paths and line numbers and serves no wiki
 
 ### Scenario: manifest-change-keeps-last-valid
-Given a running daemon, when a manifest changes, then a valid catalogue is published through the one
-writer, while an invalid change reports errors and leaves the last valid catalogue available.
+- Given: a running daemon
+- When: a manifest changes
+- Then: a valid catalogue is published through the one writer, while an invalid change reports errors and leaves the last valid catalogue available
