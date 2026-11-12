@@ -303,7 +303,7 @@ describe('a replay over the journal answers the store', () => {
         const rowsAfter: number[] = [];
         for (const step of steps) {
           await applyStep(source, step);
-          states.push(await snapshot(source));
+          states.push({ ...(await snapshot(source)), reader: await readerView(source) });
           rowsAfter.push(Number((await source.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0'));
         }
         const entries = await source.transaction('snapshot', async (tx) => await tx.query<{ change: Record<string, any>; seq: string }>('SELECT change, seq::text AS seq FROM operation ORDER BY operation.seq'));
@@ -320,7 +320,7 @@ describe('a replay over the journal answers the store', () => {
           await replayInto(target, entries.rows.slice(applied, upto));
           applied = upto;
           const actual = { ...(await snapshot(target)), reader: await readerView(target) };
-          const expected = { ...states[cut]!, reader: await readerView(source) };
+          const expected = states[cut]!;
           expect({ seed, cut, state: actual }).toEqual({ seed, cut, state: expected });
           compared += 1;
         }

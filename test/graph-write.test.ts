@@ -384,7 +384,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     }
   });
 
-  test('schema reconciliation preserves authored boolean keys and accepted reference aliases', async () => {
+  test('schema reconciliation preserves authored boolean keys and declared reference targets', async () => {
     const durable = await createTestDatabaseOwner();
     const table = generatedTableName('record', 'vertex');
     const graph: GraphContract = {
@@ -395,7 +395,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     };
     try {
       await prepareStore(durable, { contract: graph });
-      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: { enabled: true, target: { kind: 'code.task', key: { name: 'repair' } } }, values: { value: 'Keep this opinion' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: { enabled: true, target: { kind: 'task', key: { name: 'repair' } } }, values: { value: 'Keep this opinion' }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
       const nodes = await durable.run((tx) => tx.query('SELECT * FROM node ORDER BY id'));
       const opinions = await durable.run((tx) => tx.query(`SELECT * FROM ${table} ORDER BY id`));
       expect(nodes.rows).toHaveLength(1);
