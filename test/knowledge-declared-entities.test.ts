@@ -36,7 +36,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
   const file = join(draft.folder, 'madarch', 'kinds.yaml');
-  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: unknown };
+  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: { id: string; outputs: string[] }[] };
   const declared = [...kinds, 'template'];
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
@@ -56,7 +56,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   contract.outputs.vertices = contract.outputs.vertices.filter((output: { kind: string }) => kinds.includes(output.kind));
   contract.outputs.edges = [];
   writeFileSync(contractFile, JSON.stringify(contract, null, 2));
-  manifest.plugins = [{ id: 'disk', version: 1, path: 'plugins/disk' }];
+  manifest.plugins = manifest.plugins.filter((plugin) => plugin.id === 'disk').map((plugin) => ({ ...plugin, outputs: plugin.outputs.filter((kind) => kinds.includes(kind)) }));
   writeFileSync(join(draft.folder, 'madarch', 'plugins.lock'), stringify({ plugins: [{
     id: 'disk', version: declaration.version, path: 'plugins/disk', closure: closureOf(pluginFolder).hash,
   }] }));
