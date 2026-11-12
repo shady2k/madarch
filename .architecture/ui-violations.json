@@ -221,31 +221,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/contract-asyncapi.tsx",
-    "subject": "ContractAsyncApi#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
-    "subject": "ContractTechnicalDetails#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/contract-proto.tsx",
-    "subject": "ContractProto#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/contract-redoc.tsx",
-    "subject": "ContractRedoc#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/contract-view.tsx",
-    "subject": "ContractView#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/errors.tsx",
     "subject": "FailureNote#1"
   },
@@ -298,16 +273,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "a6a8a0070f262dc8f2dc#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
-    "subject": "5ca669a720c875da33c5#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
-    "subject": "ffbaafa6f1041afb53cd#1"
   },
   {
     "rule": "raw-ui-element",

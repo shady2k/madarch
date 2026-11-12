@@ -1,3 +1,4 @@
+import { DrawingSurface } from '@/components/ui/drawing.js';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import AsyncApiComponent, {PLUGIN_EVENT_ERROR} from '@asyncapi/react-component';
 import '@asyncapi/react-component/styles/default.min.css';
@@ -22,10 +23,10 @@ export default function ContractAsyncApi({block}: {block: Extract<Block, {type: 
     const observer = new MutationObserver(inspect); observer.observe(node, {subtree: true, childList: true}); inspect();
     return () => observer.disconnect();
   }, []);
-  return <div ref={frame} className="contract-asyncapi" data-testid="contract-asyncapi" data-ready={ready && error === null ? 'true' : 'false'}>
+  return <DrawingSurface ref={frame} className="contract-asyncapi" data-testid="contract-asyncapi" data-ready={ready && error === null ? 'true' : 'false'}>
     {error !== null && <ContractRenderProblem failure={error} path={block.contract} fullPath={block.fullPath ?? block.contract} />}
     <AsyncApiComponent schema={block.document!} config={{schemaID: 'contract-async-schema', show: {sidebar: false, errors: true}, publishLabel: t('knowledge.contractPublish'), subscribeLabel: t('knowledge.contractSubscribe'), sendLabel: t('knowledge.contractSend'), receiveLabel: t('knowledge.contractReceive')}} onPluginEvent={(event, data) => {
       const tagged = asyncApiEventFailure(event, PLUGIN_EVENT_ERROR, data); if (tagged !== null) setError(tagged);
     }} />
-  </div>;
+  </DrawingSurface>;
 }
