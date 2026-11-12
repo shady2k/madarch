@@ -2280,11 +2280,7 @@ export class KnowledgeProduct {
     // trace unless a caller names a run.
     const candidates = traceFiles(this.storeFolder()).filter((one) => !one.runId.startsWith('server-'));
     const chosenEntry = runId === undefined
-      ? candidates.sort((left, right) => {
-        const leftSize = (() => { try { return statSync(left.file).size; } catch { return 0; } })();
-        const rightSize = (() => { try { return statSync(right.file).size; } catch { return 0; } })();
-        return rightSize - leftSize || right.modifiedAt - left.modifiedAt;
-      })[0]
+      ? candidates.sort((left, right) => right.modifiedAt - left.modifiedAt)[0]
       : candidates.find((one) => one.runId === runId);
     const chosen = chosenEntry?.runId;
     // The trace's size is its generation while a fill is still writing: a status answer made from a partial trace is
