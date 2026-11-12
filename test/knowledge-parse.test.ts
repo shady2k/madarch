@@ -2,7 +2,7 @@
  * What the wiki reads from the product repository before it draws anything
  * (decision 0029; the vertical's shared formats, sections 1 and 2): the kinds
  * manifest, the page template, a Markdown entity and its body, and the starter
- * set `madarch new` seeds. A refusal names the file and the line; nothing is
+ * set `madarch init` seeds. A refusal names the file and the line; nothing is
  * dropped without being said.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -98,7 +98,7 @@ describe('the kinds manifest', () => {
   });
 });
 
-describe('the starter set madarch new seeds', () => {
+describe('the starter set madarch init seeds', () => {
   test('a new product holds the manifest and the starter templates, the manifest reads without a finding and the authored starter files match their packaged content', async () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });

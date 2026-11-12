@@ -2,7 +2,7 @@
 /**
  * `bun run check:workflows` (decision 0033, items 1 and 2): the mechanical check of
  * the workflows the starter set holds, run over the starter set exactly as
- * `madarch new` writes it.
+ * `madarch init` writes it.
  *
  *   bun run check:workflows                    the starter set, written into a temporary product and checked
  *   bun run check:workflows --folder <folder>  the workflows of a product folder that already exists

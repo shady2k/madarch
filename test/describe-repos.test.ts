@@ -100,7 +100,7 @@ describe('what the checkout carries for the step', () => {
   });
 });
 
-describe('what a real draft made by madarch new holds', () => {
+describe('what a real draft made by madarch init holds', () => {
   test('a fresh draft carries nothing laid — the honest absence', () => {
     const draft = draftIn(tempFolder('madarch-describe-'));
     if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);
@@ -163,22 +163,16 @@ describe("the engineer's guide describing step", () => {
   });
 
   test('the guide keeps every section the onboarding run wrote, in order', () => {
-    for (const heading of ['## Install madarch', '## Create the draft', '## Name the product', '## Add the repositories you already have',
-      '## Commit, add your remote, push', '## A colleague joins', '## Open the wiki', '## Start the work with your agent',
-      '## Describe each repository you connected', '## How the commands find the product']) {
-      expect(guide).toContain(heading);
-    }
-    const positions: number[] = [];
-    for (const heading of ['## Start the work with your agent', '## Describe each repository you connected', '## How the commands find the product']) {
-      const at = guide.indexOf(heading);
+    const headings = ['## Install madarch', '## Start a product with madarch init', '## Name the product',
+      '## Add the repositories you already have', '## Commit, add your remote, push', '## A colleague joins',
+      '## Open the wiki', '## Start the work with your agent', '## Describe each repository you connected',
+      '## Ask your own agent about a repository', '## How the commands find the product'];
+    let previous = -1;
+    for (const heading of headings) {
+      const at = guide.indexOf(`${heading}\n`);
       if (at === -1) throw new Error(`the guide lost ${heading}`);
-      positions.push(at);
+      expect(at).toBeGreaterThan(previous);
+      previous = at;
     }
-    const workAt = positions[0] ?? -1;
-    const describeAt = positions[1] ?? -1;
-    const whereAt = positions[2] ?? -1;
-    expect(workAt).toBeGreaterThan(-1);
-    expect(workAt).toBeLessThan(describeAt);
-    expect(describeAt).toBeLessThan(whereAt);
   });
 });

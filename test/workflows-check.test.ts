@@ -1,6 +1,6 @@
 /**
  * The workflow check (decision 0033, items 1 and 2): `bun run check:workflows` checks the workflows
- * `madarch new` writes and refuses a workflow naming a stage the engine's registry does not hold and a
+ * `madarch init` writes and refuses a workflow naming a stage the engine's registry does not hold and a
  * stage whose required input no stage of the workflow produces, naming the file, the line, the workflow
  * and the stage. Fixtures only: the starter set written into a temporary product.
  */

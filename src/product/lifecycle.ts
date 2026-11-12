@@ -809,17 +809,27 @@ function withFailures(prints: string[], failures: readonly string[]): LifecycleO
  * working copy the clone made is removed, the way a refused draft leaves
  * nothing behind.
  */
-/** Creates a product around the current checkout by linking it through the same manifest operation as `repo add`. */
+/** Starts a product, linking the code checkout when present through the same manifest operation as `repo add`. */
 export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string }): LifecycleOutcome {
   const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
-  if (!top.ok) return refused2([], `madarch init must run inside a Git checkout: ${top.output}; use madarch new to start without one`);
+  if (!top.ok || !readdirSync(resolve(top.output)).some((entry) => entry !== '.git')) {
+    const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }) });
+    if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
+    return done([`folder: ${draft.folder}`, `id: ${draft.id}`, `name: ${draft.name}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`]);
+  }
   const source = resolve(top.output);
-  const current = whereAmI({ folder: source, gitEnv: options.gitEnv });
-  if (current.outcome === 'product') { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already a product: ${current.product}; nothing changed`]); }
-  if (current.outcome === 'code') { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already linked to product: ${current.product}; nothing changed`]); }
-  if (current.outcome === 'refused') return refused2([], current.message);
-  const name = basename(source);
   const products = resolve(productsHome(process.env as DraftEnv, options.home));
+  const current = whereAmI({ folder: source, gitEnv: options.gitEnv });
+  // A code checkout may carry workspace.yaml as settings. For init, a product
+  // lives in the products home or carries the generated constitution, even
+  // after it is moved elsewhere. Other commands retain whereAmI's contract.
+  let maintained = false;
+  try { maintained = readFileSync(join(source, 'AGENTS.md'), 'utf8').includes('<!-- product:maintained -->'); } catch { /* no generated constitution */ }
+  const managed = sameFolder(dirname(source), products) || maintained;
+  if (current.outcome === 'refused' && managed) return refused2([], current.message);
+  if (current.outcome === 'product' && managed) { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already a product: ${current.product}; nothing changed`]); }
+  if (current.outcome === 'code') { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already linked to product: ${current.product}; nothing changed`]); }
+  const name = basename(source);
   // A link is represented by the product manifest and its repos/<name> link; find it in the configured home.
   try {
     for (const candidate of readdirSync(products).sort(byCodePoint)) {
@@ -836,7 +846,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv;
   } catch { /* a missing products home contains no prior link */ }
   const target = join(products, name);
   if (pathExists(target)) return refused2([], `cannot initialize this checkout: ${target} already exists; choose another checkout name or move that product`);
-  const draft = createDraft({ home: products, name, ...(options.template === undefined ? {} : { template: options.template }) });
+  const draft = createDraft({ home: products, name, ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }) });
   if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
   const remote = runGit(source, ['remote', 'get-url', 'origin'], options.gitEnv);
   const url = remote.ok ? remote.output : undefined;

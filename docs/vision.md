@@ -118,7 +118,7 @@ frontends.
 
 ## Key journeys
 
-0. **Lena has only an idea.** She runs `madarch new`: a draft product opens
+0. **Lena has only an idea.** She runs `madarch init`: a draft product opens
    as a wiki, with no name yet. Her agent talks the idea through with her in
    plain words and writes what comes out (a vision, hypotheses, the record of
    the conversation, then user stories, use cases and requirements), each page

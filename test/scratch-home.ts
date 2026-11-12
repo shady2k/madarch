@@ -9,7 +9,7 @@
  *    products home a test computes that is not the real folder behind a
  *    scratch name — a symlink to anywhere is followed, so the folder the
  *    writes would land in is the one that is judged.
- * 2. `homeOfCommand` resolves the products home the way `madarch new` and
+ * 2. `homeOfCommand` resolves the products home the way `madarch init` and
  *    `madarch list` resolve it — the last `--home` wins, as their argument
  *    reading does — so a test that runs the command as a child process can
  *    refuse a home the child would read; a `--home` the command refuses is
@@ -104,7 +104,7 @@ function scratchZones(): string[] {
  */
 export function homeOfCommand(args: readonly string[], env: Record<string, string | undefined>): string {
   const command = args[0] ?? '';
-  if (command !== 'new' && command !== 'list' && command !== 'clone') return '';
+  if (command !== 'init' && command !== 'list' && command !== 'clone') return '';
   let named: string | undefined;
   for (let i = 1; i < args.length; i++) {
     const arg = args[i] ?? '';

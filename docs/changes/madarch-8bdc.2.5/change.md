@@ -121,7 +121,7 @@ one changed requirement and its text is in the proposal.
 - fill-stages/configuration: the product's manifest still enables, disables and limits a stage; a run narrows the resolved configuration to the fill's steps and changes no other field.
 - fill-orchestrator/plan: a unit is still planned only when what it stands on moved, and a second run of one commit plans nothing.
 - fill-orchestrator/publish: a publication is still one transaction per unit generation, fenced and exactly once; the record passes publish in one transaction of their own and are no second writer.
-- product-repository/draft: `madarch new` still writes the starter set and a draft's manifest reads as before; the store is resolved under the products home and the draft is unchanged.
+- product-repository/draft: `madarch init` still writes the starter set and a draft's manifest reads as before; the store is resolved under the products home and the draft is unchanged.
 
 ## Coverage
 - fill-orchestrator/runner: test, static

@@ -5,7 +5,7 @@
  * the ways it can be acquired, whether the engine makes one yet, the relations
  * it may carry and its template policy.
  *
- * This is starter content, not engine behaviour: `madarch new` writes it into
+ * This is starter content, not engine behaviour: `madarch init --template everything` writes it into
  * `madarch/kinds.yaml`, and from the first commit it is the product's own data,
  * which the wiki reads and the engine holds none of. A kind whose page exists
  * carries its page's template, its source and its labels; a kind the engine

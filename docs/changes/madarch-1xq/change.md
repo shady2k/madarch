@@ -11,7 +11,7 @@ The suites left the machine's own temporary folder and home behind them. On
 2026-09-30 about 87 000 `madarch-*` folders stood in the system temporary
 folder (63 490 of them `madarch-model-check-*`); on 2026-10-18 there were
 14 454 of them, 71 GB, while the shared disk reached 98% and an overnight
-worker wave stopped. A run of `madarch new` with no scratch home of its own
+worker wave stopped. A run of `madarch init` with no scratch home of its own
 left 377 drafts in the owner's real `~/madarch/products`. A plain `rm -rf`
 could not remove several hundred of the leftovers: tests make folders they
 created unwritable and never restore them (`docs/hypotheses` and

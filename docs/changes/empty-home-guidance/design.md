@@ -76,7 +76,7 @@ no id, no repos). `/api/product` omits id for the manifestless variant, and
 the app API type permits this absence. Model and repository readers receive
 only the fields they need. Existing Markdown, if present, stays the only page
 content read; no sample document or manifest is created. Invalid, unreadable
-or unsupported manifests retain their refusal. `madarch new` and other
+or unsupported manifests retain their refusal. `madarch init` and other
 lifecycle commands keep using strict `readProduct`.
 
 ## Scenarios and checks

@@ -34,7 +34,7 @@ onto the generated names. The review fixes make repeated status reads cheap, bou
 trace, and serialize contract DDL.
 
 Increment a1 of decision 0035: a product starts with madarch's plugins and the contract of every
-kind it takes. `madarch new` writes the git reader's closure into `plugins/git/` and the starter
+kind it takes. `madarch init` writes the git reader's closure into `plugins/git/` and the starter
 manifest carries, for every code kind, its typed fields with authoritative or claimed roles and
 their producers, its natural key, the kinds its discovery depends on, and the plugin declarations
 whose inputs and outputs bind those kinds. The manifest is checked before any fill: a field with
@@ -191,7 +191,7 @@ error.
 - `test/graph-contract-lock.test.ts`, `test/trace-retention.test.ts`,
   `test/api-role-first-page.test.ts`: the contract lock, the one-span statement counts and
   retention, and the 2 s first / 50 ms second status bounds.
-- The walk: `madarch new`, `madarch repo add` with `/work/out/walk-repo`, `madarch fill`
+- The walk: `madarch init`, `madarch repo add` with `/work/out/walk-repo`, `madarch fill`
   (4 units, succeeded), then the JSON API's catalogue, entity pages, file history and treemap.
   The fresh walk product's counts are repository 2, file 1 853, commit 2 491, signature 14 and
   directory 856; the file page's 16 history rows and the commit page's 15 Files / 1 Parents row
@@ -200,6 +200,6 @@ error.
 
 ## DONE WHEN
 
-A product created by `madarch new` fills through the generated tables, its catalogue, file and
+A product created by `madarch init` fills through the generated tables, its catalogue, file and
 commit pages answer from the one graph with change figures and authors, a tracker-only product
 fills and serves without code tables, and the walk's counts and shots stand.

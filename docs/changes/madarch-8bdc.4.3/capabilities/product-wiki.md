@@ -451,7 +451,7 @@ The server watches the product working tree and answers one Server-Sent Events s
 
 ## Requirement: serve — A local madarch serves the wiki and opens it
 When a local madarch is given a product folder, it shall serve that product's
-wiki at its address and print the address; `madarch new` shall create the
+wiki at its address and print the address; `madarch init` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
 product of the current folder when it is given none. `madarch serve` shall
 also serve an existing directory with no `workspace.yaml` as a temporary,
@@ -460,7 +460,7 @@ folder's name supplies only the temporary display name; no manifest, product
 id or sample document is written or treated as manifest data. A directory
 that does not exist, a manifest that cannot be read, or a manifest that does
 not parse remains refused with its cause. Manifest reading and lifecycle
-commands remain strict. `madarch new` shall open the address in the browser the
+commands remain strict. `madarch init` shall open the address in the browser the
 machine uses; where no browser can be opened, it shall say so and print the
 address without failing. The server shall serve the app's built files and
 answer the wiki's pages; a request it cannot answer shall be refused with a
@@ -472,7 +472,7 @@ message naming what was asked for, and no document's content shall be logged.
 
 ### Scenario: new-opens-the-wiki
 - Given: `MADARCH_HOME` names a scratch folder and the machine's browser opener is recorded
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: the command prints the address, opens that address in the browser, and the address answers the draft's home page while the command runs
 ### Scenario: serve-an-existing-product
 - Given: a draft created earlier and no server running
@@ -733,7 +733,7 @@ as one JSON object.
 - Then: the installed adapter is reported connected with the protocol version and agent identity its `initialize` answer carried, the missing one is reported with the command that installs it and that command's unpacked size, and no prompt was sent to either
 
 ## Requirement: catalog — The starter set holds the whole entity catalog, and a check validates it
-The starter set `madarch new` writes shall hold the product's whole entity
+The starter set `madarch init` writes shall hold the product's whole entity
 catalog in `madarch/kinds.yaml`: two levels, an area and a subgroup of at most
 about twelve kinds, and for every kind of the product's life cycle its concept
 id, its definition, the sources it was taken from as addresses a person can
@@ -768,7 +768,7 @@ no page and no template for it, and the kinds the wiki shows today are shown
 as they were.
 
 ### Scenario: starter-set-catalog
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/kinds.yaml` is read
 - Then: every area and subgroup of the catalog is declared with its full name and its short navigation label, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
 
@@ -783,7 +783,7 @@ as they were.
 - Then: the kind is in the catalog and shows no page, and no template is written for it
 
 ## Requirement: extractor-mapping — The extractors' vocabulary is tied to the catalog, and an unmapped key is refused
-The starter set `madarch new` writes shall hold a versioned mapping of the
+The starter set `madarch init` writes shall hold a versioned mapping of the
 extractors' vocabulary to the catalog: every node kind and relation type the
 extractors emit, tied to a catalog kind or to one of the catalog's relation
 names, or declared internal to extraction with the reason. A tied relation also
@@ -807,7 +807,7 @@ walks, never what extraction keeps: the mapping keeps the extractor's key tied
 to what the product declares.
 
 ### Scenario: mapping-ties-extractors
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/kinds.yaml` is read
 - Then: its `mapping:` names a version and holds a row for every kind and relation the extractors declare, each tied to the catalog (a relation with its direction) or internal with a reason
 
@@ -822,7 +822,7 @@ to what the product declares.
 - Then: the emission site fails the type check, and the key is refused as emitted and unmapped — no list in the check was edited
 
 ## Requirement: pov — Ten roles lead the catalog's areas or subgroups, and an area no role leads is refused
-The starter set `madarch new` writes shall declare the ten reader roles — product,
+The starter set `madarch init` writes shall declare the ten reader roles — product,
 analyst, architect, developer, operations, tester, designer, security engineer,
 platform/DevOps and product lead — each with the areas or subgroups of the
 catalog it leads and the blocks of a page it opens. Every area shall be led by
@@ -845,7 +845,7 @@ refusal shall name the file, the line and the role (or, for an unled area, the
 area and the roles that exist). The starter set passes it.
 
 ### Scenario: ten-roles-lead
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/kinds.yaml` is read
 - Then: its `roles:` declares the ten roles, each `lead` names declared areas or subgroups, and every area of the catalog is led by at least one role
 

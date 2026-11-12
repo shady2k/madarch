@@ -57,15 +57,16 @@ MADARCH="$PREFIX/bin/madarch"
 madarch() { "$MADARCH" "$@"; }
 export GIT_AUTHOR_NAME='Madarch Homebrew Walk' GIT_AUTHOR_EMAIL='walk@example.invalid' GIT_COMMITTER_NAME='Madarch Homebrew Walk' GIT_COMMITTER_EMAIL='walk@example.invalid'
 export HOME="$TMP/home"; mkdir -p "$HOME"
-# new returns at once: the products home's background server serves the draft,
+# init returns at once: the products home's background server serves the draft,
 # so the walk reads the address the command printed instead of waiting on a
 # foreground that no longer exists.
 PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
-madarch new --json --template everything --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1
-cat "$TMP/new.txt"
-URL=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["url"])' < "$TMP/new.txt")
-PRODUCT=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["folder"])' < "$TMP/new.txt")
-case "$URL" in *":$PORT/"*) ;; *) echo "Homebrew madarch new served at $URL, not on the port $PORT it was given" >&2; exit 1 ;; esac
+cd "$TMP"
+madarch init --json --template everything --home "$HOME/products" --port "$PORT" --no-open > "$TMP/init.txt" 2>&1
+cat "$TMP/init.txt"
+URL=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["url"])' < "$TMP/init.txt")
+PRODUCT=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["folder"])' < "$TMP/init.txt")
+case "$URL" in *":$PORT/"*) ;; *) echo "Homebrew madarch init served at $URL, not on the port $PORT it was given" >&2; exit 1 ;; esac
 # The draft's manifest stands in its repository and no fill has read it: the wiki reads `not-filled`, and nothing is
 # written before a person presses Fill. The walk presses nothing.
 SERVED=0
@@ -74,12 +75,12 @@ for n in $(seq 1 200); do
   case "$STATUS" in *'"manifest":"not-filled"'*) SERVED=1; break ;; esac
   sleep .1
 done
-[ "$SERVED" -eq 1 ] || { cat "$TMP/new.txt"; echo "Homebrew madarch new did not serve the product in its not-filled state at $URL: ${STATUS:-no answer}" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1; }
+[ "$SERVED" -eq 1 ] || { cat "$TMP/init.txt"; echo "Homebrew madarch init did not serve the product in its not-filled state at $URL: ${STATUS:-no answer}" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1; }
 # A Windows shell would join the path with backslashes, escaped in the JSON: the file's two names are what the walk
 # reads, whichever separator the folder uses.
-case "$STATUS" in *'"manifestFile":"'*'madarch'*'kinds.yaml"'*) ;; *) echo "Homebrew madarch new: the status names no madarch/kinds.yaml: $STATUS" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1 ;; esac
-curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null || { echo "Homebrew madarch new: the root of the server did not answer" >&2; exit 1; }
-curl -fsS "$URL" | grep -q '<div id="root"' || { echo "Homebrew madarch new: $URL is not the wiki app's page" >&2; exit 1; }
+case "$STATUS" in *'"manifestFile":"'*'madarch'*'kinds.yaml"'*) ;; *) echo "Homebrew madarch init: the status names no madarch/kinds.yaml: $STATUS" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1 ;; esac
+curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null || { echo "Homebrew madarch init: the root of the server did not answer" >&2; exit 1; }
+curl -fsS "$URL" | grep -q '<div id="root"' || { echo "Homebrew madarch init: $URL is not the wiki app's page" >&2; exit 1; }
 # The server stays up until it is stopped: the walk stops it, then serves the
 # product again in the foreground.
 madarch stop --home "$HOME/products"
@@ -96,4 +97,4 @@ SERVED=0
 for n in $(seq 1 200); do if curl -fsS "${ADDRESS}api/status" 2>/dev/null | grep -q '"manifest":"not-filled"'; then SERVED=1; break; fi; sleep .1; done
 [ "$SERVED" -eq 1 ] || { cat "$TMP/serve.txt"; echo "Homebrew madarch serve did not reopen the product in its not-filled state at $ADDRESS" >&2; exit 1; }
 cat "$TMP/serve.txt"
-printf 'Homebrew walk passed: brew install local release formula, madarch new (served by the background server on the port it chose), madarch stop, then madarch serve; graph-backed product API answered.\n'
+printf 'Homebrew walk passed: brew install local release formula, madarch init (served by the background server on the port it chose), madarch stop, then madarch serve; graph-backed product API answered.\n'

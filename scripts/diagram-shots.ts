@@ -151,7 +151,7 @@ if (binary === '') {
 } else {
   // The compiled binary makes the product itself, with its own embedded starter set, and serves it with its embedded app.
   stop = async () => { const result = spawnSync(resolve(binary), ['stop', '--home', home], { encoding: 'utf8', cwd: work, timeout: 30_000 }); if (result.error || result.status !== 0) throw new Error(`binary stop failed: ${result.error ?? result.stderr}`); };
-  const created = spawnSync(resolve(binary), ['new', '--home', home, '--port', String(port), '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, cwd: work, env: { ...process.env, GIT_AUTHOR_NAME: 'Diagram Shots', GIT_AUTHOR_EMAIL: 'shots@example.invalid', GIT_COMMITTER_NAME: 'Diagram Shots', GIT_COMMITTER_EMAIL: 'shots@example.invalid' } });
+  const created = spawnSync(resolve(binary), ['init', '--template', 'everything', '--home', home, '--port', String(port), '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, cwd: work, env: { ...process.env, GIT_AUTHOR_NAME: 'Diagram Shots', GIT_AUTHOR_EMAIL: 'shots@example.invalid', GIT_COMMITTER_NAME: 'Diagram Shots', GIT_COMMITTER_EMAIL: 'shots@example.invalid' } });
   if (created.status !== 0) throw new Error(`the binary could not make the product: ${created.stderr}${created.stdout}`);
   const facts = JSON.parse(created.stdout.trim().split('\n').filter((line) => line.startsWith('{')).pop()!) as { folder: string; url: string };
   name = basename(facts.folder);

@@ -8,7 +8,7 @@ Kind: behavior
 ## Intent
 Decision 0029 makes the wiki a Markdown engine: what cannot be rebuilt is Markdown in the product repository, the graph indexes the code facts, and the pages are the product's templates drawn over both. This change builds that engine, the first vertical's half that renders.
 
-A product repository holds `madarch/kinds.yaml`, which declares the kinds the wiki shows, and one Markdown template per kind. A template is Markdown with `{{attribute}}` substitution and block directives (`body`, `graph`, `related`, `callers`, `callees`, `source`, `er`, `sequence`); the engine owns the block library and holds no page for any kind. `madarch new` seeds a starter manifest and the templates of the service, symbol, file, domain and product kinds, which are the product's own files from the first commit.
+A product repository holds `madarch/kinds.yaml`, which declares the kinds the wiki shows, and one Markdown template per kind. A template is Markdown with `{{attribute}}` substitution and block directives (`body`, `graph`, `related`, `callers`, `callees`, `source`, `er`, `sequence`); the engine owns the block library and holds no page for any kind. `madarch init` seeds a starter manifest and the templates of the service, symbol, file, domain and product kinds, which are the product's own files from the first commit.
 
 The wiki opens, for a product with the manifest, on the product's home page under `/k`, with the product chosen at the top left. An entity's page is its template drawn over the graph and the Markdown: a function shows its source at its lines, its callers and callees with the place of each call, and a call sequence; a service shows its stack, the files below it and its links as a diagram. Every reference to code opens the source at its line. A `madarch:` link and each ground of a footnote is resolved against the graph, the Markdown pages and the repositories' documents, and one that does not resolve is shown as broken, with its reason. A statement with no footnote is named as not shown as fact.
 
@@ -22,12 +22,12 @@ An empty product says what to do: connect a repository, or start the fill. Start
 - Editing text in the wiki: decision 0029 says people edit source entities and the agent rewrites the text.
 
 ## Changes to requirements
-- product-repository/draft: replace. `madarch new` also writes the wiki's starter set, so the first commit holds `madarch/kinds.yaml` and five templates; the scenario `new-draft` names them. Complete proposed text in `capabilities/product-repository.md`.
+- product-repository/draft: replace. `madarch init` also writes the wiki's starter set, so the first commit holds `madarch/kinds.yaml` and five templates; the scenario `new-draft` names them. Complete proposed text in `capabilities/product-repository.md`.
 - product-repository/kinds (absent on the target): add. The kinds manifest, its fields, the template language, the Markdown entity's front matter, the findings with file and line, and the starter set. Complete proposed text in `capabilities/product-repository.md`, with the scenarios `starter-set`, `manifest-mistakes-are-findings`, `template-mistakes-are-findings` and `markdown-entity-identity`.
 - product-wiki/knowledge-pages (absent on the target): add. The front door of a product with the manifest, the product selector, the entity pages and their blocks, the resolution of `madarch:` links and grounds, the empty product's way forward and the watched fill. Complete proposed text in `capabilities/product-wiki.md`, with the scenarios `empty-product-says-what-to-do`, `the-fill-is-watched`, `function-page`, `broken-ground`, `ungrounded-statement`, `product-selector` and `no-manifest-keeps-documents`.
 
 ## Preserved contracts
-- product-repository/manifest: `workspace.yaml` and its reading are unchanged; the constitution `madarch new` writes is byte for byte the contract example's, so the published contract does not move.
+- product-repository/manifest: `workspace.yaml` and its reading are unchanged; the constitution `madarch init` writes is byte for byte the contract example's, so the published contract does not move.
 - product-wiki/pages: the documents app, its routes and its change stream answer as before; the change stream only gains a second source of revisions (the fill's commits) that adds nothing for a product that never fills.
 - product-wiki/shell: the documents app's shell is untouched; the knowledge wiki has its own shell built from the same tokens and parts.
 
@@ -42,7 +42,7 @@ An empty product says what to do: connect a repository, or start the fill. Start
 ## Where it is seen
 
 Kind: screen
-Place: the wiki of a product made by `madarch new`, at its front door, the address `madarch new` prints
+Place: the wiki of a product made by `madarch init`, at its front door, the address `madarch init` prints
 Mockup: docs/prototypes/madarch-m38l.1/function-page.png
 
 1. The person opens the wiki of a product that holds the generated training repository and sees the empty page: it says the wiki is empty, names the repository and offers "Start the fill"; the product is at the top left.
@@ -74,4 +74,4 @@ Run on the SkyPilot pod (`madarch-sky-test --avx2`) on 2026-10-22:
 - Known and not fixed here: a template cannot mark an attribute optional, so the starter's `{{frameworks}}` style lines are findings on an entity that lacks one; sentences under four words are never named as ungrounded; a related block with a `kind` filter counts after its page cut; a depth walk over entities that several producers carry stops at the first node; two repositories that hold the same key are not told apart in the neighbour reads; two product folders that share an id (a copied folder) share one store; and a fill takes the server's event loop between commits, so a request waits for the commit in progress. Mutation testing is not run: the rule is one run per assembled stage.
 
 ## DONE WHEN
-A person who opens the wiki of a product holding the generated training repository starts the fill, watches the pages appear and reads from the home page to the payments service to a function with its callers and its source, every reference to code opening the source at its line and every ground that does not resolve shown as broken; and `madarch new` leaves the manifest and the templates in the product's own repository.
+A person who opens the wiki of a product holding the generated training repository starts the fill, watches the pages appear and reads from the home page to the payments service to a function with its callers and its source, every reference to code opening the source at its line and every ground that does not resolve shown as broken; and `madarch init` leaves the manifest and the templates in the product's own repository.

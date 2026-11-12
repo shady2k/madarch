@@ -1,7 +1,7 @@
 /**
  * madarch's own plugins, as the release carries them (decision 0035, items 3 and 4):
  * the plugin folders under `plugins/` of this repository, compiled into the binary as
- * their files' own bytes. `madarch new` writes them into a product, the manifest declares
+ * their files' own bytes. `madarch init --template everything` writes them into a product, the manifest declares
  * them and the lock records their closure hash, and the hash is computed here from the
  * same bytes — so the closure the release trusts is the closure the product receives,
  * and a plugin folder swapped on disk changes neither.

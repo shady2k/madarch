@@ -4,7 +4,7 @@ Capability: release-binary
 
 ## Purpose
 The madarch command as one compiled binary per platform (decision 0021's one
-binary, the charter's outcome 5): `madarch new`, `serve`, `list` and every
+binary, the charter's outcome 5): `madarch init`, `serve`, `list` and every
 other command of the checkout work with no bun, no node and no node_modules
 on the machine, the wiki app's built files riding inside the binary. The
 release distributes the binaries with their SHA256 sums, crafts the npm
@@ -91,8 +91,8 @@ the `@madarch` scope with the binary, the `madarch` package whose bin starts
 the running platform's binary and forwards its exit), a Homebrew formula reading
 the sums, a POSIX install script and a PowerShell install script. Windows
 arm64 binaries are not provided. The build smoke and installed walks execute
-`madarch new`, open the graph store, and serve the product. The compiled binary
-runs without Bun, Node.js, or a system OpenSSL installation. `madarch new` requires Git and its author
+`madarch init`, open the graph store, and serve the product. The compiled binary
+runs without Bun, Node.js, or a system OpenSSL installation. `madarch init` requires Git and its author
 identity to be configured. Nothing installed reads a skill set, per decision
 0021: the wiki app, the command's parsing and its facts ride inside the
 binary or the thin wrapper.
@@ -103,7 +103,7 @@ binary or the thin wrapper.
 - Then: it names the release version installed and exits 0
 ### Scenario: installed-product-runs
 - Given: the binary installed by npm, Homebrew, the POSIX install script or the PowerShell install script
-- When: `madarch new` is run naming a scratch products home and the port of the walk's own
+- When: `madarch init` is run naming a scratch products home and the port of the walk's own
 - Then: the product folder and id are printed (the same facts), then the wiki is served from the address it prints, no bun or node anywhere on the walk's way
 ### Scenario: platforms-covered
 - Given: the release's checksum file
@@ -117,7 +117,7 @@ binary or the thin wrapper.
 
 ### Scenario: windows-platform-selection
 - Given: Windows x64 or Windows arm64
-- When: `npx madarch new` is run
+- When: `npx madarch init` is run
 - Then: x64 selects `@madarch/win32-x64` and the Windows executable; arm64 is refused by name, with no unsupported package lookup
 
 ### Scenario: branch-release-workflow-does-not-publish

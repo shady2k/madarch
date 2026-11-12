@@ -67,15 +67,17 @@ test('prefixes distinguish colliding and withdrawn graph identities', () => {
 test('withdrawn identities keep old prefixes ambiguous within their kind', async () => {
   const first = (await call('create', { values: { title: 'First collision' } })).entity!;
   const second = (await call('create', { values: { title: 'Second collision' } })).entity!;
-  const uids = ['a0000000-0000-4000-8000-000000000000', 'ab000000-0000-4000-8000-000000000000'];
+  const prior = await owner.run((tx) => tx.query<{ uid: string }>("SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'note'"));
+  const prefix = [...'0123456789abcdef'].find((digit) => prior.rows.every(({ uid }) => !uid.startsWith(digit)))!;
+  const uids = [`${prefix}0000000-0000-4000-8000-000000000000`, `${prefix}b000000-0000-4000-8000-000000000000`];
   await owner.transaction('write', async (tx) => {
     await tx.query('UPDATE node SET uid = $2::uuid WHERE uid = $1::uuid', [first.uid, uids[0]]);
     await tx.query('UPDATE node SET uid = $2::uuid WHERE uid = $1::uuid', [second.uid, uids[1]]);
   });
   await call('delete', { uid: uids[0] });
-  await expect(call('read', { uid: 'fixture-a' })).rejects.toThrow(`ambiguous prefix: ${uids.map((uid) => `fixture-${uid.replaceAll('-', '')}`).join(', ')}`);
+  await expect(call('read', { uid: `fixture-${prefix}` })).rejects.toThrow(`ambiguous prefix: ${uids.map((uid) => `fixture-${uid.replaceAll('-', '')}`).join(', ')}`);
   await expect(call('read', { uid: uids[0] })).rejects.toThrow('entity was deleted');
-  expect((await call('read', { uid: uids[1] })).entity!.id).toBe('fixture-ab');
+  expect((await call('read', { uid: uids[1] })).entity!.id).toBe(`fixture-${prefix}b`);
   await call('delete', { uid: uids[1] });
 });
 

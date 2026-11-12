@@ -29,7 +29,7 @@ describe('the madarch command as an executable', () => {
     const port = await freePort();
     // Not through `bun <file>`: the way `bun link`'s shim runs it — the
     // executed script itself.
-    const serve = serveNew(['new', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app }, [CLI]);
+    const serve = serveNew(['init', '--port', String(port), '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app }, [CLI]);
     const printed = await printedLiveFacts(serve);
     expect(statSync(printed.folder).isDirectory()).toBe(true);
     expect(printed.id).toMatch(/^[0-9a-f-]+$/);

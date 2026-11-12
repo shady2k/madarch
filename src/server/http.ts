@@ -444,7 +444,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const rootPage = (request: Request): Response => {
     const name = productToOpen(request);
     if (name === undefined) {
-      return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch</title></head><body><p>No product is served yet: run <code>madarch init</code> in a code repository, or <code>madarch new</code> for an empty product.</p></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch</title></head><body><p>No product is served yet: run <code>madarch init [folder]</code> to start a product.</p></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
     }
     if (opensPage(request) && manifestPublicationReady(productEntries.get(name)!.product.folder)) knowledgeHost.of(productEntries.get(name)!.product.folder).warm();
     return new Response(null, { status: 302, headers: { location: `/products/${encodeURIComponent(name)}/`, 'cache-control': 'no-store' } });
@@ -542,7 +542,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
 /**
  * How long a server's stop gives its fill role before killing it: a role giving its stores up stops a store's server in
  * about 200-300 ms here, and one inside a store's synchronous start cannot stop at all until that returns (measured: a
- * daemon's stop waited its whole two-second wait on one; `madarch new`'s case ran 5 857 ms in CI).
+ * daemon's stop waited its whole two-second wait on one; `madarch init`'s case ran 5 857 ms in CI).
  */
 const FILL_STOP_MS = 300;
 
@@ -556,7 +556,7 @@ function startFillRole(options: { readonly home: string; readonly root: string }
       stop: async () => {
         // The role is asked to stop and given a moment to give its stores up (madarch-8bdc.12), then killed: a role inside
         // a store's *start* (`initdb` and `pg_ctl start` are synchronous) cannot run its stop until that returns, and a
-        // server's own stop may not wait on its child's work — measured: `madarch new`'s daemon stop took its whole two
+        // server's own stop may not wait on its child's work — measured: `madarch init`'s daemon stop took its whole two
         // seconds that way, and the stores a hard stop leaves are the server's own owners' to stop, as the tests' sweep
         // does for a run.
         try { child.kill(); } catch { /* already gone */ }

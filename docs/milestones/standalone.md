@@ -24,12 +24,12 @@ one with it, and every refusal case with its printed words.
    *Check:* the contract's check command exits 0 on the examples, 1 or 2 on
 each refusal case naming file and line (its own exit status recorded); CI
 runs it (`bun run contract:check` or its landed name).
-2. **madarch makes products itself.** `madarch new`, `rename`, `repo add`,
+2. **madarch makes products itself.** `madarch init`, `rename`, `repo add`,
 `bootstrap`, `remote` and `clone` read the contract's own files;
 `vendor/shady2k-skills/*/` is gone; the lifecycle tests read the contract's
 examples.
    *Check:* the acceptance walk's both roads — the agent-driven product (the
-skill set installed beside) and a bare `madarch new` product — land, serve
+skill set installed beside) and a bare `madarch init` product — land, serve
 and wiki the same; `grep -r` names no vendored program; 0019's lifecycle
 clause carries the footnote "revised by 0021".
 3. **The wiki knows the mechanism.** Kinds, eyebrows, groups, stage mapping
@@ -64,7 +64,7 @@ yes); madarch's repository names them only in the install contract.
 5. **One binary, distributed.** `bun build --compile`: one `madarch` binary
 per platform that starts with no bun/node present; installs by npm, brew and
 script; releases on GitHub with checksums; `madarch upgrade`.
-   *Check:* a fresh machine walk where a bare `./madarch new` serves a
+   *Check:* a fresh machine walk where a bare `./madarch init` serves a
 product (no bun installed); each installer proves one product served; the
 release's own workflow green.
 7. (the number stands after outcome 6's move to the "Left out" section). **The

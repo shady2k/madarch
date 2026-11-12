@@ -1,6 +1,6 @@
 /**
  * The catalog check of the starter set (decision 0033, items 8 to 10): `bun run check:catalog` checks the
- * entity catalog `madarch new` writes, and refuses a kind that leaves a field out, a subgroup above its
+ * entity catalog `madarch init` writes, and refuses a kind that leaves a field out, a subgroup above its
  * bound, two kinds of one concept id, a value the catalog marks as an attribute declared as a kind, and an
  * area, a subgroup or an origin mark the manifest does not declare. Every refusal names the file, the line
  * and the kind. A kind the catalog marks with the template policy `none` is catalogue data only: the wiki
@@ -87,7 +87,7 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
 }
 
 describe('the catalog check over the starter set', () => {
-  test('the starter set `madarch new` writes passes, and the run names the counts it read', () => {
+  test('the starter set `madarch init` writes passes, and the run names the counts it read', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);

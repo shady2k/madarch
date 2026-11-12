@@ -11,20 +11,21 @@ repository, cloned by a colleague, comes with its code checked out under
 
 The primary install is npm (Node.js 18 or newer):
 
-    npx madarch new
+    npx madarch init
 
-For an existing checkout, run:
-
-    cd <checkout>
-    madarch init
-
-This creates a separate product around the checkout and leaves the code where you work.
+Run it from a code checkout to create a separate product connected to that
+checkout, without moving the code. Outside Git it creates an empty draft.
+`init [folder]` can also inspect a folder you name instead of the current one.
+In a terminal it asks only which template to use. With nonterminal input it
+writes no kind or workflow manifest unless you pass `--template everything` or
+`--template none` explicitly. The wiki keeps serving in the
+background after init returns.
 
 On macOS, Homebrew is also supported:
 
     brew install shady2k/tap/madarch
 
-Or install from the release script: `curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh` (Linux/macOS), or run `scripts/install.ps1` in PowerShell (Windows x64). `madarch new` creates and commits a Git repository, so Git and a configured Git author identity are required. Windows arm64 is not supported.
+Or install from the release script: `curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh` (Linux/macOS), or run `scripts/install.ps1` in PowerShell (Windows x64). `madarch init` creates and commits a Git repository, so Git and a configured Git author identity are required. Windows arm64 is not supported.
 
 ## Existing
 

@@ -451,7 +451,7 @@ The server watches the product working tree and answers one Server-Sent Events s
 
 ## Requirement: serve — A local madarch serves the wiki and opens it
 When a local madarch is given a product folder, it shall serve that product's
-wiki at its address and print the address; `madarch new` shall create the
+wiki at its address and print the address; `madarch init` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
 product of the current folder when it is given none. `madarch serve` shall
 also serve an existing directory with no `workspace.yaml` as a temporary,
@@ -460,7 +460,7 @@ folder's name supplies only the temporary display name; no manifest, product
 id or sample document is written or treated as manifest data. A directory
 that does not exist, a manifest that cannot be read, or a manifest that does
 not parse remains refused with its cause. Manifest reading and lifecycle
-commands remain strict. `madarch new` shall open the address in the browser the
+commands remain strict. `madarch init` shall open the address in the browser the
 machine uses; where no browser can be opened, it shall say so and print the
 address without failing. The server shall serve the app's built files and
 answer the wiki's pages; a request it cannot answer shall be refused with a
@@ -472,7 +472,7 @@ message naming what was asked for, and no document's content shall be logged.
 
 ### Scenario: new-opens-the-wiki
 - Given: `MADARCH_HOME` names a scratch folder and the machine's browser opener is recorded
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: the command prints the address, opens that address in the browser, and the address answers the draft's home page while the command runs
 ### Scenario: serve-an-existing-product
 - Given: a draft created earlier and no server running
@@ -733,7 +733,7 @@ as one JSON object.
 - Then: the installed adapter is reported connected with the protocol version and agent identity its `initialize` answer carried, the missing one is reported with the command that installs it and that command's unpacked size, and no prompt was sent to either
 
 ## Requirement: catalog — The starter set holds the whole entity catalog, and a check validates it
-The starter set `madarch new` writes shall hold the product's whole entity
+The starter set `madarch init` writes shall hold the product's whole entity
 catalog in `madarch/kinds.yaml`: two levels, an area and a subgroup of at most
 about twelve kinds, and for every kind of the product's life cycle its concept
 id, its definition, the sources it was taken from as addresses a person can
@@ -768,7 +768,7 @@ no page and no template for it, and the kinds the wiki shows today are shown
 as they were.
 
 ### Scenario: starter-set-catalog
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/kinds.yaml` is read
 - Then: every area and subgroup of the catalog is declared with its full name and its short navigation label, and every kind holds its id, definition, sources, acquisition, status, relation constraints and template policy
 
@@ -783,7 +783,7 @@ as they were.
 - Then: the kind is in the catalog and shows no page, and no template is written for it
 
 ## Requirement: extractor-mapping — The extractors' vocabulary is tied to the catalog, and an unmapped key is refused
-The starter set `madarch new` writes shall hold a versioned mapping of the
+The starter set `madarch init` writes shall hold a versioned mapping of the
 extractors' vocabulary to the catalog: every node kind and relation type the
 extractors emit, tied to a catalog kind or to one of the catalog's relation
 names, or declared internal to extraction with the reason. A tied relation also
@@ -807,7 +807,7 @@ walks, never what extraction keeps: the mapping keeps the extractor's key tied
 to what the product declares.
 
 ### Scenario: mapping-ties-extractors
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/kinds.yaml` is read
 - Then: its `mapping:` names a version and holds a row for every kind and relation the extractors declare, each tied to the catalog (a relation with its direction) or internal with a reason
 
@@ -822,7 +822,7 @@ to what the product declares.
 - Then: the emission site fails the type check, and the key is refused as emitted and unmapped — no list in the check was edited
 
 ## Requirement: pov — Ten roles lead the catalog's areas or subgroups, and an area no role leads is refused
-The starter set `madarch new` writes shall declare the ten reader roles — product,
+The starter set `madarch init` writes shall declare the ten reader roles — product,
 analyst, architect, developer, operations, tester, designer, security engineer,
 platform/DevOps and product lead — each with the areas or subgroups of the
 catalog it leads and the blocks of a page it opens. Every area shall be led by
@@ -845,7 +845,7 @@ refusal shall name the file, the line and the role (or, for an unled area, the
 area and the roles that exist). The starter set passes it.
 
 ### Scenario: ten-roles-lead
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/kinds.yaml` is read
 - Then: its `roles:` declares the ten roles, each `lead` names declared areas or subgroups, and every area of the catalog is led by at least one role
 
@@ -869,7 +869,7 @@ A kind whose declaration names a history shape — `repositories`, `author`, `pa
 
 A `card` that is not a boolean, and a `history` that is not one of the shapes, shall be refused with a finding naming the file, the line and the kind; the refused kind is left out and every other kind of the manifest stands. Both fields belong to a kind that shows a page: a kind whose template policy is `none` and writes one is a finding.
 
-The starter set `madarch new` writes shall declare `card: true` on the eight kinds that showed a card before — `code.service`, `code.package`, `code.operation`, `code.contract`, `code.channel`, `code.message`, `code.database`, `code.table` — and `history` on the kinds that showed a history page before: `repositories` on `product`, `membership` on `code.service`, `code.package` and `code.module`, `path` on `code.file`, `commit` on `code.commit`, `author` on `code.author`, and `task` on `code.task`. The wiki shall show the pages it showed before.
+The starter set `madarch init` writes shall declare `card: true` on the eight kinds that showed a card before — `code.service`, `code.package`, `code.operation`, `code.contract`, `code.channel`, `code.message`, `code.database`, `code.table` — and `history` on the kinds that showed a history page before: `repositories` on `product`, `membership` on `code.service`, `code.package` and `code.module`, `path` on `code.file`, `commit` on `code.commit`, `author` on `code.author`, and `task` on `code.task`. The wiki shall show the pages it showed before.
 
 ### Scenario: card-follows-the-declaration
 - Given: a fixture product whose manifest declares `card: true` on a graph kind, and a page whose statement is grounded on an entity of that kind
@@ -887,7 +887,7 @@ The starter set `madarch new` writes shall declare `card: true` on the eight kin
 - Then: each is one finding naming the file, the line and the kind, with the shapes or the form the field takes, and no other kind is refused
 
 ### Scenario: starter-set-keeps-its-pages
-- Given: the starter set `madarch new` writes
+- Given: the starter set `madarch init` writes
 - When: its manifest is read
 - Then: exactly the eight kinds that showed a card before declare `card: true`, exactly the kinds that showed a history page before declare a shape, and every other kind declares neither
 
@@ -905,7 +905,7 @@ Every value shall be refused with a finding naming the file, the line and the ki
 
 The extractors' own vocabulary shall stay the engine's (decision 0033, item 7): a view reads the facts the extractors publish — a database's tables, a table's columns and foreign keys, the files an entity's code stands in — and those names are never the product's kinds.
 
-The starter set `madarch new` writes shall declare `views: [c4-component, state]` on `code.service` and `views: [state]` on `code.package`, `code.module`, `code.file` and `code.symbol`; `er: tables` on `code.database` and `er: links` on `code.table`; `sequence: symbol` on `code.symbol` and `sequence: route` on `code.route`; `system: container` on `code.service`, `system: data-store` on `code.database` and `system: channel` on `code.channel`; `definition-block: contract` on `code.contract`, `definition-block: operation` on `code.operation` and `definition-block: channel` on `code.channel`; `listing: operations` on `code.operation`; and `nav: own-page` on `task` and `doc.term`, `nav: loop` on `question` and `correction`. The wiki shall show the pages it showed before.
+The starter set `madarch init` writes shall declare `views: [c4-component, state]` on `code.service` and `views: [state]` on `code.package`, `code.module`, `code.file` and `code.symbol`; `er: tables` on `code.database` and `er: links` on `code.table`; `sequence: symbol` on `code.symbol` and `sequence: route` on `code.route`; `system: container` on `code.service`, `system: data-store` on `code.database` and `system: channel` on `code.channel`; `definition-block: contract` on `code.contract`, `definition-block: operation` on `code.operation` and `definition-block: channel` on `code.channel`; `listing: operations` on `code.operation`; and `nav: own-page` on `task` and `doc.term`, `nav: loop` on `question` and `correction`. The wiki shall show the pages it showed before.
 
 ### Scenario: views-follow-the-declaration
 - Given: a fixture product whose manifest declares `views: [c4-component]` on a graph kind, and a page of one of its entities
@@ -948,17 +948,17 @@ The starter set `madarch new` writes shall declare `views: [c4-component, state]
 - Then: each is one finding naming the file, the line and the kind, with the vocabulary the field takes, and no other kind is refused
 
 ### Scenario: starter-set-keeps-its-views
-- Given: the starter set `madarch new` writes
+- Given: the starter set `madarch init` writes
 - When: its manifest is read
 - Then: exactly the kinds that drew a component view, an ER view, a state view, a chain, a system part, a definition, an operations listing or a place of the navigation declare it, and every other kind declares none
 
 ### Scenario: starter-set-shows-the-same-pages
-- Given: the generated training repository, and a product `madarch new` made from it and filled, at the revision this change starts from and at this one
+- Given: the generated training repository, and a product `madarch init` made from it and filled, at the revision this change starts from and at this one
 - When: every page of the product, every kind's listing, every diagram view each page asks for and every kind's map is rendered at both revisions
 - Then: the pages, the listings, the views, the maps, the findings and the home are the same, and the kind summaries differ only in the listing form and the navigation place this change moves into the manifest
 
 ## Requirement: workflows — The starter set declares the four workflows, and a check refuses a missing stage or an input without a producer
-The starter set `madarch new` writes shall declare the product's workflows in
+The starter set `madarch init` writes shall declare the product's workflows in
 `madarch/workflows.yaml`, beside the kinds and the POV: the four the engine
 ships — first fill, update by commit, branch/worktree and history point. A
 workflow is a named set of the engine's stage ids; the stages' capabilities give
@@ -986,7 +986,7 @@ run enables from its workflow, and how a commit, a branch or a history point
 starts a run, is the orchestrator's and lands with later stages.
 
 ### Scenario: starter-set-workflows
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its `madarch/workflows.yaml` is read
 - Then: it holds the four workflows, first fill names the stages the engine's stage registry holds today, and update by commit, branch/worktree and history point are planned with no stages
 

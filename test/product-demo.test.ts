@@ -77,7 +77,7 @@ describe('madarch demo repository lifecycle', () => {
     if (result.ok === true) throw new Error('an unreachable repository must be refused');
     expect(result.message).toContain('git clone failed');
     expect(result.message).toContain('network');
-    expect(result.message).toContain('madarch new');
+    expect(result.message).toContain('madarch init');
     expect(result.message).not.toContain('could not reach the network');
     expect(readdirSync(f.home)).toEqual([]);
   });

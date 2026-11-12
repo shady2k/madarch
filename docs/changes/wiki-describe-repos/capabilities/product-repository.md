@@ -13,13 +13,13 @@ the person and their agent fill in.
 The product repository's lifecycle — its layout, its manifest's schema,
 creating a draft, renaming it into a product and bootstrapping its code
 repositories — is the skill set's product-repository program (decision 0019).
-madarch bundles one pinned release of that program, so `madarch new` stays a
+madarch bundles one pinned release of that program, so `madarch init` stays a
 front door for a person without an agent, and reads any folder with a valid
 manifest — a set-made folder, a draft madarch made, a folder written by hand
 — through the same pinned reader.
 
-## Requirement: draft — `madarch new` creates a draft product repository through the pinned program
-When `madarch new` is run, it shall create, under the products home, a folder
+## Requirement: draft — `madarch init` creates a draft product repository through the pinned program
+When `madarch init` is run, it shall create, under the products home, a folder
 named `idea-YYYY-MM-DD` from the day's local date — `idea-YYYY-MM-DD-2`, and
 `-3` and so on when that day's names are taken — make it a git repository
 whose first commit holds the skeleton, and print the product's folder and its
@@ -55,22 +55,22 @@ folder behind.
 
 ### Scenario: new-draft
 - Given: `MADARCH_HOME` names a scratch folder and the day is 2026-10-09
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: `products/idea-2026-10-09` exists as a git repository with one commit holding `AGENTS.md`, `CLAUDE.md`, `workspace.yaml`, `.gitignore`, `docs/`, `model/`, `skills/` and `prototypes/`, `repos/` exists untracked, and the command printed that folder and the product's id
 
 ### Scenario: second-draft-that-day
 - Given: `products/idea-2026-10-09` exists
-- When: `madarch new` is run again the same day
+- When: `madarch init` is run again the same day
 - Then: `products/idea-2026-10-09-2` is created, with its own id and its own first commit
 
 ### Scenario: home-not-usable
 - Given: the path `MADARCH_HOME` names is a file
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: it exits 2 naming that path, and no product folder is created anywhere
 
 ### Scenario: framing-commit-fails
 - Given: a products home that is created and a git that refuses to commit
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: it exits 1 naming what git said, and the folder it made is gone
 
 ### Scenario: same-folder-two-ways
@@ -98,7 +98,7 @@ naming no `id` or a schema version this madarch does not know, and a
 and the line where the reader knows it.
 
 ### Scenario: draft-manifest
-- Given: a draft created by `madarch new`
+- Given: a draft created by `madarch init`
 - When: its manifest is read
 - Then: the id is the one the command printed, the name is the folder's name, and the schema version is the one madarch writes
 
@@ -128,18 +128,18 @@ and the line where the reader knows it.
 - Then: the id, name and schema version are the example's, and the pinned set and the declared repositories are read as the manifest declares them
 
 ### Scenario: constitution-is-written-once
-- Given: a draft created by `madarch new`
+- Given: a draft created by `madarch init`
 - When: its `AGENTS.md` is read
 - Then: it names `docs/`, `model/`, `skills/`, `prototypes/` and `repos/` and what each is for, says that `skills/` holds the team's own skills, carries the program's maintained-part markers, and is byte for byte the constitution the pinned program's own example names
 
 ### Scenario: no-absolute-path
-- Given: a draft created by `madarch new` in a scratch products home
+- Given: a draft created by `madarch init` in a scratch products home
 - When: every file the command wrote is searched for that home's absolute path
 - Then: none holds it
 
 ## Requirement: list — `madarch list` names the products the products home holds
 When `madarch list` is run, it shall name the products of the products home
-— resolved the way `madarch new` resolves it, `~/madarch/products` unless
+— resolved the way `madarch init` resolves it, `~/madarch/products` unless
 `MADARCH_HOME` or `--home` names another — as one product at a time, in code
 point order of their folders: each product's folder, its id and its name, one
 fact per line. A subfolder whose manifest reads, whoever made that folder,
@@ -194,7 +194,7 @@ the section appended to the product's `AGENTS.md` below the maintained
 markers. The pinned program's draft stays byte for byte what the program
 writes — decision 0019: the constitution is the program's, so a section is
 laid below its markers by whoever runs the product, never written into the
-pinned skeleton; a draft `madarch new` alone makes carries neither the
+pinned skeleton; a draft `madarch init` alone makes carries neither the
 skill folder nor the section until the copy is made.
 
 ### Scenario: checkout-carries-the-step
@@ -203,7 +203,7 @@ skill folder nor the section until the copy is made.
 - Then: it holds `SKILL.md` and `AGENTS-section.md`; the skill names the four artifacts, the model check command, the committed-checkout rule and the derived-from-code provenance shape; the section names the skill, the four artifacts, the committed-checkout rule and the wiki's live display
 
 ### Scenario: a-fresh-draft-carries-nothing-until-copied
-- Given: a draft created by `madarch new` alone
+- Given: a draft created by `madarch init` alone
 - When: its `AGENTS.md` and its `skills/` folder are read
 - Then: `AGENTS.md` is byte for byte the pinned program's constitution, and `skills/` holds only the program's `.gitkeep` — no describe-repository folder, no section
 

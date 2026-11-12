@@ -4,7 +4,7 @@ Capability: release-binary
 
 ## Purpose
 The madarch command as one compiled binary per platform (decision 0021's one
-binary, the charter's outcome 5): `madarch new`, `serve`, `list` and every
+binary, the charter's outcome 5): `madarch init`, `serve`, `list` and every
 other command of the checkout work with no bun, no node and no node_modules
 on the machine, the wiki app's built files riding inside the binary. The
 release distributes the binaries with their SHA256 sums, crafts the npm
@@ -101,7 +101,7 @@ command's parsing and its facts ride inside the binary or the thin wrapper.
 - Then: it names the release version installed and exits 0
 ### Scenario: installed-product-runs
 - Given: the binary installed by one of the four ways
-- When: `madarch new` is run naming a scratch products home and the port of the walk's own
+- When: `madarch init` is run naming a scratch products home and the port of the walk's own
 - Then: the product folder and id are printed (the same facts), then the wiki is served from the address it prints, no bun or node anywhere on the walk's way
 ### Scenario: platforms-covered
 - Given: the release's checksum file

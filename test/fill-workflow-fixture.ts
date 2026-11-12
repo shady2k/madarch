@@ -2,7 +2,7 @@
  * The `madarch/workflows.yaml` a fixture product needs (decision 0033, items 1
  * and 2): a fill runs the stages the product's `first-fill` workflow names, and a
  * fixture product written by hand holds the starter set's own first fill — the
- * one `madarch new` writes — so the fixture runs the stages the engine ships.
+ * one `madarch init` writes — so the fixture runs the stages the engine ships.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

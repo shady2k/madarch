@@ -21,7 +21,7 @@ heading, else its file's name without its extension, and its address shall be
 formatted text. A link from one page to another page of the wiki shall open
 that page; a link to anything else shall be shown as its text. A home page of
 a product with no pages shall say so and show a localized getting-started
-guide. The guide shall name `madarch new`, `madarch clone URL` for an existing product repository,
+guide. The guide shall name `madarch init`, `madarch clone URL` for an existing product repository,
 `madarch repo add NAME URL --product FOLDER` to connect a code repository, and
 `setup-shady2k-skills` to create the product manifest and documents. It shall
 offer the Madarch product example through `madarch clone
@@ -45,7 +45,7 @@ https://github.com/shady2k/madarch-product`, followed by
 ### Scenario: empty-home-supported-commands
 - Given: a product with no pages, with or without manifest metadata
 - When: its home is read in English or Russian
-- Then: the guide names `madarch new`, `madarch clone URL`, `madarch repo add NAME URL --product FOLDER` and `setup-shady2k-skills`, then offers the linked Madarch example via `madarch clone https://github.com/shady2k/madarch-product` and `madarch serve --product FOLDER` without presenting `madarch demo` as shipped
+- Then: the guide names `madarch init`, `madarch clone URL`, `madarch repo add NAME URL --product FOLDER` and `setup-shady2k-skills`, then offers the linked Madarch example via `madarch clone https://github.com/shady2k/madarch-product` and `madarch serve --product FOLDER` without presenting `madarch demo` as shipped
 ### Scenario: link-between-pages
 - Given: a product whose `docs/index.md` links to `vision.md` and to `../AGENTS.md`
 - When: its index page is read
@@ -463,7 +463,7 @@ The server watches the product working tree and answers one Server-Sent Events s
 
 ## Requirement: serve — A local madarch serves the wiki and opens it
 When a local madarch is given a product folder, it shall serve that product's
-wiki at its address and print the address; `madarch new` shall create the
+wiki at its address and print the address; `madarch init` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
 product of the current folder when it is given none. `madarch serve` shall
 also serve an existing directory with no `workspace.yaml` as a temporary,
@@ -472,7 +472,7 @@ folder's name supplies only the temporary display name; no manifest, product
 id or sample document is written or treated as manifest data. A directory
 that does not exist, a manifest that cannot be read, or a manifest that does
 not parse remains refused with its cause. Manifest reading and lifecycle
-commands remain strict. `madarch new` shall open the address in the browser the
+commands remain strict. `madarch init` shall open the address in the browser the
 machine uses; where no browser can be opened, it shall say so and print the
 address without failing. The server shall serve the app's built files and
 answer the wiki's pages; a request it cannot answer shall be refused with a
@@ -484,7 +484,7 @@ message naming what was asked for, and no document's content shall be logged.
 
 ### Scenario: new-opens-the-wiki
 - Given: `MADARCH_HOME` names a scratch folder and the machine's browser opener is recorded
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: the command prints the address, opens that address in the browser, and the address answers the draft's home page while the command runs
 ### Scenario: serve-an-existing-product
 - Given: a draft created earlier and no server running

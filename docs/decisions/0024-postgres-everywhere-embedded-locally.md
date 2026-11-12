@@ -15,7 +15,7 @@ graph engine is the part that keeps that from working. LadybugDB 0.20.4's
 Windows x64 addon does not load under Bun 1.4.2: "DLL initialization routine
 failed", while Node loads the same bytes (hosted run 38636092758, identical
 SHA-256). It also needs the system's OpenSSL 3, which made the compiled binary
-89 MB and failed `madarch new` on a clean Linux without `libssl.so.3`. Beyond
+89 MB and failed `madarch init` on a clean Linux without `libssl.so.3`. Beyond
 installation it rests on one main maintainer, leaks its buffer pool unless every
 result is closed, and refuses parameters inside list lambdas and recursive
 filters. The local mode also runs two stores (SQLite and LadybugDB) and two

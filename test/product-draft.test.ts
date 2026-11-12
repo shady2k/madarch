@@ -438,7 +438,7 @@ describe('createDraft', () => {
 
 test('the constitution is byte for byte the one the contract example product carries', () => {
     // The scenario `constitution-is-written-once` (decision 0021): what
-    // `madarch new` writes is what the contract's example product carries,
+    // `madarch init` writes is what the contract's example product carries,
     // byte for byte, so a folder the set made and a folder madarch made
     // carry the same constitution.
     const example = readFileSync(
