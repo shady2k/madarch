@@ -136,9 +136,21 @@ describe('the update a default-branch commit starts', () => {
 
   test('the update is the person\'s fill again on the new commit: both repository passes run for it', () => {
     const planned = (update?.units ?? []).map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, state: unit.state }));
-    // This step's fill is the two repository passes, one unit each; the update republishes both on the commit.
+    // Both ordinary producers run every declared output; bounded partitions remain children of those roots.
     expect([...new Set(planned.map((unit) => unit.stage))].sort()).toEqual(['plugin-turns']);
-    expect(planned.map((unit) => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository']);
+    const unitIds = planned.map((unit) => unit.unitId);
+    const roots = unitIds.filter((unitId) => !unitId.includes('#'));
+    expect(roots.sort()).toEqual([
+      'plugin-turns/disk:code.directory', 'plugin-turns/disk:code.file', 'plugin-turns/disk:code.gitlink', 'plugin-turns/disk:code.repository',
+      'plugin-turns/git:code.author', 'plugin-turns/git:code.commit', 'plugin-turns/git:code.file', 'plugin-turns/git:code.repository',
+    ]);
+    expect(new Set(unitIds).size).toBe(unitIds.length);
+    for (const unitId of unitIds.filter((id) => id.includes('#'))) {
+      const parent = unitId.slice(0, unitId.lastIndexOf('#'));
+      expect(unitId.slice(unitId.lastIndexOf('#') + 1)).toMatch(/^[a-f0-9]{64}$/);
+      expect(unitIds).toContain(parent);
+      expect(roots).toContain(unitId.split('#')[0]!);
+    }
     expect(planned.every((unit) => unit.state === 'published')).toBe(true);
   }, 900_000);
 
