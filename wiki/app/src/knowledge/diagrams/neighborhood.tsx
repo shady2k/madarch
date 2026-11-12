@@ -12,10 +12,11 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { PlusIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Toggle } from '@/components/ui/toggle.js';
+import { relationLabel } from '../relation-labels.js';
 import { getNeighborhood } from '../api.js';
 import { useKindName } from '../kind-names.js';
 import type { Block, Neighborhood } from '../types.js';
-import { fit, layoutNeighborhood, mergeHood, NODE_H, NODE_W, relationWord, slotOf, type PlacedNode } from './layout.js';
+import { fit, layoutNeighborhood, mergeHood, NODE_H, NODE_W, slotOf, type PlacedNode } from './layout.js';
 import { useDiagramLink } from './open.js';
 import { Fullscreenable } from './fullscreen.js';
 import { PanZoom } from './pan-zoom.js';
@@ -48,7 +49,7 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
     setFailure(null);
   }, [block.neighborhood, block.depth]);
   const maxDepth = useMemo(() => Math.max(1, ...hood.nodes.map((node) => node.hops ?? 0)), [hood]);
-  const layout = useMemo(() => layoutNeighborhood(hood, { depth, off }, grown), [hood, depth, off, grown]);
+  const layout = useMemo(() => layoutNeighborhood(hood, { depth, off }, grown, (relation) => relationLabel(relation, t)), [hood, depth, off, grown, t]);
   const empty = hood.nodes.length <= 1;
 
   const open = async (node: string, relation: string | undefined, direction: 'out' | 'in' | undefined, limit: number): Promise<void> => {
@@ -82,7 +83,7 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
     );
   }
   const toggles = [...hood.relations].sort((a, b) => (a.direction === b.direction ? (a.relation < b.relation ? -1 : 1) : a.direction === 'in' ? -1 : 1));
-  const footprint = (node: PlacedNode): string => (node.more === undefined ? node.node.label : t('knowledge.diagram.moreChip', { count: node.more.hidden, relation: relationWord(node.more.relation) }));
+  const footprint = (node: PlacedNode): string => (node.more === undefined ? node.node.label : t('knowledge.diagram.moreChip', { count: node.more.hidden, relation: relationLabel(node.more.relation, t) }));
 
   return (
     <section data-block="diagram" data-diagram="neighborhood" aria-label={block.title}>
@@ -112,10 +113,10 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
                       pressed={!off.has(slot)}
                       onPressedChange={(pressed) => setOff((held) => { const next = new Set(held); if (pressed) next.delete(slot); else next.add(slot); return next; })}
                       className="dg-chip"
-                      title={entry.direction === 'in' ? t('knowledge.diagram.comesIn', { relation: relationWord(entry.relation) }) : t('knowledge.diagram.goesOut', { relation: relationWord(entry.relation) })}
+                      title={entry.direction === 'in' ? t('knowledge.diagram.comesIn', { relation: relationLabel(entry.relation, t) }) : t('knowledge.diagram.goesOut', { relation: relationLabel(entry.relation, t) })}
                       data-testid={`relation-${slot}`}
                     >
-                      {entry.direction === 'in' ? '← ' : ''}{relationWord(entry.relation)}{entry.direction === 'out' ? ' →' : ''} <Text className="dg-count">{entry.count}</Text>
+                      {entry.direction === 'in' ? '← ' : ''}{relationLabel(entry.relation, t)}{entry.direction === 'out' ? ' →' : ''} <Text className="dg-count">{entry.count}</Text>
                     </Toggle>
                   );
                 })}

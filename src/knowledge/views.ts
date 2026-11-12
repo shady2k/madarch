@@ -1,3 +1,4 @@
+import { relationLabel } from './relation-labels.js';
 /**
  * The diagram views (decision 0026, "Diagrams"; madarch-m38l.15): madarch draws from the graph, and a page only
  * chooses *what to show* — a view specification, `{type, subject, scope?, entry?}` — which this module checks against
@@ -1123,10 +1124,6 @@ async function relationsSubject(ctx: RenderContext, id: string): Promise<Subject
 }
 
 /** A relation as a reader says it: the extractor's namespace is a prefix, not a word in the diagram. */
-function relationWordOf(relation: string): string {
-  return relation.replace(/^code\./u, '').replace(/^engine:/u, '').replace(/-/gu, ' ');
-}
-
 /**
  * The graph's edges one step around a page, both directions, grouped by relation; nothing kinds them here. A Markdown
  * page's `relates` are read beside the graph's edges (a page's relation to an entity it names is a fact of the page).
@@ -1212,7 +1209,7 @@ function relationsViewOf(spec: ViewSpec, collected: CollectedRelations, title: s
         drawn.add(id);
         elements.push({ id, kind: 'component', label: row.entity.label, short: shortLabelOf(row.entity.label), href: row.entity.href, dashed: false });
       }
-      const label = `${relationWordOf(group.relation)}${row.count > 1 ? ` ×${String(row.count)}` : ''}`;
+      const label = `${relationLabel(group.relation, w.lang)}${row.count > 1 ? ` ×${String(row.count)}` : ''}`;
       edges.push({ from: group.direction === 'out' ? collected.center.id : id, to: group.direction === 'out' ? id : collected.center.id, label, dashed: false });
       shown += 1;
     }

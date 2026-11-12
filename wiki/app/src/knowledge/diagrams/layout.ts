@@ -114,7 +114,7 @@ export function mergeHood(base: Neighborhood, extra: Neighborhood, answered?: { 
  * grouped by the relation that put its nodes there. A node is in the column of its first path from the centre; the
  * walk beyond the first hop continues only outward from the side it is on, so callers of callers stay on the left.
  */
-export function layoutNeighborhood(hood: Neighborhood, state: HoodState, grown: ReadonlySet<string> = new Set()): HoodLayout {
+export function layoutNeighborhood(hood: Neighborhood, state: HoodState, grown: ReadonlySet<string> = new Set(), label: (relation: string) => string = relationWord): HoodLayout {
   const byId = new Map(hood.nodes.map((node) => [node.id, node]));
   const column = new Map<string, number>([[hood.center, 0]]);
   const via = new Map<string, { relation: string; direction: 'out' | 'in'; parent: string }>();
@@ -189,7 +189,7 @@ export function layoutNeighborhood(hood: Neighborhood, state: HoodState, grown: 
       const key = `${cell.parent}|${cell.group}`;
       if (key !== previous) {
         y += previous === '' ? 0 : GROUP_GAP;
-        groups.push({ column: col, label: `${col < 0 ? '' : '→ '}${relationWord(cell.relation)}${col < 0 ? ' →' : ''}`, relation: cell.relation, direction: cell.direction, x: columnX(col), y });
+        groups.push({ column: col, label: `${col < 0 ? '' : '→ '}${label(cell.relation)}${col < 0 ? ' →' : ''}`, relation: cell.relation, direction: cell.direction, x: columnX(col), y });
         y += HEADER_H;
       } else y += ROW_GAP;
       placed.push({ node: cell.node, x: columnX(col), y, column: col, group: cell.group, ...(cell.more === undefined ? {} : { more: cell.more }) });

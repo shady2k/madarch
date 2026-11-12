@@ -110,3 +110,20 @@ test('a catalogue-only kind shows details without inventing fields or targets', 
   expect(page.querySelector('[data-testid="kind-relations"] a')).toBeNull();
   expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('a person');
 });
+
+for (const language of ['en', 'ru'] as const) {
+  test(`built-in relation labels on a kind declaration are readable in ${language}`, async () => {
+    await setWikiLanguage(language);
+    stub({ ...CATALOG, kinds: [kind('code.file', { relations: [
+      { direction: 'out', name: 'contains' }, { direction: 'in', name: 'partOf' },
+      { direction: 'out', name: 'code.contains' },
+    ] })] });
+    const page = into(createElement(KindDetails, { kind: 'code.file', version: 1 }));
+    await until(() => page.querySelector('[data-testid="kind-relations"]') !== null, 'translated relations');
+    const text = page.querySelector('[data-testid="kind-relations"]')!.textContent!;
+    expect(text).toContain(language === 'ru' ? 'содержит →' : 'contains →');
+    expect(text).toContain(language === 'ru' ? '← часть' : '← part of');
+    expect(text).not.toContain('code.contains');
+    await setWikiLanguage('en');
+  });
+}
