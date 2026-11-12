@@ -5,6 +5,9 @@
  * this module because only the storage layer runs a query; the turn that drives a
  * plugin asks for them by name and never builds a statement itself.
  */
+import type { SqlExecutor } from '../sql-driver.js';
+import { withDraftParts } from '../fill/orchestrator-store.js';
+import type { DraftWriteLike } from './claims.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { generatedTableName } from './contract.js';
@@ -135,6 +138,7 @@ export interface PluginSnapshot {
   readonly runId: string;
   readonly unitId: string;
   readonly generation: number;
+  readonly partitions?: readonly PluginSnapshot[];
 }
 
 export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: string, scope: string): Promise<PluginSnapshot> {
@@ -149,12 +153,13 @@ export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: stri
            AND e.generation = g.generation AND e.kind = 'unit-inherited'))
          AND u.stage_id = 'plugin-turns' AND u.scope_key = $2 AND g.generation = u.generation AND g.state = 'published'
        ORDER BY g.generation DESC LIMIT 1`, [runId, scope]);
-    const row = found.rows[0];
+    const row = (await withDraftParts(tx, found.rows))[0];
     if (row === undefined) throw new Error(`no successful current-run snapshot for ${scope}`);
     const writes = snapshotWrites(row.writes);
     const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
     if (!['completed', 'unchanged', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`producer ${scope} did not complete successfully in run ${runId}`);
-    return { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation) };
+    const partitions = await partitionSnapshots(tx, writes);
+    return { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation), ...(partitions.length === 0 ? {} : { partitions }) };
   });
 }
 
@@ -165,14 +170,74 @@ function snapshotWrites(writes: unknown): { kind: string; value: unknown }[] {
 /** Read only the captured generation, never a mutable open opinion or latest replacement. */
 export async function pluginSnapshotValue(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): Promise<unknown> {
   return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ writes: unknown }>(
-      `SELECT d.writes FROM fill_unit_draft d
-       JOIN fill_unit_generation g ON g.unit_id = d.unit_id AND g.generation = d.generation
-       JOIN fill_publication p ON p.unit_id = d.unit_id AND p.generation = d.generation
-       WHERE g.run_id = $1 AND d.unit_id = $2 AND d.generation = $3`,
-      [snapshot.runId, snapshot.unitId, snapshot.generation]);
-    if (found.rows[0] === undefined) throw new Error(`immutable producer snapshot ${snapshot.unitId}/${snapshot.generation} is unavailable`);
-    return valueFromPluginSnapshot(snapshotWrites(found.rows[0].writes), kind, key, field);
+    const writes = await snapshotDrafts(tx, snapshot);
+    for (const partition of snapshot.partitions ?? []) writes.push(...await snapshotDrafts(tx, partition, true));
+    return valueFromPluginSnapshot(writes, kind, key, field);
+  });
+}
+
+export interface PartitionReference {
+  readonly runId: string;
+  readonly unitId: string;
+  readonly generation: number;
+}
+
+async function snapshotDrafts(executor: SqlExecutor, snapshot: PluginSnapshot, partition = false): Promise<DraftWriteLike[]> {
+  const found = await executor.query<{ unit_id: string; generation: number; writes: unknown }>(
+    `SELECT d.unit_id, d.generation, d.writes FROM fill_unit_draft d
+     JOIN fill_unit_generation g ON g.unit_id = d.unit_id AND g.generation = d.generation
+     JOIN fill_publication p ON p.unit_id = d.unit_id AND p.generation = d.generation
+     WHERE g.run_id = $1 AND d.unit_id = $2 AND d.generation = $3`,
+    [snapshot.runId, snapshot.unitId, snapshot.generation]);
+  const row = (await withDraftParts(executor, found.rows))[0];
+  if (row === undefined) throw new Error(`immutable producer snapshot ${snapshot.unitId}/${snapshot.generation} is unavailable`);
+  const writes = snapshotWrites(row.writes);
+  if (partition && writes.filter(write => write.kind === 'plugin-partition').length !== 1) throw new Error(`partition ${snapshot.unitId}/${snapshot.generation} has no unique partition draft`);
+  return writes.flatMap(write => {
+    if (write.kind !== 'plugin-partition') return [write];
+    const inner = (write.value as { writes: DraftWriteLike[] }).writes;
+    const outcomes = inner.filter(write => write.kind === 'producer-outcome').map(write => write.value as { outcome?: string });
+    if (outcomes.length !== 1 || !['completed', 'empty', 'unchanged'].includes(outcomes[0]?.outcome ?? '')) throw new Error(`partition ${snapshot.unitId}/${snapshot.generation} did not complete successfully`);
+    return inner;
+  });
+}
+
+async function partitionSnapshots(executor: SqlExecutor, writes: readonly DraftWriteLike[], runId?: string): Promise<PluginSnapshot[]> {
+  const barrier = writes.find(write => write.kind === 'plugin-aggregate')?.value as { partitions: PartitionReference[] } | undefined;
+  if (barrier === undefined) return [];
+  const snapshots: PluginSnapshot[] = [];
+  for (const child of barrier.partitions) {
+    const found = await executor.query<{ run_id: string }>(
+      `SELECT g.run_id FROM fill_unit_generation g
+       JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+       WHERE g.unit_id = $1 AND g.generation = $2 AND g.state = 'published'
+       AND ($3::text IS NULL OR g.run_id = $3 OR EXISTS (
+         SELECT 1 FROM fill_event e WHERE e.run_id = $3 AND e.unit_id = g.unit_id AND e.generation = g.generation AND e.kind = 'unit-inherited'))`,
+      [child.unitId, child.generation, runId ?? child.runId]);
+    const row = found.rows[0];
+    if (row === undefined) throw new Error(`partition ${child.unitId}/${child.generation} has no successful publication`);
+    snapshots.push({ ...child, runId: row.run_id });
+  }
+  return snapshots;
+}
+
+/** Expand only sealed successful immutable partition drafts inside the barrier's publication transaction. */
+export async function expandPartitionWrites(executor: SqlExecutor, writes: readonly DraftWriteLike[]): Promise<DraftWriteLike[]> {
+  const expanded = [...writes];
+  for (const snapshot of await partitionSnapshots(executor, writes)) expanded.push(...await snapshotDrafts(executor, snapshot, true));
+  return expanded;
+}
+
+/** Validate every sealed child before the aggregate can state a successful outcome. */
+export async function pluginPartitionOutcome(owner: DatabaseOwner, refs: readonly PartitionReference[]): Promise<{ complete: boolean; produced: number }> {
+  return await owner.transaction('snapshot', async tx => {
+    const snapshots = await partitionSnapshots(tx, [{ kind: 'plugin-aggregate', value: { partitions: refs } }]);
+    let produced = 0;
+    for (const snapshot of snapshots) {
+      const writes = await snapshotDrafts(tx, snapshot, true);
+      produced += writes.filter(write => write.kind === 'vertex' || write.kind === 'edge').length;
+    }
+    return { complete: true, produced };
   });
 }
 

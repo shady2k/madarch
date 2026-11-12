@@ -11,6 +11,7 @@
  * of a kind the contract does not hold is refused by the writer, and the
  * publication rolls back with it.
  */
+import { expandPartitionWrites } from './plugin-turns.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, VertexDraft, VertexRemovalDraft } from './contract.js';
 import { publishGraphDrafts, type EdgeDraft, type EdgeRemovalDraft, type JournalRead } from './write.js';
@@ -29,6 +30,7 @@ export interface DraftWriteLike {
  * answer writes none).
  */
 export async function publishGraphWrites(executor: SqlExecutor, contract: GraphContract, writes: readonly DraftWriteLike[]): Promise<number> {
+  writes = await expandPartitionWrites(executor, writes);
   const vertices = writes.filter((write) => write.kind === 'vertex').map((write) => write.value as VertexDraft);
   const edges = writes.filter((write) => write.kind === 'edge').map((write) => write.value as EdgeDraft);
   const removals = writes.filter((write) => write.kind === 'vertex-removal').map((write) => write.value as VertexRemovalDraft);
