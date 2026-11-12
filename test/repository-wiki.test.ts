@@ -1,3 +1,4 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { byCodePoint } from '../src/model/order.js';
@@ -44,6 +45,7 @@ function product(name: string, write: (repository: string) => void): { folder: s
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
+  useFixturePlugins(folder, []);
   nativeWorkflow(folder);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
@@ -299,6 +301,7 @@ git(folder,'commit','-qm','the nested file moves');
     git(committed, 'add', '-A');
     git(committed, 'commit', '-qm', 'the committed repository');
     const folder = makeProduct(home, 'half', committed, 'committed-code');
+    useFixturePlugins(folder, []);
     nativeWorkflow(folder);
     // This case compares the unread-checkout finding before and after the fill. Other rule predicates are outside
     // its scope: the product's bundled plugin files are not the source files this fixture measures.

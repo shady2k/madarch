@@ -1,3 +1,4 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { requestStorePreparation } from '../src/product/store-preparation.js';
 /**
  * A kind's declaration is part of what its turn stands on (decision 0035, the Consequences: a changed declaration of a
@@ -54,6 +55,7 @@ function product(name: string): { folder: string; storeRoot: string } {
   if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
   const folder = draft.folder;
   useExtractedGlossary(folder);
+  useFixturePlugins(folder, ['glossary']);
   const code = join(folder, 'repos', 'app');
   mkdirSync(code, { recursive: true });
   writeFileSync(join(code, 'README.md'), '# App\n');

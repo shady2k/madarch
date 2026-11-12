@@ -5,6 +5,7 @@
  * the listing and the term's page read only the graph — and a second fill follows the document: an edited definition
  * changes, a deleted term disappears, and a kind taken out of the manifest takes its table with it.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -120,6 +121,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
 
   test('the starter authored terms do not run an unbound glossary plugin', async () => {
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
+    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    const authoredKinds = readFileSync(kindsFile, 'utf8');
+    useFixturePlugins(folder, []);
     commit('A glossary document beside authored terms');
     closePreparation = await prepareTestProduct(folder, join(work, 'home'), join(work, 'store'));
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
@@ -128,7 +132,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
       expect((await product.glossary()).terms).toEqual([]);
     } finally {
       await product.close();
+      writeFileSync(kindsFile, authoredKinds);
       useExtractedGlossary(folder);
+      useFixturePlugins(folder, ['glossary']);
     }
   }, 300_000);
 
