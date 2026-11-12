@@ -135,7 +135,7 @@ describe('a folder and a file', () => {
   test('a folder lists its subfolders and its files, links one up and offers the next page', async () => {
     const container = into(createElement(FolderBlock, { data: folder() }));
     await until(() => container.querySelector('[data-testid=file-rows]') !== null, 'the folder');
-    expect(container.querySelector('[data-testid=folder-parent]')!.textContent).toBe('Up one folder');
+    expect(container.querySelector('[data-testid=folder-parent]')!.textContent).toBe('Parent folder');
     expect([...container.querySelectorAll('[data-testid=folder-row]')].map((row) => row.textContent)).toEqual(['nested/']);
     expect(container.textContent).toContain('The next page');
     expect(container.querySelector('[data-testid=folder-link]')!.getAttribute('href')).toBe('/e/code.directory%3Acode%2Fsrc%2Fnested');
@@ -155,7 +155,7 @@ describe('a folder and a file', () => {
 describe('the run page', () => {
   test('names each step with its wall clock, its peak memory and its slowest names, read from the trace', async () => {
     const run: FillRunView = {
-      runId: 'fill-1', startedAt: '2026-11-07T10:00:00.000Z', finishedAt: '2026-11-07T10:00:01.000Z', wallMs: 1000, spans: 42,
+      runId: 'fill-1', state: 'succeeded', selection: null, startedAt: '2026-11-07T10:00:00.000Z', finishedAt: '2026-11-07T10:00:01.000Z', wallMs: 1000, spans: 42,
       slowest: [{ name: 'db.transaction', count: 3, selfMs: 200 }, { name: 'process.git', count: 2, selfMs: 150 }],
       agentUsage: { lines: [], inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: [], turns: 0, stops: [] },
       steps: [

@@ -498,6 +498,8 @@ function legacyStoreProblem(store: string): string | undefined {
  * or — with neither — a private cluster in the temporary folder that is removed
  * with the owner, which is what a temporary projection or a rendering wants.
  */
+export class StoreNotPreparedError extends Error {}
+
 export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): Promise<DatabaseOwner> {
   const env = options.env ?? process.env;
   const log = options.log;
@@ -512,7 +514,7 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
     if (legacy !== undefined) throw new Error(legacy);
     const paths = clusterPaths(options.store);
     if (options.connectOnly === true && !existsSync(join(paths.dataDir, 'PG_VERSION'))) {
-      throw new Error(`src/adapters/database-owner.ts: store "${options.store}" has no prepared PostgreSQL cluster; run madarch start for this store before connecting`);
+      throw new StoreNotPreparedError(`src/adapters/database-owner.ts:1: store "${options.store}" has no prepared PostgreSQL cluster; run madarch start for this store before connecting`);
     }
     cluster = await openCluster({ ...paths, ...(log === undefined ? {} : { log }), env });
     const opened = cluster;
@@ -540,7 +542,7 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
   try {
     if (options.connectOnly === true) {
       const held = await clusterQuery(cluster, CLUSTER_ADMIN_DATABASE, 'SELECT 1 AS held FROM pg_database WHERE datname = $1', [database]);
-      if (held.length !== 1) throw new Error(`src/adapters/database-owner.ts:1: store "${options.store ?? cluster.socketDir}" has no prepared database "${database}"; run madarch start for this store before connecting`);
+      if (held.length !== 1) throw new StoreNotPreparedError(`src/adapters/database-owner.ts:1: store "${options.store ?? cluster.socketDir}" has no prepared database "${database}"; run madarch start for this store before connecting`);
     } else await ensureDatabase(cluster, database);
     const inner = await createPostgresDatabaseOwner({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), database, user: cluster.user, max: 8 }, options.store ?? cluster.dataDir);
     await inner.ready;

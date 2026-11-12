@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -9,6 +9,10 @@ import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
+import { catalogKinds } from '../src/knowledge/catalog-view.js';
+import { createKnowledgePart } from '../src/server/knowledge.js';
+import type { KnowledgeProduct } from '../src/knowledge/product.js';
+import type { RenderContext } from '../src/knowledge/blocks.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -128,6 +132,53 @@ test('filesystem watcher publishes a valid edit and refuses invalid edits withou
   } finally { watcher.stop(); await owner.close(); }
 }, 30_000);
 
+test('a home watcher discovers the current folder when the startup folder has already moved', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: startup-fixture\nname: fixture\n');
+  const moved = join(root, 'startup-renamed');
+  renameSync(folder, moved);
+  const publications: string[] = [];
+  const watcher = createManifestWatch([folder], async (value) => { publications.push(value.folder); }, () => {}, root);
+  try {
+    for (let tries = 0; tries < 200 && !publications.includes(moved); tries++) await Bun.sleep(25);
+    expect(publications, `${moved}:1: the startup rename was not published`).toContain(moved);
+    writeFileSync(join(moved, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
+    const before = publications.length;
+    for (let tries = 0; tries < 200 && publications.length === before; tries++) await Bun.sleep(25);
+    expect(publications.length, `${moved}:1: the startup rename was not watched`).toBeGreaterThan(before);
+  } finally { watcher.stop(); }
+}, 15_000);
+
+test('a home watcher follows a renamed product and keeps its watch while its identity needs repair', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: fixture\nname: fixture\n');
+  const moved = join(root, 'renamed');
+  const publications: string[] = [];
+  const reports: string[] = [];
+  const watcher = createManifestWatch([folder], async (value) => { publications.push(value.folder); }, (line) => reports.push(line), root);
+  const until = async (ready: () => boolean): Promise<void> => {
+    for (let tries = 0; tries < 200; tries++) {
+      if (ready()) return;
+      await Bun.sleep(25);
+    }
+    throw new Error(`${moved}:1: watcher did not settle: ${reports.join('; ')}`);
+  };
+  try {
+    renameSync(folder, moved);
+    await until(() => publications.includes(moved));
+    writeFileSync(join(moved, 'workspace.yaml'), 'schemaVersion: 1\nid: [invalid\n');
+    // A change to the home asks discovery to read the broken identity.
+    const signal = join(root, 'signal'); mkdirSync(signal);
+    await until(() => reports.some((line) => line.includes(`${moved}/workspace.yaml:2:`)));
+    const before = publications.length;
+    writeFileSync(join(moved, 'workspace.yaml'), 'schemaVersion: 1\nid: fixture\nname: repaired\n');
+    writeFileSync(join(moved, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
+    await until(() => publications.length > before);
+    expect(publications.slice(before)).toContain(moved);
+    expect(reports.some((line) => line.includes(`${moved}/workspace.yaml:2:`))).toBe(true);
+  } finally { watcher.stop(); }
+}, 15_000);
+
 test('malformed kinds still reports workflow and lock diagnostics, and no commit is refused', () => {
   const folder = fixture();
   writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: [');
@@ -183,3 +234,46 @@ kinds:
   if (malformed.ok) throw new Error('malformed plugin accepted');
   expect(malformed.findings.some((one) => one.file === file && one.line === 1 && one.message.length > 0)).toBe(true);
 });
+
+test('the catalogue route reads published declarations before any fill, even after the checkout changes', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `properties:
+  summary: { en: Summary, ru: Описание }
+kinds:
+  term:
+    source: document
+    template: templates/term.md
+    terms: ["docs/*.md"]
+    details: [summary]
+    fields:
+      - { name: summary, type: text, producers: [reader] }
+`);
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await createRecordSchema(owner, EMPTY_CONTRACT);
+    const validated = validateProductManifests(folder);
+    if (!validated.ok || validated.value === undefined) throw new Error(JSON.stringify(validated));
+    await publishValidatedManifests(owner, validated.value);
+    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: {}');
+    const manifest = (await owner.run((tx) => readPublishedManifest(tx)))!;
+    const kinds = await catalogKinds({ manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext);
+    const product = { folder, catalog: async () => ({ product: { name: 'Published', id: 'published' }, language: 'ru', groups: [], kinds, findings: [] }) } as unknown as KnowledgeProduct;
+    const part = createKnowledgePart({
+      json: (status, body) => Response.json(body, { status }),
+      refused: (status, body) => ({ response: Response.json(body, { status }) }),
+      errorLog: () => {},
+    }, product, () => []);
+    const result = await part.catalog(new Request('http://localhost/api/catalog?kind=term'));
+    expect(result.response.status).toBe(200);
+    expect(await result.response.json()).toMatchObject({
+      kind: 'term', count: 0, state: 'never',
+      declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 4 },
+      fields: [{ name: 'summary', labels: { en: 'Summary', ru: 'Описание' }, declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 2 } }],
+    });
+    const unknown = await part.catalog(new Request('http://localhost/api/catalog?kind=absent'));
+    expect(unknown.response.status).toBe(404);
+    expect((await unknown.response.json()).message).toContain(`${join(folder, 'madarch', 'kinds.yaml')}:1:`);
+    const contents = await owner.run((tx) => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM file_entry'));
+    expect(contents.rows[0]!.count).toBe('0');
+  } finally { await owner.close(); }
+}, 30_000);

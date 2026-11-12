@@ -65,23 +65,17 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
-  test('description cells cite named standards and offer compact source lists', async () => {
-    const sources = ['https://c4model.com/abstractions', 'https://arc42.org/overview'];
-    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'code.file' ? { ...kind, sources } : kind) });
+  test('short rows link to the kind instead of repeating standards disclosures', async () => {
+    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => ({ ...kind, sourcesAvailable: true })) });
     const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-kind="code.file"] [data-testid="kind-sources"]') !== null, 'source citations');
+    await until(() => page.querySelector('[data-kind="code.file"]') !== null, 'catalogue row');
     const row = page.querySelector('[data-kind="code.file"]')!;
-    const citation = row.querySelector('[data-testid="kind-sources"]')!;
-    expect(citation.closest('td')!.textContent).toContain('Source files');
-    expect([...citation.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
-      ['C4 model', sources[0]!], ['arc42', sources[1]!],
-    ]);
-    expect(citation.querySelector('button')!.getAttribute('aria-label')).toBe('Standards and practices');
-    expect(page.querySelectorAll('[data-testid="kind-sources"]')).toHaveLength(1);
-    expect(page.querySelector('a[href^="/src?"]')).toBeNull();
+    expect(row.querySelector('a[href="/kind/code.file"]')?.textContent).toBe('Files');
+    expect(row.querySelector('button')).toBeNull();
+    expect(page.querySelector('[data-testid="kind-sources"]')).toBeNull();
   });
 
-  test('contents lists every section and kind and jumps to the selected section', async () => {
+  test('contents lists only sections and subsections and marks the selected section', async () => {
     await setWikiLanguage('en');
     stub([]);
     const page = into(createElement(CataloguePage, { version: 0 }));
@@ -90,11 +84,8 @@ describe('the catalogue as a browse-only view', () => {
     const links = [...contents.querySelectorAll<HTMLAnchorElement>('a')];
     expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
       ['Code', '#catalogue-section-code'],
-      ['Files', '#catalogue-kind-code.file'],
       ['Requirements', '#catalogue-section-requirements'],
-      ['Use cases', '#catalogue-kind-doc.use-case'],
       ['Vocabulary', '#catalogue-section-vocabulary'],
-      ['Terms', '#catalogue-kind-doc.term'],
     ]);
     const requirements = contents.querySelector('a[href="#catalogue-section-requirements"]')!;
     expect(requirements.parentElement!.querySelector('a[href="#catalogue-section-vocabulary"]')).not.toBeNull();
@@ -105,66 +96,109 @@ describe('the catalogue as a browse-only view', () => {
       (requirements as HTMLAnchorElement).click();
       await until(() => scroll.mock.calls.length > 0, 'section scroll');
       expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+      expect(requirements.getAttribute('aria-current')).toBe('location');
     } finally {
       scroll.mockRestore();
     }
   });
 
-  test('contents switches from Graph to Table before scrolling to a section', async () => {
+  test('Graph unmounts contents and its reserved column; Table restores section navigation', async () => {
     await setWikiLanguage('en');
     stub([]);
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-testid="catalogue-contents"]') !== null, 'catalogue contents');
-    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
-    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph view');
-    const scrolled: Element[] = [];
-    const scroll = spyOn(window.HTMLElement.prototype, 'scrollIntoView').mockImplementation(function (this: HTMLElement) {
-      scrolled.push(this);
+    const tab = (name: string) => [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((item) => item.textContent === name)!;
+    tab('Graph').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[data-testid="kind-graph"]') !== null, 'graph view');
+    expect(page.querySelector('[data-testid="catalogue-contents"]')).toBeNull();
+    expect(page.querySelector('button[aria-label="On this page"]')).toBeNull();
+    expect(page.querySelector('[data-testid="catalogue-layout"]')!.className).not.toContain('grid-cols-');
+    tab('Table').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[data-testid="catalogue-contents"]') !== null, 'restored contents');
+    expect(page.querySelector('[data-testid="catalogue-contents"] a[href="#catalogue-section-vocabulary"]')).not.toBeNull();
+  });
+
+  test('compact contents button opens the same two-level list and closes on selection', async () => {
+    await setWikiLanguage('en');
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('button[aria-label="On this page"]') !== null, 'compact contents button');
+    const button = page.querySelector<HTMLButtonElement>('button[aria-label="On this page"]')!;
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    button.click();
+    await until(() => button.getAttribute('aria-expanded') === 'true', 'open contents');
+    const compact = page.querySelector('[data-testid="catalogue-compact-contents"]')!;
+    const wide = page.querySelector('[data-testid="catalogue-contents"]')!;
+    expect([...compact.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toEqual([...wide.querySelectorAll('a')].map((link) => link.getAttribute('href')));
+    const panelAtScroll: boolean[] = [];
+    const scroll = spyOn(page.querySelector('#catalogue-section-vocabulary')!, 'scrollIntoView').mockImplementation(() => {
+      panelAtScroll.push(page.querySelector('[data-testid="catalogue-compact-contents"]') !== null);
     });
     try {
-      page.querySelector<HTMLAnchorElement>('[data-testid="catalogue-contents"] a[href="#catalogue-section-vocabulary"]')!.click();
-      await until(() => scrolled.length > 0, 'section scroll after switching views');
-      const section = page.querySelector('[role="tabpanel"][data-state="active"] #catalogue-section-vocabulary');
-      expect(section).not.toBeNull();
-      expect(scrolled).toEqual([section!]);
-      expect(scroll).toHaveBeenCalledWith({ block: 'start' });
-      expect(page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]')).toBeNull();
+      compact.querySelector<HTMLAnchorElement>('a[href="#catalogue-section-vocabulary"]')!.click();
+      await until(() => button.getAttribute('aria-expanded') === 'false' && panelAtScroll.length > 0, 'closed contents before scrolling');
+      expect(panelAtScroll).toEqual([false]);
+      expect(page.querySelector('[data-testid="catalogue-compact-contents"]')).toBeNull();
+      expect(wide.querySelector('[aria-current="location"]')!.textContent).toBe('Vocabulary');
     } finally {
       scroll.mockRestore();
     }
   });
 
-  test('Table and Graph show the same kinds and navigation links under a shared filter', async () => {
+  test('contents follows the section at the reading position when scrolling', async () => {
     await setWikiLanguage('en');
-    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'doc.use-case' ? { ...kind, page: false } : kind) });
+    stub([]);
+    const page = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => page.querySelector('#catalogue-section-vocabulary') !== null, 'sections');
+    const positions = [spyOn(page.querySelector('#catalogue-section-code')!, 'getBoundingClientRect').mockReturnValue({ top: -500 } as DOMRect),
+      spyOn(page.querySelector('#catalogue-section-requirements')!, 'getBoundingClientRect').mockReturnValue({ top: -100 } as DOMRect),
+      spyOn(page.querySelector('#catalogue-section-vocabulary')!, 'getBoundingClientRect').mockReturnValue({ top: 8 } as DOMRect)];
+    try {
+      document.dispatchEvent(new Event('scroll'));
+      await until(() => page.querySelector('[data-testid="catalogue-contents"] [aria-current="location"]')?.textContent === 'Vocabulary', 'current reading section');
+    } finally {
+      positions.forEach((position) => position.mockRestore());
+    }
+  });
+
+  test('Graph starts with full purpose counts and selects a kind neighbourhood independently of table filtering', async () => {
+    await setWikiLanguage('en');
+    stub([], CATALOG);
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'table kinds');
-    const kinds = [...page.querySelectorAll('[data-kind]')].map((row) => row.getAttribute('data-kind')).sort();
+    const address = window.location.href;
     const kindLinks = (): (string | null)[] => [...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')]
       .map((row) => row.querySelector('a')?.getAttribute('href') ?? null).sort();
     expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
-    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
-    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph kinds');
-    expect([...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')].map((row) => row.getAttribute('data-kind')).sort()).toEqual(kinds);
-    expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
-    expect(localeKeyIn(renderedText(page))).toBeUndefined();
-    const address = window.location.href;
     const input = page.querySelector('input[type="search"]') as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
     input.focus();
     setter.call(input, 'Source files');
     input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 's' }));
-    await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered graph');
+    await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered table');
     expect(kindLinks()).toEqual(['/kind/code.file']);
     const filteredContents = [...page.querySelectorAll<HTMLAnchorElement>('[data-testid="catalogue-contents"] a')];
-    expect(filteredContents.map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code', '#catalogue-kind-code.file']);
+    expect(filteredContents.map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code']);
+    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
+    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[data-testid="dependency-section"]') !== null, 'graph sections');
+    expect(page.querySelector('[data-testid="catalogue-contents"]')).toBeNull();
+    expect(page.querySelectorAll('[data-testid="dependency-node"]')).toHaveLength(0);
+    expect(page.querySelectorAll('[data-testid="dependency-section"]')).toHaveLength(2);
+    expect(page.querySelector('[data-section="requirements"]')!.textContent).toContain('2 kinds');
+    const section = page.querySelector('[data-testid="dependency-section"][data-section="code"]')!;
+    (section.querySelector('button') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="dependency-node"][data-kind="code.file"]') !== null, 'section kinds');
+    (page.querySelector('[data-testid="dependency-node"][data-kind="code.file"] button') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="graph-two-steps"]') !== null, 'kind neighbourhood');
+    expect(page.querySelectorAll('[data-testid="dependency-section"]')).toHaveLength(0);
+    expect(page.querySelector('[data-testid="dependency-link-code.file"]')!.getAttribute('href')).toBe('/kind/code.file');
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
     const tableTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Table')!;
     tableTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table');
-    expect(page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')).toHaveLength(1);
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table restored');
     expect(kindLinks()).toEqual(['/kind/code.file']);
+    expect([...page.querySelectorAll('[data-testid="catalogue-contents"] a')].map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code']);
     expect(window.location.href).toBe(address);
   });
 
@@ -192,8 +226,8 @@ describe('the catalogue as a browse-only view', () => {
     await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'the catalogue');
     expect(page.querySelectorAll('[data-kind]')).toHaveLength(3);
     expect(page.querySelector('[data-kind="code.file"]')!.textContent).toContain('Source files');
-    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"] a')!.textContent).toBe('12');
-    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"] a')!.getAttribute('href')).toContain('code.file');
+    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"]')!.textContent).toBe('12');
+    expect(page.querySelector('[data-kind="code.file"] a')!.textContent).toBe('Files');
     expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-stage"]')!.textContent).toContain('glossary');
     expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('partial');
     expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('never');

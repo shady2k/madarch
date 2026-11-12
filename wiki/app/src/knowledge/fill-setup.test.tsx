@@ -41,12 +41,12 @@ function render(calls: { url: string; body: unknown }[], refresh = (): void => {
   root = createRoot(container); root.render(createElement(FillSetup, { refresh })); return container;
 }
 
-test('fill choices show standards without selecting on a source link', async () => {
+test('fill choices link to declarations without standards disclosures or selecting the kind', async () => {
   const page = render([]);
-  await until(() => page.querySelector('a[href="https://example.test/base"]') !== null);
+  await until(() => page.querySelector('[data-kind="base"] a[href="/kind/base"]') !== null);
   const row = page.querySelector('[data-kind="base"]')!;
-  expect(row.querySelector('a[href="https://example.test/base"]')).not.toBeNull();
-  expect(row.querySelector('label a')).toBeNull();
+  expect(row.querySelector('[data-testid="kind-sources"]')).toBeNull();
+  expect(row.querySelector('button')).toBeNull();
   expect((row.querySelector('input') as HTMLInputElement).checked).toBe(false);
 });
 

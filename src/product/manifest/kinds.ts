@@ -31,6 +31,7 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
+import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, type Document } from 'yaml';
@@ -1694,6 +1695,14 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       }
       plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), ...(bounds === undefined ? {} : { bounds }), ...(declaration === undefined ? {} : { declaration }), declarationFile, ...(declarationText === undefined ? {} : { declarationText }), line });
     });
+  }
+  // Declaration producers own their schema before any content-producing plugin derives its outputs.
+  for (const declaration of TEMPLATE_CONTRACT.vertex) {
+    const kind = kinds.get(declaration.name);
+    if (kind === undefined) continue;
+    kinds.set(kind.name, { ...kind, key: [...declaration.key], fields: declaration.fields.map((field) => ({
+      ...field, producers: [declaration.capability], line: kind.line,
+    })) });
   }
   // A catalogue agent's effective contract comes from the product declarations, never field binding routing.
   for (const catalogueAgent of [...plugins.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true)) {

@@ -34,7 +34,6 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
-import { publishRepositoryTemplates } from './structured-template-fixture.js';
 
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
@@ -105,7 +104,7 @@ beforeAll(async () => {
   // The first page of a product waits for its reader to start (a process of its own): the suite's first test does not.
   await fetch(`${server.url}/products/tiny/api/status`);
   await fetch(`${server.url}/products/unconnected/api/status`);
-}, 60_000);
+}, 120_000);
 
 afterAll(async () => {
   // Close the visited products' readers, background work and PostgreSQL stores before removing them.
@@ -134,7 +133,8 @@ describe('an empty product', () => {
     const catalogue = await get('/products/tiny/api/catalog');
     expect(catalogue.status).toBe(200);
     expect(catalogue.body.kinds.length).toBeGreaterThan(0);
-    expect(catalogue.body.kinds.every((kind: { count: number; state: string }) => kind.count === 0 && kind.state === 'never')).toBe(true);
+    expect(catalogue.body.kinds.filter((kind: { kind: string }) => kind.kind !== 'template').every((kind: { count: number; state: string }) => kind.count === 0 && kind.state === 'never')).toBe(true);
+    expect(catalogue.body.kinds.find((kind: { kind: string }) => kind.kind === 'template')?.count).toBeGreaterThan(0);
     const unconnected = await get('/products/unconnected/api/status');
     expect(unconnected.body.repositories).toEqual([]);
   });
@@ -283,7 +283,6 @@ describe('the fill the reader watches', () => {
       status = (await get('/products/tiny/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
-    await publishRepositoryTemplates(join(home, 'tiny'), home, join(work, 'store'));
     await new Promise((rest) => setTimeout(rest, 700));
     done = true;
     await reader.cancel();

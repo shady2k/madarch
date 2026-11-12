@@ -25,7 +25,7 @@ import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 import { HOME_ADDRESS } from './addresses.js';
-import { blockIdentity, escapeMarkdown, foldLanguageParams, templatePartsOf } from './template.js';
+import { blockIdentity, escapeMarkdown, foldLanguageParams, templatePartsOf, templatePartsFor, templateValueOf } from './template.js';
 import { catalogKinds } from './catalog-view.js';
 import { filePageBlock } from './file-page.js';
 
@@ -84,7 +84,8 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     if (options.only === undefined && text.trim() !== '') blocks.push({ type: 'markdown', markdown: text });
     text = '';
   };
-  for (const part of parts) {
+  const parameter = (name: string): string | undefined => name === 'lang' ? lang ?? ctx.language : value(name);
+  for (const part of templatePartsFor(parts, parameter)) {
     if (part.type === 'text') { text += part.text; continue; }
     if (part.type === 'attribute') {
       const found = value(part.name);
@@ -99,7 +100,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
       blocks.push({ type: 'problem', block: 'template', message: part.message, file: decl.template, line: part.line });
       continue;
     }
-    const params = foldLanguageParams(part.params, lang ?? ctx.language);
+    const params = foldLanguageParams(Object.fromEntries(Object.entries(part.params).map(([key, held]) => [key, templateValueOf(held, parameter)])), lang ?? ctx.language);
     if (options.only !== undefined && blockIdentity(part.name, params) !== options.only) continue;
     if (options.defer === true && DEFERRED_BLOCKS.has(part.name)) {
       blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', id: blockIdentity(part.name, params) });

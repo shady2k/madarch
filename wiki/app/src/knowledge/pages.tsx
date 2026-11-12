@@ -2,14 +2,14 @@ import { InlineCode } from '@/components/ui/inline-content.js';
 import { Breadcrumb } from '@/components/ui/breadcrumb.js';
 import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, ClippedLabel, Stack, Text, PageArticle, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
 import { KindDetails } from './kind-details.js';
-import { KindSources } from './kind-sources.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
-import { TableOfContents } from '@/components/ui/table-of-contents.js';
+import { ResponsiveContents } from '@/components/ui/table-of-contents.js';
+import { FilterResults } from '@/components/ui/filter-bar.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -19,6 +19,7 @@ import { TableOfContents } from '@/components/ui/table-of-contents.js';
 import { Fragment, useContext, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { appPath } from '../app-base.js';
+import { navigateTo } from '../hold.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
@@ -163,38 +164,43 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
   const operations = summary?.listing === 'operations';
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState('');
-  const [more, setMore] = useState<EntityRef[]>([]);
-  const [operationMore, setOperationMore] = useState<NonNullable<EntityListing['operations']>>({});
-  const [next, setNext] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [appended, setAppended] = useState<{ listing: EntityListing; rows: EntityRef[]; operations: NonNullable<EntityListing['operations']>; next: string | null; error: string | null } | null>(null);
   useEffect(() => {
-    const wait = setTimeout(() => setAsked(query), query === '' ? 0 : 200);
+    const wait = setTimeout(() => setAsked(query), 200);
     return () => clearTimeout(wait);
   }, [query]);
   useTabTitle(kindName(kind, 'many'));
   const read = useRead<EntityListing>(`${kind}\0${asked}`, version, (signal) => getEntities(kind, { q: asked }, signal));
-  const listing = read.data;
-  // A fresh listing starts the rows over: what "load more" appended belonged to the one before.
-  useEffect(() => {
-    setMore([]);
-    setOperationMore({});
-    setNext(listing?.next ?? null);
-  }, [listing]);
+  const shown = useRef<{ kind: string; listing: EntityListing } | null>(null);
+  if (read.data !== null) shown.current = { kind, listing: read.data };
+  const listing = shown.current?.kind === kind ? shown.current.listing : null;
+  // Appended pages belong to one response, never to its replacement, even for the first render.
+  const more = appended?.listing === listing ? appended : null;
+  const next = more === null ? listing?.next ?? null : more.next;
+  const error = more?.error ?? null;
+  const operationMore = more?.operations;
   const listingRef = useRef<EntityListing | null>(null);
   listingRef.current = listing;
-  const rows = [...(listing?.rows ?? []), ...more];
+  const rows = [...(listing?.rows ?? []), ...(more?.rows ?? [])];
   const load = (): void => {
-    if (next === null) return;
+    if (next === null || read.data !== listing || query !== asked) return;
     const mine = listing;
+    if (mine === null) return;
     getEntities(kind, { q: asked, after: next }).then(
       (answer) => {
-        // A commit that reread the listing meanwhile makes this page of rows a stale one.
         if (listingRef.current !== mine) return;
-        setMore((held) => [...held, ...answer.rows]);
-        setOperationMore((held) => ({...held, ...answer.operations}));
-        setNext(answer.next);
+        setAppended((held) => ({
+          listing: mine,
+          rows: [...(held?.listing === mine ? held.rows : []), ...answer.rows],
+          operations: { ...(held?.listing === mine ? held.operations : {}), ...answer.operations },
+          next: answer.next,
+          error: null,
+        }));
       },
-      (failure: unknown) => setError(message(failure)),
+      (failure: unknown) => {
+        if (listingRef.current !== mine) return;
+        setAppended((held) => ({ listing: mine, rows: held?.listing === mine ? held.rows : [], operations: held?.listing === mine ? held.operations : {}, next, error: message(failure) }));
+      },
     );
   };
   return (
@@ -204,11 +210,12 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
         <PageTitle>{kindName(kind, 'many')}</PageTitle>
 
       </PageHeader>
+      <KindDetails kind={kind} version={version} />
       {listing?.agentUsage !== undefined && <Paragraph className="text-small text-muted" data-testid="kind-agent-usage">{t('knowledge.kindAgentModel', { model: listing.agentUsage.model ?? t('knowledge.kindNotReported') })} · {listing.agentUsage.tokens === undefined ? t('knowledge.kindTokensNotReported') : t('knowledge.kindAgentTokens', { count: listing.agentUsage.tokens })}</Paragraph>}
       <KindUsage kind={kind} version={version} />
-      <KindDetails kind={kind} version={version} />
       <KindMap kind={kind} version={version} />
       <SectionTitle>{t('knowledge.kindDetails.records')}</SectionTitle>
+      <FilterResults>
       <Stack className="flex items-center gap-3">
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="w-96 max-w-full" data-testid="kind-filter" />
         {listing !== null && <Text className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</Text>}
@@ -232,7 +239,8 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
           </TableBody>
         </Table>
       )}
-      {next !== null && <Stack className="mt-4"><Button variant="default" size="default" onClick={load} data-testid="kind-more">{t('knowledge.more')}</Button></Stack>}
+      {next !== null && <Stack className="mt-4"><Button variant="default" size="default" disabled={read.data !== listing || query !== asked} onClick={load} data-testid="kind-more">{t('knowledge.more')}</Button></Stack>}
+      </FilterResults>
     </PageSection>
   );
 }
@@ -366,41 +374,8 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
       </Card>
     );
   }
-  if (status.filled) {
-    // The code is read. With no pages yet, point the reader to the fill choices.
-    const offered = (status.home === null || (status.kinds.find((kind) => kind.kind === 'domain')?.count ?? 0) === 0) && status.writer.state === 'idle';
-    if (!offered) return null;
-    return (
-      <Card className="mb-8" data-testid="fill-card" data-state="offer">
-        <CardHeader>
-          <CardTitle>{t('knowledge.writer.offerTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.writer.offerDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
-        </CardContent>
-      </Card>
-    );
-  }
-  // A product created and not filled yet holds its own Git checkout: Fill reads that repository, so it is offered even
-  // when no other repository is connected (madarch-64o5.3).
-  const ownCheckout = status.manifest === 'not-filled' && status.repositories.length === 0;
-  const connected = status.repositories.length > 0 || ownCheckout;
-  return (
-    <Card className="mb-8" data-testid="fill-card" data-state="empty">
-      <CardHeader>
-        <CardTitle>{t('knowledge.emptyTitle')}</CardTitle>
-        <CardDescription>{ownCheckout ? t('knowledge.notFilledFill') : connected ? t('knowledge.emptyConnected', { repositories: status.repositories.map((repo) => repo.name).join(', ') }) : t('knowledge.emptyNoRepository')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {connected ? (
-          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
-        ) : (
-          <Preformatted className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></Preformatted>
-        )}
-      </CardContent>
-    </Card>
-  );
+  if (status.filled) return null;
+  return <PrefillCard status={status} />;
 }
 
 /**
@@ -408,86 +383,43 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
  * card linking to the fill choices. The words are the engine's own and say nothing about this product.
  */
 export function Overview({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
+  useTabTitle(status.product.name);
+  return <PageSection data-testid="overview"><PageHeader className="mb-6"><PageTitle>{status.product.name}</PageTitle></PageHeader><FillCard status={status} refresh={refresh} /></PageSection>;
+}
+
+function PrefillCard({ status }: { status: WikiStatus }): ReactElement {
   const { t } = useTranslation();
+  return (
+      <Card className="mb-8" data-testid="prefill-card">
+        <CardHeader>
+          <CardTitle>{t('knowledge.prefill.created')}</CardTitle>
+          <CardDescription>{t(status.repositories.length > 0 ? 'knowledge.prefill.connected' : 'knowledge.prefill.noCode')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Paragraph>{t('knowledge.prefill.empty')}</Paragraph>
+          <Button variant="default" size="default" data-testid="prefill-open" onClick={() => navigateTo(appPath(WIKI_FILL))}>{t('knowledge.prefill.open')}</Button>
+        </CardContent>
+      </Card>
+  );
+}
+
+/** The empty product's next step opens the consent surface; it never starts a run. */
+function PrefillHome({ status }: { status: WikiStatus }): ReactElement {
   useTabTitle(status.product.name);
   return (
-    <PageSection data-testid="overview">
-      <PageHeader className="mb-6">
-        <PageTitle>{status.product.name}</PageTitle>
-        <Paragraph className="text-secondary" data-testid="home-intro">{t('knowledge.homeIntro.summary')}</Paragraph>
-      </PageHeader>
-      <PageSection className="mb-8" data-testid="home-guidance">
-        <SectionTitle className="mt-0">{t('knowledge.homeIntro.canTitle')}</SectionTitle>
-        <BulletList>
-          <ListItem>{t('knowledge.homeIntro.canStart')}</ListItem>
-          <ListItem>{t('knowledge.homeIntro.canOpen')}</ListItem>
-          <ListItem>{t('knowledge.homeIntro.canAsk')}</ListItem>
-        </BulletList>
-        <SectionTitle>{t('knowledge.homeIntro.howTitle')}</SectionTitle>
-        <Paragraph>{t('knowledge.homeIntro.howRead')}</Paragraph>
-        <Paragraph>{t('knowledge.homeIntro.howStages')}</Paragraph>
-        <Paragraph className="mb-0">{t('knowledge.homeIntro.howAgent')}</Paragraph>
-      </PageSection>
-      <FillCard status={status} refresh={refresh} />
+    <PageSection data-testid={status.manifest === 'not-filled' ? 'not-filled' : 'no-manifest'}>
+      <PageHeader className="mb-6"><PageTitle>{status.product.name}</PageTitle></PageHeader>
+      <PrefillCard status={status} />
     </PageSection>
   );
 }
 
-/** The guide every product without a starter set needs: the file in the repository the release is published from. */
-const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
-
-/** A product with no kinds manifest: what the file is and where it comes from, and the guide that writes one. */
 export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
-  useTabTitle(status.product.name);
-  return (
-    <PageSection data-testid="no-manifest">
-      <PageHeader className="mb-6">
-        <PageTitle>{status.product.name}</PageTitle>
-      </PageHeader>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('knowledge.noManifestTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.noManifest', { file: status.manifestFile })}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Paragraph>{t('knowledge.noManifestScratch', { file: status.manifestFile })}</Paragraph>
-          <Paragraph className="mb-0">
-            <TextLink href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.noManifestGuide')}</TextLink>
-          </Paragraph>
-        </CardContent>
-      </Card>
-    </PageSection>
-  );
+  return <PrefillHome status={status} />;
 }
 
-/**
- * A product whose manifest stands in its repository and whose graph no fill has read yet: the newcomer's first page.
- * It says what happened, that nothing is read yet, and the next step — Fill is offered and never started here.
- */
-export function NewHome({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
-  useTabTitle(status.product.name);
-  return (
-    <PageSection data-testid="not-filled">
-      <PageHeader className="mb-6">
-        <PageTitle>{status.product.name}</PageTitle>
-      </PageHeader>
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>{t('knowledge.notFilledTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.notFilledWhat', { file: status.manifestFile })}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Paragraph>{t('knowledge.notFilledNext')}</Paragraph>
-          <Paragraph className="mb-0">
-            <TextLink href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.notFilledGuide')}</TextLink>
-          </Paragraph>
-        </CardContent>
-      </Card>
-      <FillCard status={status} refresh={refresh} />
-    </PageSection>
-  );
+export function NewHome({ status }: { status: WikiStatus; refresh: () => void }): ReactElement {
+  return <PrefillHome status={status} />;
 }
 
 /** The sources a filter keeps: those whose title or path holds the words, in any case. */
@@ -616,16 +548,6 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const { data, error } = useRead<CatalogView>('catalogue', version, getCatalog);
   const [filter, setFilter] = useState('');
   const [view, setView] = useState('table');
-  const [jumpTo, setJumpTo] = useState<string | null>(null);
-  useEffect(() => {
-    if (jumpTo === null || view !== 'table') return;
-    // Radix mounts the newly selected panel after the view change.
-    const frame = requestAnimationFrame(() => {
-      document.getElementById(jumpTo)?.scrollIntoView?.({ block: 'start' });
-      setJumpTo(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [jumpTo, view]);
   if (error !== null && data === null) {
     return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   }
@@ -653,12 +575,9 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
   const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
   const kindId = (kind: string): string => `catalogue-kind-${encodeURIComponent(kind)}`;
-  const kindContents = (kinds: CatalogKindView[]) => kinds.map((kind) => ({ id: kindId(kind.kind), label: nameOf(kind) }));
   const contents = sections.map((section) => ({
     id: sectionId(section.key), label: section.name,
-    children: [...kindContents(section.kinds), ...section.subgroups.map((subgroup) => ({
-      id: sectionId(subgroup.key), label: subgroup.name, children: kindContents(subgroup.kinds),
-    }))],
+    children: section.subgroups.map((subgroup) => ({ id: sectionId(subgroup.key), label: subgroup.name })),
   }));
   const producerWords = (kind: CatalogKindView): string => pluginNames(kind).join(', ') || t('knowledge.catalogueNoPlugin');
   const stateOf = (kind: CatalogKindView): string => kind.turn === 'failed' || kind.turn === 'blocked' || kind.turn === 'cancelled' ? 'failed' : kind.state;
@@ -683,9 +602,9 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             <TableCell className="align-top wrap-anywhere">
               <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink>
             </TableCell>
-            <TableCell className="align-top">{kind.descriptions?.[language] ?? <Text className="text-muted">–</Text>}<KindSources kind={kind} compact /></TableCell>
+            <TableCell className="align-top"><Text className="line-clamp-2">{kind.descriptions?.[language] ?? <Text className="text-muted">–</Text>}</Text></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
-              {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)} title={nameOf(kind)}>{kind.count}</KLink> : kind.count}
+              {kind.count}
               {kind.statements !== undefined && <Text className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</Text>}
             </TableCell>
             <TableCell className="align-top" data-testid="catalogue-stage">{producerWords(kind)}</TableCell>
@@ -705,7 +624,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</Paragraph>
       </PageHeader>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
-      <Stack layout="catalogue">
+      <Stack layout={view === 'table' ? 'catalogue' : undefined} data-testid="catalogue-layout">
       <Stack className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
@@ -726,12 +645,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </PageSection>
       ))}
         </TabsContent>
-        <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
+        <TabsContent value="graph"><KindGraph catalog={data} /></TabsContent>
       </Tabs>
       </Stack>
-      <ContentsSidebar data-testid="catalogue-contents">
-        <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
-      </ContentsSidebar>
+      {view === 'table' && <ResponsiveContents title={t('knowledge.catalogueViews.contents')} items={contents} />}
       </Stack>
     </PageSection>
   );

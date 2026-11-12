@@ -95,12 +95,12 @@ describe('a product that is only a tracker', () => {
     const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
     let owner: DatabaseOwner | undefined;
     try {
-      // Startup publishes the validated declarations; no entity exists before the fill or explicit authorship.
+      // Startup publishes catalogue and template declarations; authored tracker entities still wait for the person.
       const before = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
       expect(before.status, JSON.stringify({ body: await before.clone().text(), errors })).toBe(200);
       const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
-      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
+      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 1 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:00000000-0000-4000-8000-000000000001')}&full=1`, { headers: { accept: 'application/json' } });
       expect(unopened.status, JSON.stringify({ body: await unopened.text(), errors })).toBe(404);
@@ -116,7 +116,7 @@ describe('a product that is only a tracker', () => {
       // because the manifest binds no code kind.
       expect(filled.units.map((unit) => unit.stageId)).toEqual(['plugin-turns']);
       const unimported = await (await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } })).json() as { kinds: { kind: string; count: number }[] };
-      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
+      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 1 }]);
       const manifest = readKinds(product);
       if (!manifest.present) throw new Error('the tracker manifest is absent');
       await publishFixtureTemplate(owner, product, 'templates/item.liquid');

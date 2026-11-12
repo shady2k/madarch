@@ -342,13 +342,17 @@ describe('the product settings page', () => {
     const row = { role: 'node' as const, id: 'n1', kind: 'code.database', label: 'invented', verdict: 'invalid' as const, reason: 'the database has no path', rule: 'node-database', source: 'rule' as const };
     const urls: string[] = [];
     const posts: unknown[] = [];
+    let finishSavedRead: (() => void) | undefined;
+    const savedRead = new Promise<void>((resolve) => { finishSavedRead = resolve; });
+    let budgets = { itemsPerRun: 400, modelCallsPerRun: 4 };
     (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST' && url.includes('/api/graph-verdicts')) { posts.push(JSON.parse(String(init.body))); return json({ budgets: JSON.parse(String(init.body)) }); }
+      if (init?.method === 'POST' && url.includes('/api/graph-verdicts')) { budgets = JSON.parse(String(init.body)); posts.push(budgets); return json({ budgets }); }
       if (url.includes('/api/graph-verdicts')) {
         urls.push(url);
-        if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 3, judgeItems: 0, modelCalls: 0 }, report, total: 0, offset: 0, limit: 0, rows: [] });
+        if (url.includes('peek=1') && posts.length > 0) await savedRead;
+        if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets, cached: true, metrics: { checked: 0, reused: 3, judgeItems: 0, modelCalls: 0 }, report, total: 0, offset: 0, limit: 0, rows: [] });
         // The view's table asks for the rows that are not valid, one page at a time.
-        return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: false, metrics: { checked: 1, reused: 3, judgeItems: 1, modelCalls: 0 }, report: { ...report, totals: { ...report.totals, items: 4 } }, total: 1, offset: 0, limit: 100, rows: [row] });
+        return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets, cached: false, metrics: { checked: 1, reused: 3, judgeItems: 1, modelCalls: 0 }, report: { ...report, totals: { ...report.totals, items: 4 } }, total: 1, offset: 0, limit: 100, rows: [row] });
       }
       if (url.endsWith('/api/product-settings')) return json(settings());
       if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
@@ -378,11 +382,23 @@ describe('the product settings page', () => {
     setInput.call(items, '50'); items.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: '50' }));
     setInput.call(calls, '2'); calls.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: '2' }));
     await until(() => items.value === '50' && calls.value === '2', 'the budgets typed');
+    const runButton = page.querySelector('[data-testid=settings-verdicts-run]') as HTMLButtonElement;
+    const disabledChanges: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => disabledChanges.push(...records));
+    observer.observe(runButton, { attributes: true, attributeFilter: ['disabled'], attributeOldValue: true });
     (page.querySelector('[data-testid=settings-verdicts-save]') as HTMLElement).click();
     await until(() => posts.length === 1, 'the budgets saved');
     expect(posts[0]).toEqual({ itemsPerRun: 50, modelCallsPerRun: 2 });
     expect(urls.some((url) => url.includes('force=1'))).toBe(false);
+    await until(() => urls.filter((url) => url.includes('peek=1')).length === 2, 'the saved budgets read again');
+    await new Promise((flush) => setTimeout(flush, 0));
+    disabledChanges.push(...observer.takeRecords());
+    observer.disconnect();
+    finishSavedRead!();
+    expect(disabledChanges.filter((record) => record.oldValue !== null)).toHaveLength(0);
+    expect(runButton.disabled).toBe(true);
     await until(() => (page.querySelector('[data-testid=settings-verdicts-run]') as HTMLButtonElement).disabled === false, 'the run button ready again');
+    await until(() => items.value === '50' && calls.value === '2', 'the saved budgets shown after reload');
     (page.querySelector('[data-testid=settings-verdicts-run]') as HTMLElement).click();
     await until(() => urls.some((url) => url.includes('force=1') && url.includes('verdict=non-valid') && url.includes('limit=100')), 'the run');
     await until(() => page.querySelector('[data-testid=settings-verdicts-total]')!.textContent === '4', 'the new report');
@@ -440,7 +456,7 @@ describe('a failure is told once, in the reader\'s language', () => {
     const note = into(createElement(FailureNote, { scope: 'writer', code: 'units', message: detail }));
     await until(() => note.querySelector('[data-testid=failure-note]') !== null, 'the note');
     expect(note.querySelector('[data-testid=failure-note] p')!.textContent).toBe('Часть страниц не написана. Список ниже говорит, почему, для каждой страницы.');
-    expect(note.querySelector('a')!.textContent).toBe('Открыть «Проблемы»');
+    expect(note.querySelector('a')!.textContent).toBe('Проблемы');
     rendered?.unmount();
     document.body.innerHTML = '';
     const plain = into(createElement(FailureNote, { scope: 'fill', code: 'unheard-of', message: 'something odd' }));

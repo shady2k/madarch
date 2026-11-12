@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { KindPage } from './pages.js';
 import { KindDetails } from './kind-details.js';
+import { KindLabels } from './kind-names.js';
 import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import type { CatalogKindView, CatalogView } from './types.js';
 
@@ -47,9 +48,10 @@ const CATALOG: CatalogView = {
     kind('doc.term', {
       labels: { en: { one: 'Term', many: 'Terms' } }, descriptions: { en: 'A word with one agreed meaning.' },
       sources: ['https://example.test/standard'],
-      plugins: ['glossary'],
+      plugins: ['glossary'], pluginFolders: ['plugins/glossary'],
       derivesFrom: ['code.file'], state: 'partial', turn: 'failed',
-      fields: [{ name: 'definition', type: 'text' }, { name: 'parent', type: 'text', nullable: true, reference: 'doc.term' }],
+      declaration: { file: 'madarch/kinds.yaml', line: 12 },
+      fields: [{ name: 'definition', labels: { en: 'Definition', ru: 'Определение' }, declaration: { file: 'madarch/kinds.yaml', line: 18 }, meaning: 'The words that define the term.' }, { name: 'parent', labels: { en: 'Broader term' }, meaning: 'The term this one belongs under.', reference: 'doc.term' }],
       relations: [{ direction: 'out', name: 'defined_in', kind: 'code.file' }, { direction: 'in', name: 'uses', kind: 'doc.rule' }],
     }),
     kind('doc.rule', { derivesFrom: ['doc.term'] }),
@@ -76,13 +78,22 @@ test('the kind page combines its declaration, both relation directions, focused 
   const page = into(createElement(KindPage, { kind: 'doc.term', version: 0 }));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null && page.querySelector('[data-entity="doc.term:order"]') !== null, 'details and records');
   expect(page.querySelectorAll('h1')).toHaveLength(1);
+  expect(page.querySelector('[data-testid="kind-facts"]')!.textContent).toContain('1');
+  const sections = [...page.querySelector('[data-testid="kind-details"]')!.children];
+  expect(sections.indexOf(page.querySelector('[data-testid="kind-facts"]')!)).toBeLessThan(sections.indexOf(page.querySelector('[data-testid="kind-fields"]')!));
   expect(page.querySelector('[data-testid="kind-meaning"]')!.textContent).toBe('A word with one agreed meaning.');
   expect(page.querySelector('a[href="https://example.test/standard"]')).not.toBeNull();
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('definition');
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('text | null');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Definition');
+  expect(page.querySelector('[data-testid="kind-declaration"]')?.textContent).toBe('madarch/kinds.yaml:12');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('madarch/kinds.yaml:18');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('The words that define the term.');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).not.toContain('text | null');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Broader term');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).not.toContain('parent');
+  expect(page.querySelector('[data-kind="doc.term"] [data-testid="dependency-plugin"]')!.textContent).toBe('plugins/glossary');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="out"]')!.textContent).toContain('defined_in →');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="in"]')!.textContent).toContain('← uses');
-  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('glossary');
+  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('plugins/glossary');
   expect(page.querySelector('[data-testid="kind-state"]')!.textContent).toBe('Failed');
   expect([...page.querySelectorAll('[data-testid="dependency-node"]')].map((node) => node.getAttribute('data-kind'))).toEqual(['code.file', 'doc.term', 'doc.rule']);
   expect(page.querySelector('[data-testid="dependency-node"][data-kind="doc.term"]')!.getAttribute('data-chosen')).toBe('true');
@@ -101,12 +112,55 @@ test('records remain usable when the catalogue is unavailable', async () => {
 });
 
 test('a catalogue-only kind shows details without inventing fields or targets', async () => {
-  stub({ ...CATALOG, kinds: [kind('member', { page: false, fields: [], relations: [{ direction: 'out', name: 'contains' }] })] });
+  stub({ ...CATALOG, kinds: [kind('member', { page: false, fields: [{ name: 'public', labels: { en: 'Public property' } }], relations: [{ direction: 'out', name: 'contains' }] })] });
   const page = into(createElement(KindDetails, { kind: 'member', version: 0 }));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'member declaration');
   expect(page.querySelector('h1')).toBeNull();
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('No fields are declared.');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Public property');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('No meaning is published for this property.');
   expect(page.querySelector('[data-testid="kind-relations"]')!.textContent).toContain('contains →');
   expect(page.querySelector('[data-testid="kind-relations"] a')).toBeNull();
   expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('No enabled producer plugin');
 });
+
+test('field labels use the selected Russian publication label without engine keys', async () => {
+  await setWikiLanguage('ru');
+  try {
+    stub(CATALOG);
+    const page = into(createElement(KindDetails, { kind: 'doc.term', version: 0 }));
+    await until(() => page.querySelector('[data-testid="kind-fields"]') !== null, 'Russian fields');
+    const fields = page.querySelector('[data-testid="kind-fields"]')!;
+    expect(fields.textContent).toContain('Определение');
+    expect(fields.textContent).toContain('Поле без перевода');
+    expect(fields.textContent).not.toContain('definition');
+    expect(fields.textContent).not.toContain('parent');
+    expect(fields.textContent).toContain('madarch/kinds.yaml:18');
+  } finally {
+    await setWikiLanguage('en');
+  }
+});
+
+test('person-origin kind pages include their declaration and catalogue-only kinds name absent producers', async () => {
+  stub({ ...CATALOG, kinds: [kind('member', { page: false, fields: [], relations: [] })] });
+  const page = into(createElement(KindLabels.Provider, { value: [{ kind: 'member', source: 'graph', count: 0, single: false, origins: ['person'] }] }, createElement(KindPage, { kind: 'member', version: 0 })));
+  await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'authored declaration');
+  expect(page.querySelector('[data-testid="authored-kind-page"]')).not.toBeNull();
+  expect(page.querySelector('[data-testid="kind-producer"]')?.textContent).toBe('No enabled producer plugin');
+  expect(localeKeyIn(renderedText(page))).toBeUndefined();
+});
+for (const language of ['en', 'ru'] as const) {
+  test(`built-in relation labels on a kind declaration are readable in ${language}`, async () => {
+    await setWikiLanguage(language);
+    stub({ ...CATALOG, kinds: [kind('code.file', { relations: [
+      { direction: 'out', name: 'contains' }, { direction: 'in', name: 'partOf' },
+      { direction: 'out', name: 'code.contains' },
+    ] })] });
+    const page = into(createElement(KindDetails, { kind: 'code.file', version: 1 }));
+    await until(() => page.querySelector('[data-testid="kind-relations"]') !== null, 'translated relations');
+    const text = page.querySelector('[data-testid="kind-relations"]')!.textContent!;
+    expect(text).toContain(language === 'ru' ? 'содержит →' : 'contains →');
+    expect(text).toContain(language === 'ru' ? '← часть' : '← part of');
+    expect(text).not.toContain('code.contains');
+    await setWikiLanguage('en');
+  });
+}

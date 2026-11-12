@@ -1,10 +1,14 @@
 import { PageSection, Paragraph, Text } from '@/components/ui/typography.js';
 import { GraphViewport, GraphCanvas, GraphBox, GraphMetadata, GraphEdges, GraphEdge, graphLinkClass } from '@/components/ui/graph.js';
 /** Shared catalogue graph: manifest dependencies, fill states, and kind inspection. */
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { addressOfKind } from './routes.js';
 import { KLink } from './blocks.js';
+import { Button } from '@/components/ui/button.js';
+import { Input } from '@/components/ui/input.js';
+import { Stack } from '@/components/ui/typography.js';
+import { areaOf } from './catalog-area.js';
 import { Badge } from '@/components/ui/badge.js';
 import type { CatalogKindView, CatalogView } from './types.js';
 
@@ -80,34 +84,28 @@ export function graphStateOf(kind: CatalogKindView, filling: boolean): GraphStat
 
 /** One box in the graph: its entity's name, its state and the kinds it needs. */
 const BOX_WIDTH = 208;
-const BOX_HEIGHT = 46;
+const BOX_HEIGHT = 96;
+const SECTION_HEIGHT = 96;
+const SECTION_ROW = SECTION_HEIGHT + 32;
 const GAP = 14;
 const COLUMN = BOX_WIDTH + 56;
 
-/** The chosen kind and its transitive dependencies and dependents, without unrelated siblings. */
-export function relatedKinds(kinds: readonly CatalogKindView[], chosen: string | null): Set<string> {
+/** Bounded dependency and dependent walks do not include unrelated siblings. */
+export function relatedKinds(kinds: readonly CatalogKindView[], chosen: string | null, steps: 1 | 2 = 1): Set<string> {
   const byKind = new Map(kinds.map((kind) => [kind.kind, kind]));
   const related = new Set<string>();
   if (chosen === null || !byKind.has(chosen)) return related;
   const dependents = new Map<string, string[]>();
   for (const kind of kinds) for (const dependency of kind.derivesFrom ?? []) {
-    const held = dependents.get(dependency) ?? [];
-    held.push(kind.kind);
-    dependents.set(dependency, held);
+    dependents.set(dependency, [...dependents.get(dependency) ?? [], kind.kind]);
   }
-  const walk = (neighbors: (id: string) => readonly string[]): void => {
-    const seen = new Set<string>();
-    const pending = [chosen];
-    while (pending.length > 0) {
-      const id = pending.pop()!;
-      if (seen.has(id) || !byKind.has(id)) continue;
-      seen.add(id);
-      related.add(id);
-      pending.push(...neighbors(id));
+  for (const neighbors of [(id: string) => byKind.get(id)?.derivesFrom ?? [], (id: string) => dependents.get(id) ?? []]) {
+    let pending = [chosen];
+    for (let step = 0; step <= steps; step++) {
+      for (const id of pending) if (byKind.has(id)) related.add(id);
+      pending = pending.flatMap(neighbors);
     }
-  };
-  walk((id) => byKind.get(id)?.derivesFrom ?? []);
-  walk((id) => dependents.get(id) ?? []);
+  }
   return related;
 }
 
@@ -120,66 +118,85 @@ export interface KindGraphProps {
 
 export function KindGraph({ catalog, filling = false, chosen = null, highlighted }: KindGraphProps): ReactElement {
   const { t, i18n } = useTranslation();
-  const viewport = useRef<HTMLDivElement>(null);
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  const { nodes, layers, cycles } = graphLayers(catalog.kinds);
-  const active = new Set([...relatedKinds(catalog.kinds, chosen), ...highlighted ?? []]);
-  const place = new Map(nodes.map((node) => {
-    const column = layers[node.depth]!;
-    return [node.kind.kind, { x: node.depth * COLUMN + 8, y: column.indexOf(node.kind.kind) * (BOX_HEIGHT + GAP) + 8 }] as const;
+  const [selected, setSelected] = useState(chosen);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [steps, setSteps] = useState<1 | 2>(1);
+  useEffect(() => { setSelected(chosen); }, [chosen]);
+  const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? t('knowledge.kindDetails.untranslatedKind');
+  const sectionOf = (kind: CatalogKindView): string => {
+    let id = areaOf(catalog.groups, kind);
+    const seen = new Set<string>();
+    while (!seen.has(id)) {
+      seen.add(id);
+      const parent = catalog.groups.find((group) => group.group === id)?.parent;
+      if (parent === undefined) break;
+      id = parent;
+    }
+    return id;
+  };
+  const sections = [...new Set(catalog.kinds.map(sectionOf))].map((id) => ({
+    id, kinds: catalog.kinds.filter((kind) => sectionOf(kind) === id),
+    name: catalog.groups.find((group) => group.group === id)?.labels[language] ?? (id || t('knowledge.fillSetup.other')),
   }));
-  const height = Math.max(...layers.map((layer) => layer.length), 1) * (BOX_HEIGHT + GAP) + 16;
-  const width = Math.max(layers.length, 1) * COLUMN;
-  const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
-  const chosenX = chosen === null ? undefined : place.get(chosen)?.x;
-  useEffect(() => {
-    const frame = viewport.current;
-    if (frame === null || chosenX === undefined) return;
-    frame.scrollLeft = Math.max(0, chosenX + BOX_WIDTH / 2 - frame.clientWidth / 2);
-  }, [chosen, chosenX]);
-  return (
-    <PageSection data-testid="kind-graph">
-      {cycles.length > 0 && <Paragraph className="m-0 text-small" role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</Paragraph>}
-      {/* The graph is its own frame: on a phone it scrolls sideways inside the page, and the page itself never does. */}
-      <GraphViewport ref={viewport} data-testid="dependencies-graph">
-        <GraphCanvas width={width} height={height}>
-          <GraphEdges width={width} height={height}>
-            {nodes.flatMap((node) => node.derivesFrom.flatMap((dependency) => {
-              const from = place.get(dependency);
-              const to = place.get(node.kind.kind);
-              if (from === undefined || to === undefined) return [];
-              const x1 = from.x + BOX_WIDTH;
-              const y1 = from.y + BOX_HEIGHT / 2;
-              const x2 = to.x;
-              const y2 = to.y + BOX_HEIGHT / 2;
-              const middle = (x1 + x2) / 2;
-              return [<GraphEdge key={`${dependency}\0${node.kind.kind}`} d={`M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`} data-active={String(active.has(dependency) && active.has(node.kind.kind))} active={active.has(dependency) && active.has(node.kind.kind)} data-edge={`${dependency}->${node.kind.kind}`} />];
-            }))}
-          </GraphEdges>
-          {nodes.map((node) => (
-            <GraphBox
-              key={node.kind.kind}
-              active={active.has(node.kind.kind)} x={place.get(node.kind.kind)?.x} y={place.get(node.kind.kind)?.y} width={BOX_WIDTH} height={BOX_HEIGHT}
-              data-testid="dependency-node"
-              data-kind={node.kind.kind}
-              data-state={graphStateOf(node.kind, filling)}
-              data-turn={node.kind.turn ?? ''}
-              data-depth={node.depth}
-              data-chosen={String(chosen === node.kind.kind)}
-              data-related={String(active.has(node.kind.kind))}
-              data-highlighted={String(active.has(node.kind.kind))}
-            >
-              <KLink href={addressOfKind(node.kind.kind)} testId={`dependency-link-${node.kind.kind}`} className={graphLinkClass}>
-                <Text className="block truncate">{name(node.kind)}</Text>
-                <GraphMetadata>
-                  <Text data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(node.kind, filling)}`)}</Text>
-                  <Badge variant="outline" data-testid="dependency-count">{node.kind.count}</Badge>
-                </GraphMetadata>
-              </KLink>
-            </GraphBox>
-          ))}
-        </GraphCanvas>
-      </GraphViewport>
-    </PageSection>
-  );
+  const related = relatedKinds(catalog.kinds, selected, steps);
+  const visible = selected === null && highlighted !== undefined ? catalog.kinds.filter((kind) => highlighted.has(kind.kind)) : selected === null ? catalog.kinds.filter((kind) => sectionOf(kind) === expanded) : catalog.kinds.filter((kind) => related.has(kind.kind));
+  const { nodes, layers, cycles } = graphLayers(visible);
+  const expandedRow = Math.floor(sections.findIndex((section) => section.id === expanded) / 3);
+  const sectionY = (index: number): number => Math.floor(index / 3) * SECTION_ROW + 8
+    + (expandedRow >= 0 && Math.floor(index / 3) > expandedRow ? visible.length * (BOX_HEIGHT + GAP) : 0);
+  const boxes = selected === null && highlighted === undefined ? sections.flatMap((section, index) => [
+    { id: `section:${section.id}`, section, kind: undefined, x: (index % 3) * COLUMN + 8, y: sectionY(index), height: SECTION_HEIGHT },
+    ...visible.filter((kind) => sectionOf(kind) === section.id).map((kind, row) => ({ id: kind.kind, section: undefined, kind, x: (index % 3) * COLUMN + 8, y: sectionY(index) + SECTION_ROW + row * (BOX_HEIGHT + GAP), height: BOX_HEIGHT })),
+  ]) : nodes.map((node) => ({ id: node.kind.kind, section: undefined, kind: node.kind, x: node.depth * COLUMN + 8, y: layers[node.depth]!.indexOf(node.kind.kind) * (BOX_HEIGHT + GAP) + 8, height: BOX_HEIGHT }));
+  const place = new Map(boxes.map((box) => [box.id, box]));
+  const byKind = new Map(catalog.kinds.map((kind) => [kind.kind, kind]));
+  const edges = new Map<string, { from: string; to: string; count: number }>();
+  for (const kind of catalog.kinds) for (const dependency of kind.derivesFrom ?? []) {
+    const source = byKind.get(dependency);
+    if (source === undefined) continue;
+    const from = place.has(dependency) ? dependency : `section:${sectionOf(source)}`;
+    const to = place.has(kind.kind) ? kind.kind : `section:${sectionOf(kind)}`;
+    if (from === to || !place.has(from) || !place.has(to)) continue;
+    const id = `${from}->${to}`;
+    edges.set(id, { from, to, count: (edges.get(id)?.count ?? 0) + 1 });
+  }
+  const width = Math.max(...boxes.map((box) => box.x + COLUMN), COLUMN);
+  const edgeLabels: { x: number; y: number }[] = [];
+  const height = Math.max(...boxes.map((box) => box.y + box.height + 24), 240);
+  return <PageSection data-testid="kind-graph">
+    <Stack className="mb-3 flex flex-wrap items-center gap-2">
+      <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t('knowledge.dependencies.search')} placeholder={t('knowledge.dependencies.search')} data-testid="graph-search" className="max-w-full sm:w-72" />
+      <Button size="sm" onClick={() => { setSelected(null); setExpanded(null); setQuery(''); }}>{t('knowledge.dependencies.overview')}</Button>
+      {selected !== null && <><Button size="sm" aria-pressed={steps === 1} onClick={() => setSteps(1)}>{t('knowledge.dependencies.oneStep')}</Button><Button size="sm" aria-pressed={steps === 2} data-testid="graph-two-steps" onClick={() => setSteps(2)}>{t('knowledge.dependencies.twoSteps')}</Button></>}
+    </Stack>
+    {query.trim() !== '' && <Stack className="mb-3 flex max-h-48 flex-wrap gap-2 overflow-auto" data-testid="graph-search-results">{catalog.kinds.filter((kind) => `${kind.kind} ${name(kind)}`.toLowerCase().includes(query.toLowerCase())).map((kind) => <Button key={kind.kind} size="sm" onClick={() => { setSelected(kind.kind); setQuery(''); }}>{name(kind)}</Button>)}</Stack>}
+    {cycles.length > 0 && <Paragraph role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</Paragraph>}
+    <GraphViewport focus={selected === null || !place.has(selected) ? undefined : { ...place.get(selected)!, width: BOX_WIDTH }} className={selected === null ? undefined : 'max-h-96'} data-testid="dependencies-graph" key={`${selected ?? ''}:${expanded ?? ''}:${steps}`}>
+      <GraphCanvas width={width} height={height}>
+        <GraphEdges width={width} height={height}>
+          {[...edges].map(([id, edge]) => {
+            const from = place.get(edge.from)!; const to = place.get(edge.to)!;
+            const x1 = from.x + BOX_WIDTH; const y1 = from.y + from.height / 2;
+            const x2 = to.x + BOX_WIDTH; const y2 = to.y + to.height / 2;
+            const targetGutter = x2 + 28;
+            const routeY = from.y + from.height + GAP / 2;
+            const labelX = x1 + 28;
+            let labelY = (y1 + y2) / 2;
+            while (edgeLabels.some((held) => held.x === labelX && Math.abs(held.y - labelY) < 20)) labelY += 20;
+            edgeLabels.push({ x: labelX, y: labelY });
+            return <GraphEdge key={id} d={`M ${x1} ${y1} L ${labelX} ${y1} L ${labelX} ${labelY} L ${labelX} ${routeY} L ${targetGutter} ${routeY} L ${targetGutter} ${y2} L ${x2} ${y2}`} active={selected !== null || highlighted !== undefined} data-active={String(selected !== null || (highlighted?.has(edge.from) === true && highlighted.has(edge.to)))} data-edge={id} data-count={edge.count} label={edge.count > 1 || edge.from.startsWith('section:') || edge.to.startsWith('section:') ? String(edge.count) : undefined} labelX={labelX} labelY={labelY} />;
+          })}
+        </GraphEdges>
+        {boxes.map((box) => <GraphBox key={box.id} x={box.x} y={box.y} width={BOX_WIDTH} height={box.height} active={selected === box.id || highlighted?.has(box.id) === true} data-testid={box.kind === undefined ? 'dependency-section' : 'dependency-node'} data-section={box.section?.id} data-kind={box.kind?.kind} data-chosen={String(selected === box.id)} data-highlighted={String(selected === box.id || highlighted?.has(box.id) === true)} data-turn={box.kind?.turn ?? ''} data-state={box.kind === undefined ? undefined : graphStateOf(box.kind, filling)}>
+          {box.section !== undefined ? <Button size="content" className="h-full w-full flex-col items-start justify-center whitespace-normal px-2 py-1" aria-expanded={expanded === box.section.id} onClick={() => setExpanded(expanded === box.section.id ? null : box.section.id)}><Text className="block max-w-full text-left">{box.section.name}</Text><GraphMetadata>{t('knowledge.catalogueKinds', { count: box.section.kinds.length })} · {t('knowledge.catalogueEntities', { count: box.section.kinds.reduce((sum, kind) => sum + kind.count, 0) })}</GraphMetadata></Button> : <Stack className="px-2 py-1">
+            <Button size="content" className="block max-w-full whitespace-normal text-left" onClick={() => setSelected(box.id)}>{name(box.kind!)}</Button>
+            <GraphMetadata><Text data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(box.kind!, filling)}`)}</Text><KLink href={addressOfKind(box.id)} className={graphLinkClass} testId={`dependency-link-${box.id}`}><Badge variant="outline" data-testid="dependency-count">{box.kind!.count}</Badge></KLink></GraphMetadata>
+            {(box.kind!.pluginFolders ?? []).length > 0 && <Text className="block truncate text-small text-muted" data-testid="dependency-plugin">{box.kind!.pluginFolders!.join(', ')}</Text>}
+          </Stack>}
+        </GraphBox>)}
+      </GraphCanvas>
+    </GraphViewport>
+  </PageSection>;
 }

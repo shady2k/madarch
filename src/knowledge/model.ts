@@ -8,7 +8,7 @@ type GuidePageData = Record<string, unknown>;
  * app holds no knowledge of any kind and draws only these shapes.
  */
 import type { RefreshPlan } from '../loop/plan.js';
-import type { FieldDecl, Finding } from '../product/manifest/kinds.js';
+import type { Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
@@ -476,8 +476,10 @@ export interface CatalogKindView {
   labels?: Record<string, { one: string; many: string }>;
   /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
   descriptions?: Record<string, string>;
-  /** The typed contract, exactly as the product declares it. */
-  fields?: readonly FieldDecl[];
+  /** The published manifest location of this kind. */
+  declaration?: { file: string; line: number };
+  /** The published page properties, in details order, with meanings only where a producer declares them. */
+  fields?: readonly { name: string; labels?: Readonly<Record<string, string>>; meaning?: string; reference?: string; declaration?: { file: string; line: number } }[];
   /** Both directions of declared relations; a catalogue constraint may leave the other kind unspecified. */
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   /** The standards or documents the kind declaration cites. */
@@ -533,7 +535,7 @@ export interface KindEstimate {
 }
 
 /** The catalogue list omits declaration details, acquired by a single-kind request. */
-export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources' | 'pluginFolders'>[] };
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources' | 'pluginFolders' | 'declaration'>[] };
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
 export interface CatalogView {
@@ -648,9 +650,12 @@ export interface FillStepView {
 /** The newest run of the store's trace: its wall clock, its spans and its steps. */
 export interface FillRunView {
   readonly runId: string;
-  /** When the run's first span started and its last ended, as ISO instants. */
+  readonly state: string;
+  /** Null denotes a whole fill; kinds are the resolved selection in dependency order. */
+  readonly selection?: { readonly kinds: readonly string[]; readonly vertex?: string } | null;
+  /** Persisted creation time, and last transition time only once the run ended. */
   readonly startedAt: string;
-  readonly finishedAt: string;
+  readonly finishedAt?: string;
   readonly wallMs: number;
   readonly spans: number;
   /** The span names that took the most time of their own, the slowest first. */

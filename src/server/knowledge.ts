@@ -9,6 +9,7 @@
  * after each commit, and a comment now and then so a quiet product keeps its
  * connection.
  */
+import { resolve } from 'node:path';
 import { AuthoredRefusal } from '../graph/authored.js';
 import { catalogSummary } from '../knowledge/catalog-view.js';
 import { languageOf } from '../knowledge/blocks.js';
@@ -229,7 +230,7 @@ export function createKnowledgePart(
       const kind = new URL(request.url).searchParams.get('kind');
       if (kind === null) return { response: json(200, catalogSummary(catalog)) };
       const detail = catalog.kinds.find((entry) => entry.kind === kind);
-      if (detail === undefined) return refused(404, { field: 'kind', message: `the manifest declares no kind "${kind}"` });
+      if (detail === undefined) return refused(404, { field: 'kind', message: `${resolve(product.folder, 'madarch/kinds.yaml')}:1: the manifest declares no kind "${kind}"` });
       return { response: json(200, detail) };
     }),
     search: guarded('search the wiki', async (request) => {
@@ -351,7 +352,7 @@ export function createKnowledgePart(
       const query = new URL(request.url).searchParams;
       const runId = query.get('run');
       const run = await product.runView(runId === null || runId === '' ? undefined : runId);
-      if (run === null) return refused(404, { message: 'the store holds no trace: a fill writes one, and the run page reads it' });
+      if (run === null) return refused(404, { message: 'src/server/knowledge.ts:356: the store holds no such fill run' });
       return { response: json(200, { run }) };
     }),
     fill: guarded('start the fill', async (request) => {

@@ -16,6 +16,7 @@ import { generatedTableName, type EdgeContract, type FieldContract, type GraphCo
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
+import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
@@ -91,14 +92,11 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
     selectedKinds: [],
   });
-  const storage = manifestContractOf(manifest);
-  for (const kind of manifest.kinds.values()) {
-    const vertex = storage.vertex.find((held) => held.name === kind.name);
-    if (vertex === undefined) continue;
+  for (const vertex of graphContractOf(manifest).vertex) {
     const columns = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
     const types = Object.fromEntries(vertex.fields.map((field) => [field.name, field.type]));
-    reads.set(kind.name, { kind: kind.name, table: vertex.table, columns, types, key: vertex.key,
-      producers: Object.fromEntries(columns.map((field) => [field, plan.declaredProducers(kind.name, field)])),
+    reads.set(vertex.name, { kind: vertex.name, table: vertex.table, columns, types, key: vertex.key,
+      producers: Object.fromEntries(columns.map((field) => [field, plan.declaredProducers(vertex.name, field)])),
     });
   }
   return reads;
@@ -125,5 +123,6 @@ export function declaredEdgeReads(manifest: KindsManifest): Map<string, Generate
 
 /** The graph contract is exactly the product's ordinary declarations. */
 export function graphContractOf(manifest: KindsManifest): GraphContract {
-  return manifestContractOf(manifest);
+  const declared = manifestContractOf(manifest);
+  return { ...declared, vertex: [...declared.vertex.filter((kind) => !TEMPLATE_CONTRACT.vertex.some((one) => one.name === kind.name)), ...TEMPLATE_CONTRACT.vertex] };
 }

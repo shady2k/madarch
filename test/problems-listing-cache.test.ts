@@ -108,9 +108,6 @@ beforeAll(async () => {
       statements: [{ id: 'provider', text: 'Payments use a provider.', digest: 'provider-fixture', labels: [], mentions: [], grounds: ['code.service:absent-provider'], line: 1 }],
       mentions: [], links: [], findings: [], ungrounded: [],
     },
-  }, {
-    kind: 'template', key: { path: 'templates/domain.liquid' },
-    values: { template_parts: [{ type: 'block', name: 'properties', params: { title: 'Details' }, line: 1 }] },
   }]);
 }, 180_000);
 

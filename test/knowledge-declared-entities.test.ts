@@ -110,7 +110,7 @@ describe('a manifest declares one code kind and not the other', () => {
     // A file the fill read, by its entity id; the listing itself is the tree's (`code.contains`), which this manifest
     // does not declare, so the direct page is what proves the file page renders from the one declared kind.
     const page = await fetch(`${server!.url}/products/files-only/api/page?id=${encodeURIComponent('code.file:files-only/madarch/kinds.yaml')}&full=1`, { headers: { accept: 'application/json' } });
-    expect(page.status).toBe(200);
+    expect(page.status, JSON.stringify({ body: await page.clone().text(), errors })).toBe(200);
     for (const path of ['/api/status', '/api/catalog', '/api/glossary', '/api/documents']) {
       expect((await fetch(`${server!.url}/products/files-only${path}`, { headers: { accept: 'application/json' } })).status, path).toBe(200);
     }

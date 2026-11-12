@@ -1,5 +1,5 @@
-import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter } from '@/components/ui/dialog.js';
-import { ChoiceCard, DialogBody, ChoiceDescription } from '@/components/ui/choice-card.js';
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter, DialogBody } from '@/components/ui/dialog.js';
+import { ChoiceCard, ChoiceDescription } from '@/components/ui/choice-card.js';
 import { RadioGroup } from '@/components/ui/radio-group.js';
 import { RadioInput } from '@/components/ui/radio-input.js';
 import { Paragraph, Text } from '@/components/ui/typography.js';
@@ -34,7 +34,7 @@ export function RoleCard(): ReactElement | null {
   };
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !working) keep('everything'); }}>
-      <DialogContent aria-labelledby="role-card-title" aria-describedby="role-card-lead" data-testid="role-card" showCloseButton={false} onEscapeKeyDown={(event) => { if (working) event.preventDefault(); }}>
+      <DialogContent aria-labelledby="role-card-title" aria-describedby="role-card-lead" data-testid="role-card" closeLabel={t('knowledge.roles.skip')} closeDisabled={working} onEscapeKeyDown={(event) => { if (working) event.preventDefault(); }}>
         <DialogHeader><DialogTitle id="role-card-title">{t('knowledge.roles.cardTitle')}</DialogTitle></DialogHeader>
         <DialogBody data-testid="role-card-body">
           <DialogDescription id="role-card-lead">{t('knowledge.roles.cardLead')}</DialogDescription>
@@ -46,10 +46,10 @@ export function RoleCard(): ReactElement | null {
               </ChoiceCard>
             ))}
           </RadioGroup>
-          <Paragraph>{t('knowledge.roles.cardNote')}</Paragraph>
           {error !== null && <Paragraph role="alert" data-testid="role-error">{error}</Paragraph>}
         </DialogBody>
         <DialogFooter data-testid="role-card-footer">
+          <Paragraph>{t('knowledge.roles.cardNote')}</Paragraph>
           <Button variant="default" size="default" disabled={working} onClick={() => keep('everything')} data-testid="role-skip">{t('knowledge.roles.skip')}</Button>
           <Button variant="default" size="default" disabled={working} onClick={() => keep(picked)} data-testid="role-continue">{t('knowledge.roles.continue')}</Button>
         </DialogFooter>

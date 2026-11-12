@@ -12,7 +12,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { navGroups } from './app.js';
 import { GlossaryPage } from './glossary.js';
-import { CataloguePage, Overview } from './pages.js';
+import { CataloguePage, Overview, NewHome, EmptyHome } from './pages.js';
 import { Root as AppRoot } from './root.js';
 import type { CatalogView, Glossary, GlossaryTerm, KindSummary, WikiStatus } from './types.js';
 
@@ -69,12 +69,38 @@ const nestedGroups = [
 ];
 
 describe('the groups of the manifest', () => {
+  test('populated sections, sub-areas and kinds precede empty entries in declared order after each status update', () => {
+    const state = status({ groups: [
+      { group: 'empty', labels: { en: 'Empty' } },
+      { group: 'mixed', labels: { en: 'Mixed' } },
+      { group: 'mixed.empty', labels: { en: 'Empty child' }, parent: 'mixed' },
+      { group: 'mixed.full', labels: { en: 'Full child' }, parent: 'mixed' },
+      { group: 'full', labels: { en: 'Full' } },
+    ], kinds: [
+      kind({ kind: 'empty.row', group: 'empty', count: 0 }),
+      kind({ kind: 'mixed.zero', group: 'mixed', count: 0 }),
+      kind({ kind: 'mixed.first', group: 'mixed', count: 2 }),
+      kind({ kind: 'mixed.second', group: 'mixed', count: 1 }),
+      kind({ kind: 'child.zero', group: 'mixed.empty', count: 0 }),
+      kind({ kind: 'child.full', group: 'mixed.full', count: 1 }),
+      kind({ kind: 'full.row', group: 'full', count: 1 }),
+    ] });
+    const groups = navGroups(state);
+    expect(groups.map((entry) => entry.group)).toEqual(['mixed', 'full', 'empty']);
+    expect(groups[0]!.kinds.map((entry) => entry.kind)).toEqual(['mixed.first', 'mixed.second', 'mixed.zero', 'child.full', 'child.zero']);
+    expect(groups[0]!.subgroups.map((entry) => entry.group)).toEqual(['mixed.full', 'mixed.empty']);
+    const filled = navGroups({ ...state, kinds: state.kinds.map((entry) => ({ ...entry, count: 1 })) });
+    expect(filled.map((entry) => entry.group)).toEqual(['empty', 'mixed', 'full']);
+    expect(filled[1]!.subgroups.map((entry) => entry.group)).toEqual(['mixed.empty', 'mixed.full']);
+    expect(filled[1]!.kinds.map((entry) => entry.kind)).toEqual(['mixed.zero', 'mixed.first', 'mixed.second', 'child.zero', 'child.full']);
+  });
+
   test('catalogue-only and member kinds count in status without becoming navigation rows', () => {
     const state = status({ groups: [{ group: 'code', labels: { en: 'Code' } }], kinds: [
       kind({ kind: 'code.file', group: 'code', count: 2, page: true }),
       kind({ kind: 'code.member', group: 'code', count: 3, page: false }),
     ] });
-    const groups = navGroups(state, () => 0);
+    const groups = navGroups(state);
     expect(groups[0]!.total).toBe(5);
     expect(groups[0]!.kinds.map((row) => row.kind)).toEqual(['code.file']);
   });
@@ -90,7 +116,7 @@ describe('the groups of the manifest', () => {
         kind({ kind: 'code.dependency', group: 'operations.dependencies', count: 5 }),
       ],
     } as unknown as WikiStatus;
-    const groups = navGroups(state, () => 0);
+    const groups = navGroups(state);
     expect(groups.map((entry) => entry.group)).toEqual(['product', 'code', 'operations']);
     const code = groups[1]!;
     expect([code.total, code.kinds.map((entry) => entry.kind)]).toEqual([5, ['code.file', 'code.cycle']]);
@@ -115,11 +141,11 @@ describe('the groups of the manifest', () => {
         kind({ kind: 'domain', source: 'markdown', group: 'domains', count: 2 }),
       ],
     });
-    const groups = navGroups(state, () => 0);
+    const groups = navGroups(state);
     // The catalogue counts every entity of the parent's branch; a kind with a page of its own is not drawn as a row,
     // but its entities are neither lost from the parent's total (the review).
     expect(groups.map((entry) => entry.group)).toEqual(['business']);
-    expect(groups[0]!.subgroups.map((entry) => entry.group)).toEqual(['domains']);
+    expect(groups[0]!.subgroups.map((entry) => [entry.group, entry.total])).toEqual([['overview', 1], ['domains', 2]]);
     expect(groups[0]!.total).toBe(3);
   });
 
@@ -149,6 +175,30 @@ describe('the groups of the manifest', () => {
 });
 
 describe('the front page', () => {
+  for (const language of ['en', 'ru'] as const) for (const manifest of ['not-filled', 'no-manifest'] as const) test(`one truthful prefill card in ${language}, ${manifest}`, async () => {
+    await setWikiLanguage(language);
+    const posts: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string, options?: RequestInit) => { if (options?.method === 'POST') posts.push(url); return json({}); };
+    const page = into(createElement(manifest === 'not-filled' ? NewHome : EmptyHome, { status: status({ manifest }), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=prefill-card]') !== null, 'one prefill card');
+    expect(page.querySelectorAll('[data-testid=prefill-card]').length).toBe(1);
+    expect(page.querySelector('[data-testid=fill-card]')).toBeNull();
+    expect(page.textContent).toContain(language === 'ru' ? 'Граф пока пуст' : 'The graph is empty');
+    expect(page.textContent).not.toContain(language === 'ru' ? 'Код подключён' : 'Code connected');
+    const button = page.querySelector('[data-testid=prefill-open]')!;
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.textContent).toBe(language === 'ru' ? 'Заполнить…' : 'Fill…');
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    await until(() => window.location.pathname === '/fill', 'the fill choices');
+    expect(posts).toEqual([]);
+  });
+
+  test('connected code is stated only when the server lists a repository', async () => {
+    const page = into(createElement(NewHome, { status: status({ manifest: 'not-filled', repositories: [{ name: 'shop' }] as WikiStatus['repositories'] }), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=prefill-card]') !== null, 'prefill');
+    expect(page.textContent).toContain('Code connected');
+  });
+
   test('the product front holds no kind cards: the menu is the only list of kinds', async () => {
     const page = into(createElement(Overview, {
       status: status({ filled: true, home: 'product:shop', kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 2 })], groups: nestedGroups.slice(0, 1), writer: { state: 'idle', agent: null, units: [] } }),
@@ -161,6 +211,108 @@ describe('the front page', () => {
 });
 
 describe('the menu', () => {
+  test('a fill change reorders mounted sections and rows without losing empty entries', async () => {
+    let change: (() => void) | undefined;
+    const original = globalThis.EventSource;
+    class Events {
+      addEventListener(name: string, listener: () => void) { if (name === 'change') change = listener; }
+      close() {}
+    }
+    globalThis.EventSource = Events as unknown as typeof EventSource;
+    let filled = false;
+    const groups = [
+      { group: 'early', labels: { en: 'Early' }, open: true },
+      { group: 'late', labels: { en: 'Late' }, open: true },
+    ];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/status')) return json(status({ groups, kinds: [
+        kind({ kind: 'early.zero', group: 'early', count: filled ? 1 : 0 }),
+        kind({ kind: 'late.zero', group: 'late', count: filled ? 1 : 0 }),
+        kind({ kind: 'late.full', group: 'late', count: 1 }),
+      ] }));
+      if (url.endsWith('/api/products')) return json({ products: [] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    try {
+      const app = into(createElement(AppRoot));
+      const sections = () => [...app.querySelectorAll('[data-nav-group]')].map((entry) => entry.getAttribute('data-nav-group'));
+      const rows = () => [...app.querySelectorAll('[data-nav-group="late"] [data-nav-kind]')].map((entry) => entry.getAttribute('data-nav-kind'));
+      await until(() => sections().length === 2, 'the empty and populated sections');
+      expect(sections()).toEqual(['late', 'early']);
+      expect(rows()).toEqual(['late.full', 'late.zero']);
+      filled = true;
+      change!();
+      await until(() => sections()[0] === 'early', 'the filled sections in declared order');
+      expect(rows()).toEqual(['late.zero', 'late.full']);
+      expect(app.querySelector('[data-nav-kind="early.zero"]')!.getAttribute('data-empty')).toBe('false');
+    } finally {
+      globalThis.EventSource = original;
+    }
+  });
+
+  for (const phase of ['before fill', 'selective fill', 'after fill'] as const) test(`every declared section stays visible with its count and empty style ${phase}`, async () => {
+    const populated = phase === 'after fill';
+    const selected = phase !== 'before fill';
+    const groups = [
+      { group: 'alpha', labels: { en: 'Alpha' }, open: true },
+      { group: 'alpha.direct', labels: { en: 'Direct' }, parent: 'alpha' },
+      { group: 'alpha.empty', labels: { en: 'Empty child' }, parent: 'alpha' },
+      { group: 'beta', labels: { en: 'Beta' }, open: true },
+      { group: 'gamma', labels: { en: 'Catalogue only' }, open: true },
+      { group: 'vacant', labels: { en: 'No kinds' }, open: true },
+    ];
+    const kinds = [
+      kind({ kind: 'sample.direct', group: 'alpha.direct', count: selected ? 3 : 0 }),
+      kind({ kind: 'sample.other', group: 'beta', count: populated ? 2 : 0 }),
+      kind({ kind: 'sample.hidden', group: 'gamma', page: false, count: populated ? 4 : 0 }),
+    ];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/status')) return json(status({ filled: selected, groups, kinds }));
+      if (url.endsWith('/api/products')) return json({ products: [] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-testid=nav-scroll]') !== null, 'the sidebar');
+    const top = [...app.querySelectorAll('[data-nav-group]')];
+    expect(top.map((entry) => entry.getAttribute('data-nav-group'))).toEqual(['alpha', 'beta', 'gamma', 'vacant']);
+    const children = [...app.querySelectorAll('[data-nav-subgroup]')];
+    expect(children.map((entry) => entry.getAttribute('data-nav-subgroup'))).toEqual(['alpha.direct', 'alpha.empty']);
+    const totals = [selected ? 3 : 0, populated ? 2 : 0, populated ? 4 : 0, 0];
+    for (const [index, entry] of top.entries()) {
+      const trigger = entry.querySelector('[data-testid=nav-group]')!;
+      expect(trigger.querySelector('[data-testid=nav-group-count]')!.textContent).toBe(String(totals[index]));
+      expect(trigger.getAttribute('data-empty')).toBe(String(totals[index] === 0));
+      expect(trigger.classList.contains('opacity-60')).toBe(totals[index] === 0);
+      expect(trigger.classList.contains('text-muted')).toBe(totals[index] === 0);
+      expect(trigger.classList.contains('text-ink')).toBe(totals[index] !== 0);
+    }
+    for (const [index, entry] of children.entries()) {
+      const heading = entry.querySelector('[data-testid=nav-subgroup-count]')!.parentElement!;
+      const total = index === 0 && selected ? 3 : 0;
+      expect(heading.querySelector('[data-testid=nav-subgroup-count]')!.textContent).toBe(String(total));
+      expect(heading.getAttribute('data-empty')).toBe(String(total === 0));
+      expect(heading.classList.contains('opacity-60')).toBe(total === 0);
+    }
+    expect(app.querySelector('[data-nav-kind="sample.hidden"]')).toBeNull();
+    for (const name of ['sample.direct', 'sample.other']) {
+      const row = app.querySelector(`[data-nav-kind="${name}"]`)!;
+      expect(row).not.toBeNull();
+      expect(row.getAttribute('data-empty')).toBe(String(name === 'sample.direct' ? !selected : !populated));
+      expect(row.classList.contains('opacity-60')).toBe(name === 'sample.direct' ? !selected : !populated);
+    }
+    for (const entry of app.querySelectorAll('.nav-link, .nav-group, [data-nav-subgroup] > div:first-child')) {
+      expect(entry.querySelector(':scope > svg[aria-hidden="true"]')).not.toBeNull();
+    }
+    const waiting = app.querySelector('[data-testid=nav-problems]')!;
+    expect(waiting.getAttribute('data-empty')).toBe('true');
+    expect(waiting.querySelector('[data-testid=nav-problems-count]')).toBeNull();
+  });
+
   test('with no fill the home is the introduction, even when the product files hold a home page', async () => {
     let askedPage = false;
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
@@ -174,7 +326,7 @@ describe('the menu', () => {
     };
     window.history.replaceState({}, '', '/');
     const app = into(createElement(AppRoot));
-    await until(() => app.querySelector('[data-testid=home-intro]') !== null, 'the introduction');
+    await until(() => app.querySelector('[data-testid=prefill-card]') !== null, 'the prefill card');
     expect(askedPage).toBe(false);
   });
 
@@ -204,13 +356,15 @@ describe('the menu', () => {
     const glossary = app.querySelector('[data-testid=nav-glossary]')!;
     expect(app.querySelector('[data-testid=catalogue-page] h1')!.textContent).toBe(catalogue.textContent);
     expect(catalogue.nextElementSibling).toBe(glossary);
-    expect(glossary.nextElementSibling).toBe(waiting);
+    const fill = app.querySelector('[data-testid=nav-fill]')!;
+    expect(glossary.nextElementSibling).toBe(fill);
+    expect(fill.nextElementSibling).toBe(waiting);
     const topLinks = [];
     for (let node = home; node !== waiting; node = node.nextElementSibling!) topLinks.push(node);
     expect(topLinks.map((node) => node.textContent)).toEqual(language === 'ru'
-      ? ['Главная', 'Каталог сущностей', 'Глоссарий']
-      : ['Home', 'Entity catalogue', 'Glossary']);
-    expect(topLinks.map((node) => node.getAttribute('href'))).toEqual(['/', '/catalogue', '/glossary']);
+      ? ['Главная', 'Каталог сущностей', 'Глоссарий', 'Заполнение']
+      : ['Home', 'Entity catalogue', 'Glossary', 'Fill']);
+    expect(topLinks.map((node) => node.getAttribute('href'))).toEqual(['/', '/catalogue', '/glossary', '/fill']);
     expect(glossary.querySelector('svg')).not.toBeNull();
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();

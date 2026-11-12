@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { RELATION_LABELS } from '../../../src/knowledge/relation-labels.js';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
 import { i18n, languageStorageKey, normalizeLanguage, setWikiLanguage } from './i18n.js';
@@ -197,4 +198,14 @@ describe('wiki internationalization', () => {
     expect(relativeTime(new Date(now - 5 * 60_000).toISOString(), 'en', now)).toContain('5 min');
     expect(relativeTime(new Date(now - 5 * 60_000).toISOString(), 'ru', now)).toContain('5 мин');
   });
+});
+
+ test('every catalogue relation has a direct nonempty label in both languages', async () => {
+  const { CATALOG_RELATIONS } = await import('../../../src/knowledge/starter-catalog.js');
+  for (const labels of Object.values(RELATION_LABELS)) {
+    for (const relation of Object.keys(CATALOG_RELATIONS)) {
+      expect(labels?.[relation], relation).toBeString();
+      expect(labels?.[relation]?.trim().length, relation).toBeGreaterThan(0);
+    }
+  }
 });

@@ -1,6 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { pluralForm } from '../../../src/knowledge/plural.js';
+import { RELATION_LABELS } from '../../../src/knowledge/relation-labels.js';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
 
@@ -26,8 +27,8 @@ function initialLanguage(): WikiLanguage {
 
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { translation: en },
-    ru: { translation: ru },
+    en: { translation: { ...en, knowledge: { ...en.knowledge, relationLabels: RELATION_LABELS.en } } },
+    ru: { translation: { ...ru, knowledge: { ...ru.knowledge, relationLabels: RELATION_LABELS.ru } } },
   },
   lng: initialLanguage(),
   fallbackLng: 'en',

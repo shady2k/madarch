@@ -388,7 +388,7 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
   line: { en: "Line", ru: "Строка", format: "number" },
   lines: { en: "Lines", ru: "Строк", format: "number" },
   mode: { en: "Mode", ru: "Режим", format: "text" },
-  blob: { en: "Blob", ru: "Blob", format: "code" },
+  blob: { en: "Content hash", ru: "Хеш содержимого", format: "code" },
   bytes: { en: "Bytes", ru: "Байт", format: "number" },
   form: { en: "Form", ru: "Форма", format: "text" },
   candidates: { en: "Languages", ru: "Языки", format: "list" },

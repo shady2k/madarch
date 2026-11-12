@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input.js';
 import { Select } from '@/components/ui/select.js';
 import { fillSelected, getAgents, getCatalog } from './api.js';
 import { areaOf } from './catalog-area.js';
-import { KindSources } from './kind-sources.js';
+import { KLink } from './blocks.js';
+import { addressOfKind } from './routes.js';
 import { KindGraph } from './kind-graph.js';
 import { addedByDependency, estimateOf } from './fill-selection.js';
 import { useRead } from './live.js';
-import { pluginNames } from './producers.js';
 import { PageSkeleton } from './skeleton.js';
 import type { AgentOffer, CatalogKindView, CatalogView } from './types.js';
 
@@ -81,8 +81,8 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
                 <SmallTitle className="mt-0 flex items-center gap-2 text-small"><Checkbox aria-label={t('knowledge.fillSetup.section', { section: section.name })} checked={on === section.kinds.length} ref={(input) => { if (input !== null) input.indeterminate = on > 0 && on < section.kinds.length; }} disabled={locked} onChange={() => change(section.kinds.map((kind) => kind.kind), on === section.kinds.length)} />{section.name}</SmallTitle>
                 {section.kinds.map((kind) => <Stack key={kind.kind} className="mb-2 text-small" data-kind={kind.kind}><FieldLabel className="flex items-start gap-2">
                   <Checkbox data-testid={`fill-setup-check-${kind.kind}`} checked={active.has(kind.kind)} disabled={locked || added.has(kind.kind)} onChange={() => change([kind.kind], checked.has(kind.kind))} />
-                  <Text>{name(kind)}{added.has(kind.kind) && <Text className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.neededBy', { kind: neededName(added.get(kind.kind)!) })}</Text>}</Text>
-                </FieldLabel><Stack className="ml-6"><KindSources kind={kind} /><Paragraph className="mb-0 text-small text-muted" data-testid="fill-setup-plugins">{pluginNames(kind).join(', ') || t('knowledge.catalogueNoPlugin')}</Paragraph></Stack></Stack>)}
+                  <Text><KLink href={addressOfKind(kind.kind)}>{name(kind)}</KLink>{added.has(kind.kind) && <Text className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.neededBy', { kind: neededName(added.get(kind.kind)!) })}</Text>}</Text>
+                </FieldLabel></Stack>)}
               </PageSection>;
             })}
           </Stack>

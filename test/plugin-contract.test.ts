@@ -128,5 +128,6 @@ plugins:
     const readOther = parseKinds(noPlugin, 'madarch/kinds.yaml', other);
     expect(manifestContractOf(readOther).vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
     expect(declaredKindReads(readOther).has('doc.term')).toBe(true);
+    expect(declaredKindReads(readOther).has('template')).toBe(true);
   });
 });
