@@ -175,7 +175,16 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
 quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
-  product(home, 'alpha', 'alpha-id'); product(home, 'beta', 'beta-id');
+  // Routing needs two products and one stored document, not the starter's graph kinds or plugin turns.
+  for (const name of ['alpha', 'beta']) {
+    const folder = join(home, name);
+    mkdirSync(join(folder, 'docs'), { recursive: true });
+    mkdirSync(join(folder, 'madarch'));
+    writeFileSync(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: ${name}-id\nname: ${name}\n`);
+    writeFileSync(join(folder, 'docs', 'vision.md'), `# ${name} vision\n`);
+    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: {}\n');
+    gitCommit(folder);
+  }
   server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
   const index = await fetch(server.url, { redirect: 'manual' });
   expect(index.status).toBe(302);
