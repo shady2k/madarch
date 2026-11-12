@@ -485,7 +485,7 @@ describe('madarch init', () => {
       expect('requestedPort' in thirdFacts).toBe(false);
       expect('portNote' in thirdFacts).toBe(false);
     } finally { expect(stopDaemon({ home: products })).toBe(0); }
-  }, 30_000);
+  });
 
   test('start with another --port reports the running server and how to move it, and starts no second one', async () => {
     const base = scratchFolder('madarch-cli-app-');
@@ -527,7 +527,7 @@ describe('madarch init', () => {
     expect(serveHelp.stdout).toContain('--no-open'); expect(serveHelp.stdout).toContain('--host');
     const demoHelp = runCommand(['demo', '--help'], {});
     expect(demoHelp.stdout).toContain('--no-open');
-  }, 30_000);
+  });
 
   test("a per-command --host is refused on the shared daemon's loopback path", () => {
     const home = scratchFolder();
