@@ -579,7 +579,7 @@ export class GraphReader {
     const opinionColumns = ['t.node_id::text AS node', 't.id::text AS opinion_id', 't.said_by', 't.lang', 't.evidence', ...decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`)];
     const opinions = loadedOpinions === undefined ? await tx.query<Raw>(
       `SELECT ${opinionColumns.join(', ')}, ${PRESENTATION_COLUMNS},
-         (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT place->>'repository' FROM jsonb_array_elements(t.evidence) place WHERE place->>'repository' IS NOT NULL LIMIT 1) LIMIT 1) AS evidence_scope
+         (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.evidence) AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1) AS evidence_scope
        FROM ${decl.table} t JOIN node n ON n.id = t.node_id JOIN entity k ON k.id = n.entity_id WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id`,
       [`{${ids.join(',')}}`],
     ) : { rows: loadedOpinions };
@@ -758,7 +758,7 @@ export class GraphReader {
     const declarations = [...this.generated?.values() ?? []];
     if (declarations.length === 0) return held;
     const parts = declarations.map((decl) => `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, ${quoteLiteral(decl.kind)} AS kind,
-      (SELECT jsonb_agg(to_jsonb(t) || jsonb_build_object('node', n.id::text, 'opinion_id', t.id::text, 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author, 'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT place->>'repository' FROM jsonb_array_elements(t.evidence) place WHERE place->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY t.id)
+      (SELECT jsonb_agg(to_jsonb(t) || jsonb_build_object('node', n.id::text, 'opinion_id', t.id::text, 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author, 'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.evidence) AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY t.id)
        FROM ${decl.table} t WHERE t.node_id = n.id AND t.state = 'open' AND t.context_id = 1) AS opinions
       FROM node n JOIN entity k ON k.id = n.entity_id
       CROSS JOIN LATERAL (SELECT ${PRESENTATION_COLUMNS}) metadata
