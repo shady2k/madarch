@@ -331,3 +331,21 @@ pure-access run is in progress, not yet passing evidence. Glossary seven is
 focused on its first case (`/tmp/m28-glossary-seventh-first.log`) with source
 held stable during the run. Its result, successful after timing and acceptance
 remain pending. No child checks or PostgreSQL commands were used for this record.
+
+
+## Focused glossary and optional-argument transport results
+
+Glossary seven's focused first case passed after `fde5dcd7`: one pass / one
+assertion, five filtered, 290.07 seconds overall and 280.72 seconds for the case,
+`/tmp/m28-glossary-seventh-first.log`. The existing 300-second bound is unchanged.
+This is focused success, not the result of all six cases; the narrow remaining
+time margin is a performance risk requiring causal optimization, not a bound
+increase.
+
+Pure access tests passed 10 cases / 29 assertions in 882 ms,
+`/tmp/m28-pure-access-fourth.log`, including actual transport with the optional
+argument absent. Full glossary run eight (`/tmp/m28-glossary-eighth-full.log`)
+and static check eleven are active with source held stable. Their results remain
+pending. A fresh after integration timing and then the whole 249-test suite are
+planned, not completed evidence. No acceptance or controlled speed comparison
+is established by these focused passes.
