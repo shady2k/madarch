@@ -1,4 +1,5 @@
 import { withStorePreparationOwner } from '../src/adapters/store-preparation-owner.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 let releasePreparationOwner!: () => void;
 let preparationOwner: Promise<void>;
@@ -76,6 +77,7 @@ beforeAll(async () => {
   writeFileSync(join(product, 'src', 'order.ts'), 'export function checkout(): number {\n  return 42;\n}\n');
   writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 42;\n}\n');
   writeFileSync(join(product, 'docs', 'readme.md'), '# Shop\n\nThe shop adds up an order.\n');
+  useRepositoryPlugins(product);
   git(product, 'init', '-q');
   git(product, 'symbolic-ref', 'HEAD', 'refs/heads/main');
   commitAll(product, 'one');
@@ -135,8 +137,8 @@ describe('the update a default-branch commit starts', () => {
   test('the update is the person\'s fill again on the new commit: both repository passes run for it', () => {
     const planned = (update?.units ?? []).map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, state: unit.state }));
     // This step's fill is the two repository passes, one unit each; the update republishes both on the commit.
-    expect([...new Set(planned.map((unit) => unit.stage))].sort()).toEqual(['repository-history', 'repository-tree']);
-    expect(planned.map((unit) => unit.unitId).sort()).toEqual(['repository-history/repository:shop', 'repository-tree/repository:shop']);
+    expect([...new Set(planned.map((unit) => unit.stage))].sort()).toEqual(['plugin-turns']);
+    expect(planned.map((unit) => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.repository']);
     expect(planned.every((unit) => unit.state === 'published')).toBe(true);
   }, 900_000);
 
@@ -151,7 +153,7 @@ describe('the update a default-branch commit starts', () => {
     for (const kind of ['run-started', 'run-planned', 'unit-published', 'run-completed']) expect(kinds.has(kind)).toBe(true);
     expect((progress?.events ?? []).length).toBeGreaterThan(0);
     expect(progress?.events.every((event) => Number.isFinite(event.seq) && !Number.isNaN(Date.parse(event.at)))).toBe(true);
-    expect((progress?.units ?? []).map((unit) => unit.stage)).toContain('repository-tree');
+    expect((progress?.units ?? []).map((unit) => unit.stage)).toContain('plugin-turns');
     expect(progress?.units.every((unit) => unit.status === 'published')).toBe(true);
     // The answer's own fields are the panel's: one run, its units and its events in order, and no unit left unnamed.
     expect((progress?.units ?? []).every((unit) => unit.unitId !== '' && unit.stage !== '')).toBe(true);

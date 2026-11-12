@@ -45,7 +45,7 @@ function product(name: string, write: (repository: string) => void): { folder: s
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
-  useFixturePlugins(folder, []);
+  useFixturePlugins(folder, ['disk', 'git']);
   nativeWorkflow(folder);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
@@ -57,7 +57,7 @@ function nativeWorkflow(folder: string): void {
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
 }
 
@@ -148,7 +148,7 @@ git(folder,'commit','-qm','the nested file moves');
       expect((run['wallMs'] as number)).toBeGreaterThan(0);
       const runSteps = run['steps'] as FillStepView[];
       // Every stage the fixture workflow enables reports its own measured work.
-      expect(runSteps.map((step) => step.step).sort()).toEqual(['repository-history', 'repository-tree']);
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns']);
       for (const step of runSteps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);
@@ -301,7 +301,7 @@ git(folder,'commit','-qm','the nested file moves');
     git(committed, 'add', '-A');
     git(committed, 'commit', '-qm', 'the committed repository');
     const folder = makeProduct(home, 'half', committed, 'committed-code');
-    useFixturePlugins(folder, []);
+    useFixturePlugins(folder, ['disk', 'git']);
     nativeWorkflow(folder);
     // This case compares the unread-checkout finding before and after the fill. Other rule predicates are outside
     // its scope: the product's bundled plugin files are not the source files this fixture measures.
@@ -389,7 +389,7 @@ git(folder,'commit','-qm','the nested file moves');
     const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
     try {
       await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
-      const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
+      const run = await runFill({ product: folder, database: owner, steps: ['plugin-turns'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
     } finally {
       await owner.close();

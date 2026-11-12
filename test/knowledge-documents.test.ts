@@ -15,7 +15,7 @@ import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 const DOCUMENT_LIMIT = 2000;
 import { gitEnv } from './git-env.js';
-import { withoutPluginTurns } from './knowledge-fixture.js';
+import { withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -37,7 +37,7 @@ describe('the documents of a repository larger than the listing bound', () => {
     const draft = createDraft({ home: join(work, 'home'), name: 'bulk-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
-    withoutPluginTurns(folder);
+    withRepositoryPluginsOnly(folder);
     writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `kinds:
   document:
     template: templates/document.liquid

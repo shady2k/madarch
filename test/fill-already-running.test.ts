@@ -78,7 +78,7 @@ describe('a fill started while the product\'s fill runs', () => {
     const draft = createDraft({ home, name: 'served-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
-    useFixturePlugins(folder, []);
+    useFixturePlugins(folder, ['disk', 'git']);
     product = draft.name;
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });

@@ -41,7 +41,7 @@ describe('test quarantine through a real fill', () => {
       }] });
       if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
       const folder = draft.folder;
-      useFixturePlugins(folder, ['test-quarantine']);
+      useFixturePlugins(folder, ['disk', 'git', 'test-quarantine']);
       const repository = join(folder, 'repos', 'app');
       mkdirSync(join(repository, 'test'), { recursive: true });
       git(repository, 'init', '--quiet', '--initial-branch=main');

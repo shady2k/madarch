@@ -57,8 +57,8 @@ beforeAll(async () => {
   writeFileSync(join(product, 'docs', 'product.md'), '# Walk\n\nA small product the walk fills.\n');
   // The product holds its own copy of the starter set, as `madarch init` leaves it; the fill workflow is its own.
   seedStarterSet(product);
-  useFixturePlugins(product, []);
-  writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+  useFixturePlugins(product, ['disk', 'git']);
+  writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(product, 'init', '-q', '-b', 'main');
   git(product, 'add', '-A');
   git(product, 'commit', '-qm', 'the product the walk fills');

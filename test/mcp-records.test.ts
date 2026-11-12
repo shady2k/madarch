@@ -120,7 +120,7 @@ describe('the tools this step serves', () => {
       defaultBranch: 'main',
       asIsCommit: third,
       counts: { files: 4, commits: 3, folders: 3 },
-      steps: { 'repository-tree': true, 'repository-history': true },
+      steps: { 'plugin-turns': true },
       // The history pass states it: this clone is not shallow.
       historyShallow: false,
     });

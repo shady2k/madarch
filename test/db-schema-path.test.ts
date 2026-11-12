@@ -249,7 +249,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(join(code, 'src', 'schema.ts'), SOURCE);
     mkdirSync(join(code, 'fixtures'), { recursive: true });
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
-    useFixturePlugins(folder, ['db-schema']);
+    useFixturePlugins(folder, ['disk', 'git', 'db-schema']);
     const kindsPath = join(folder, 'madarch', 'kinds.yaml');
     writeFileSync(kindsPath, readFileSync(kindsPath, 'utf8').replaceAll('terms: ["**/*.ts", "**/*.tsx"]', 'terms: ["src/**/*.ts"]'));
     const kinds = parseDocument(readFileSync(kindsPath, 'utf8'));

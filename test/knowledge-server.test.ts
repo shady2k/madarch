@@ -86,7 +86,7 @@ beforeAll(async () => {
   home = join(work, 'home');
   mkdirSync(home);
   const tiny = makeProduct(home, 'tiny', repository, 'tiny');
-  writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+  writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(tiny, 'add', '-A');
   git(tiny, 'commit', '--quiet', '-m', 'Fill native inventory and history in the fixture');
   const bare = makeProduct(home, 'bare', repository, 'tiny');
@@ -143,7 +143,7 @@ describe('an empty product', () => {
     // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
     // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
     seedStarterSet(join(home, 'bare'));
-    writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+    writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
     git(join(home, 'bare'), 'add', '-A');
     git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
     await activateTestProduct(join(home, 'bare'), home, join(work, 'store'));

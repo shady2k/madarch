@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
-import { commitProduct, makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
+import { commitProduct, makeProduct, SAMPLE_IDENTITY, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
@@ -42,7 +42,7 @@ beforeAll(async () => {
   git(repository, 'add', '.');
   git(repository, 'commit', '--quiet', '-m', 'First');
   folder = makeProduct(home, 'shop', repository);
-  withoutPluginTurns(folder);
+  withRepositoryPluginsOnly(folder);
   // A declared, present repository with no commit is a native graph-context finding, not a retired Markdown read.
   const workspace = join(folder, 'workspace.yaml');
   let workspaceText = readFileSync(workspace, 'utf8');

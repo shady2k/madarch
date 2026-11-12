@@ -820,7 +820,7 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
       "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
       "# files of its closure. The lock beside the manifest records the exact version and the closure hash.",
       "plugins:",
-      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [${pluginUsesCatalogue(plugin) ? '' : 'code.file'}], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
+      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [${pluginInputsOf(plugin).join(', ')}], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
     );
   }
   return `${lines.join('\n')}\n`;
@@ -911,6 +911,14 @@ function pluginUsesCatalogue(plugin: BundledPlugin): boolean {
   if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no plugin.json text`);
   const manifest = JSON.parse(held) as { agent?: { catalogue?: boolean } };
   return manifest.agent?.catalogue === true;
+}
+
+/** The input kinds each bundled plugin declares for its output-scoped reads. */
+function pluginInputsOf(plugin: BundledPlugin): string[] {
+  const held = plugin.files.find((file) => file.path === 'plugin.json')?.content;
+  if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no plugin.json text`);
+  const manifest = JSON.parse(held) as { produces: { reads?: (string | { kind: string })[] }[] };
+  return [...new Set(manifest.produces.flatMap((output) => (output.reads ?? []).map((read) => typeof read === 'string' ? read : read.kind)))];
 }
 
 /** The output kinds a bundled plugin's own contract declares. */

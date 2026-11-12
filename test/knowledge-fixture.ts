@@ -18,6 +18,7 @@ import { KINDS_FILE } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,17 +94,10 @@ export function makeProduct(home: string, name: string, repository: string, repo
   return draft.folder;
 }
 
-/**
- * Runs no plugin turns in a fixture: a fill runs one unit per term the glossary plugin emits, and a test that presses a
- * fill after every loop write pays for plugin turns it does not assert. The manifest is unchanged; the fill's own
- * configuration in `workspace.yaml` disables the stage.
- */
-export function withoutPluginTurns(folder: string): void {
-  const file = join(folder, 'workspace.yaml');
-  const text = readFileSync(file, 'utf8');
-  if (text.includes('plugin-turns')) return;
-  writeFileSync(file, `${text.trimEnd()}\nfill:\n  stages:\n    plugin-turns:\n      enabled: false\n`);
-  commitProduct(folder, 'Run no plugin turns in this fixture');
+/** Keeps only repository facts in fixtures that do not exercise enrichment plugins. */
+export function withRepositoryPluginsOnly(folder: string): void {
+  useFixturePlugins(folder, ['disk', 'git']);
+  commitProduct(folder, 'Run only repository fact plugins in this fixture');
 }
 
 /** The two pages an agent would write, committed as the agent: the wiki reads the product repository's commit. */

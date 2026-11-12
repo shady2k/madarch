@@ -7,9 +7,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 /** Writes the starter set's `first-fill` workflow into a product folder. */
 export function writeFirstFillWorkflow(folder: string): void {
+  useRepositoryPlugins(folder);
   const workflow = STARTER_WORKFLOWS.find((candidate) => candidate.name === 'first-fill');
   if (workflow === undefined) throw new Error('the engine\'s starter set holds no first-fill workflow');
   mkdirSync(join(folder, 'madarch'), { recursive: true });

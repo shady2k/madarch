@@ -12,7 +12,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readRepositoryHistory, readRepositoryTree, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
+import { readRepositoryTree, type RepositoryAt } from '../plugins/disk/reader.js';
+import { readRepositoryHistory } from '../plugins/git/reader.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-git-shapes-'));
 const IDENTITY = {

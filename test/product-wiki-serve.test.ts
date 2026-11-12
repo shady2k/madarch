@@ -94,7 +94,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
     runIn(product, ['init', '--quiet', '--initial-branch=main']); runIn(product, ['add', '-A']); runIn(product, ['commit', '--quiet', '-m', 'Product']);
     preparationOwners.push(await prepareTestProduct(product, base));

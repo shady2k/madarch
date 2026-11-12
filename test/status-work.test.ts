@@ -16,7 +16,7 @@ import { parseDocument } from 'yaml';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withoutPluginTurns } from './knowledge-fixture.js';
+import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
 import { publishSamplePageOpinions } from './knowledge-page-opinions.js';
 
@@ -59,7 +59,7 @@ beforeAll(async () => {
   home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
-  withoutPluginTurns(folder);
+  withRepositoryPluginsOnly(folder);
   writeSamplePages(folder);
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);

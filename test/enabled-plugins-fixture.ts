@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
+import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
 
 /** Keeps only exercised plugins; excluded bindings become passive provenance, with every field retained. */
 export function useFixturePlugins(folder: string, ids: readonly string[]): void {
@@ -30,4 +31,37 @@ export function useFixturePlugins(folder: string, ids: readonly string[]): void 
   }
   manifest.set('plugins', plugins.filter(plugin => ids.includes(plugin.id)));
   writeFileSync(file, manifest.toString());
+}
+
+/** Declares repository fact inputs for fixtures that previously relied on native stages. */
+export function useRepositoryPlugins(folder: string): void {
+  const hadManifest = existsSync(join(folder, 'madarch', 'kinds.yaml'));
+  seedStarterSet(folder);
+  const file = join(folder, 'madarch', 'kinds.yaml');
+  const manifest = parseDocument(readFileSync(file, 'utf8'));
+  const starter = parseDocument(STARTER_FILES.find(file => file.path === 'madarch/kinds.yaml')!.content).toJS();
+  const body = manifest.toJS();
+  const repositoryKinds = ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
+  for (const name of repositoryKinds) {
+    const existing = body.kinds?.[name];
+    if (existing === undefined || existing.fields === undefined) {
+      manifest.setIn(['kinds', name], { ...starter.kinds[name], ...existing });
+    }
+  }
+  const plugins = body.plugins ?? [];
+  for (const id of ['disk', 'git']) {
+    if (!plugins.some((plugin: { id: string }) => plugin.id === id)) plugins.push(starter.plugins.find((plugin: { id: string }) => plugin.id === id));
+  }
+  manifest.set('plugins', plugins);
+  writeFileSync(file, manifest.toString());
+  const lockFile = join(folder, 'madarch', 'plugins.lock');
+  const lock = parseDocument(readFileSync(lockFile, 'utf8'));
+  const starterLock = parseDocument(STARTER_FILES.find(file => file.path === 'madarch/plugins.lock')!.content).toJS();
+  const locked = lock.toJS().plugins ?? [];
+  for (const id of ['disk', 'git']) {
+    if (!locked.some((plugin: { id: string }) => plugin.id === id)) locked.push(starterLock.plugins.find((plugin: { id: string }) => plugin.id === id));
+  }
+  lock.set('plugins', locked);
+  writeFileSync(lockFile, lock.toString());
+  if (!hadManifest) useFixturePlugins(folder, ['disk', 'git']);
 }

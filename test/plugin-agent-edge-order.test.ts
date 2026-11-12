@@ -1,3 +1,4 @@
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -102,6 +103,7 @@ plugins:
 `);
   const closure = closureOf(folder).hash;
   writeFileSync(join(product, 'madarch/plugins.lock'), `plugins:\n  - { id: probe-summary, version: 1.0.0, closure: ${closure}, path: plugins/probe-summary }\n`);
+  useRepositoryPlugins(product);
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'plugin');
   const fake = join(root, 'fake-acp.ts');
@@ -134,7 +136,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (report) => sessions.push(report),

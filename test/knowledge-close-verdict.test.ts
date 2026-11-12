@@ -43,7 +43,7 @@ describe('closing a product while its graph verdicts read the store', () => {
     try {
       const draft = createDraft({ home: join(work, 'home'), name: 'close-shop', gitEnv: gitEnv(IDENTITY) });
       if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
-      useFixturePlugins(draft.folder, []);
+      useFixturePlugins(draft.folder, ['disk', 'git']);
       const storeRoot = join(work, 'store');
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
@@ -100,7 +100,7 @@ test('a standalone fill does not start validation, while an explicit request sti
   try {
     const draft = createDraft({ home: join(work, 'home'), name: 'inline-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
-    useFixturePlugins(draft.folder, []);
+    useFixturePlugins(draft.folder, ['disk', 'git']);
     execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
     execFileSync('git', ['commit', '--quiet', '-m', 'Declare native-only fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
     const storeRoot = join(work, 'store');

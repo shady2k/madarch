@@ -75,7 +75,7 @@ beforeAll(async () => {
     writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
     git(product, 'add', '-A');
     git(product, 'commit', '-qm', 'Declare the native repository fixture workflow');

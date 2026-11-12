@@ -30,7 +30,7 @@ beforeAll(async () => {
   const home = join(work, 'home');
   mkdirSync(home);
   const product = makeProduct(home, 'shop', repository, 'training');
-  useFixturePlugins(product, []);
+  useFixturePlugins(product, ['disk', 'git']);
   commitProduct(product, 'Declare the repository-fill responsiveness fixture');
   const app = join(work, 'app');
   mkdirSync(app);

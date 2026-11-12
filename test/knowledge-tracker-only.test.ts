@@ -114,7 +114,7 @@ describe('a product that is only a tracker', () => {
       if (!filled.ok) return;
       // The native workflow records repository history and tree as mechanism state, with no capability stage
       // because the manifest binds no code kind.
-      expect(filled.units.map((unit) => unit.stageId)).toEqual(['repository-history', 'repository-tree']);
+      expect(filled.units.map((unit) => unit.stageId)).toEqual(['plugin-turns']);
       const unimported = await (await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } })).json() as { kinds: { kind: string; count: number }[] };
       expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
       const manifest = readKinds(product);

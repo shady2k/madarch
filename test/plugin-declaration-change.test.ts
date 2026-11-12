@@ -56,7 +56,7 @@ function product(name: string): { folder: string; storeRoot: string } {
   if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
   const folder = draft.folder;
   useExtractedGlossary(folder);
-  useFixturePlugins(folder, ['glossary']);
+  useFixturePlugins(folder, ['disk', 'git', 'glossary']);
   const code = join(folder, 'repos', 'app');
   mkdirSync(code, { recursive: true });
   writeFileSync(join(code, 'README.md'), '# App\n');

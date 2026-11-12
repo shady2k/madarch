@@ -1274,7 +1274,7 @@ describe('madarch repo add', () => {
     writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
     const committed = spawnSync(realGit(), ['-C', draft.folder, 'add', 'madarch/workflows.yaml'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
     if (committed.status !== 0) throw new Error(`fixture workflow add failed: ${committed.stderr}`);

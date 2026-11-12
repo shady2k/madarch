@@ -1,3 +1,4 @@
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -98,6 +99,7 @@ plugins:
 `);
   const closure = closureOf(folder).hash;
   writeFileSync(join(product, 'madarch/plugins.lock'), `plugins:\n  - { id: probe-summary, version: 1.0.0, closure: ${closure}, path: plugins/probe-summary }\n`);
+  useRepositoryPlugins(product);
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'plugin');
   const fake = join(root, 'fake-acp.ts');
@@ -111,7 +113,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (session) => sessions.push(session),
@@ -157,7 +159,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure, probeClosure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure, probeClosure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
       } });
@@ -190,7 +192,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
       } });
@@ -207,7 +209,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const f = fixture(false);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'] });
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['plugin-turns'] });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');

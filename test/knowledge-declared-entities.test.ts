@@ -48,7 +48,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
   git(draft.folder, 'add', '-A');
   git(draft.folder, 'commit', '-qm', `the manifest declares ${kinds.join(', ')} and no other code kind`);

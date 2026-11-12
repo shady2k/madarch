@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, commitProduct, makeProduct, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
@@ -72,7 +72,7 @@ beforeAll(async () => {
   home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
-  withoutPluginTurns(folder);
+  withRepositoryPluginsOnly(folder);
   const kindsFile = join(folder, 'madarch/kinds.yaml');
   const kinds = readFileSync(kindsFile, 'utf8');
   const rule = kinds.split('\n').find((line) => line.startsWith('    debt.todo:'))!;

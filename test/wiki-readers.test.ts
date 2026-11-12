@@ -168,7 +168,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
     const mine = makeWikiRepository(join(busyHome, 'my-product'), { 'docs/extra.md': '# Extra\n' });
     writeFileSync(join(mine, 'workspace.yaml'), 'schemaVersion: 1\nid: 2ed7a5e0-3aa5-4e9a-9d3c-76d0a0c5c0aa\nname: My product\n');
     for (const product of [installed.folder, mine]) {
-      useFixturePlugins(product, []);
+      useFixturePlugins(product, ['disk', 'git']);
       ownGit(product, ['add', '-A']);
       ownGit(product, ['commit', '--quiet', '-m', 'Declare native-only reader fixture producers']);
     }

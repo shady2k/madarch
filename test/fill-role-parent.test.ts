@@ -188,7 +188,7 @@ function productOf(home_: string, name: string): string {
   const repository = generateTrainingRepository(join(work, `training-${name}`));
   mkdirSync(home_, { recursive: true });
   const folder = makeProduct(home_, name, repository, 'walk-code');
-  useFixturePlugins(folder, []);
+  useFixturePlugins(folder, ['disk', 'git']);
   commitProduct(folder, 'Declare the lifecycle fixture plugins');
   return folder;
 }

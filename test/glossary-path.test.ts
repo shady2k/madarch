@@ -123,7 +123,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
     const kindsFile = join(folder, 'madarch', 'kinds.yaml');
     const authoredKinds = readFileSync(kindsFile, 'utf8');
-    useFixturePlugins(folder, []);
+    useFixturePlugins(folder, ['disk', 'git']);
     commit('A glossary document beside authored terms');
     closePreparation = await prepareTestProduct(folder, join(work, 'home'), join(work, 'store'));
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
@@ -134,7 +134,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
       await product.close();
       writeFileSync(kindsFile, authoredKinds);
       useExtractedGlossary(folder);
-      useFixturePlugins(folder, ['glossary']);
+      useFixturePlugins(folder, ['disk', 'git', 'glossary']);
     }
   }, 300_000);
 

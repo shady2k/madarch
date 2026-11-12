@@ -45,7 +45,7 @@ beforeAll(async () => {
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
   const manifest = join(folder, 'workspace.yaml');
   writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'second', linked: true }));
