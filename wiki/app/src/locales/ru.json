@@ -1046,7 +1046,7 @@
       "invalidCap": "Введите положительное целое число для лимита токенов.",
       "unsupported": "Выборочное заполнение пока поддерживает только собственные обработчики. Запуск агента и лимит токенов пока не поддерживаются."
     },
-    "kindDetails": {"unavailable": "Объявление вида недоступно. Записи показаны ниже.", "fields": "Поля", "relations": "Связи", "noFields": "Поля не объявлены.", "noRelations": "Связи не объявлены.", "records": "Записи", "untranslatedField": "Поле без перевода", "untranslatedKind": "Вид без перевода", "noProducer": "Исполнитель не объявлен", "untranslatedDescription": "Описание вида не переведено."},
+    "kindDetails": {"noFieldMeaning": "Описание этого свойства не опубликовано.", "unavailable": "Объявление вида недоступно. Записи показаны ниже.", "fields": "Поля", "relations": "Связи", "noFields": "Поля не объявлены.", "noRelations": "Связи не объявлены.", "records": "Записи", "untranslatedField": "Поле без перевода", "untranslatedKind": "Вид без перевода", "noProducer": "Исполнитель не объявлен", "untranslatedDescription": "Описание вида не переведено."},
     "kindSources": {
       "standards": "Стандарты и практики",
       "producer": "Заполняет"

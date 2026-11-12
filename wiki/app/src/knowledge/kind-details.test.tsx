@@ -51,7 +51,7 @@ const CATALOG: CatalogView = {
       pluginFolders: ['plugins/glossary'],
       dependsOn: ['code.file'], state: 'partial', turn: 'failed',
       declaration: { file: 'madarch/kinds.yaml', line: 12 },
-      fields: [{ name: 'definition', labels: { en: 'Definition', ru: 'Определение' }, declaration: { file: 'madarch/kinds.yaml', line: 18 }, type: 'text' }, { name: 'parent', type: 'text', nullable: true, reference: 'doc.term' }],
+      fields: [{ name: 'definition', labels: { en: 'Definition', ru: 'Определение' }, declaration: { file: 'madarch/kinds.yaml', line: 18 }, meaning: 'The words that define the term.' }, { name: 'parent', labels: { en: 'Broader term' }, meaning: 'The term this one belongs under.', reference: 'doc.term' }],
       relations: [{ direction: 'out', name: 'defined_in', kind: 'code.file' }, { direction: 'in', name: 'uses', kind: 'doc.rule' }],
     }),
     kind('doc.rule', { dependsOn: ['doc.term'] }),
@@ -78,13 +78,17 @@ test('the kind page combines its declaration, both relation directions, focused 
   const page = into(createElement(KindPage, { kind: 'doc.term', version: 0 }));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null && page.querySelector('[data-entity="doc.term:order"]') !== null, 'details and records');
   expect(page.querySelectorAll('h1')).toHaveLength(1);
+  expect(page.querySelector('[data-testid="kind-facts"]')!.textContent).toContain('1');
+  const sections = [...page.querySelector('[data-testid="kind-details"]')!.children];
+  expect(sections.indexOf(page.querySelector('[data-testid="kind-facts"]')!)).toBeLessThan(sections.indexOf(page.querySelector('[data-testid="kind-fields"]')!));
   expect(page.querySelector('[data-testid="kind-meaning"]')!.textContent).toBe('A word with one agreed meaning.');
   expect(page.querySelector('a[href="https://example.test/standard"]')).not.toBeNull();
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Definition');
   expect(page.querySelector('[data-testid="kind-declaration"]')?.textContent).toBe('madarch/kinds.yaml:12');
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('madarch/kinds.yaml:18');
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('text | null');
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Untranslated field');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('The words that define the term.');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).not.toContain('text | null');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Broader term');
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).not.toContain('parent');
   expect(page.querySelector('[data-kind="doc.term"] [data-testid="dependency-plugin"]')!.textContent).toBe('plugins/glossary');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="out"]')!.textContent).toContain('defined_in →');
@@ -108,11 +112,12 @@ test('records remain usable when the catalogue is unavailable', async () => {
 });
 
 test('a catalogue-only kind shows details without inventing fields or targets', async () => {
-  stub({ ...CATALOG, kinds: [kind('member', { page: false, fillWith: 'person', fields: [], relations: [{ direction: 'out', name: 'contains' }] })] });
+  stub({ ...CATALOG, kinds: [kind('member', { page: false, fillWith: 'person', fields: [{ name: 'public', labels: { en: 'Public property' } }], relations: [{ direction: 'out', name: 'contains' }] })] });
   const page = into(createElement(KindDetails, { kind: 'member', version: 0 }));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'member declaration');
   expect(page.querySelector('h1')).toBeNull();
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('No fields are declared.');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Public property');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('No meaning is published for this property.');
   expect(page.querySelector('[data-testid="kind-relations"]')!.textContent).toContain('contains →');
   expect(page.querySelector('[data-testid="kind-relations"] a')).toBeNull();
   expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('a person');
