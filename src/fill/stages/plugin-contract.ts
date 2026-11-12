@@ -15,7 +15,7 @@
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
-import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
+import { canonicalGitKind, gitContractOf } from './git-contract.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
@@ -30,6 +30,7 @@ function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: 
  */
 export function manifestContractOf(manifest: KindsManifest): GraphContract {
   const vertex: VertexContract[] = [];
+  const native = gitContractOf(manifest);
   for (const kind of manifest.kinds.values()) {
     // A kind with no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
     if (kind.fields === undefined) continue;
@@ -46,7 +47,13 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     }
     // A kind whose key has no declaration makes no table: a producer must be able to name the entity it writes about.
     if (!bound || !keyFields.every((field) => fields.some((held) => held.name === field))) continue;
-    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
+    const storageName = canonicalGitKind(manifest, kind.name);
+    const storage = native.vertex.find((held) => held.name === storageName);
+    if (storage !== undefined) {
+      vertex.push({ ...storage, fields: [...storage.fields, ...fields.filter((field) => !storage.fields.some((held) => held.name === field.name))].map((field) => ({ ...field, ...(field.reference === undefined ? {} : { reference: canonicalGitKind(manifest, field.reference) }) })) });
+    } else {
+      vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields: fields.map((field) => ({ ...field, ...(field.reference === undefined ? {} : { reference: canonicalGitKind(manifest, field.reference) }) })), key: keyFields, capability: capability === '' ? 'agent' : capability });
+    }
   }
   // The path index evidence names is mechanism state (`src/graph/one-graph.ts`), not a kind the manifest declares.
   return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
@@ -67,7 +74,7 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
     if (declared === undefined) continue;
     const fields: FieldContract[] = declared.fields?.map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) })) ?? [];
     // The manifest names a kind the wiki shows (`code.file`); the graph's kind of a git kind is its name without the prefix.
-    const graphKinds = (names: readonly string[]): string[] => names.map((name) => GIT_MANIFEST_KINDS[name] ?? name);
+    const graphKinds = (names: readonly string[]): string[] => names.map((name) => canonicalGitKind(manifest, name));
     edges.push({
       // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
       // the edge exists and who made it, which is what a complete answer is compared with and removed by.
@@ -96,23 +103,13 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
     selectedKinds: [],
   });
+  const storage = manifestContractOf(manifest);
   for (const kind of manifest.kinds.values()) {
-    if (kind.fields === undefined) continue;
-    const keyFields = kind.key ?? [];
-    const columns: string[] = [];
-    const types: Record<string, GeneratedKindRead['types'][string]> = {};
-    const bound = new Set<string>();
-    for (const field of kind.fields) {
-      const held = resolved(field);
-      if (held === undefined) continue;
-      bound.add(field.name);
-      if (keyFields.includes(field.name)) continue;
-      columns.push(field.name);
-      types[field.name] = held.type;
-    }
-    // A kind no declaration fills, or whose key no producer names, has no table a reader can answer from.
-    if (bound.size === 0 || !keyFields.every((field) => bound.has(field))) continue;
-    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields,
+    const vertex = storage.vertex.find((held) => held.name === canonicalGitKind(manifest, kind.name));
+    if (vertex === undefined) continue;
+    const columns = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
+    const types = Object.fromEntries(vertex.fields.map((field) => [field.name, field.type]));
+    reads.set(kind.name, { kind: kind.name, table: vertex.table, columns, types, key: vertex.key,
       producers: Object.fromEntries(columns.map((field) => [field, plan.producers(kind.name, field)])),
     });
   }
@@ -141,7 +138,11 @@ export function declaredEdgeReads(manifest: KindsManifest): Map<string, Generate
 /** The two declarations of one contract, their kinds and dictionaries stated once each. */
 function merge(left: GraphContract, right: GraphContract): GraphContract {
   const vertex = [...left.vertex];
-  for (const kind of right.vertex) if (!vertex.some((held) => held.name === kind.name)) vertex.push(kind);
+  for (const kind of right.vertex) {
+    const index = vertex.findIndex((held) => held.name === kind.name);
+    if (index < 0) vertex.push(kind);
+    else vertex[index] = kind;
+  }
   const edge = [...left.edge];
   for (const kind of right.edge) if (!edge.some((held) => held.name === kind.name)) edge.push(kind);
   const dictionary = [...left.dictionary];

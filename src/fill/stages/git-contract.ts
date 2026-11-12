@@ -136,6 +136,30 @@ export const GIT_MANIFEST_EDGES: Readonly<Record<string, string>> = {
   'code.renamed-from': 'renamed-from',
 };
 
+/** Storage identity comes only from the git capability binding, never from a kind's spelling. */
+export function canonicalGitKind(manifest: KindsManifest, name: string): string {
+  return manifest.kinds.get(name)?.capability === 'git' ? GIT_MANIFEST_KINDS[name] ?? name : name;
+}
+
+/** Resolve a declared git-backed entity and its reference keys before publication. */
+export function canonicalGitEntityRef<T extends { readonly kind: string; readonly key: Readonly<Record<string, unknown>> }>(manifest: KindsManifest, ref: T): T {
+  const kind = canonicalGitKind(manifest, ref.kind);
+  const bound = [...manifest.kinds.values()].some((held) => held.capability === 'git' && canonicalGitKind(manifest, held.name) === kind);
+  const declared = bound ? GIT_CONTRACT.vertex.find((vertex) => vertex.name === kind) : undefined;
+  const key = Object.fromEntries(Object.entries(ref.key).map(([name, value]) => {
+    if (value !== null && typeof value === 'object' && 'kind' in value && 'key' in value) {
+      return [name, canonicalGitEntityRef(manifest, value as { kind: string; key: Readonly<Record<string, unknown>> })];
+    }
+    const field = declared?.fields.find((field) => field.name === name);
+    if (field?.reference !== undefined && typeof value === 'string') {
+      const target = GIT_CONTRACT.vertex.find((vertex) => vertex.name === field.reference);
+      if (target?.key.length === 1) return [name, { kind: target.name, key: { [target.key[0]!]: value } }];
+    }
+    return [name, value];
+  }));
+  return { ...ref, kind, key };
+}
+
 /**
  * The contract a product's manifest binds to the git reader: the kinds it declares with
  * `capability: git` and the edge kinds it declares the same way, and no table for a kind it does not
