@@ -92,7 +92,9 @@ export interface PluginTurnUnit {
 /** Whether a plugin fills a kind the manifest binds fields of, and reads the kind's documents. */
 function fills(plugin: PluginDecl, kind: KindDecl): boolean {
   return plugin.contract?.vertices.some((vertex) => vertex.kind === kind.name) === true
-    && kind.fields?.some((field) => field.binding?.kind === 'plugin' && field.binding.plugin === plugin.id) === true;
+    && kind.fields?.some((field) => plugin.contract?.agent?.catalogue === true
+      ? field.binding?.kind === 'agent'
+      : field.binding?.kind === 'plugin' && field.binding.plugin === plugin.id) === true;
 }
 
 /** The manifest kinds a plugin fills: their fields name a plugin field. */
