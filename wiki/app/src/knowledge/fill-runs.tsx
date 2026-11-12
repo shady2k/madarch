@@ -73,7 +73,7 @@ export function SelectionRunPage({ runId, version, refresh }: { runId: string; v
   if (data === null) return <PageSkeleton testId="fill-runs-loading" />;
   const run = data.run;
   const done = run.publishedUnits;
-  const terminal = ['succeeded', 'failed', 'cancelled', 'completed_partial'].includes(run.state);
+  const terminal = ['succeeded', 'failed', 'blocked', 'cancelled', 'completed_partial'].includes(run.state);
   const emptyWords = t(terminal ? 'knowledge.fillRun.noUnits' : 'knowledge.fillRun.planning');
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const seconds = (ms: number): number => Math.round(ms / 1000);

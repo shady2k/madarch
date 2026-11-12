@@ -94,7 +94,7 @@ test('pausing and cancelling keep their canonical state and cannot pause again',
 });
 
 test('terminal zero-unit runs say no units, not planning', async () => {
-  for (const state of ['succeeded', 'failed']) {
+  for (const state of ['succeeded', 'failed', 'blocked']) {
     globalThis.fetch = (async (_url: string) => Response.json(_url.includes('/api/catalog') ? { kinds: [], groups: [] } : { run: { ...run, state, units: [], publishedUnits: 0, groups: [{ ...run.groups[0]!, state, done: 0, total: 0 }] } })) as typeof fetch;
     const node = render(createElement(SelectionRunPage, { runId: run.runId, version: 0, refresh: () => undefined }));
     await until(() => node.querySelector('[data-testid=fill-run-group]') !== null);
@@ -106,7 +106,7 @@ test('terminal zero-unit runs say no units, not planning', async () => {
 });
 
 test('an existing idle button follows an unpublished native run and later version progress', async () => {
-  let current = { ...run, units: [], publishedUnits: 0 };
+  let current: SelectionRun = { ...run, units: [], publishedUnits: 0 };
   const calls: string[] = [];
   globalThis.fetch = (async (url: string) => { calls.push(url); return Response.json({ run: current }); }) as typeof fetch;
   const idle = { fill: { state: 'idle' } } as WikiStatus;
