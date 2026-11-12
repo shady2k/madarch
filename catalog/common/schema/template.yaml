@@ -1,0 +1,38 @@
+id: practice.page-template
+definition: A structured page template whose ordered text, attributes and blocks describe a kind page.
+sources:
+- https://liquidjs.com/
+acquisition:
+- document
+status: implemented
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+fields:
+- name: path
+  type: text
+  binding:
+    agent: 'Read each templates/**/*.liquid source file: repository-relative path including templates/; identify the entity
+      as template:<path>.'
+- name: template_parts
+  type: json
+  binding:
+    agent: 'Read each templates/**/*.liquid source file: expand layouts, inheritance and partials into ordered nodes {type:
+      text, text, line}, {type: attribute, name, line}, {type: block, name, params, line} or {type: problem, message, line}.
+      Every line is a positive integer and params maps names to strings. Preserve block order and complete content; unresolved
+      template logic is a problem, never silently omitted.'
+key:
+- path
+labels:
+  en:
+    one: Page template
+    many: Page templates
+  ru:
+    one: Шаблон страницы
+    many: Шаблоны страниц
+description:
+  en: A page template expanded into structured text, attributes and blocks.
+  ru: Шаблон страницы, развёрнутый в структурированный текст, атрибуты и блоки.

@@ -1,0 +1,25 @@
+id: practice.information-item
+definition: One item carried by an information flow, linked to the glossary term that names it.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Information item
+    many: Information items
+  ru:
+    one: Элемент информации
+    many: Элементы информации
+description:
+  en: One item carried by an information flow, linked to the glossary term that names it.
+  ru: Один элемент, который несёт поток информации, связанный с термином глоссария, который его называет.

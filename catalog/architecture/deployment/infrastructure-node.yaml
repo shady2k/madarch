@@ -1,0 +1,25 @@
+id: c4.infrastructure-node
+definition: A node that supports the deployment without running the software itself, such as a load balancer or a DNS zone.
+sources:
+- https://c4model.com/diagrams/deployment
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Infrastructure node
+    many: Infrastructure nodes
+  ru:
+    one: Инфраструктурный узел
+    many: Инфраструктурные узлы
+description:
+  en: A node that supports the deployment without running the software itself, such as a load balancer or a DNS zone.
+  ru: 'Узел, который поддерживает развёртывание, но сам не выполняет программу: балансировщик или зона DNS.'

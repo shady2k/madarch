@@ -1,0 +1,25 @@
+id: sre.sli
+definition: A quantitative measure of one aspect of the service as users experience it.
+sources:
+- https://sre.google/sre-book/service-level-objectives/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: SLI
+    many: SLIs
+  ru:
+    one: SLI
+    many: SLI
+description:
+  en: A quantitative measure of one aspect of the service as users experience it.
+  ru: Количественная мера одного аспекта сервиса в том виде, как его ощущают пользователи.

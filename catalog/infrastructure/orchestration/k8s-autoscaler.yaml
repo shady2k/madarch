@@ -1,0 +1,25 @@
+id: kubernetes.horizontal-pod-autoscaler
+definition: A Kubernetes rule that changes the number of pods within limits as the load changes.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - configures
+  in:
+  - configures
+template-policy: none
+labels:
+  en:
+    one: Kubernetes autoscaler
+    many: Kubernetes autoscalers
+  ru:
+    one: Автомасштабирование Kubernetes
+    many: Автомасштабирование Kubernetes
+description:
+  en: A Kubernetes rule that changes the number of pods within limits as the load changes.
+  ru: Правило Kubernetes, которое меняет число подов в пределах при изменении нагрузки.

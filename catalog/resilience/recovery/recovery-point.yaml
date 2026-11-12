@@ -1,0 +1,25 @@
+id: nist800-34.recovery-point
+definition: One point in time a restore can return the data to, and how much data that loses.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Recovery point
+    many: Recovery points
+  ru:
+    one: Точка восстановления
+    many: Точки восстановления
+description:
+  en: One point in time a restore can return the data to, and how much data that loses.
+  ru: Момент, к которому восстановление может вернуть данные, и сколько данных при этом теряется.

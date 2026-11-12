@@ -1,0 +1,26 @@
+id: org.organization
+definition: A body of people with a purpose, which holds its units and its members, as W3C ORG defines it.
+sources:
+- https://www.w3.org/TR/vocab-org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - hasMember
+  in:
+  - memberOf
+template-policy: none
+labels:
+  en:
+    one: Organisation
+    many: Organisations
+  ru:
+    one: Организация
+    many: Организации
+description:
+  en: A body of people with a purpose, which holds its units and its members, as W3C ORG defines it.
+  ru: Общность людей с целью, которая держит свои подразделения и участников, как её определяет W3C ORG.

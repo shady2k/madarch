@@ -1,0 +1,25 @@
+id: practice.push-message
+definition: A notification a service pushes to a device or a browser.
+sources:
+- https://www.rfc-editor.org/rfc/rfc8030.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Push message
+    many: Push messages
+  ru:
+    one: Push-сообщение
+    many: Push-сообщения
+description:
+  en: A notification a service pushes to a device or a browser.
+  ru: Уведомление, которое сервис отправляет на устройство или в браузер.

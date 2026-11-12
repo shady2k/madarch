@@ -1,0 +1,25 @@
+id: practice.job-to-be-done
+definition: The job a person hires the product to do, stated apart from any feature.
+sources:
+- https://en.wikipedia.org/wiki/Jobs_to_be_done
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Job to be done
+    many: Jobs to be done
+  ru:
+    one: Работа, для которой берут продукт
+    many: Работы, для которых берут продукт
+description:
+  en: The job a person hires the product to do, stated apart from any feature.
+  ru: Работа, для которой человек берёт продукт, изложенная отдельно от любой функции.

@@ -7,8 +7,8 @@
  *   bun run check:catalog --folder <folder>  the catalog of a product folder that already exists
  *
  * The command reads the manifest the way the wiki reads it — the same reader
- * (`src/knowledge/kinds.ts`, which calls the catalog's reader in
- * `src/knowledge/catalog.ts`) — and reports the catalog's own findings only:
+ * (`src/product/manifest/kinds.ts`, with the shared catalogue validator)
+ * and reports the catalog's own findings only:
  * the product's documents and their expectations are the product's matter,
  * not the catalog's. A finding is printed as `<full path>:<line>: <the words>`,
  * naming the kind it is about, and the command exits 1; a run that finds
@@ -54,7 +54,7 @@ function main(): void {
   const { folder, temporary } = folderOf(process.argv.slice(2));
   try {
     const read = readKinds(folder);
-    if (!read.present) fail(`${join(folder, 'madarch', 'kinds.yaml')}: the product holds no kinds manifest, and the starter set writes one`);
+    if (!read.present) fail(`${join(folder, 'madarch', 'catalog.yaml')}: the product holds no kinds manifest, and the starter set writes one`);
     const manifest = read.manifest;
     let failed = false;
     // Every finding of the manifest is the catalog check's, except the ones that say what a product's documents

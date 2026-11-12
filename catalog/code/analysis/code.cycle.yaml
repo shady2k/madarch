@@ -1,0 +1,28 @@
+id: practice.dependency-cycle
+definition: Files or modules that import one another in a ring.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+details:
+- level
+- size
+labels:
+  en:
+    one: Dependency cycle
+    many: Dependency cycles
+  ru:
+    one: Цикл зависимостей
+    many: Циклы зависимостей
+description:
+  en: Files or modules that import one another in a ring.
+  ru: Файлы или модули, которые импортируют друг друга по кругу.

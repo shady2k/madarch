@@ -1,0 +1,25 @@
+id: nist800-34.business-continuity-plan
+definition: The plan that keeps the business running while the systems are recovered.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Business continuity plan
+    many: Business continuity plans
+  ru:
+    one: План непрерывности бизнеса
+    many: Планы непрерывности бизнеса
+description:
+  en: The plan that keeps the business running while the systems are recovered.
+  ru: План, который держит бизнес работающим, пока восстанавливают системы.

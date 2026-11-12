@@ -1,0 +1,25 @@
+id: istqb.test-suite
+definition: A set of test cases run together, with the environment they need.
+sources:
+- https://glossary.istqb.org/en_US/term/test-suite
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasTest
+  in:
+  - hasTest
+template-policy: none
+labels:
+  en:
+    one: Test suite
+    many: Test suites
+  ru:
+    one: Набор тестов
+    many: Наборы тестов
+description:
+  en: A set of test cases run together, with the environment they need.
+  ru: Набор тестовых случаев, выполняемых вместе, с нужной им средой.

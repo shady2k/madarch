@@ -1,0 +1,28 @@
+id: practice.migration
+definition: A step that changes a database's schema, in the order the steps run.
+sources:
+- https://www.postgresql.org/docs/
+acquisition:
+- extractor data-model
+status: implemented
+relation-constraints:
+  out:
+  - configures
+  in:
+  - configures
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- ordinal
+- path
+labels:
+  en:
+    one: Migration
+    many: Migrations
+  ru:
+    one: Миграция
+    many: Миграции
+description:
+  en: A step that changes a database's schema, in the order they run.
+  ru: Шаг, который меняет схему базы данных, в порядке выполнения.

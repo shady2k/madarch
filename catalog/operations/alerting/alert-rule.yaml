@@ -1,0 +1,25 @@
+id: prometheus.alert-rule
+definition: A condition over a metric that fires an alert when it holds for long enough.
+sources:
+- https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - monitors
+template-policy: none
+labels:
+  en:
+    one: Alert rule
+    many: Alert rules
+  ru:
+    one: Правило оповещения
+    many: Правила оповещений
+description:
+  en: A condition over a metric that fires an alert when it holds for long enough.
+  ru: Условие над метрикой, которое поднимает оповещение, если держится достаточно долго.

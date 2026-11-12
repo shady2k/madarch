@@ -19,6 +19,7 @@ import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js'
 import { kindSummaries, listEntities } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { starterKinds } from './knowledge-fixture.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { buildViews, diagramsBlock, type GraphView } from '../src/knowledge/views.js';
 
 const work = mkdtempSync(join(tmpdir(), 'madarch-manifest-views-'));
@@ -41,7 +42,7 @@ function readFixture(name: string, extra: Partial<Record<FixtureKind, readonly s
   mkdirSync(join(folder, 'madarch'), { recursive: true });
   mkdirSync(join(folder, 'templates'), { recursive: true });
   for (const kind of KINDS) writeFileSync(join(folder, 'templates', `${kind}.liquid`), '{% layout "./entity.liquid" %}\n');
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `${manifestLines(extra).join('\n')}\n`);
+  writeFolderManifest(folder, `${manifestLines(extra).join('\n')}\n`);
   const read = readKinds(folder);
   if (!read.present) throw new Error(`the fixture manifest of ${folder} was not read`);
   if (read.manifest.findings.length > 0) throw new Error(`the fixture manifest of ${folder} has findings: ${read.manifest.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('; ')}`);
@@ -206,7 +207,7 @@ describe('a view follows the kind declaration', () => {
         expect(answer.elements.map((element) => element.id)).toEqual([MODULE.key]);
       } else {
         expect(answer).toContain('gives the kind code.service no "views: [c4-component]"');
-        expect(answer).toContain(`${join(folder, 'madarch', 'kinds.yaml')}:2 `);
+        expect(answer).toContain(`${join(folder, 'madarch', 'catalog.yaml')}:1 `);
       }
     }
   });
@@ -214,12 +215,12 @@ describe('a view follows the kind declaration', () => {
   test('a refusal names the manifest\'s file and the kind\'s line, and a declaration with no line is named by its file alone', async () => {
     const { manifest, folder } = readFixture('refusal-named');
     const answer = await viewOrRefusal(manifest, folder, { type: 'c4-component', subject: SERVICE.key });
-    expect(answer).toContain(`${join(folder, 'madarch', 'kinds.yaml')}:2 gives the kind code.service no "views: [c4-component]"`);
+    expect(answer).toContain(`${join(folder, 'madarch', 'catalog.yaml')}:1 gives the kind code.service no "views: [c4-component]"`);
     // A fixture may hand in a declaration without the line the reader always sets: the sentence names the file, and
     // never says ":undefined".
     const unlined = { ...manifest, kinds: new Map([...manifest.kinds].map(([name, decl]) => [name, { ...decl, line: undefined }])) } as unknown as KindsManifest;
     const unnamed = await viewOrRefusal(unlined, folder, { type: 'c4-component', subject: SERVICE.key });
-    expect(unnamed).toBe(`a component view is the modules of a container of this product: the manifest ${join(folder, 'madarch', 'kinds.yaml')} gives the kind code.service no "views: [c4-component]"`);
+    expect(unnamed).toBe(`a component view is the modules of a container of this product: the manifest ${join(folder, 'madarch', 'catalog.yaml')} gives the kind code.service no "views: [c4-component]"`);
   });
 
   test('an entity whose kind the manifest does not declare at all is refused by name, never by a kind the engine knew', async () => {
@@ -357,7 +358,7 @@ describe('the definition block reads the kinds the manifest gives it', () => {
     const refused = readFixture('definition-without');
     const problem = await definitionBlock(context(refused.manifest, refused.folder), contract, {}, 'templates/contract.liquid', 3);
     expect(problem).toMatchObject({ type: 'problem', file: 'templates/contract.liquid', line: 3 });
-    if (problem.type === 'problem') expect(problem.message).toContain(`${join(refused.folder, 'madarch', 'kinds.yaml')}:23 gives the kind code.contract no "definition-block: contract"`);
+    if (problem.type === 'problem') expect(problem.message).toContain(`${join(refused.folder, 'madarch', 'catalog.yaml')}:1 gives the kind code.contract no "definition-block: contract"`);
 
     const restored = readFixture('definition-restored', { 'code.contract': ['    definition-block: contract'], 'code.operation': ['    definition-block: operation'] });
     const again = await definitionBlock(context(restored.manifest, restored.folder), contract, {}, 'templates/contract.liquid', 3);
@@ -409,20 +410,20 @@ describe('the navigation a kind gets travels in its summary', () => {
 
   test('the starter set gives the same kinds the views, the chain, the parts, the definition, the listing and the places they had before', () => {
     const shown = starterKinds();
-    const of = (pick: (kind: (typeof shown)[number]) => string | undefined) => shown.map(pick).filter((value) => value !== undefined);
+    const of = (pick: (kind: (typeof shown)[number]) => string | undefined) => shown.map(pick).filter((value) => value !== undefined).sort(byCodePoint);
     expect(of((kind) => (kind.views === undefined ? undefined : `${kind.name}: ${kind.views.join(', ')}`))).toEqual([
       'code.service: c4-component, state',
       'code.package: state',
       'code.module: state',
       'code.file: state',
       'code.symbol: state',
-    ]);
-    expect(of((kind) => (kind.er === undefined ? undefined : `${kind.name}: ${kind.er}`))).toEqual(['code.database: tables', 'code.table: links']);
-    expect(of((kind) => (kind.sequence === undefined ? undefined : `${kind.name}: ${kind.sequence}`))).toEqual(['code.symbol: symbol', 'code.route: route']);
-    expect(of((kind) => (kind.system === undefined ? undefined : `${kind.name}: ${kind.system}`))).toEqual(['code.service: container', 'code.channel: channel', 'code.database: data-store']);
-    expect(of((kind) => (kind.definitionBlock === undefined ? undefined : `${kind.name}: ${kind.definitionBlock}`))).toEqual(['code.operation: operation', 'code.contract: contract', 'code.channel: channel']);
-    expect(of((kind) => (kind.listing === undefined ? undefined : `${kind.name}: ${kind.listing}`))).toEqual(['doc.term: glossary', 'code.operation: operations']);
-    expect(of((kind) => (kind.nav === undefined ? undefined : `${kind.name}: ${kind.nav}`))).toEqual(['question: loop', 'correction: loop', 'task: own-page', 'doc.term: own-page']);
+    ].sort(byCodePoint));
+    expect(of((kind) => (kind.er === undefined ? undefined : `${kind.name}: ${kind.er}`))).toEqual(['code.database: tables', 'code.table: links'].sort(byCodePoint));
+    expect(of((kind) => (kind.sequence === undefined ? undefined : `${kind.name}: ${kind.sequence}`))).toEqual(['code.symbol: symbol', 'code.route: route'].sort(byCodePoint));
+    expect(of((kind) => (kind.system === undefined ? undefined : `${kind.name}: ${kind.system}`))).toEqual(['code.service: container', 'code.channel: channel', 'code.database: data-store'].sort(byCodePoint));
+    expect(of((kind) => (kind.definitionBlock === undefined ? undefined : `${kind.name}: ${kind.definitionBlock}`))).toEqual(['code.operation: operation', 'code.contract: contract', 'code.channel: channel'].sort(byCodePoint));
+    expect(of((kind) => (kind.listing === undefined ? undefined : `${kind.name}: ${kind.listing}`))).toEqual(['doc.term: glossary', 'code.operation: operations'].sort(byCodePoint));
+    expect(of((kind) => (kind.nav === undefined ? undefined : `${kind.name}: ${kind.nav}`))).toEqual(['question: loop', 'correction: loop', 'task: own-page', 'doc.term: own-page'].sort(byCodePoint));
   });
 });
 
@@ -433,17 +434,17 @@ describe('the manifest reader refuses a trait it cannot read', () => {
     mkdirSync(join(folder, 'templates'), { recursive: true });
     for (const kind of KINDS) writeFileSync(join(folder, 'templates', `${kind}.liquid`), '{% layout "./entity.liquid" %}\n');
     const lines = manifestLines({ 'code.service': ['    views: [c4-component, c4-context]', '    system: service'], 'code.route': ['    sequence: call'], 'code.contract': ['    definition-block: file'], 'code.operation': ['    listing: table'], 'code.file': ['    nav: sidebar'] });
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `${lines.join('\n')}\n`);
+    writeFolderManifest(folder, `${lines.join('\n')}\n`);
     const read = readKinds(folder);
     if (!read.present) throw new Error(`the fixture manifest of ${folder} was not read`);
     const messages = read.manifest.findings.map((one) => `${one.file}:${one.line}: ${one.message}`);
     expect(messages).toEqual([
-      `${join(folder, 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got ["c4-component","c4-context"]`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:6: kind "code.service": "system" is one of container, data-store, channel, got "service"`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:10: kind "code.file": "nav" is one of own-page, loop, got "sidebar"`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:26: kind "code.route": "sequence" is one of route, symbol, got "call"`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:30: kind "code.contract": "definition-block" is one of contract, operation, channel, got "file"`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:34: kind "code.operation": "listing" is one of operations, glossary, got "table"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.contract.yaml')}:3: kind "code.contract": "definition-block" is one of contract, operation, channel, got "file"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.file.yaml')}:3: kind "code.file": "nav" is one of own-page, loop, got "sidebar"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.operation.yaml')}:3: kind "code.operation": "listing" is one of operations, glossary, got "table"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.route.yaml')}:3: kind "code.route": "sequence" is one of route, symbol, got "call"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.service.yaml')}:3: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got ["c4-component","c4-context"]`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.service.yaml')}:6: kind "code.service": "system" is one of container, data-store, channel, got "service"`,
     ]);
   });
 });
@@ -517,7 +518,8 @@ describe('the neighbourhood and the chain follow the declaration too', () => {
     expect(service.system).toBe('container');
     expect(service.sequence).toBe('route');
     const bare = read.manifest.kinds.get('code.file')!;
-    expect(Object.keys(bare).sort()).toEqual(['line', 'name', 'relations', 'source', 'template', 'title']);
+    expect(bare.group).toBe('fixture.fixture');
+    expect(Object.keys(bare).sort(byCodePoint)).toEqual(['group', 'line', 'name', 'relations', 'source', 'template', 'title']);
   });
 });
 
@@ -571,7 +573,7 @@ describe('the manifest reader refuses a views list it cannot read', () => {
     mkdirSync(join(folder, 'madarch'), { recursive: true });
     mkdirSync(join(folder, 'templates'), { recursive: true });
     for (const kind of KINDS) writeFileSync(join(folder, 'templates', `${kind}.liquid`), '{% layout "./entity.liquid" %}\n');
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `${manifestLines({ 'code.service': lines }).join('\n')}\n`);
+    writeFolderManifest(folder, `${manifestLines({ 'code.service': lines }).join('\n')}\n`);
     const read = readKinds(folder);
     if (!read.present) throw new Error(`the fixture manifest of ${folder} was not read`);
     return read.manifest.findings.map((one) => `${one.file}:${one.line}: ${one.message}`);
@@ -579,13 +581,13 @@ describe('the manifest reader refuses a views list it cannot read', () => {
 
   test('a view named twice, an empty list and a value that is no list are findings at the field\'s line', () => {
     expect(messagesOf('twice', ['    views: [state, state]'])).toEqual([
-      `${join(work, 'broken-views-twice', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" names each view once, and ["state","state"] names one twice`,
+      `${join(work, 'broken-views-twice', 'madarch', 'kinds', 'fixture', 'fixture', 'code.service.yaml')}:3: kind "code.service": "views" names each view once, and ["state","state"] names one twice`,
     ]);
     expect(messagesOf('empty', ['    views: []'])).toEqual([
-      `${join(work, 'broken-views-empty', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got []`,
+      `${join(work, 'broken-views-empty', 'madarch', 'kinds', 'fixture', 'fixture', 'code.service.yaml')}:3: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got []`,
     ]);
     expect(messagesOf('scalar', ['    views: er'])).toEqual([
-      `${join(work, 'broken-views-scalar', 'madarch', 'kinds.yaml')}:5: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got "er"`,
+      `${join(work, 'broken-views-scalar', 'madarch', 'kinds', 'fixture', 'fixture', 'code.service.yaml')}:3: kind "code.service": "views" lists the views a page of the kind may draw of its entities: c4-component, state, got "er"`,
     ]);
   });
 });

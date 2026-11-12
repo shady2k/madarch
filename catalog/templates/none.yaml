@@ -1,0 +1,9 @@
+order: 1
+id: none
+title:
+  en: Nothing
+  ru: Ничего
+description:
+  en: 'Start from scratch: no manifest; write your own, following the guide.'
+  ru: 'Начать с нуля: манифеста нет; напишите свой по руководству.'
+kinds: none

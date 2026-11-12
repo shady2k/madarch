@@ -1,0 +1,25 @@
+id: practice.data-check
+definition: A rule a dataset is checked against, such as referential integrity or a value range.
+sources:
+- https://www.w3.org/TR/vocab-dqv/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Data check
+    many: Data checks
+  ru:
+    one: Проверка данных
+    many: Проверки данных
+description:
+  en: A rule a dataset is checked against, such as referential integrity or a value range.
+  ru: 'Правило, по которому проверяют набор данных: ссылочная целостность или диапазон значений.'

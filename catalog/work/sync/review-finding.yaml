@@ -1,0 +1,31 @@
+id: practice.review-finding
+definition: 'A finding a review raises about a change, with its severity and its outcome: fixed, or declined with a reason.'
+sources:
+- https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
+- https://glossary.istqb.org/en_US/term/review
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - affects
+  - evidences
+  - fixedIn
+  in:
+  - hasPart
+  - foundBy
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Review finding
+    many: Review findings
+  ru:
+    one: Находка ревью
+    many: Находки ревью
+description:
+  en: A finding a review raises, with its severity and whether it was fixed or declined.
+  ru: Находка ревью с её серьёзностью и тем, исправлена она или отклонена.

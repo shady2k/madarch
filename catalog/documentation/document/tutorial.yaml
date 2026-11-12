@@ -1,0 +1,25 @@
+id: practice.tutorial
+definition: A lesson that teaches by making a person complete a small piece of work.
+sources:
+- https://diataxis.fr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Tutorial
+    many: Tutorials
+  ru:
+    one: Учебник
+    many: Учебники
+description:
+  en: A lesson that teaches by making a person complete a small piece of work.
+  ru: Урок, который учит, заставляя человека выполнить небольшую работу.

@@ -1,0 +1,25 @@
+id: istqb.test-basis
+definition: The body of knowledge a test condition is derived from, such as a requirement or a story.
+sources:
+- https://glossary.istqb.org/en_US/term/test-basis
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Test basis
+    many: Test bases
+  ru:
+    one: Основа тестирования
+    many: Основы тестирования
+description:
+  en: The body of knowledge a test condition is derived from, such as a requirement or a story.
+  ru: 'Знания, из которых выводят условие тестирования: требование или история.'

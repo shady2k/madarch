@@ -1,0 +1,26 @@
+id: practice.objective
+definition: A measurable objective under a goal, as an OKR states it.
+sources:
+- https://www.whatmatters.com/faqs/okr-meaning-definition-example
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  - measures
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Objective
+    many: Objectives
+  ru:
+    one: Задача OKR
+    many: Задачи OKR
+description:
+  en: A measurable objective under a goal, as an OKR states it.
+  ru: Измеримая задача под целью, как её излагает OKR.

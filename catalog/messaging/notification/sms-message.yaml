@@ -1,0 +1,25 @@
+id: practice.sms-message
+definition: A short message a service sends over SMPP, with its sender and its parts.
+sources:
+- https://smpp.org/SMPP_v3_4_Issue1_2.pdf
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: SMS message
+    many: SMS messages
+  ru:
+    one: SMS-сообщение
+    many: SMS-сообщения
+description:
+  en: A short message a service sends over SMPP, with its sender and its parts.
+  ru: Короткое сообщение, которое сервис отправляет по SMPP, с отправителем и частями.

@@ -1,0 +1,25 @@
+id: oscal.catalog
+definition: A structured collection of controls and their statements, as the NIST OSCAL control layer defines it.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Control catalogue
+    many: Control catalogues
+  ru:
+    one: Каталог контролей
+    many: Каталоги контролей
+description:
+  en: A structured collection of controls and their statements, as the NIST OSCAL control layer defines it.
+  ru: Структурированное собрание контролей и их утверждений, как определяет слой контролей NIST OSCAL.

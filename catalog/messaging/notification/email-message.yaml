@@ -1,0 +1,25 @@
+id: practice.email-message
+definition: A message a service sends by e-mail, with its sender, its recipients and its template.
+sources:
+- https://www.rfc-editor.org/rfc/rfc5322.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Email message
+    many: Email messages
+  ru:
+    one: Письмо
+    many: Письма
+description:
+  en: A message a service sends by e-mail, with its sender, its recipients and its template.
+  ru: Сообщение, которое сервис отправляет по электронной почте, с отправителем, получателями и шаблоном.

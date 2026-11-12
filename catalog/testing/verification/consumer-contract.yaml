@@ -1,0 +1,25 @@
+id: pact.consumer-contract
+definition: The expectations one consumer records about a provider's interface.
+sources:
+- https://docs.pact.io/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Consumer contract
+    many: Consumer contracts
+  ru:
+    one: Контракт потребителя
+    many: Контракты потребителей
+description:
+  en: The expectations one consumer records about a provider's interface.
+  ru: Ожидания, которые один потребитель записывает об интерфейсе поставщика.

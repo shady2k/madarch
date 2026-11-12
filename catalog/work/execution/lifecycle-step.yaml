@@ -1,0 +1,29 @@
+id: practice.lifecycle-step
+definition: 'The record one step of an agent''s task writes as it ends: its duration, tokens, cost, model and outcome.'
+sources:
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
+- https://openai.github.io/openai-agents-python/tracing/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - measures
+  - evidences
+  in:
+  - hasPart
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Lifecycle step
+    many: Lifecycle steps
+  ru:
+    one: Шаг жизненного цикла
+    many: Шаги жизненного цикла
+description:
+  en: One step of an agent's task, with its duration, tokens, cost, model and outcome.
+  ru: Один шаг задачи агента с длительностью, токенами, стоимостью, моделью и результатом.

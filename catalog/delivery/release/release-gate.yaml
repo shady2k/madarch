@@ -1,0 +1,25 @@
+id: practice.release-gate
+definition: A check a release must pass before it may go on to the next environment.
+sources:
+- https://dora.dev/guides/dora-metrics/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Release gate
+    many: Release gates
+  ru:
+    one: Шлюз выпуска
+    many: Шлюзы выпуска
+description:
+  en: A check a release must pass before it may go on to the next environment.
+  ru: Проверка, которую выпуск должен пройти, прежде чем попасть в следующую среду.

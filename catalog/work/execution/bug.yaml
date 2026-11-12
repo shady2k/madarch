@@ -1,0 +1,28 @@
+id: practice.bug
+definition: A task for a defect in the product, with the severity of the defect and the steps that show it.
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/issue-types-how-do-team-managed-and-company-managed-projects-differ/
+- https://glossary.istqb.org/en_US/term/defect
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  - fixedIn
+  in:
+  - foundBy
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Bug
+    many: Bugs
+  ru:
+    one: Ошибка
+    many: Ошибки
+description:
+  en: A task for a defect in the product, with its severity and the steps that show it.
+  ru: Задача об ошибке в продукте с её серьёзностью и шагами, которые её показывают.

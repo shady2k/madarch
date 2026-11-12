@@ -1,0 +1,25 @@
+id: backstage.user
+definition: A person the product knows, with the identity they sign in by.
+sources:
+- https://backstage.io/docs/features/software-catalog/well-known-relations
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - memberOf
+  in:
+  - hasMember
+template-policy: none
+labels:
+  en:
+    one: User
+    many: Users
+  ru:
+    one: Пользователь
+    many: Пользователи
+description:
+  en: A person the product knows, with the identity they sign in by.
+  ru: Человек, которого знает продукт, с идентичностью, под которой он входит.

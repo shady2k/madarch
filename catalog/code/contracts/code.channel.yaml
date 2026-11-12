@@ -1,0 +1,71 @@
+id: practice.channel
+definition: A topic or a queue services publish to and read from.
+sources:
+- https://www.asyncapi.com/docs/reference/specification/v3.0.0
+acquisition:
+- extractor contracts
+status: implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - publishes
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read the declared repositories: repository name, or null for the product repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
+- name: name
+  type: text
+  binding:
+    agent: 'Read the defining source file: fully qualified symbol name, API operation identity (method and route or RPC name),
+      or channel address, unique within this file.'
+- name: definition
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read the contract source files **/* for this entity: complete structured definition {spec:{text,lines},document?,protobuf?,descriptions?,selection?,diagnostics?},
+      preserving the full spec text and source lines; use null when no definition applies.'
+- name: directions
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read all contract source files **/* for this channel: every declared publish or subscribe direction as an array;
+      use [] when no directions are declared.'
+- name: direction_status
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read all contract source files **/* for this channel: known when directions can be established, unavailable otherwise.'
+key:
+- repository
+- path
+- name
+card: true
+system: channel
+definition-block: channel
+details:
+- protocol
+- contract
+- path
+- description
+- consumerStatus
+- consumerFound
+labels:
+  en:
+    one: Event channel
+    many: Event channels
+  ru:
+    one: Канал событий
+    many: Каналы событий
+description:
+  en: A topic or queue that services publish to and read from.
+  ru: Топик или очередь, в которую сервисы пишут и из которой читают.

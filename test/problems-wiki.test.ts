@@ -1,4 +1,4 @@
-import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
+import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 import { DEFAULT_THRESHOLDS } from '../src/problems/types.js';
 /**
  * The wiki section of the Problems page (madarch-m38l.19): the findings the

@@ -1,0 +1,55 @@
+id: practice.module
+definition: A folder of code with a purpose of its own, with the modules it depends on.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  - dependsOn
+  in:
+  - partOf
+template-policy: page
+template: templates/module.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read the declared repositories: repository name, or null for the product repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
+- name: state_machines
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
+      use [] when none exist and preserve source positions.'
+key:
+- repository
+- path
+history: membership
+views:
+- state
+details:
+- role
+- kind
+- language
+- files
+- parsedFiles
+- packageName
+labels:
+  en:
+    one: Module
+    many: Modules
+  ru:
+    one: Модуль
+    many: Модули
+description:
+  en: A folder of code with a purpose of its own, with the modules it depends on.
+  ru: Папка кода со своим назначением и модули, от которых она зависит.

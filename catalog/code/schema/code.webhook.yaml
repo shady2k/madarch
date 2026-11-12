@@ -1,0 +1,25 @@
+id: openapi.webhook
+definition: A callback a service sends to another system when something happens.
+sources:
+- https://spec.openapis.org/oas/v3.1.1.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - consumesApi
+template-policy: none
+labels:
+  en:
+    one: Webhook
+    many: Webhooks
+  ru:
+    one: Вебхук
+    many: Вебхуки
+description:
+  en: A callback a service sends to another system when something happens.
+  ru: Обратный вызов, который сервис отправляет другой системе при событии.

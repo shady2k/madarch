@@ -1,0 +1,29 @@
+id: otel.cicd-task
+definition: A job of a CI workflow and the steps it runs.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- workingDirectory
+- steps
+- uses
+labels:
+  en:
+    one: CI job
+    many: CI jobs
+  ru:
+    one: Задача CI
+    many: Задачи CI
+description:
+  en: A job of a CI workflow and the steps it runs.
+  ru: Задача процесса CI и шаги, которые она выполняет.

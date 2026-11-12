@@ -1,0 +1,25 @@
+id: nist800-34.contingency-plan
+definition: The plan that says how a system is brought back after a disruption, and by whom.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Contingency plan
+    many: Contingency plans
+  ru:
+    one: План на случай сбоя
+    many: Планы на случай сбоя
+description:
+  en: The plan that says how a system is brought back after a disruption, and by whom.
+  ru: План того, как и кем систему возвращают после сбоя.

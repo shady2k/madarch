@@ -1,0 +1,26 @@
+id: archimate.constraint
+definition: A limit on what the product may do, as arc42 section 2 and ArchiMate state it.
+sources:
+- https://arc42.org/overview
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Constraint
+    many: Constraints
+  ru:
+    one: Ограничение
+    many: Ограничения
+description:
+  en: A limit on what the product may do, as arc42 section 2 and ArchiMate state it.
+  ru: Предел того, что продукт может делать, как его излагают раздел 2 arc42 и ArchiMate.

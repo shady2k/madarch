@@ -1,0 +1,25 @@
+id: practice.cache-key
+definition: The name a cached value is stored under, with its namespace and its lifetime.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9111.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Cache key
+    many: Cache keys
+  ru:
+    one: Ключ кэша
+    many: Ключи кэша
+description:
+  en: The name a cached value is stored under, with its namespace and its lifetime.
+  ru: Имя, под которым хранится закэшированное значение, с пространством имён и сроком жизни.

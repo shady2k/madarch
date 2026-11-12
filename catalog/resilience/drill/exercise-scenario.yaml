@@ -1,0 +1,25 @@
+id: nist800-34.exercise-scenario
+definition: The disruption a drill simulates, with its extent and its duration.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Exercise scenario
+    many: Exercise scenarios
+  ru:
+    one: Сценарий учения
+    many: Сценарии учения
+description:
+  en: The disruption a drill simulates, with its extent and its duration.
+  ru: Сбой, который имитирует учение, с его масштабом и длительностью.

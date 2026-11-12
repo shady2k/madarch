@@ -1,0 +1,25 @@
+id: istqb.test-objective
+definition: The purpose a test level or a test is meant to serve.
+sources:
+- https://glossary.istqb.org/en_US/term/test-objective
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Test objective
+    many: Test objectives
+  ru:
+    one: Цель тестирования
+    many: Цели тестирования
+description:
+  en: The purpose a test level or a test is meant to serve.
+  ru: Назначение, которому должен служить уровень или вид тестирования.

@@ -1,0 +1,25 @@
+id: oscal.assessment-plan
+definition: What is to be assessed, how and by whom, as OSCAL's assessment layer defines it.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Assessment plan
+    many: Assessment plans
+  ru:
+    one: План оценки
+    many: Планы оценки
+description:
+  en: What is to be assessed, how and by whom, as OSCAL's assessment layer defines it.
+  ru: Что оценивают, как и кем, как определяет слой оценки OSCAL.

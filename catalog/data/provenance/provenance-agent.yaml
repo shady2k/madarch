@@ -1,0 +1,25 @@
+id: prov.agent
+definition: A person, a program or an organisation an activity is attributed to.
+sources:
+- https://www.w3.org/TR/prov-o/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Provenance agent
+    many: Provenance agents
+  ru:
+    one: Участник происхождения
+    many: Участники происхождения
+description:
+  en: A person, a program or an organisation an activity is attributed to.
+  ru: Человек, программа или организация, которым приписывают действие.

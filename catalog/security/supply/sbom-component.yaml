@@ -1,0 +1,25 @@
+id: cyclonedx.component
+definition: One component of a software bill of materials, of a type such as library, container or application.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: SBOM component
+    many: SBOM components
+  ru:
+    one: Компонент SBOM
+    many: Компоненты SBOM
+description:
+  en: One component of a software bill of materials, of a type such as library, container or application.
+  ru: Один компонент ведомости состава программы типа библиотеки, контейнера или приложения.

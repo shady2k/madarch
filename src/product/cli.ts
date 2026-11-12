@@ -568,8 +568,8 @@ function printTemplate(templateId: string, kinds: number): void {
   const template = starterTemplateOf(templateId);
   if (template === undefined) return;
   console.log(kinds === 0
-    ? `✓ Template "${template.title.en}": no manifest was copied; write madarch/kinds.yaml to give the wiki its kinds (${MANIFESTS_GUIDE})`
-    : `✓ Template "${template.title.en}": ${String(kinds)} kinds in madarch/kinds.yaml, with the page templates and plugins those kinds use`);
+    ? `✓ Template "${template.title.en}": no manifest was copied; write madarch/catalog.yaml and madarch/kinds/<group>/<subgroup>/<kind>.yaml to give the wiki its kinds (${MANIFESTS_GUIDE})`
+    : `✓ Template "${template.title.en}": ${String(kinds)} kinds in madarch/kinds/, with the page templates and plugins those kinds use`);
 }
 
 async function askRepoMode(): Promise<RepoConnectMode> {

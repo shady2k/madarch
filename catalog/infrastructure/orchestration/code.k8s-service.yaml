@@ -1,0 +1,27 @@
+id: kubernetes.service
+definition: A Kubernetes Service that routes traffic to the pods it selects.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- ports
+labels:
+  en:
+    one: Kubernetes service
+    many: Kubernetes services
+  ru:
+    one: Сервис Kubernetes
+    many: Сервисы Kubernetes
+description:
+  en: A Kubernetes Service that routes traffic to pods.
+  ru: Сервис Kubernetes, который направляет трафик на поды.

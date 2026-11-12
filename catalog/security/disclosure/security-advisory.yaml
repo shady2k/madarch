@@ -1,0 +1,25 @@
+id: practice.security-advisory
+definition: A published notice of a vulnerability in the product, with the versions affected and the fix.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9116.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Security advisory
+    many: Security advisories
+  ru:
+    one: Уведомление о безопасности
+    many: Уведомления о безопасности
+description:
+  en: A published notice of a vulnerability in the product, with the versions affected and the fix.
+  ru: Опубликованное извещение об уязвимости в продукте с затронутыми версиями и исправлением.

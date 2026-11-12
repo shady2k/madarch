@@ -1,0 +1,25 @@
+id: slsa.provenance
+definition: The record of how, where and from what an artifact was built, kept so it can be verified.
+sources:
+- https://slsa.dev/spec/v1.0/provenance
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Provenance
+    many: Provenances
+  ru:
+    one: Происхождение
+    many: Происхождения
+description:
+  en: The record of how, where and from what an artifact was built, kept so it can be verified.
+  ru: Запись о том, как, где и из чего собран артефакт, хранимая для проверки.

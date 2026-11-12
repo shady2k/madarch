@@ -1,0 +1,25 @@
+id: ddd.entity
+definition: An object of the domain with an identity of its own, which persists through change.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Domain entity
+    many: Domain entities
+  ru:
+    one: Сущность предметной области
+    many: Сущности предметной области
+description:
+  en: An object of the domain with an identity of its own, which persists through change.
+  ru: Объект предметной области со своей идентичностью, который сохраняется при изменениях.

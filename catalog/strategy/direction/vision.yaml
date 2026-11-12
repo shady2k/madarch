@@ -1,0 +1,24 @@
+id: practice.vision
+definition: Where the product means to go and who it serves, as the product owner states it.
+sources:
+- https://scrumguides.org/scrum-guide.html
+- https://www.omg.org/spec/BMM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out: []
+  in: []
+template-policy: none
+labels:
+  en:
+    one: Vision
+    many: Visions
+  ru:
+    one: Видение
+    many: Видения
+description:
+  en: Where the product means to go and who it serves, as the product owner states it.
+  ru: Куда идёт продукт и кому он служит, как излагает владелец продукта.

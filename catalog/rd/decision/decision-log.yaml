@@ -1,0 +1,25 @@
+id: practice.decision-log
+definition: The ordered record of the decisions taken, each beside the one it supersedes.
+sources:
+- https://adr.github.io/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Decision log
+    many: Decision logs
+  ru:
+    one: Журнал решений
+    many: Журналы решений
+description:
+  en: The ordered record of the decisions taken, each beside the one it supersedes.
+  ru: Упорядоченная запись принятых решений, каждое рядом с тем, которое оно заменяет.

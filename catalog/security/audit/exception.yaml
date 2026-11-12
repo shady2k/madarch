@@ -1,0 +1,25 @@
+id: practice.security-exception
+definition: A recorded decision to accept a known deviation from a rule, with its reason and its end date.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/53/a/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Exception
+    many: Exceptions
+  ru:
+    one: Исключение
+    many: Исключения
+description:
+  en: A recorded decision to accept a known deviation from a rule, with its reason and its end date.
+  ru: Записанное решение принять известное отклонение от правила с причиной и сроком.

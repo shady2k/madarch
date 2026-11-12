@@ -1,0 +1,25 @@
+id: org.organizational-unit
+definition: A division of an organisation, above its teams.
+sources:
+- https://www.w3.org/TR/vocab-org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Department
+    many: Departments
+  ru:
+    one: Подразделение
+    many: Подразделения
+description:
+  en: A division of an organisation, above its teams.
+  ru: Часть организации выше её команд.

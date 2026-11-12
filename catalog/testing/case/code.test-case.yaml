@@ -1,0 +1,36 @@
+id: istqb.test-case
+definition: A test and the code it exercises.
+sources:
+- https://glossary.istqb.org/en_US/term/test-case
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - verifies
+  - hasTestCase
+  in:
+  - hasTest
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- name
+- testKind
+- framework
+- language
+- path
+- skipped
+- skipReason
+- cases
+- suite
+labels:
+  en:
+    one: Test case
+    many: Test cases
+  ru:
+    one: Тест
+    many: Тесты
+description:
+  en: A test, and the code it exercises.
+  ru: Тест и код, который он проверяет.

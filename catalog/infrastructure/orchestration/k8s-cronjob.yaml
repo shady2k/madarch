@@ -1,0 +1,25 @@
+id: kubernetes.cronjob
+definition: A Kubernetes workload that runs a job on a schedule.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: CronJob
+    many: CronJobs
+  ru:
+    one: CronJob
+    many: CronJob
+description:
+  en: A Kubernetes workload that runs a job on a schedule.
+  ru: Рабочая нагрузка Kubernetes, которая запускает задачу по расписанию.

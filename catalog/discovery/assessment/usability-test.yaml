@@ -1,0 +1,25 @@
+id: practice.usability-test
+definition: A session in which people use the product while their success and trouble are recorded.
+sources:
+- https://www.nngroup.com/articles/usability-testing-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Usability test
+    many: Usability tests
+  ru:
+    one: Тест удобства
+    many: Тесты удобства
+description:
+  en: A session in which people use the product while their success and trouble are recorded.
+  ru: Сессия, в которой люди пользуются продуктом, а их успехи и трудности записывают.

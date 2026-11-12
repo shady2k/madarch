@@ -1,0 +1,26 @@
+id: cyclonedx.ml-model
+definition: A trained model the product uses, with the data and the code that produced it.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+- https://spdx.github.io/spdx-spec/v3.0.1/model/AI/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: ML model
+    many: ML models
+  ru:
+    one: Модель ML
+    many: Модели ML
+description:
+  en: A trained model the product uses, with the data and the code that produced it.
+  ru: Обученная модель, которую использует продукт, с данными и кодом, которые её создали.

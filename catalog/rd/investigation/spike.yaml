@@ -1,0 +1,25 @@
+id: practice.spike
+definition: A short piece of work that answers a question so a decision can be made.
+sources:
+- https://en.wikipedia.org/wiki/Spike_(software_development)
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Spike
+    many: Spikes
+  ru:
+    one: Исследование
+    many: Исследования
+description:
+  en: A short piece of work that answers a question so a decision can be made.
+  ru: Короткая работа, которая отвечает на вопрос, чтобы можно было принять решение.

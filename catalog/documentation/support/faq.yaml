@@ -1,0 +1,25 @@
+id: practice.faq
+definition: A question people often ask, with the answer that resolves it.
+sources:
+- https://diataxis.fr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: FAQ
+    many: FAQs
+  ru:
+    one: Частый вопрос
+    many: Частые вопросы
+description:
+  en: A question people often ask, with the answer that resolves it.
+  ru: Вопрос, который люди часто задают, и ответ, который его разрешает.

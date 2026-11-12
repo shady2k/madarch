@@ -1,0 +1,25 @@
+id: kubernetes.namespace
+definition: A named division of a cluster within which names and quotas hold.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Namespace
+    many: Namespaces
+  ru:
+    one: Пространство имён
+    many: Пространства имён
+description:
+  en: A named division of a cluster within which names and quotas hold.
+  ru: Именованное деление кластера, внутри которого действуют имена и квоты.

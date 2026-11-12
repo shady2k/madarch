@@ -1,0 +1,25 @@
+id: alertmanager.alert-group
+definition: Alerts that are batched together before they are sent, by the labels they share.
+sources:
+- https://prometheus.io/docs/alerting/latest/configuration/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Alert group
+    many: Alert groups
+  ru:
+    one: Группа оповещений
+    many: Группы оповещений
+description:
+  en: Alerts that are batched together before they are sent, by the labels they share.
+  ru: Оповещения, которые собирают вместе перед отправкой по общим меткам.

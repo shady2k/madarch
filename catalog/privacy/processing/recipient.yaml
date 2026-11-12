@@ -1,0 +1,25 @@
+id: gdpr.recipient
+definition: A party personal data is shared with, and the ground it is shared on.
+sources:
+- https://gdpr-info.eu/art-30-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Recipient
+    many: Recipients
+  ru:
+    one: Получатель
+    many: Получатели
+description:
+  en: A party personal data is shared with, and the ground it is shared on.
+  ru: Сторона, которой передают персональные данные, и основание передачи.

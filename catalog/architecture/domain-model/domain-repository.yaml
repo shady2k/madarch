@@ -1,0 +1,25 @@
+id: ddd.repository
+definition: A domain interface that gives access to aggregates as if they were a collection; it is not a version control repository.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Domain repository
+    many: Domain repositories
+  ru:
+    one: Репозиторий предметной области
+    many: Репозитории предметной области
+description:
+  en: A domain interface that gives access to aggregates as if they were a collection; it is not a version control repository.
+  ru: Интерфейс предметной области, дающий доступ к агрегатам как к коллекции; это не репозиторий системы контроля версий.

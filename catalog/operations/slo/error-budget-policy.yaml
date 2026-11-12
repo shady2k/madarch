@@ -1,0 +1,25 @@
+id: sre.error-budget-policy
+definition: The rule that says what the team does as the error budget is spent.
+sources:
+- https://sre.google/workbook/implementing-slos/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Error-budget policy
+    many: Error-budget policies
+  ru:
+    one: Политика бюджета ошибок
+    many: Политики бюджета ошибок
+description:
+  en: The rule that says what the team does as the error budget is spent.
+  ru: Правило о том, что делает команда по мере расходования бюджета ошибок.

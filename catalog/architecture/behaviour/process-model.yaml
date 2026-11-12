@@ -1,0 +1,25 @@
+id: bpmn.process
+definition: 'A business process drawn as BPMN: the tasks, the events and the gateways between them.'
+sources:
+- https://www.omg.org/spec/BPMN/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Process model
+    many: Process models
+  ru:
+    one: Модель процесса
+    many: Модели процессов
+description:
+  en: 'A business process drawn as BPMN: the tasks, the events and the gateways between them.'
+  ru: 'Бизнес-процесс, нарисованный в BPMN: задачи, события и шлюзы между ними.'

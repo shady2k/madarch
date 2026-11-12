@@ -1,0 +1,26 @@
+id: storybook.component
+definition: A reusable piece of the interface, with the properties it takes.
+sources:
+- https://storybook.js.org/docs/api/csf
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - dependsOn
+  in:
+  - uses
+template-policy: none
+labels:
+  en:
+    one: UI component
+    many: UI components
+  ru:
+    one: Компонент интерфейса
+    many: Компоненты интерфейса
+description:
+  en: A reusable piece of the interface, with the properties it takes.
+  ru: Многоразовая часть интерфейса с её свойствами.

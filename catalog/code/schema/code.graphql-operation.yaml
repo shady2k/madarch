@@ -1,0 +1,25 @@
+id: graphql.operation
+definition: A GraphQL query, mutation or subscription, with the types it reads and returns.
+sources:
+- https://spec.graphql.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: GraphQL operation
+    many: GraphQL operations
+  ru:
+    one: Операция GraphQL
+    many: Операции GraphQL
+description:
+  en: A GraphQL query, mutation or subscription, with the types it reads and returns.
+  ru: Запрос, мутация или подписка GraphQL с типами, которые она читает и возвращает.

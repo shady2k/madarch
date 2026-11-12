@@ -1,0 +1,25 @@
+id: practice.external-interface
+definition: The interface a supplier or an outside system offers to the product, as arc42's context view states it.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - consumesApi
+  in:
+  - providesApi
+template-policy: none
+labels:
+  en:
+    one: External interface
+    many: External interfaces
+  ru:
+    one: Внешний интерфейс
+    many: Внешние интерфейсы
+description:
+  en: The interface a supplier or an outside system offers to the product, as arc42's context view states it.
+  ru: Интерфейс, который поставщик или внешняя система предлагает продукту, как его описывает контекст arc42.

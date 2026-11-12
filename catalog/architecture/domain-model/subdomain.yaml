@@ -1,0 +1,25 @@
+id: ddd.subdomain
+definition: A part of the business the model is divided into, classified as core, supporting or generic.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Subdomain
+    many: Subdomains
+  ru:
+    one: Подобласть
+    many: Подобласти
+description:
+  en: A part of the business the model is divided into, classified as core, supporting or generic.
+  ru: 'Часть бизнеса, на которую делится модель: основная, поддерживающая или общая.'

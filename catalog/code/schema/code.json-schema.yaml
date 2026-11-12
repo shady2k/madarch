@@ -1,0 +1,25 @@
+id: json-schema.schema
+definition: A JSON Schema that fixes the shape of a payload, a configuration or a message.
+sources:
+- https://json-schema.org/specification
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: JSON Schema
+    many: JSON Schemas
+  ru:
+    one: Схема JSON
+    many: Схемы JSON
+description:
+  en: A JSON Schema that fixes the shape of a payload, a configuration or a message.
+  ru: Схема JSON, которая фиксирует форму полезной нагрузки, настройки или сообщения.

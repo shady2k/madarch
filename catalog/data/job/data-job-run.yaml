@@ -1,0 +1,26 @@
+id: openlineage.run
+definition: One execution of a data job, with the datasets it read and wrote and the time it took.
+sources:
+- https://openlineage.io/docs/spec/object-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasInput
+  - hasOutput
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Data job run
+    many: Data job runs
+  ru:
+    one: Запуск задачи данных
+    many: Запуски задач данных
+description:
+  en: One execution of a data job, with the datasets it read and wrote and the time it took.
+  ru: Одно выполнение задачи обработки данных с прочитанными и записанными наборами и затраченным временем.

@@ -1,0 +1,25 @@
+id: practice.roadmap-item
+definition: A planned piece of the product's future, placed in time against epics and releases.
+sources:
+- https://www.atlassian.com/agile/product-management/product-roadmaps
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Roadmap item
+    many: Roadmap items
+  ru:
+    one: Пункт дорожной карты
+    many: Пункты дорожной карты
+description:
+  en: A planned piece of the product's future, placed in time against epics and releases.
+  ru: Запланированная часть будущего продукта, поставленная во времени относительно эпиков и выпусков.

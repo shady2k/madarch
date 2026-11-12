@@ -1,0 +1,25 @@
+id: otel.cicd-worker
+definition: The machine or the agent a pipeline job runs on.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasHost
+  in:
+  - hasHost
+template-policy: none
+labels:
+  en:
+    one: Runner
+    many: Runners
+  ru:
+    one: Исполнитель
+    many: Исполнители
+description:
+  en: The machine or the agent a pipeline job runs on.
+  ru: Машина или агент, на которых выполняется задача конвейера.

@@ -1,0 +1,25 @@
+id: practice.block-volume
+definition: A block device attached to a server, which a filesystem is made on.
+sources:
+- https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasHost
+  in:
+  - hasHost
+template-policy: none
+labels:
+  en:
+    one: Block volume
+    many: Block volumes
+  ru:
+    one: Блочный том
+    many: Блочные тома
+description:
+  en: A block device attached to a server, which a filesystem is made on.
+  ru: Блочное устройство, подключённое к серверу, на котором создают файловую систему.

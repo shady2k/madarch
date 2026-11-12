@@ -1,0 +1,26 @@
+id: practice.evaluation-result
+definition: What one evaluation measured, with the threshold it was compared against.
+sources:
+- https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd
+- https://mlflow.org/docs/latest/index.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Model evaluation result
+    many: Model evaluation results
+  ru:
+    one: Результат оценки модели
+    many: Результаты оценки модели
+description:
+  en: What one evaluation measured, with the threshold it was compared against.
+  ru: То, что измерила одна оценка модели, и порог, с которым это сравнили.

@@ -1,0 +1,25 @@
+id: practice.network-zone
+definition: A part of the network with one level of trust, which traffic crosses at a controlled point.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Network zone
+    many: Network zones
+  ru:
+    one: Сетевая зона
+    many: Сетевые зоны
+description:
+  en: A part of the network with one level of trust, which traffic crosses at a controlled point.
+  ru: Часть сети с одним уровнем доверия, границу которой трафик пересекает в контролируемой точке.

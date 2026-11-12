@@ -1,0 +1,54 @@
+id: practice.table
+definition: A table, its columns and its indexes, and the code that reads and writes it.
+sources:
+- https://www.postgresql.org/docs/
+acquisition:
+- extractor data-model
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: page
+template: templates/table.liquid
+source: graph
+fields:
+- name: database
+  type: text
+  binding: db-schema@1.database
+- name: name
+  type: text
+  binding: db-schema@1.name
+- name: schema
+  type: text
+  nullable: true
+  binding: db-schema@1.schema
+- name: unsupported
+  type: text
+  nullable: true
+  binding: db-schema@1.unsupported
+key:
+- database
+- name
+depends-on:
+- code.database
+terms:
+- '**/*.ts'
+- '**/*.tsx'
+card: true
+er: links
+details:
+- database
+- schema
+- unsupported
+labels:
+  en:
+    one: Table
+    many: Tables
+  ru:
+    one: Таблица
+    many: Таблицы
+description:
+  en: A table, its columns and indexes, and the code that reads and writes it.
+  ru: Таблица, её столбцы и индексы, и код, который её читает и пишет.

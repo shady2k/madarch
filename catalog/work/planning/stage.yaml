@@ -1,0 +1,27 @@
+id: practice.stage
+definition: A part of a feature that bounds the work one responsible person or agent carries to its end; a stage holds tasks
+  and bugs.
+sources:
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+- https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Stage
+    many: Stages
+  ru:
+    one: Этап
+    many: Этапы
+description:
+  en: A part of a feature that bounds the work one responsible person or agent carries to its end.
+  ru: Часть возможности, ограничивающая работу, которую один ответственный человек или агент доводит до конца.

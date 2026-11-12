@@ -1,0 +1,26 @@
+id: sacm.assurance-case
+definition: A structured argument, with its evidence, that the product meets a claim such as a safety or security goal.
+sources:
+- https://www.omg.org/spec/SACM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Assurance case
+    many: Assurance cases
+  ru:
+    one: Обоснование обеспечения
+    many: Обоснования обеспечения
+description:
+  en: A structured argument, with its evidence, that the product meets a claim such as a safety or security goal.
+  ru: Структурированное рассуждение с доказательствами, что продукт выполняет утверждение, например цель безопасности.

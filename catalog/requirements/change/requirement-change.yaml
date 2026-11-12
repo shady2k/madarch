@@ -1,0 +1,26 @@
+id: practice.requirement-change
+definition: A change to a stated requirement, with what it replaces and why.
+sources:
+- https://www.omg.org/spec/SACM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  - supersedes
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Requirement change
+    many: Requirement changes
+  ru:
+    one: Изменение требования
+    many: Изменения требований
+description:
+  en: A change to a stated requirement, with what it replaces and why.
+  ru: Изменение заявленного требования с тем, что оно заменяет, и причиной.

@@ -1,0 +1,25 @@
+id: practice.cache
+definition: A store that keeps values where they are cheaper to read, with the rule that decides how long they live.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9111.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Cache
+    many: Caches
+  ru:
+    one: Кэш
+    many: Кэши
+description:
+  en: A store that keeps values where they are cheaper to read, with the rule that decides how long they live.
+  ru: Хранилище значений там, где их читать дешевле, с правилом, определяющим время их жизни.

@@ -1,0 +1,45 @@
+id: practice.vcs-repository
+definition: 'A version control repository: the history and the tree the extractors read; it is not a domain repository.'
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- extractor files
+- extractor history
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: page
+template: templates/repository.liquid
+source: graph
+capability: git
+fields:
+- name: name
+  type: text
+  producers:
+  - git
+- name: url
+  type: text
+  producers:
+  - git
+- name: default_branch
+  type: text
+  nullable: true
+  producers:
+  - git
+key:
+- name
+depends-on: []
+history: repositories
+labels:
+  en:
+    one: Repository
+    many: Repositories
+  ru:
+    one: Репозиторий
+    many: Репозитории
+description:
+  en: 'A version control repository: the history and the tree the extractors read; it is not a domain repository.'
+  ru: 'Репозиторий системы контроля версий: история и дерево, которые читают извлекатели; это не репозиторий предметной области.'

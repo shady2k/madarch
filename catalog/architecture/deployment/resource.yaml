@@ -1,0 +1,25 @@
+id: backstage.resource
+definition: Infrastructure a component needs at runtime, such as a database, a topic or a bucket.
+sources:
+- https://backstage.io/docs/features/software-catalog/system-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Resource
+    many: Resources
+  ru:
+    one: Ресурс
+    many: Ресурсы
+description:
+  en: Infrastructure a component needs at runtime, such as a database, a topic or a bucket.
+  ru: 'Инфраструктура, нужная компоненту во время работы: база данных, топик или бакет.'

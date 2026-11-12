@@ -1,0 +1,25 @@
+id: archimate.principle
+definition: A normative property the architecture keeps, stated so a decision can be judged against it.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Principle
+    many: Principles
+  ru:
+    one: Принцип
+    many: Принципы
+description:
+  en: A normative property the architecture keeps, stated so a decision can be judged against it.
+  ru: Нормативное свойство, которое держит архитектура, изложенное так, что по нему можно судить решение.
