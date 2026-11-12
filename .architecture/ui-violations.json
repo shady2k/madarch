@@ -136,11 +136,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "aba60b9ab685aeb043c3#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/journal.tsx",
     "subject": "342e59c41dfbc1c43c39#1"
   },
@@ -366,11 +361,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "HistoryBar#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/journal.tsx",
     "subject": "Fact#1"
   },
@@ -553,36 +543,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/diagrams/views.tsx",
     "subject": "a17a35e72211b90daa8b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "073c7b055ef174e39dac#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "18e458fb5b83e162976c#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "18e458fb5b83e162976c#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "21be8b7ae75d6a94077c#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "53c78ee5931ebf53c7dc#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/history-bar.tsx",
-    "subject": "ffbaafa6f1041afb53cd#1"
   },
   {
     "rule": "raw-ui-element",
