@@ -14,18 +14,12 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import type { FieldDecl, KindDecl, KindsManifest } from '../../product/manifest/kinds.js';
+import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
-function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
-  const binding = field.binding;
-  if (binding === undefined) return kind.origin === 'person' ? { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) } : undefined;
-  if (binding.kind === 'agent') return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
-  const plugin = manifest.plugins?.get(binding.plugin);
-  const declared = plugin?.contract?.vertices.find((vertex) => vertex.kind === kind.name)?.fields.find((one) => one.name === binding.field);
-  if (declared === undefined) return undefined;
-  return { type: declared.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
+function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
+  return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
 }
 
 /**
@@ -43,7 +37,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     let bound = false;
     let capability = '';
     for (const field of kind.fields) {
-      const held = resolved(field, kind, manifest);
+      const held = resolved(field);
       if (held === undefined) continue;
       bound = true;
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
@@ -103,7 +97,7 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
     const types: Record<string, GeneratedKindRead['types'][string]> = {};
     const bound = new Set<string>();
     for (const field of kind.fields) {
-      const held = resolved(field, kind, manifest);
+      const held = resolved(field);
       if (held === undefined) continue;
       bound.add(field.name);
       if (keyFields.includes(field.name)) continue;

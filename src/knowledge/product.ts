@@ -47,6 +47,9 @@ import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/tra
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
+import { assertPluginTurnsEnabled, fillStageConfigurationFrom } from '../product/manifest/fill-config.js';
+import { firstFillStagesOfFiles, engineFirstFillStages, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
+import { workingTreeFiles } from '../plugin/product-files.js';
 import { planManifestFill } from '../plugin/fill-declarations.js';
 import { configuredPluginAgent, pluginAgentOptions, adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
@@ -836,7 +839,9 @@ export class KnowledgeProduct {
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
       const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
-      planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined);
+      const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined);
+      const files = workingTreeFiles(product.folder);
+      assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, product.folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, product.folder));
     } catch (error) {
       return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
     }

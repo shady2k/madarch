@@ -170,6 +170,39 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     } finally { await owner.close(); }
   }, 120_000);
 
+  test('the packaged agent fills a novel unbound declared kind', async () => {
+    const f = fixture(true);
+    writeFileSync(f.fake, FAKE.replace('/repo/private.md', '/repo/absent.md'));
+    const file = join(f.product, 'madarch/kinds.yaml');
+    const manifest = parseDocument(readFileSync(file, 'utf8'));
+    manifest.setIn(['plugins'], [{ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
+    manifest.setIn(['kinds', 'probe.summary', 'fields'], [{ name: 'id', type: 'text' }, { name: 'title', type: 'text' }]);
+    writeFileSync(file, manifest.toString());
+    const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
+    writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:
+  - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }
+`);
+    const declarations = readKinds(f.product);
+    expect(declarations.present).toBe(true);
+    if (!declarations.present) throw new Error('the fixture manifest is absent');
+    expect(declarations.manifest.findings).toEqual([]);
+    execFileSync('git', ['-C', f.product, 'add', '-A']);
+    execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
+    try {
+      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+        adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
+        connect: connectAcpAgent,
+      } });
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.state).toBe('succeeded');
+      expect(run.units.some((unit) => unit.unitId === 'plugin-turns/agent-fill:probe.summary')).toBe(true);
+      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string; producer: string }>(`SELECT title,split_part(said_by, '@', 1) AS producer FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open' ORDER BY producer`));
+      expect(rows.rows).toEqual([{ title: 'Alpha and Beta', producer: 'agent-fill' }]);
+    } finally { await owner.close(); }
+  }, 120_000);
+
   test('a deterministic-only plugin still fills without configuring or starting any agent', async () => {
     const f = fixture(false);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });

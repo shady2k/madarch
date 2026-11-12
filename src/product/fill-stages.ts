@@ -70,7 +70,7 @@ import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import type { FillStageConfigurationRead } from './manifest/fill-config.js';
-import { readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
+import { assertPluginTurnsEnabled, readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
 import { createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
 import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
 import type { DeclaredKinds } from '../graph/records.js';
@@ -84,8 +84,6 @@ import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../plugin/repository-snapshot.js';
 import { createStageRegistry } from '../fill/stages/index.js';
-import { stageSettled } from '../fill/state-store.js';
-import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
 import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
@@ -213,7 +211,10 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     const own = await snapshots.open(productRepositoryId(identity));
     return readFillManifests(own, folder);
   });
-  if (kindsRead.present) planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined);
+  if (kindsRead.present) {
+    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined);
+    assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, folder));
+  }
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
   // Each plugin declares its own bounds; a caller may supply a budget for this run.
   const budget = options.budget;
@@ -257,7 +258,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
