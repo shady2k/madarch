@@ -46,7 +46,8 @@ function add(name: string, path: string, view?: Visit['view']): void {
   const url = urlOf(path);
   if (!visits.some((visit) => visit.url === url && visit.view === view)) visits.push({ name, url, view });
 }
-for (const [name, path] of [['home', WIKI_HOME], ['catalogue', WIKI_CATALOGUE], ['docs', WIKI_DOCS], ['glossary', WIKI_GLOSSARY], ['questions', WIKI_QUESTIONS], ['tasks'], ['problems', WIKI_PROBLEMS], ['fill', WIKI_FILL], ['settings', WIKI_SETTINGS]]) add(name!, path!);
+const entrypoints: [string, string][] = [['home', WIKI_HOME], ['catalogue', WIKI_CATALOGUE], ['docs', WIKI_DOCS], ['glossary', WIKI_GLOSSARY], ['questions', WIKI_QUESTIONS], ['tasks', addressOfKind('task')], ['problems', WIKI_PROBLEMS], ['fill', WIKI_FILL], ['settings', WIKI_SETTINGS]];
+for (const [name, path] of entrypoints) add(name, path);
 // Status includes non-page declarations; only the catalog defines routable kinds.
 const kinds = [...new Set(catalog.kinds.filter((kind) => kind.page).map((kind) => kind.kind))].sort();
 for (const kind of kinds) add(`kind ${kind}`, addressOfKind(kind));
