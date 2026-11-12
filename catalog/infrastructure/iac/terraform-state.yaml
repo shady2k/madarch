@@ -1,4 +1,6 @@
 id: terraform.state
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The record Terraform keeps of the resources it created and their last known attributes.
 sources:
 - https://developer.hashicorp.com/terraform/language/state

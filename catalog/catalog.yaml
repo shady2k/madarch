@@ -52,6 +52,12 @@
 # conversation, agent-from-graph, live-system, not-implemented), its implementation `status`, the
 # `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member
 # or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.
+purposes:
+  understand: { labels: { en: "Understand the product", ru: "Понять продукт" }, order: 10 }
+  structure: { labels: { en: "How it works", ru: "Как устроено" }, order: 20 }
+  quality: { labels: { en: "Quality", ru: "Качество" }, order: 30 }
+  operations: { labels: { en: "Build and operations", ru: "Сборка и эксплуатация" }, order: 40 }
+  history: { labels: { en: "People and history", ru: "Люди и история" }, order: 50 }
 groups:
   strategy: { en: "Strategy and business motivation", ru: "Стратегия и мотивация бизнеса", short: { en: "Strategy", ru: "Стратегия" }, open: true }
   discovery: { en: "Discovery and user research", ru: "Исследование и изучение пользователей", short: { en: "Discovery", ru: "Исследование" } }

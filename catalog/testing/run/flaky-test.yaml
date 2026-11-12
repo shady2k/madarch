@@ -1,4 +1,6 @@
 id: practice.flaky-test
+purpose: quality
+audience: [tester, developer]
 definition: A test whose result differs between runs of the same code.
 sources:
 - https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html

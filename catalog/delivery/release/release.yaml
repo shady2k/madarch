@@ -1,4 +1,6 @@
 id: practice.release
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: A version of the product made available to its users, with the changes it carries.
 sources:
 - https://helm.sh/docs/topics/charts/

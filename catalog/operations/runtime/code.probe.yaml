@@ -1,4 +1,6 @@
 id: kubernetes.probe
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: One configured readiness, liveness or startup probe.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

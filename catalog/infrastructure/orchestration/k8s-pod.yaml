@@ -1,4 +1,6 @@
 id: kubernetes.pod
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: 'The smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

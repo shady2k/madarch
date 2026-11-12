@@ -1,4 +1,6 @@
 id: practice.bug
+purpose: quality
+audience: [developer, tester, product]
 definition: A task for a defect in the product, with the severity of the defect and the steps that show it.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/issue-types-how-do-team-managed-and-company-managed-projects-differ/

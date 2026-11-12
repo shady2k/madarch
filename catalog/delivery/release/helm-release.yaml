@@ -1,4 +1,6 @@
 id: helm.release
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: A named, deployed instance of a Helm chart in one cluster and namespace.
 sources:
 - https://helm.sh/docs/topics/charts/

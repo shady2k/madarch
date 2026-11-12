@@ -1,4 +1,6 @@
 id: practice.push-message
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: A notification a service pushes to a device or a browser.
 sources:
 - https://www.rfc-editor.org/rfc/rfc8030.html

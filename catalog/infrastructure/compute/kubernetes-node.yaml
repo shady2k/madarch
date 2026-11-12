@@ -1,4 +1,6 @@
 id: kubernetes.node
+purpose: structure
+audience: [operations, platform-devops, architect]
 definition: One machine of a Kubernetes cluster that runs pods.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

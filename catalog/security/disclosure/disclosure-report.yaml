@@ -1,4 +1,6 @@
 id: practice.disclosure-report
+purpose: history
+audience: [security-engineer, architect]
 definition: A vulnerability report received from outside, with its handling and its resolution.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/216/final

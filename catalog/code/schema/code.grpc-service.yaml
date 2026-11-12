@@ -1,4 +1,6 @@
 id: protobuf.service
+purpose: structure
+audience: [developer, architect, analyst]
 definition: A service declared in a Protocol Buffers file, with the remote calls it offers.
 sources:
 - https://protobuf.dev/reference/protobuf/proto3-spec/

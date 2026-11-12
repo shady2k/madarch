@@ -1,4 +1,6 @@
 id: practice.user-flow
+purpose: understand
+audience: [product, analyst, designer]
 definition: The steps a person takes through the product to reach one outcome.
 sources:
 - https://www.nngroup.com/articles/journey-mapping-101/

@@ -1,4 +1,6 @@
 id: practice.subcontractor
+purpose: operations
+audience: [product-lead, operations, security-engineer]
 definition: A party a supplier passes part of its work to, and the product depends on in turn.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final

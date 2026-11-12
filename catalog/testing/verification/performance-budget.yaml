@@ -1,4 +1,6 @@
 id: practice.performance-budget
+purpose: quality
+audience: [tester, developer]
 definition: A limit a screen or a route must stay within, which a performance test checks.
 sources:
 - https://web.dev/articles/performance-budgets-101

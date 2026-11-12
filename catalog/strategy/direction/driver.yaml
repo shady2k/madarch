@@ -1,4 +1,6 @@
 id: archimate.driver
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: An external or internal condition that motivates the organisation to change.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/

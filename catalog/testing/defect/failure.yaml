@@ -1,4 +1,6 @@
 id: istqb.failure
+purpose: quality
+audience: [tester, developer]
 definition: An event in which the product does not meet its requirements or its expected result.
 sources:
 - https://glossary.istqb.org/en_US/term/failure

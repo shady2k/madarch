@@ -1,4 +1,6 @@
 id: istqb.acceptance-criterion
+purpose: quality
+audience: [product, analyst, tester, developer, architect]
 definition: A condition a work product must meet to be accepted by its stakeholders.
 sources:
 - https://glossary.istqb.org/en_US/term/acceptance-criteria

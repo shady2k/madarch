@@ -1,4 +1,6 @@
 id: ddd.entity
+purpose: structure
+audience: [architect, developer, analyst]
 definition: An object of the domain with an identity of its own, which persists through change.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

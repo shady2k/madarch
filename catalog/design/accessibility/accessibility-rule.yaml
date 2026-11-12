@@ -1,4 +1,6 @@
 id: act.rule
+purpose: quality
+audience: [designer, tester, developer]
 definition: A W3C ACT rule that checks one success criterion in a way tools can repeat.
 sources:
 - https://www.w3.org/TR/act-rules-format/

@@ -1,4 +1,6 @@
 id: practice.persona
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A described kind of user, with the goals and behaviour the research found.
 sources:
 - https://www.nngroup.com/articles/persona/

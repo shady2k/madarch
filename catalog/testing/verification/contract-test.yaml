@@ -1,4 +1,6 @@
 id: pact.contract-test
+purpose: quality
+audience: [tester, developer]
 definition: A check that a provider still honours the contract its consumers expect.
 sources:
 - https://docs.pact.io/

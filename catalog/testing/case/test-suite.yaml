@@ -1,4 +1,6 @@
 id: istqb.test-suite
+purpose: quality
+audience: [tester, developer]
 definition: A set of test cases run together, with the environment they need.
 sources:
 - https://glossary.istqb.org/en_US/term/test-suite

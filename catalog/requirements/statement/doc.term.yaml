@@ -1,4 +1,6 @@
 id: practice.glossary-term
+purpose: understand
+audience: [product, analyst, developer, architect, designer, tester]
 definition: A word of the product's own language, defined once in a glossary.
 sources:
 - https://arc42.org/overview

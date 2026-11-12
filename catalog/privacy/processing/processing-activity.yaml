@@ -1,4 +1,6 @@
 id: gdpr.processing-activity
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: One purpose for which personal data is processed, with its data, its recipients and its time limits, as GDPR article
   30 records it.
 sources:

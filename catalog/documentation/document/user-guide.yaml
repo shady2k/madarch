@@ -1,4 +1,6 @@
 id: practice.user-guide
+purpose: understand
+audience: [product, analyst, designer, tester]
 definition: The tasks a person can do with the product and the procedures that reach them.
 sources:
 - https://diataxis.fr/

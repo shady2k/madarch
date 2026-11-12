@@ -1,4 +1,6 @@
 id: gdpr.personal-data
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: Information about an identified or identifiable person, as the GDPR defines it.
 sources:
 - https://gdpr-info.eu/art-4-gdpr/

@@ -1,4 +1,6 @@
 id: practice.document-section
+purpose: understand
+audience: [product, analyst, developer, operations]
 definition: A heading and its section declared in a repository document.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/

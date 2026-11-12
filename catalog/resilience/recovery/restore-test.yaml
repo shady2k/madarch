@@ -1,4 +1,6 @@
 id: nist800-34.restore-test
+purpose: quality
+audience: [operations, platform-devops, tester]
 definition: A trial restore from a backup, with the time it took and what it proved.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

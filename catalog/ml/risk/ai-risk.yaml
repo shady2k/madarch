@@ -1,4 +1,6 @@
 id: nist-ai-rmf.risk
+purpose: quality
+audience: [security-engineer, product-lead, analyst]
 definition: A way an AI system may harm people or the organisation, with its likelihood and its effect.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework

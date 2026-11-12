@@ -1,4 +1,6 @@
 id: kubernetes.service
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A Kubernetes Service that routes traffic to the pods it selects.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

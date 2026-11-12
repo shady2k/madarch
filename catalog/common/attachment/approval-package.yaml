@@ -1,4 +1,6 @@
 id: practice.approval-package
+purpose: quality
+audience: [product-lead, analyst, developer]
 definition: 'A package of pending changes: what will be created or changed, its links and its risks, linked to the entity
   it changes; the entity keeps its one current status until the package is approved.'
 sources:

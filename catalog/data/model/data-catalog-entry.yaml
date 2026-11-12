@@ -1,4 +1,6 @@
 id: dcat.catalog-record
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A dataset's entry in a data catalog, with its description, its owner and where it can be found; the dataset itself
   is one kind, wherever it is described.
 sources:

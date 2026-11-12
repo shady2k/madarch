@@ -1,4 +1,6 @@
 id: kubernetes.statefulset
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A Kubernetes workload whose pods keep a stable identity and their own storage.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

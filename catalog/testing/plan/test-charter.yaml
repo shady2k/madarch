@@ -1,4 +1,6 @@
 id: istqb.test-charter
+purpose: quality
+audience: [tester, developer]
 definition: The mission statement that guides one exploratory test session.
 sources:
 - https://glossary.istqb.org/en_US/term/test-charter

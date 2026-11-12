@@ -1,4 +1,6 @@
 id: practice.hypothesis
+purpose: understand
+audience: [product, analyst, designer]
 definition: A stated expectation about a benefit, which an experiment is meant to confirm or refute.
 sources:
 - https://en.wikipedia.org/wiki/Hypothesis

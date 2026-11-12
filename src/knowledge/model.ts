@@ -577,6 +577,8 @@ export interface SearchView {
 }
 
 export interface KindSummary {
+  purpose?: string;
+  audience?: readonly string[];
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
@@ -838,6 +840,7 @@ export interface WikiStatus {
   /** How many findings the documents and the manifest hold: a count, never the list (madarch-8bdc.2.5). */
   findingCount: number;
   kinds: KindSummary[];
+  purposes?: { id: string; labels: Record<string, string>; order: number; kinds: string[] }[];
   /** The groups of kinds, in the manifest's order. */
   groups: {
     group: string;

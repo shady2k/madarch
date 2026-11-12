@@ -1,4 +1,6 @@
 id: scim.directory
+purpose: structure
+audience: [security-engineer, architect]
 definition: The accounts and groups a service keeps in step with an identity provider over SCIM.
 sources:
 - https://www.rfc-editor.org/rfc/rfc7644.html

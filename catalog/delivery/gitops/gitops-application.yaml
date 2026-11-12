@@ -1,4 +1,6 @@
 id: opengitops.application
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: A deployed application whose desired state is kept in Git and reconciled into the cluster.
 sources:
 - https://opengitops.dev/

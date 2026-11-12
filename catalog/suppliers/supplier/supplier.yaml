@@ -1,4 +1,6 @@
 id: practice.supplier
+purpose: operations
+audience: [product-lead, operations, security-engineer]
 definition: An organisation the product depends on for a service, a component or a platform.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final

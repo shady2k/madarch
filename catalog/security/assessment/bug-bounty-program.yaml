@@ -1,4 +1,6 @@
 id: practice.bug-bounty-program
+purpose: quality
+audience: [security-engineer, tester, developer]
 definition: An arrangement in which outside researchers are paid for the vulnerabilities they report.
 sources:
 - https://www.hackerone.com/

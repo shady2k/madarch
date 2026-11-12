@@ -1,4 +1,6 @@
 id: practice.table
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A table, its columns and its indexes, and the code that reads and writes it.
 sources:
 - https://www.postgresql.org/docs/

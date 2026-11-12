@@ -1,4 +1,6 @@
 id: practice.job-to-be-done
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: The job a person hires the product to do, stated apart from any feature.
 sources:
 - https://en.wikipedia.org/wiki/Jobs_to_be_done

@@ -1,4 +1,6 @@
 id: ddd.value-object
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A domain value defined by its attributes, without an identity of its own.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

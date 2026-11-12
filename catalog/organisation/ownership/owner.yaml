@@ -1,4 +1,6 @@
 id: backstage.owner
+purpose: history
+audience: [product-lead, architect, developer, operations]
 definition: The person or the group that answers for an element of the product.
 sources:
 - https://backstage.io/docs/features/software-catalog/well-known-relations

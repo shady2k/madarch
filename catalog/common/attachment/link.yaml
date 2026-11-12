@@ -1,4 +1,6 @@
 id: practice.link
+purpose: structure
+audience: [architect, analyst, developer]
 definition: A typed connection between two entities with its own id, attributes and history; its type is declared in the manifest.
 sources:
 - https://doc.anytype.io/anytype/create/links

@@ -1,4 +1,6 @@
 id: otel.cicd-pipeline-run
+purpose: history
+audience: [developer, platform-devops, operations]
 definition: One execution of a pipeline on one revision, with its result and its duration.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/

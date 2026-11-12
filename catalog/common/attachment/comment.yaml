@@ -1,4 +1,6 @@
 id: practice.comment
+purpose: history
+audience: [product-lead, analyst, developer]
 definition: A person's or an agent's remark attached to any entity, kept with its author and time.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/watch-share-and-comment-on-a-work-item/

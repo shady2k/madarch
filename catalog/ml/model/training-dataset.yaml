@@ -1,4 +1,6 @@
 id: practice.training-dataset
+purpose: structure
+audience: [developer, architect, product-lead]
 definition: The data a model was trained on, with its source and its licence.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Dataset/

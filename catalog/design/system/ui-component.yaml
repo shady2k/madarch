@@ -1,4 +1,6 @@
 id: storybook.component
+purpose: structure
+audience: [designer, developer]
 definition: A reusable piece of the interface, with the properties it takes.
 sources:
 - https://storybook.js.org/docs/api/csf

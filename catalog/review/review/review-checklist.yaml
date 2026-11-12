@@ -1,4 +1,6 @@
 id: practice.review-checklist
+purpose: quality
+audience: [developer, tester]
 definition: The list of what a reviewer is expected to check before approving a change.
 sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests

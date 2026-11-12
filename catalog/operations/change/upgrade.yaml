@@ -1,4 +1,6 @@
 id: practice.upgrade
+purpose: operations
+audience: [operations, platform-devops]
 definition: A move of a component or a platform to a newer version, with what it requires first.
 sources:
 - https://endoflife.date/

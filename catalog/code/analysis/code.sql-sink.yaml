@@ -1,4 +1,6 @@
 id: practice.sql-sink
+purpose: structure
+audience: [developer, architect]
 definition: A call that runs SQL text as it is.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html

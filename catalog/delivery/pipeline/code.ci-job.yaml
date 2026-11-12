@@ -1,4 +1,6 @@
 id: otel.cicd-task
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: A job of a CI workflow and the steps it runs.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/

@@ -1,4 +1,6 @@
 id: practice.cache-policy
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: The rule that decides when a cached value is written, reused and dropped.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9111.html

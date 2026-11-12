@@ -1,4 +1,5 @@
 id: spdx.file
+purpose: structure
 definition: A file of a code repository.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/File/

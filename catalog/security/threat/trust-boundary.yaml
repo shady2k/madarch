@@ -1,4 +1,6 @@
 id: practice.trust-boundary
+purpose: structure
+audience: [security-engineer, architect]
 definition: A line across which the level of trust changes, which data flows cross.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

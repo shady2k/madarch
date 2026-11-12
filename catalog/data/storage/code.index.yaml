@@ -1,4 +1,6 @@
 id: practice.database-index
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A database index, with the columns it covers.
 sources:
 - https://www.postgresql.org/docs/

@@ -1,4 +1,6 @@
 id: practice.operation
+purpose: history
+audience: [product-lead, analyst, developer]
 definition: 'The unit of sync: one intended change with a random id, its author, time and expectation, which the journal applies
   as an increment.'
 sources:

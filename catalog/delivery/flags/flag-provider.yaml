@@ -1,4 +1,6 @@
 id: openfeature.provider
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The component that supplies flag definitions and answers evaluations.
 sources:
 - https://openfeature.dev/specification/glossary

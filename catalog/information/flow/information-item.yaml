@@ -1,4 +1,6 @@
 id: practice.information-item
+purpose: structure
+audience: [analyst, architect, security-engineer]
 definition: One item carried by an information flow, linked to the glossary term that names it.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

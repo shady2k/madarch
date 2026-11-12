@@ -1,4 +1,6 @@
 id: practice.file-share
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A network file system a service mounts and reads as a folder.
 sources:
 - https://www.rfc-editor.org/rfc/rfc7530.html

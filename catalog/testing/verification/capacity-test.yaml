@@ -1,4 +1,6 @@
 id: practice.capacity-test
+purpose: quality
+audience: [tester, developer]
 definition: A test that finds how much load the product can take before it degrades.
 sources:
 - https://glossary.istqb.org/en_US/term/capacity-testing

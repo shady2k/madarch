@@ -1,4 +1,6 @@
 id: manifest.statuses
+purpose: structure
+audience: [architect, product-lead]
 definition: A named state an entity of a kind may be in, declared in the manifest's workflow; an entity has one current status,
   and its id is its key under statuses.
 sources:

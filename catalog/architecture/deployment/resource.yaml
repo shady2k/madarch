@@ -1,4 +1,6 @@
 id: backstage.resource
+purpose: operations
+audience: [architect, operations, platform-devops]
 definition: Infrastructure a component needs at runtime, such as a database, a topic or a bucket.
 sources:
 - https://backstage.io/docs/features/software-catalog/system-model

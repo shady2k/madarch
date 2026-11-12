@@ -1,4 +1,6 @@
 id: scrum.accountability
+purpose: history
+audience: [product-lead, product, architect]
 definition: What a role answers for, as the Scrum Guide states the accountabilities of a Scrum team.
 sources:
 - https://scrumguides.org/scrum-guide.html

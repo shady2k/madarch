@@ -1,4 +1,6 @@
 id: practice.scheduled-job
+purpose: operations
+audience: [operations, platform-devops]
 definition: Work the system runs on a timetable rather than in response to a request.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/

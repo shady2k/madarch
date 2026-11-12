@@ -1,4 +1,6 @@
 id: practice.subscription
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: A consumer's standing interest in a topic or a queue, with the delivery rules it asks for.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0

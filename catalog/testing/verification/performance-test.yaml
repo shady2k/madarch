@@ -1,4 +1,6 @@
 id: istqb.performance-test
+purpose: quality
+audience: [tester, developer]
 definition: A test that measures how the product responds and how much it can carry.
 sources:
 - https://glossary.istqb.org/en_US/term/performance-testing

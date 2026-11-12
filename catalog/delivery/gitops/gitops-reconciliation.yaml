@@ -1,4 +1,6 @@
 id: opengitops.reconciliation
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The repeated act of comparing the desired state in Git with the live state and correcting the difference.
 sources:
 - https://opengitops.dev/

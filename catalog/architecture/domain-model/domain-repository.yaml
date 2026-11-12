@@ -1,4 +1,6 @@
 id: ddd.repository
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A domain interface that gives access to aggregates as if they were a collection; it is not a version control repository.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

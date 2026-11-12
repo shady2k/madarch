@@ -1,4 +1,6 @@
 id: oscal.control
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: One control of a catalog, with its statements, its parameters and its assessment methods.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

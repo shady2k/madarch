@@ -1,4 +1,6 @@
 id: practice.notification-template
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: The text of a notification with its placeholders, kept apart from the code that sends it.
 sources:
 - https://www.rfc-editor.org/rfc/rfc5322.html

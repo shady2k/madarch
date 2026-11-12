@@ -1,4 +1,6 @@
 id: sacm.assurance-case
+purpose: quality
+audience: [product, analyst, tester, architect]
 definition: A structured argument, with its evidence, that the product meets a claim such as a safety or security goal.
 sources:
 - https://www.omg.org/spec/SACM/

@@ -1,4 +1,6 @@
 id: istqb.test-double
+purpose: quality
+audience: [tester, developer]
 definition: A stand-in for a component or an interface a test runs against.
 sources:
 - https://glossary.istqb.org/en_US/term/test-double

@@ -1,4 +1,6 @@
 id: practice.column
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A column of a table, with its type and the constraints it holds.
 sources:
 - https://www.postgresql.org/docs/

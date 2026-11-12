@@ -1,4 +1,6 @@
 id: otel.cicd-pipeline
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: A continuous integration workflow file and the triggers it runs on.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/

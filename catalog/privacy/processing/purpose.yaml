@@ -1,4 +1,6 @@
 id: gdpr.purpose
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: The reason a processing activity handles personal data.
 sources:
 - https://gdpr-info.eu/art-5-gdpr/

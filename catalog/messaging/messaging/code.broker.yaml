@@ -1,4 +1,6 @@
 id: practice.broker
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: A message broker declared by a deployment or by connection settings.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0

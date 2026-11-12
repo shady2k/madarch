@@ -1,4 +1,6 @@
 id: practice.proxy
+purpose: structure
+audience: [operations, platform-devops, architect]
 definition: A component that forwards traffic and may change, cache or refuse it on the way.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9110.html

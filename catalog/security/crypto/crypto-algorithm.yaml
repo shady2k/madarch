@@ -1,4 +1,6 @@
 id: practice.crypto-algorithm
+purpose: structure
+audience: [security-engineer, architect, developer]
 definition: A named algorithm, such as AES-256-GCM, with its strength and its status.
 sources:
 - https://csrc.nist.gov/projects/cryptographic-standards-and-guidelines

@@ -1,4 +1,6 @@
 id: practice.observation
+purpose: understand
+audience: [product, analyst, designer]
 definition: A record of how a person works with the product, made where the work happens.
 sources:
 - https://www.nngroup.com/articles/contextual-inquiry/

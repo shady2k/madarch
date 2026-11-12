@@ -1,4 +1,6 @@
 id: kubernetes.cluster
+purpose: structure
+audience: [operations, platform-devops, architect]
 definition: A set of nodes one control plane schedules workloads onto.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

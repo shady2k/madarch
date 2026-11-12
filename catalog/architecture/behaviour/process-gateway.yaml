@@ -1,4 +1,6 @@
 id: bpmn.gateway
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A BPMN point where a process branches or joins, by a condition or an event.
 sources:
 - https://www.omg.org/spec/BPMN/

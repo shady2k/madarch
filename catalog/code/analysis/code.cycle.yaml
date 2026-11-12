@@ -1,4 +1,6 @@
 id: practice.dependency-cycle
+purpose: quality
+audience: [developer, architect]
 definition: Files or modules that import one another in a ring.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/

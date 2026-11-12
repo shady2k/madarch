@@ -1,4 +1,6 @@
 id: openlineage.run
+purpose: history
+audience: [analyst, developer, operations]
 definition: One execution of a data job, with the datasets it read and wrote and the time it took.
 sources:
 - https://openlineage.io/docs/spec/object-model

@@ -1,4 +1,6 @@
 id: practice.review-finding
+purpose: quality
+audience: [developer, tester, product-lead]
 definition: 'A finding a review raises about a change, with its severity and its outcome: fixed, or declined with a reason.'
 sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews

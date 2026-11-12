@@ -1,4 +1,6 @@
 id: practice.evidence
+purpose: quality
+audience: [developer, tester, product-lead]
 definition: What acceptance checked and where it is seen, kept with the check that produced it.
 sources:
 - https://glossary.istqb.org/en_US/term/test-evidence

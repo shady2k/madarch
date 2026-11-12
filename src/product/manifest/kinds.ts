@@ -265,7 +265,15 @@ export interface FactDecl {
   readonly audience?: readonly string[];
 }
 
+export interface PurposeDecl {
+  id: string;
+  labels: Readonly<Record<string, string>>;
+  order: number;
+  line: number;
+}
+
 export interface KindDecl {
+  purpose?: string;
   audience?: readonly string[];
   facts?: readonly FactDecl[];
   name: string;
@@ -514,6 +522,7 @@ export interface KindsManifest {
   file: string;
   /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
   roles: ReadonlyMap<string, RoleDecl>;
+  purposes?: ReadonlyMap<string, PurposeDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
   /** `journal:` — whether the journal keeps every request a plugin makes, its reads included (off unless it is said). */
@@ -579,7 +588,7 @@ export type KindsRead =
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
-  'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'purpose', 'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
@@ -1002,6 +1011,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
   remapLines(manifest.properties);
   remapLines(manifest.expect);
   remapLines(manifest.roles);
+  if (manifest.purposes !== undefined) remapLines(manifest.purposes);
   remapLines(manifest.edges);
   remapLines(manifest.plugins);
   if (manifest.catalog !== undefined) {
@@ -1172,7 +1182,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
+    } else if (key !== 'purposes' && key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -1202,6 +1212,23 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     }
   }
   const problems = parseProblems(top['problems'], at, findings, file);
+  const purposes = new Map<string, PurposeDecl>();
+  const rawPurposes = top['purposes'];
+  if (rawPurposes !== undefined) {
+    if (rawPurposes === null || typeof rawPurposes !== 'object' || Array.isArray(rawPurposes)) findings.push({ file, line: at(['purposes']), message: 'purposes maps ids to { labels: { en, ru }, order: integer }' });
+    else for (const [id, raw] of Object.entries(rawPurposes)) {
+      const path = ['purposes', id];
+      const problem = (key: string, message: string): void => { findings.push({ file, line: at([...path, key]), message: `purpose "${id}": ${message}` }); };
+      const start = findings.length;
+      if (!id.trim() || raw === null || typeof raw !== 'object' || Array.isArray(raw)) { problem('', 'expected { labels: { en, ru }, order: integer }'); continue; }
+      const body = raw as Record<string, unknown>;
+      for (const key of Object.keys(body)) if (!['labels', 'order'].includes(key)) problem(key, `unknown field "${key}"`);
+      const labels = body['labels'] as Record<string, unknown> | undefined;
+      if (labels === null || typeof labels !== 'object' || Array.isArray(labels) || Object.keys(labels).length !== LABEL_LANGUAGES.length || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || !(labels[lang] as string).trim())) problem('labels', `labels names each language (${LABEL_LANGUAGES.join(', ')})`);
+      if (!Number.isSafeInteger(body['order'])) problem('order', 'order is a safe integer');
+      if (findings.length === start) purposes.set(id, { id, labels: labels as Record<string, string>, order: body['order'] as number, line: at(path) });
+    }
+  }
   const groups = new Map<string, GroupDecl>();
   /** The groups whose `parent` the reader refused: their own finding covers the defect, and no other rule repeats it. */
   const refusedGroupParents = new Set<string>();
@@ -1447,6 +1474,17 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, wordsProblem, LABEL_LANGUAGES, refusedGroupParents);
       if (entry !== undefined) catalogEntries.set(name, entry);
     }
+    const audienceOf = (raw: unknown, path: (string | number)[]): readonly string[] | undefined => {
+      if (raw === undefined) return undefined;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((role) => typeof role !== 'string' || !roles.has(role)) || new Set(raw).size !== raw.length) {
+        problem(path, `audience is a nonempty list of distinct declared roles (${[...roles.keys()].join(', ')})`);
+        return undefined;
+      }
+      return raw as string[];
+    };
+    const audience = audienceOf(decl['audience'], ['audience']);
+    const purpose = decl['purpose'];
+    if ((rawPurposes !== undefined || purpose !== undefined) && (typeof purpose !== 'string' || !purposes.has(purpose))) catalogProblem(['purpose'], `purpose names a declared purpose (${[...purposes.keys()].join(', ')}), got ${JSON.stringify(purpose)}`);
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
       for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
@@ -1657,15 +1695,6 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');
-    const audienceOf = (raw: unknown, path: (string | number)[]): readonly string[] | undefined => {
-      if (raw === undefined) return undefined;
-      if (!Array.isArray(raw) || raw.length === 0 || raw.some((role) => typeof role !== 'string' || !roles.has(role)) || new Set(raw).size !== raw.length) {
-        problem(path, `audience is a nonempty list of distinct declared roles (${[...roles.keys()].join(', ')})`);
-        return undefined;
-      }
-      return raw as string[];
-    };
-    const audience = audienceOf(decl['audience'], ['audience']);
     const facts: FactDecl[] = [];
     const rawFacts = decl['facts'];
     if (rawFacts !== undefined && !Array.isArray(rawFacts)) problem(['facts'], 'facts is a list of declared aggregates');
@@ -1755,6 +1784,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       ...(nav === undefined ? {} : { nav }),
       ...(member === undefined ? {} : { member }),
       ...(fields.length === 0 ? {} : { fields }),
+      ...(typeof purpose === 'string' ? { purpose } : {}),
       ...(audience === undefined ? {} : { audience }),
       ...(facts.length === 0 ? {} : { facts }),
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
@@ -2032,7 +2062,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       if (debug === true) journal = { debug: true };
     }
   }
-  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
+  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**

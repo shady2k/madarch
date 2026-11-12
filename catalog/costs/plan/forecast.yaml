@@ -1,4 +1,6 @@
 id: practice.forecast
+purpose: operations
+audience: [product-lead, operations, platform-devops]
 definition: What the costs are expected to be, computed from the spend so far.
 sources:
 - https://focus.finops.org/

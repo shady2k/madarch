@@ -1,4 +1,6 @@
 id: kubernetes.configmap
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A Kubernetes object that holds configuration a pod reads.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

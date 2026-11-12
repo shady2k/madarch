@@ -1,4 +1,6 @@
 id: sre.sli
+purpose: operations
+audience: [operations, platform-devops]
 definition: A quantitative measure of one aspect of the service as users experience it.
 sources:
 - https://sre.google/sre-book/service-level-objectives/

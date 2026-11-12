@@ -1,4 +1,6 @@
 id: manifest.event
+purpose: structure
+audience: [architect, product-lead]
 definition: 'A named happening that moves a workflow transition: an entity is created or linked, an approval package is approved,
   a branch is merged, a test passes.'
 sources:

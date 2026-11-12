@@ -233,3 +233,35 @@ kinds:
     expect(contents.rows[0]!.count).toBe('0');
   } finally { await owner.close(); }
 }, 30_000);
+
+
+test('purpose labels and order publish through the manifest watcher without a fill', async () => {
+  const folder = fixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  const reports: string[] = [];
+  const watch = createManifestWatch([], async (value) => { await publishValidatedManifests(owner, value); }, (line) => reports.push(line));
+  const declaration = (label: string, order: number) => `purposes:
+  understand: { labels: { en: ${label}, ru: Понять }, order: ${order} }
+kinds:
+  term:
+    purpose: understand
+    source: document
+    template: templates/term.md
+    terms: ["docs/*.md"]
+`;
+  try {
+    await createRecordSchema(owner, EMPTY_CONTRACT);
+    writeFolderManifest(folder, declaration('Understand', 10));
+    await watch.refresh(folder);
+    let published = await owner.run((tx) => readPublishedManifest(tx));
+    expect(published?.kinds.get('term')?.purpose).toBe('understand');
+    expect(published?.purposes?.get('understand')?.labels.en).toBe('Understand');
+    writeFolderManifest(folder, declaration('Read first', 50));
+    await watch.refresh(folder);
+    published = await owner.run((tx) => readPublishedManifest(tx));
+    expect(published?.purposes?.get('understand')?.labels.en).toBe('Read first');
+    expect(published?.purposes?.get('understand')?.order).toBe(50);
+    expect(reports).toEqual([]);
+  } finally { watch.stop(); await owner.close(); }
+
+}, 30_000);

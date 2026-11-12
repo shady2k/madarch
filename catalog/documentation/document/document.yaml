@@ -1,4 +1,6 @@
 id: practice.document
+purpose: understand
+audience: [product, analyst, developer, operations]
 definition: A written page of the product, such as a README, a guide or a reference.
 sources:
 - https://diataxis.fr/

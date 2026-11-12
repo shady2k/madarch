@@ -1,4 +1,6 @@
 id: practice.mutant
+purpose: quality
+audience: [tester, developer]
 definition: A copy of the code with one deliberate change, which a test is meant to catch.
 sources:
 - https://stryker-mutator.io/docs/

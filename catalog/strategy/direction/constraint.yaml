@@ -1,4 +1,6 @@
 id: archimate.constraint
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A limit on what the product may do, as arc42 section 2 and ArchiMate state it.
 sources:
 - https://arc42.org/overview

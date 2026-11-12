@@ -1,4 +1,6 @@
 id: cyclonedx.crypto-asset
+purpose: structure
+audience: [security-engineer, architect, developer]
 definition: A cryptographic algorithm, key or protocol the product relies on, with the properties it is judged by.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

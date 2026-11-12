@@ -1,4 +1,6 @@
 id: x509.certificate
+purpose: operations
+audience: [operations, platform-devops, security-engineer]
 definition: A signed statement that binds a public key to a name, which a service presents to be trusted.
 sources:
 - https://www.rfc-editor.org/rfc/rfc5280.html

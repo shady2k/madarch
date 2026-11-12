@@ -1,4 +1,6 @@
 id: practice.page-template
+purpose: structure
+audience: [architect, product-lead]
 definition: A structured page template whose ordered text, attributes and blocks describe a kind page.
 sources:
 - https://liquidjs.com/
