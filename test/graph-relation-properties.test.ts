@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { publishGraphDrafts, type GraphDrafts } from '../src/graph/write.js';
 import { repositoryContract, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
-import { publishEdgeOpinion } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -35,13 +34,19 @@ test('relation properties are batched without mixing edges, producers, contexts 
       edge('code.touched', heldCommit, file, { change: 'added', added: at + 1, removed: 0 });
     });
     await owner.transaction('write', tx => publishGraphDrafts(tx, repositoryContract, { vertices, edges: claims, removals: [] }));
-    const edges = await owner.run(async (tx) => await tx.query<{ id: string; path: string }>(`SELECT e.id::text AS id, n.key->>'path' AS path FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node WHERE k.name = $1 ORDER BY n.key->>'path'`, [GIT_KINDS.touched]));
+    const touched = (path: string, producer: string, values: Record<string, unknown>) => ({
+      kind: GIT_KINDS.touched, from: heldCommit, to: { kind: 'code.file', key: { repository: 'fixture', path } }, values, producer, producerVersion: '1',
+    });
     await owner.transaction('write', async (tx) => {
       await tx.query("INSERT INTO context (parent, ref) VALUES (1, 'review')");
       // Closing and replacing the first producer's value must not leak the old value into agreement.
-      await publishEdgeOpinion(tx, repositoryContract, GIT_KINDS.touched, edges.rows[0]!.id, { producer: 'git', producerVersion: '1', values: { change: 'modified', added: 9, removed: 2 } });
-      await publishEdgeOpinion(tx, repositoryContract, GIT_KINDS.touched, edges.rows[1]!.id, { producer: 'review', producerVersion: '1', values: { change: 'modified', added: 7, removed: 0 } });
-      await publishEdgeOpinion(tx, repositoryContract, GIT_KINDS.touched, edges.rows[2]!.id, { producer: 'other-context', producerVersion: '1', values: { change: 'deleted', added: 99, removed: 99 } }, 2);
+      await publishGraphDrafts(tx, repositoryContract, { vertices: [], edges: [
+        touched('a.txt', 'git', { change: 'modified', added: 9, removed: 2 }),
+        touched('b.txt', 'review', { change: 'modified', added: 7, removed: 0 }),
+      ], removals: [] });
+      await publishGraphDrafts(tx, repositoryContract, { vertices: [], edges: [
+        touched('c.txt', 'other-context', { change: 'deleted', added: 99, removed: 99 }),
+      ], removals: [] }, 2);
     });
     const reads: string[] = [];
     await owner.transaction('snapshot', async (tx) => {
