@@ -138,7 +138,7 @@ describe('the update a default-branch commit starts', () => {
     const planned = (update?.units ?? []).map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, state: unit.state }));
     // This step's fill is the two repository passes, one unit each; the update republishes both on the commit.
     expect([...new Set(planned.map((unit) => unit.stage))].sort()).toEqual(['plugin-turns']);
-    expect(planned.map((unit) => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.repository']);
+    expect(planned.map((unit) => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository']);
     expect(planned.every((unit) => unit.state === 'published')).toBe(true);
   }, 900_000);
 

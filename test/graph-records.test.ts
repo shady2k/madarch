@@ -132,10 +132,10 @@ describe('the two passes over one fixture', () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const first = await fillRepository();
     expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/disk:'))).toHaveLength(4);
-    expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/git:'))).toHaveLength(3);
+    expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/git:'))).toHaveLength(4);
     const before = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
     const second = await fillRepository();
-    expect(second.reused.length).toBe(7);
+    expect(second.reused.length).toBe(8);
     const after = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
     expect(after.rows).toEqual(before.rows);
   }, 120_000);
@@ -273,8 +273,8 @@ describe('the two passes over one fixture', () => {
 
   test('ordinary output units execute through the plugin runtime', async () => {
     const run = await fillRepository();
-    expect(run.units.map(unit => unit.stageId)).toEqual(Array(7).fill('plugin-turns'));
-    expect(run.units.map(unit => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
+    expect(run.units.map(unit => unit.stageId)).toEqual(Array(8).fill('plugin-turns'));
+    expect(run.units.map(unit => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
     expect(await shallowGapOf(pin(git(['rev-parse', 'HEAD'])))).toBeNull();
   }, 120_000);
