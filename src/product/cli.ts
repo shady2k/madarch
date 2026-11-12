@@ -623,13 +623,11 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         const own = args[0] === 'daemon-serve' && !ownWikiOff() ? installOwnWiki({ env: process.env }) : undefined;
         if (own !== undefined && !own.ok) { console.error(own.message); return 1; }
         if (own?.ok) folders.push(own.folder);
-        for (const folder of folders) {
+        // The daemon's API validates all products before binding; other serve paths need this validation here.
+        for (const folder of args[0] === 'daemon-serve' ? [] : folders) {
           const read = readProduct(folder);
           // A manifestless folder has no graph-backed product to activate.
-          if (!read.ok) {
-            if (args[0] !== 'daemon-serve') continue;
-            throw new Error(`${read.file}:${read.line}: ${read.message}`);
-          }
+          if (!read.ok) continue;
           const manifests = validateProductManifests(folder);
           if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
         }
