@@ -1,4 +1,6 @@
 id: practice.llm-usage
+purpose: operations
+audience: [product-lead, developer, operations]
 definition: The tokens and the money one model use cost, with the model and the purpose it served.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/

@@ -1,4 +1,6 @@
 id: ddd.subdomain
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A part of the business the model is divided into, classified as core, supporting or generic.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

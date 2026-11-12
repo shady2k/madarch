@@ -1,4 +1,6 @@
 id: practice.merge
+purpose: history
+audience: [developer, tester, product-lead]
 definition: The integration of a branch or a pull request, with the lane it went through (C, B or A) and who allowed it.
 sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges

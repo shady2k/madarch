@@ -1,4 +1,6 @@
 id: practice.use-case
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
 definition: A way an actor reaches a goal with the system, as the documents state it.
 sources:
 - https://arc42.org/overview

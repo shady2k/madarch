@@ -1,4 +1,6 @@
 id: scrum.product-goal
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: 'The commitment the product backlog is ordered against: the single objective the product works towards now.'
 sources:
 - https://scrumguides.org/scrum-guide.html

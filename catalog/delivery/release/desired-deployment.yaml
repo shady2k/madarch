@@ -1,4 +1,6 @@
 id: practice.desired-deployment
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The state a deployment asks an environment to hold, as its manifests and its GitOps source state it, beside the
   deployment that asked and the state observed.
 sources:

@@ -1,4 +1,6 @@
 id: oscal.component-definition
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: How one component implements the controls a profile selects, as OSCAL defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

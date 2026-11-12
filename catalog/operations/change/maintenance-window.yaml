@@ -1,4 +1,6 @@
 id: practice.maintenance-window
+purpose: operations
+audience: [operations, platform-devops]
 definition: A period in which the service may be unavailable while work is done on it.
 sources:
 - https://www.rfc-editor.org/rfc/rfc8594.html

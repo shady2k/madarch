@@ -1,4 +1,6 @@
 id: ddd.aggregate
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A cluster of domain objects that changes as one unit, with one root entity.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

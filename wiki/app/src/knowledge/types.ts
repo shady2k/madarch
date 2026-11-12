@@ -289,6 +289,8 @@ export type KindSummary = {
   single: boolean;
   group?: string;
   origins: Origin[];
+  audience?: readonly string[];
+  purpose?: string;
   descriptions?: Record<string, string>;
   labels?: Record<string, { one: string; many: string }>;
   /** The form the kind's listing page takes; absent for the plain table of names and places. */
@@ -509,6 +511,7 @@ export type WikiStatus = {
   findingCount: number;
   kinds: KindSummary[];
   groups: GroupSummary[];
+  purposes?: { id: string; labels: Record<string, string>; order: number; kinds: string[] }[];
   repositories: { name: string; filled: boolean }[];
   filled: boolean;
   incomplete: boolean;

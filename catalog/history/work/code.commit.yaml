@@ -1,4 +1,6 @@
 id: practice.commit
+purpose: history
+audience: [developer, architect, product-lead]
 definition: A change in the repository's history, with its author and the files it touched.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

@@ -1,4 +1,6 @@
 id: practice.test-quarantine
+purpose: quality
+audience: [tester, developer]
 definition: A test temporarily excluded from the default suite, with its repair task, slow/flaky/broken reason, introducing
   commit and latest quarantine CI result when known.
 sources:

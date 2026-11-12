@@ -1,4 +1,6 @@
 id: practice.migration
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A step that changes a database's schema, in the order the steps run.
 sources:
 - https://www.postgresql.org/docs/

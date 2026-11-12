@@ -1,4 +1,6 @@
 id: istqb.test-log
+purpose: quality
+audience: [tester, developer]
 definition: The chronological record of what a test run did.
 sources:
 - https://glossary.istqb.org/en_US/term/test-log

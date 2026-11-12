@@ -1,4 +1,6 @@
 id: practice.lifecycle-step
+purpose: history
+audience: [developer, product, product-lead, tester]
 definition: 'The record one step of an agent''s task writes as it ends: its duration, tokens, cost, model and outcome.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/

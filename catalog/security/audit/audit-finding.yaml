@@ -1,4 +1,6 @@
 id: practice.audit-finding
+purpose: quality
+audience: [security-engineer, architect]
 definition: One conclusion of an audit, with the evidence and the requirement it rests on.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/53/a/final

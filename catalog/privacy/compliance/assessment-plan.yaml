@@ -1,4 +1,6 @@
 id: oscal.assessment-plan
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: What is to be assessed, how and by whom, as OSCAL's assessment layer defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

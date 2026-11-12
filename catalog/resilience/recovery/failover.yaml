@@ -1,4 +1,6 @@
 id: nist800-34.failover
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The move of a service from its failed place to its standby, and how it is decided.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

@@ -1,4 +1,6 @@
 id: practice.sql-build
+purpose: structure
+audience: [developer, architect]
 definition: A function that builds SQL text by joining strings.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html

@@ -1,4 +1,6 @@
 id: practice.impact-analysis
+purpose: understand
+audience: [product, analyst, tester, architect, product-lead]
 definition: What a proposed change touches and what it costs, written before the change is accepted.
 sources:
 - https://glossary.istqb.org/en_US/term/impact-analysis

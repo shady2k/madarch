@@ -1,4 +1,6 @@
 id: sacm.claim
+purpose: quality
+audience: [product, analyst, tester, architect]
 definition: A proposition an assurance case argues for, supported by argument and evidence.
 sources:
 - https://www.omg.org/spec/SACM/

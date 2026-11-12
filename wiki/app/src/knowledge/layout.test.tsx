@@ -10,7 +10,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
-import { navGroups } from './app.js';
+import { navGroups, navPurposes } from './app.js';
 import { GlossaryPage } from './glossary.js';
 import { CataloguePage, Overview } from './pages.js';
 import { Root as AppRoot } from './root.js';
@@ -145,6 +145,60 @@ describe('the groups of the manifest', () => {
     expect([...code.querySelectorAll('[data-testid=catalogue-subgroup]')].map((group) => group.getAttribute('data-subgroup'))).toEqual(['code.structure', 'code.analysis']);
     const configuration = page.querySelector('[data-testid=catalogue-group][data-group=operations] [data-testid=catalogue-subgroup][data-subgroup="operations.configuration"]')!;
     expect(configuration.querySelector('[data-kind="code.env-var"]')!.textContent).toContain('A setting read from the environment.');
+  });
+});
+
+
+describe('reader-purpose navigation', () => {
+  const purposes: NonNullable<WikiStatus['purposes']> = [
+    { id: 'change', labels: { en: 'Change', ru: 'Изменять' }, order: 20, kinds: ['code.file', 'empty', 'member', 'private'] },
+    { id: 'understand', labels: { en: 'Understand', ru: 'Понять' }, order: 10, kinds: ['domain', 'legacy'] },
+    { id: 'unused', labels: { en: 'Unused' }, order: 30, kinds: ['empty'] },
+  ];
+  const kinds = [
+    kind({ kind: 'code.file', count: 5, audience: ['developer'], purpose: 'change' }),
+    kind({ kind: 'empty', count: 0, origins: ['person'] }),
+    kind({ kind: 'member', count: 4, page: false }),
+    kind({ kind: 'private', count: 2, audience: [] }),
+    kind({ kind: 'domain', count: 3, audience: ['analyst'] }),
+    kind({ kind: 'legacy', count: 1 }),
+  ];
+  test('vocabulary order and kind order are kept, only populated pages appear, Everything ignores audience', () => {
+    const state = status({ purposes, kinds });
+    expect(navPurposes(state, 'everything').map((p) => [p.id, p.rows.map((k) => k.kind)])).toEqual([
+      ['understand', ['domain', 'legacy']], ['change', ['code.file', 'private']],
+    ]);
+    expect(navPurposes(state, 'developer').map((p) => [p.id, p.rows.map((k) => k.kind)])).toEqual([
+      ['understand', ['legacy']], ['change', ['code.file']],
+    ]);
+    expect(navPurposes(state, 'analyst').map((p) => [p.id, p.rows.map((k) => k.kind)])).toEqual([
+      ['understand', ['domain', 'legacy']],
+    ]);
+    expect(navPurposes(status({ kinds }), 'everything')).toEqual([]);
+  });
+
+  for (const role of ['everything', 'developer']) test(`Russian sidebar draws purpose sections for ${role}, without catalogue groups`, async () => {
+    await setWikiLanguage('ru');
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/status')) return json(status({ purposes, kinds, groups: nestedGroups }));
+      if (url.endsWith('/api/products')) return json({ products: [] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role, asked: true, roles: ['everything', 'developer'] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-nav-purpose=change]') !== null, 'purpose rows');
+    // Settings load independently of status; wait for the role to reach the navigation.
+    if (role === 'developer') await until(() => app.querySelector('[data-nav-kind=domain]') === null, 'audience filtering');
+    expect([...app.querySelectorAll('[data-nav-purpose] h2')].map((node) => node.textContent)).toEqual(['Понять', 'Изменять']);
+    expect(app.querySelector('[data-nav-group]')).toBeNull();
+    expect(app.querySelector('[data-nav-kind=empty]')).toBeNull();
+    expect(app.querySelector('[data-nav-kind=member]')).toBeNull();
+    const row = app.querySelector('[data-nav-kind="code.file"]')!;
+    expect(row.getAttribute('href')).toBe('/kind/code.file');
+    expect(row.querySelector('[data-testid=nav-count]')?.textContent).toBe('5');
+    expect(app.querySelector('[data-testid=nav-catalogue]')?.getAttribute('href')).toBe('/catalogue');
   });
 });
 

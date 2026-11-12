@@ -1,4 +1,6 @@
 id: cyclonedx.bom
+purpose: quality
+audience: [security-engineer, platform-devops, developer]
 definition: The list of the components a product is built from, with the versions and the relations between them.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

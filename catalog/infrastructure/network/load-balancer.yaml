@@ -1,4 +1,6 @@
 id: practice.load-balancer
+purpose: structure
+audience: [operations, platform-devops, architect]
 definition: A component that spreads traffic over several targets and checks which are healthy.
 sources:
 - https://www.rfc-editor.org/rfc/rfc7230.html

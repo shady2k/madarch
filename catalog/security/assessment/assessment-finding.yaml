@@ -1,4 +1,6 @@
 id: practice.assessment-finding
+purpose: quality
+audience: [security-engineer, tester, developer]
 definition: What one security assessment concluded, with its severity and the ground it rests on.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html

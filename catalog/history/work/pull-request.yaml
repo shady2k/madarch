@@ -1,4 +1,6 @@
 id: otel.vcs-change-request
+purpose: history
+audience: [developer, architect, product-lead]
 definition: A proposed change to a repository, with the commits it holds and the review it got.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

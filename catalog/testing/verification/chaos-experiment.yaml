@@ -1,4 +1,6 @@
 id: practice.chaos-experiment
+purpose: quality
+audience: [tester, developer]
 definition: A controlled fault injected into a running system to see whether it keeps its promises.
 sources:
 - https://principlesofchaos.org/

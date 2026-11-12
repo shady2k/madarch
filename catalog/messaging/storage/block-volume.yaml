@@ -1,4 +1,6 @@
 id: practice.block-volume
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A block device attached to a server, which a filesystem is made on.
 sources:
 - https://kubernetes.io/docs/concepts/storage/persistent-volumes/

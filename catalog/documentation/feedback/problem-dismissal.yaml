@@ -1,4 +1,6 @@
 id: practice.problem-dismissal
+purpose: quality
+audience: [product, analyst, developer, tester]
 definition: A person records why a finding is not a problem, naming its rule and stable identity.
 sources:
 - https://arc42.org/overview

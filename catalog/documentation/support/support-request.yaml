@@ -1,4 +1,6 @@
 id: practice.support-request
+purpose: quality
+audience: [operations, product, developer]
 definition: A question or a problem a person raises with the support of the product.
 sources:
 - https://www.atlassian.com/software/jira/service-management

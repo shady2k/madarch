@@ -1,4 +1,6 @@
 id: terraform.resource
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: One infrastructure object Terraform manages, of a provider's resource type.
 sources:
 - https://developer.hashicorp.com/terraform/language/resources

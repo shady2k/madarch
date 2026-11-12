@@ -1,4 +1,6 @@
 id: practice.guide
+purpose: understand
+audience: [product, analyst, developer, operations]
 definition: A written walkthrough that takes a person through a task to an outcome.
 sources:
 - https://diataxis.fr/

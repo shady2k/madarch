@@ -1,4 +1,6 @@
 id: sre.postmortem
+purpose: history
+audience: [operations, platform-devops]
 definition: 'The written account of an incident: its impact, its causes, its timeline and what follows from it.'
 sources:
 - https://sre.google/workbook/postmortem-culture/

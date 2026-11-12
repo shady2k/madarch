@@ -1,4 +1,6 @@
 id: practice.decision-log
+purpose: history
+audience: [product, analyst, architect, developer]
 definition: The ordered record of the decisions taken, each beside the one it supersedes.
 sources:
 - https://adr.github.io/

@@ -1,4 +1,6 @@
 id: protobuf.rpc
+purpose: structure
+audience: [developer, architect, analyst]
 definition: One remote call of a Protocol Buffers service, with its request and response messages.
 sources:
 - https://protobuf.dev/reference/protobuf/proto3-spec/

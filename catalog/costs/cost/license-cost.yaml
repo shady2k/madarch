@@ -1,4 +1,6 @@
 id: focus.license-cost
+purpose: operations
+audience: [product-lead, operations, platform-devops]
 definition: What the product pays for the licences its components need.
 sources:
 - https://focus.finops.org/

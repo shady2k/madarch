@@ -1,4 +1,6 @@
 id: iso42010.view
+purpose: understand
+audience: [architect, analyst, developer]
 definition: A representation of the architecture from one set of concerns, made of a viewpoint and a model.
 sources:
 - https://www.iso.org/standard/74393.html

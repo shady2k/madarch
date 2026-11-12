@@ -1,4 +1,6 @@
 id: practice.change-request
+purpose: understand
+audience: [product, analyst, tester, architect, product-lead]
 definition: A request to change the product, with the reason and the scope it touches.
 sources:
 - https://glossary.istqb.org/en_US/term/change-request

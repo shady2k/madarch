@@ -1,4 +1,6 @@
 id: nist-ai-rmf.ai-system
+purpose: structure
+audience: [security-engineer, product-lead, analyst]
 definition: A system that uses a model to make or support decisions, as the NIST AI risk framework treats it.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework

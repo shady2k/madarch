@@ -1,4 +1,6 @@
 id: spdx.license
+purpose: quality
+audience: [security-engineer, platform-devops, developer]
 definition: The terms a component may be used under, named by its SPDX identifier.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/

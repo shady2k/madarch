@@ -1,4 +1,6 @@
 id: iso15408.protection-profile
+purpose: quality
+audience: [security-engineer, architect]
 definition: A standard statement of security requirements for a kind of product, as ISO/IEC 15408 defines it.
 sources:
 - https://www.iso.org/standard/72891.html

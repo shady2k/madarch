@@ -1,4 +1,6 @@
 id: practice.code-symbol
+purpose: structure
+audience: [developer, architect]
 definition: A function, a class or a constant the code declares, with its callers and its callees.
 sources:
 - https://c4model.com/abstractions

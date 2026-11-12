@@ -1,4 +1,6 @@
 id: practice.data-contract
+purpose: structure
+audience: [analyst, developer, architect, tester]
 definition: The agreed shape, meaning and quality of a dataset, which its producers and consumers hold to.
 sources:
 - https://openlineage.io/docs/spec/object-model

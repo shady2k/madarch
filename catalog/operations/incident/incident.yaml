@@ -1,4 +1,6 @@
 id: sre.incident
+purpose: operations
+audience: [operations, platform-devops]
 definition: An unplanned event that harms or may harm the service, with its impact and its timeline.
 sources:
 - https://sre.google/workbook/postmortem-culture/

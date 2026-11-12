@@ -1,4 +1,6 @@
 id: practice.cache
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: A store that keeps values where they are cheaper to read, with the rule that decides how long they live.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9111.html

@@ -1,4 +1,6 @@
 id: istqb.test-report
+purpose: quality
+audience: [tester, developer]
 definition: 'The summary of a test run: what passed, what failed and what could not run.'
 sources:
 - https://glossary.istqb.org/en_US/term/test-report

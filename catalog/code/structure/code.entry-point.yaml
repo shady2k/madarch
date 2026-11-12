@@ -1,4 +1,6 @@
 id: practice.entry-point
+purpose: structure
+audience: [developer, architect]
 definition: Where a process of the system starts running.
 sources:
 - https://c4model.com/abstractions

@@ -1,4 +1,6 @@
 id: practice.product
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: What the product is, who it serves and how it is built, as its home page states it.
 sources:
 - https://arc42.org/overview

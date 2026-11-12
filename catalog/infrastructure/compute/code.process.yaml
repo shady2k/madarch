@@ -1,4 +1,6 @@
 id: practice.runtime-process
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A program the system starts, and the port it listens on.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/resource/process/

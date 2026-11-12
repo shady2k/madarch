@@ -1,4 +1,6 @@
 id: practice.information-flow
+purpose: structure
+audience: [analyst, architect, security-engineer]
 definition: A movement of information from one place to another, each item it carries named by a glossary term.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

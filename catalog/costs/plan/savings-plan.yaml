@@ -1,4 +1,6 @@
 id: practice.savings-plan
+purpose: operations
+audience: [product-lead, operations, platform-devops]
 definition: A planned change that lowers the cost, with the saving it is expected to make.
 sources:
 - https://focus.finops.org/

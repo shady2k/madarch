@@ -1,4 +1,6 @@
 id: nist800-34.exercise-result
+purpose: quality
+audience: [operations, platform-devops, architect]
 definition: 'What a drill showed: the objectives reached, the time taken and the gaps found.'
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

@@ -1,4 +1,6 @@
 id: archimate.goal
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A state or condition the organisation wants to reach, as ArchiMate motivation elements and the Business Motivation
   Model state it.
 sources:

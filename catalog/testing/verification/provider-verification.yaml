@@ -1,4 +1,6 @@
 id: pact.provider-verification
+purpose: quality
+audience: [tester, developer]
 definition: The run in which a provider is checked against the contracts its consumers published.
 sources:
 - https://docs.pact.io/

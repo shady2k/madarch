@@ -1,4 +1,6 @@
 id: gdpr.transfer
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: A transfer of personal data to a third country or an international organisation, with its safeguard.
 sources:
 - https://gdpr-info.eu/art-30-gdpr/

@@ -1,4 +1,6 @@
 id: openlineage.facet
+purpose: structure
+audience: [analyst, developer, operations]
 definition: A piece of metadata attached to a job, a run or a dataset, such as its schema or its column lineage.
 sources:
 - https://openlineage.io/docs/spec/object-model

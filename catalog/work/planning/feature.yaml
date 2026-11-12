@@ -1,4 +1,6 @@
 id: practice.feature
+purpose: understand
+audience: [developer, product, product-lead, tester]
 definition: A service the product offers that fulfils a stakeholder need, refined by stories and requirements.
 sources:
 - https://cucumber.io/docs/gherkin/reference/

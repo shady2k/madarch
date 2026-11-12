@@ -1,4 +1,6 @@
 id: nist800-34.recovery-point
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: One point in time a restore can return the data to, and how much data that loses.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

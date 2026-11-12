@@ -1,4 +1,6 @@
 id: istqb.test-environment
+purpose: quality
+audience: [tester, developer]
 definition: The hardware, the services and the tools a test needs to run as it is meant to.
 sources:
 - https://glossary.istqb.org/en_US/term/test-environment

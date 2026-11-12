@@ -1,4 +1,6 @@
 id: openlineage.dataset
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A discrete collection of data, identified by a namespace and a name.
 sources:
 - https://openlineage.io/docs/spec/object-model

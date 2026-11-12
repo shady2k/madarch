@@ -1,4 +1,6 @@
 id: practice.git-remote
+purpose: structure
+audience: [developer, platform-devops]
 definition: A place a repository is published to and fetched from, by its address.
 sources:
 - https://git-scm.com/docs/git-remote

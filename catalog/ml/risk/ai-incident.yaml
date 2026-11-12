@@ -1,4 +1,6 @@
 id: practice.ai-incident
+purpose: operations
+audience: [security-engineer, product-lead, analyst]
 definition: A harm or a near miss an AI system caused, kept so it can be answered and learned from.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework

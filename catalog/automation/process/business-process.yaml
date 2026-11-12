@@ -1,4 +1,6 @@
 id: practice.business-process
+purpose: operations
+audience: [analyst, platform-devops, operations]
 definition: A sequence of steps the organisation follows to reach an outcome.
 sources:
 - https://www.omg.org/spec/BPMN/

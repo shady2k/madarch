@@ -1,4 +1,6 @@
 id: opengitops.source
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The repository, path and revision a GitOps agent reads the desired state from.
 sources:
 - https://opengitops.dev/

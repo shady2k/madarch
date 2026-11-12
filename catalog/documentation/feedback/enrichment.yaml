@@ -1,4 +1,6 @@
 id: practice.enrichment
+purpose: quality
+audience: [product, analyst, developer, tester]
 definition: What the agent established about a use case, a rule or a decision from the code and the graph.
 sources:
 - https://arc42.org/overview

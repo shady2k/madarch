@@ -1,4 +1,6 @@
 id: ddd.domain-event
+purpose: structure
+audience: [architect, developer, analyst]
 definition: Something that happened in the domain that other parts of the model react to.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

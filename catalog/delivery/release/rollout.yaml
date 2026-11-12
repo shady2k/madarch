@@ -1,4 +1,6 @@
 id: practice.rollout
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The staged way a new version replaces the running one, with its pauses and its limits.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/deployment/

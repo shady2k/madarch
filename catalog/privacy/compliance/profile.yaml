@@ -1,4 +1,6 @@
 id: oscal.profile
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: A selection of controls from one or more catalogs, tailored for a purpose, as OSCAL defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

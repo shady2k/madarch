@@ -1,4 +1,6 @@
 id: practice.api-reference
+purpose: structure
+audience: [developer, analyst, architect, tester]
 definition: The generated description of an interface's operations and their payloads.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html

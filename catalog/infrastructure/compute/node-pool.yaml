@@ -1,4 +1,6 @@
 id: kubernetes.node-pool
+purpose: structure
+audience: [operations, platform-devops, architect]
 definition: A group of cluster nodes with the same shape, scaled together.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

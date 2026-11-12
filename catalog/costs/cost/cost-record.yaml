@@ -1,4 +1,6 @@
 id: focus.cost-record
+purpose: operations
+audience: [product-lead, operations, platform-devops]
 definition: One measured cost of a resource over a period, in one currency, as FinOps FOCUS describes it.
 sources:
 - https://focus.finops.org/

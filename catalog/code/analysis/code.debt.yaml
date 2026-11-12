@@ -1,4 +1,6 @@
 id: practice.debt-marker
+purpose: quality
+audience: [developer, architect]
 definition: A TODO or FIXME a comment left in the code, which names a debt rather than being one.
 sources:
 - https://arc42.org/overview

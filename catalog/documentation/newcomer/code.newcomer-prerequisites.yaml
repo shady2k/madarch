@@ -1,4 +1,6 @@
 id: practice.prerequisites
+purpose: operations
+audience: [developer, platform-devops]
 definition: The tools the README says a newcomer needs.
 sources:
 - https://diataxis.fr/

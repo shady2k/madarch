@@ -1,4 +1,6 @@
 id: uml.state-machine
+purpose: structure
+audience: [architect, developer, analyst]
 definition: The states a thing can be in and the transitions between them, as UML state machines define them.
 sources:
 - https://www.omg.org/spec/UML/

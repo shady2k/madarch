@@ -1,4 +1,6 @@
 id: oscal.catalog
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: A structured collection of controls and their statements, as the NIST OSCAL control layer defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

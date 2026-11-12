@@ -1,4 +1,6 @@
 id: openlineage.job
+purpose: operations
+audience: [analyst, developer, operations]
 definition: A unit of work that consumes or produces datasets, identified by a namespace and a name.
 sources:
 - https://openlineage.io/docs/spec/object-model

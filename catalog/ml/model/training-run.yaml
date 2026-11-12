@@ -1,4 +1,6 @@
 id: mlmd.execution
+purpose: history
+audience: [developer, architect, product-lead]
 definition: One training of a model, with its parameters, its data and its output.
 sources:
 - https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd

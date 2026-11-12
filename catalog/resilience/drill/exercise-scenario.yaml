@@ -1,4 +1,6 @@
 id: nist800-34.exercise-scenario
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The disruption a drill simulates, with its extent and its duration.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

@@ -1,4 +1,6 @@
 id: practice.how-to
+purpose: operations
+audience: [product, analyst, developer, operations]
 definition: The steps that solve one real problem a person has.
 sources:
 - https://diataxis.fr/

@@ -1,4 +1,6 @@
 id: openfeature.flag
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: A switch that changes the product's behaviour without a new deployment.
 sources:
 - https://openfeature.dev/specification/glossary

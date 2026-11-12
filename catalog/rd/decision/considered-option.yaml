@@ -1,4 +1,6 @@
 id: madr.considered-option
+purpose: understand
+audience: [product, analyst, architect, developer]
 definition: One option a decision weighed, with the reason it was or was not taken.
 sources:
 - https://adr.github.io/madr/

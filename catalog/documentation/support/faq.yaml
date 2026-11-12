@@ -1,4 +1,6 @@
 id: practice.faq
+purpose: understand
+audience: [operations, product, developer]
 definition: A question people often ask, with the answer that resolves it.
 sources:
 - https://diataxis.fr/

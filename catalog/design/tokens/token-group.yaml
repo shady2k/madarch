@@ -1,4 +1,6 @@
 id: dtcg.token-group
+purpose: structure
+audience: [designer, developer]
 definition: A group of design tokens, which may hold further groups.
 sources:
 - https://www.designtokens.org/TR/2025.10/format/

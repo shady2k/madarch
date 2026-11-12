@@ -1,4 +1,6 @@
 id: otel.log-record
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: One record of what a service did, with its time, its severity and its attributes.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/logs/

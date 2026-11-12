@@ -1,4 +1,6 @@
 id: practice.model-card
+purpose: understand
+audience: [product, analyst, developer, product-lead]
 definition: The documented purpose, limits and evaluation of a model, written for the people who use it.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework

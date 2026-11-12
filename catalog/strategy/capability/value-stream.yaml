@@ -1,4 +1,6 @@
 id: archimate.value-stream
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A sequence of stages that together deliver a result of value to a customer.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/

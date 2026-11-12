@@ -1,4 +1,6 @@
 id: nist800-34.business-continuity-plan
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The plan that keeps the business running while the systems are recovered.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

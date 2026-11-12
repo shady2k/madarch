@@ -1,4 +1,6 @@
 id: pact.consumer-contract
+purpose: quality
+audience: [tester, developer]
 definition: The expectations one consumer records about a provider's interface.
 sources:
 - https://docs.pact.io/

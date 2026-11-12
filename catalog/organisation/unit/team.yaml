@@ -1,4 +1,6 @@
 id: practice.team
+purpose: history
+audience: [product-lead, architect, developer]
 definition: A group of people who work together and answer for a part of the product.
 sources:
 - https://www.w3.org/TR/vocab-org/

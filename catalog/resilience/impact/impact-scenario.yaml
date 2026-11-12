@@ -1,4 +1,6 @@
 id: nist800-34.impact-scenario
+purpose: operations
+audience: [operations, product-lead, analyst, architect]
 definition: One described outage, with its effect over time and the point at which it becomes unacceptable.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

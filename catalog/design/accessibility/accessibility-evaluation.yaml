@@ -1,4 +1,6 @@
 id: earl.evaluation
+purpose: quality
+audience: [designer, tester, developer]
 definition: A recorded evaluation of a resource against a criterion, with its result and the tool that made it.
 sources:
 - https://www.w3.org/TR/EARL10-Schema/

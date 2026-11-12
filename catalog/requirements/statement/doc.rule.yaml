@@ -1,4 +1,6 @@
 id: practice.business-rule
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
 definition: A rule the product keeps, stated in the documents, which the code is meant to enforce.
 sources:
 - https://cucumber.io/docs/gherkin/reference/

@@ -1,4 +1,6 @@
 id: istqb.test-result
+purpose: quality
+audience: [tester, developer]
 definition: The outcome of one test case in one run, with the time it took and the failure it reported.
 sources:
 - https://glossary.istqb.org/en_US/term/test-result

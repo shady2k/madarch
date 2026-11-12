@@ -1,4 +1,6 @@
 id: stride.threat
+purpose: quality
+audience: [security-engineer, architect]
 definition: A way an attacker could harm the product, placed in one STRIDE category.
 sources:
 - https://community.owasp.org/Threat_Modeling

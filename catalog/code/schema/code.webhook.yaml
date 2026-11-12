@@ -1,4 +1,6 @@
 id: openapi.webhook
+purpose: structure
+audience: [developer, architect, analyst]
 definition: A callback a service sends to another system when something happens.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html

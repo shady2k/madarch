@@ -1,4 +1,6 @@
 id: practice.chaos-result
+purpose: quality
+audience: [tester, developer]
 definition: What a chaos experiment showed, with the steady state it compared against.
 sources:
 - https://principlesofchaos.org/

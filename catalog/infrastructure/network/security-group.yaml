@@ -1,4 +1,6 @@
 id: practice.security-group
+purpose: operations
+audience: [operations, platform-devops, security-engineer]
 definition: A named set of firewall rules attached to the resources of one cloud network.
 sources:
 - https://www.rfc-editor.org/rfc/rfc4949.html

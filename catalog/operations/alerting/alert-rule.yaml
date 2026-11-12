@@ -1,4 +1,6 @@
 id: prometheus.alert-rule
+purpose: operations
+audience: [operations, platform-devops]
 definition: A condition over a metric that fires an alert when it holds for long enough.
 sources:
 - https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/

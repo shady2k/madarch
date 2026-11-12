@@ -1,4 +1,6 @@
 id: terraform.provider
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The plugin that lets Terraform manage the resources of one platform.
 sources:
 - https://developer.hashicorp.com/terraform/language/providers

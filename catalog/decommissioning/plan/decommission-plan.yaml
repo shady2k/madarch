@@ -1,4 +1,6 @@
 id: practice.decommission-plan
+purpose: operations
+audience: [operations, platform-devops, product-lead]
 definition: The plan that says how a system is taken out of service without losing what it holds.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/88/r1/final

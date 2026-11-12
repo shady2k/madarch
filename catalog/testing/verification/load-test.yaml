@@ -1,4 +1,6 @@
 id: practice.load-test
+purpose: quality
+audience: [tester, developer]
 definition: A performance test at the load the product is expected to meet.
 sources:
 - https://glossary.istqb.org/en_US/term/load-testing

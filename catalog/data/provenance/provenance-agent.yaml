@@ -1,4 +1,6 @@
 id: prov.agent
+purpose: history
+audience: [analyst, architect, security-engineer]
 definition: A person, a program or an organisation an activity is attributed to.
 sources:
 - https://www.w3.org/TR/prov-o/

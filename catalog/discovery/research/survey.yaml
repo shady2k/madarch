@@ -1,4 +1,6 @@
 id: practice.survey
+purpose: understand
+audience: [product, analyst, designer]
 definition: A set of questions put to many people, whose answers are evidence for a decision.
 sources:
 - https://www.nngroup.com/articles/which-ux-research-methods/

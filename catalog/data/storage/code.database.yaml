@@ -1,4 +1,6 @@
 id: practice.database
+purpose: structure
+audience: [analyst, architect, developer]
 definition: A database a service owns, with its tables and its migrations.
 sources:
 - https://www.postgresql.org/docs/

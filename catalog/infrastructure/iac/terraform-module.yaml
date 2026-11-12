@@ -1,4 +1,6 @@
 id: terraform.module
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A reusable group of Terraform resources with its inputs and outputs.
 sources:
 - https://developer.hashicorp.com/terraform/language/modules

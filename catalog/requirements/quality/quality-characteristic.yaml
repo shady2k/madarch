@@ -1,4 +1,6 @@
 id: iso25010.quality-characteristic
+purpose: quality
+audience: [product, analyst, tester, architect]
 definition: One of the quality characteristics a quality requirement is stated against, as ISO/IEC 25010 lists them.
 sources:
 - https://committee.iso.org/standard/78176.html

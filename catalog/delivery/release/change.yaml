@@ -1,4 +1,6 @@
 id: otel.vcs-change
+purpose: history
+audience: [developer, platform-devops, operations]
 definition: A proposed or merged change to the product, from its first commit until it runs in production.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

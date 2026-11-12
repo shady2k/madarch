@@ -1,4 +1,6 @@
 id: practice.iam-role
+purpose: structure
+audience: [security-engineer, architect]
 definition: A named set of permissions a subject can be given, in a cloud or an application.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final

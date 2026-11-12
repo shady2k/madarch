@@ -1,4 +1,6 @@
 id: asvs.requirement
+purpose: quality
+audience: [security-engineer, architect]
 definition: A requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.
 sources:
 - https://github.com/OWASP/ASVS/tree/master/5.0/en

@@ -1,4 +1,6 @@
 id: practice.dependency
+purpose: structure
+audience: [developer, architect, platform-devops, security-engineer]
 definition: A library a service declares, with its version and where it is used.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/

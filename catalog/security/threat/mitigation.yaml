@@ -1,4 +1,6 @@
 id: owasp.mitigation
+purpose: quality
+audience: [security-engineer, architect]
 definition: A measure that reduces a threat's likelihood or its effect.
 sources:
 - https://community.owasp.org/Threat_Modeling

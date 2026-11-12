@@ -1,4 +1,6 @@
 id: sre.error-budget-policy
+purpose: operations
+audience: [operations, platform-devops]
 definition: The rule that says what the team does as the error budget is spent.
 sources:
 - https://sre.google/workbook/implementing-slos/

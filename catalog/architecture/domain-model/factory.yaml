@@ -1,4 +1,6 @@
 id: ddd.factory
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A domain object that builds aggregates or other complex objects.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

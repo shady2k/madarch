@@ -1,4 +1,6 @@
 id: practice.handoff
+purpose: operations
+audience: [developer, product, analyst, product-lead]
 definition: One operation that gives a branch and its work to another responsible person.
 sources:
 - https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users

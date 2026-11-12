@@ -1,4 +1,6 @@
 id: otel.span
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: One operation in a trace, with its start, its duration and the parent it belongs to.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/traces/

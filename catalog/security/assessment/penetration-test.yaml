@@ -1,4 +1,6 @@
 id: practice.penetration-test
+purpose: quality
+audience: [security-engineer, tester, developer]
 definition: An authorised attempt to break the product, with what it reached and what it found.
 sources:
 - https://owasp.org/www-project-web-security-testing-guide/

@@ -1,4 +1,6 @@
 id: practice.mutation-report
+purpose: quality
+audience: [tester, developer]
 definition: The record of which mutants a test suite killed and which survived.
 sources:
 - https://stryker-mutator.io/docs/

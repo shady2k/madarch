@@ -1,4 +1,6 @@
 id: practice.interface-contract
+purpose: structure
+audience: [developer, architect, analyst, tester]
 definition: An OpenAPI, gRPC or AsyncAPI file that fixes an interface.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html

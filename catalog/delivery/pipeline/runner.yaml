@@ -1,4 +1,6 @@
 id: otel.cicd-worker
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The machine or the agent a pipeline job runs on.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/

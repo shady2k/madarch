@@ -1,4 +1,6 @@
 id: practice.dashboard
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: A screen of panels that shows the metrics and the logs of one subject over time.
 sources:
 - https://grafana.com/docs/grafana/latest/dashboards/

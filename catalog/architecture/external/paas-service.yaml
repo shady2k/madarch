@@ -1,4 +1,6 @@
 id: practice.paas-service
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A platform a supplier runs that the product deploys onto.
 sources:
 - https://c4model.com/abstractions

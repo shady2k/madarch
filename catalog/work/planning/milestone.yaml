@@ -1,4 +1,6 @@
 id: practice.milestone
+purpose: understand
+audience: [developer, product, product-lead, tester]
 definition: A dated point a set of epics is planned to reach.
 sources:
 - https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/about-milestones

@@ -1,4 +1,6 @@
 id: iso29148.information-item
+purpose: understand
+audience: [product, analyst, tester, architect]
 definition: A document that states the requirements in the form ISO/IEC/IEEE 29148 prescribes.
 sources:
 - https://standards.ieee.org/ieee/29148/6937/

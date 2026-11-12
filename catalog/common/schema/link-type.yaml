@@ -1,4 +1,6 @@
 id: manifest.link-types
+purpose: structure
+audience: [architect, product-lead]
 definition: 'A declared kind of link between entities: its name, the kinds it may join and the labels it shows at each end;
   its id is its key under link-types.'
 sources:

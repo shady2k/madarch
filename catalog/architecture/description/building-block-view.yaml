@@ -1,4 +1,6 @@
 id: arc42.building-block-view
+purpose: understand
+audience: [architect, analyst, developer]
 definition: arc42's view of the system's static building blocks and their relations.
 sources:
 - https://arc42.org/overview

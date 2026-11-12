@@ -1,4 +1,6 @@
 id: practice.code-input
+purpose: structure
+audience: [developer, architect]
 definition: A value that enters the code from outside, such as a query parameter.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html

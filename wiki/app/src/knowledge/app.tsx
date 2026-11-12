@@ -1,4 +1,4 @@
-import { Stack } from '@/components/ui/typography.js';
+import { Stack, SectionTitle, Text, TextLink, Metadata } from '@/components/ui/typography.js';
 import { AuthoredPage } from './authored.js';
 /**
  * The knowledge wiki (decision 0029): the product chosen at the top left, the
@@ -200,6 +200,16 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
     .filter((entry) => entry.kinds.length > 0);
 }
 
+/** Reader-purpose sections use the vocabulary order, populated pages, and the reader's explicit audience. */
+export function navPurposes(status: WikiStatus, role: string) {
+  const visible = status.kinds.filter((kind) => kind.count > 0 && kind.page !== false
+    && (role === 'everything' || kind.audience === undefined || kind.audience.includes(role)));
+  return [...(status.purposes ?? [])]
+    .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((purpose) => ({ ...purpose, rows: purpose.kinds.flatMap((name) => visible.filter((kind) => kind.kind === name)) }))
+    .filter((purpose) => purpose.rows.length > 0);
+}
+
 function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: WikiRoute; onNavigate?: () => void }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
@@ -210,7 +220,8 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const { role, roles } = useRole();
-  const groups = leadGroups(navGroups(status, pendingOf), role, roles);
+  const purposes = navPurposes(status, role);
+  const groups = status.purposes === undefined ? leadGroups(navGroups(status, pendingOf), role, roles) : [];
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
   const link = (active: boolean): string =>
@@ -273,6 +284,21 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </div>
+        {purposes.map((purpose) => (
+          <Stack key={purpose.id} data-nav-purpose={purpose.id} className="mt-4 space-y-1">
+            <SectionTitle className="px-2 text-small font-medium text-muted">{purpose.labels[language] ?? purpose.labels['en'] ?? purpose.id}</SectionTitle>
+            {purpose.rows.map((kind) => {
+              const active = ownRouteOf(kind, route);
+              const address = ownAddressOf(kind);
+              return (
+                <TextLink key={kind.kind} href={appPath(address)} className={active ? 'nav-link nav-current flex items-center gap-2 rounded bg-chrome px-2 py-2 text-small font-medium no-underline' : 'nav-link flex items-center gap-2 rounded px-2 py-2 text-small text-secondary no-underline hover:bg-chrome'} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(address)}>
+                  <Text className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</Text>
+                  <Metadata data-testid="nav-count">{kind.count}</Metadata>
+                </TextLink>
+              );
+            })}
+          </Stack>
+        ))}
         {groups.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';

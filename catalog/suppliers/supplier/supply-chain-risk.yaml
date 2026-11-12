@@ -1,4 +1,6 @@
 id: practice.supply-chain-risk
+purpose: quality
+audience: [product-lead, operations, security-engineer]
 definition: A risk that comes from a supplier or from the chain of suppliers behind it.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final

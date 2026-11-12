@@ -1,4 +1,6 @@
 id: practice.on-call-schedule
+purpose: operations
+audience: [operations, platform-devops]
 definition: Who is answering alerts at which time, and how they are reached.
 sources:
 - https://sre.google/workbook/on-call/

@@ -1,4 +1,6 @@
 id: otel.resource
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: The entity that emitted a piece of telemetry, described by its attributes such as service name and host.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/resource/

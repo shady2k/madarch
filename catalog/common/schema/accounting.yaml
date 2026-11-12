@@ -1,4 +1,6 @@
 id: manifest.accounting
+purpose: structure
+audience: [architect, product-lead]
 definition: 'The shared part of an authored kind that keeps its lifecycle step records: each step''s duration, tokens, cost,
   model and outcome.'
 sources:

@@ -1,4 +1,6 @@
 id: spdx.package
+purpose: structure
+audience: [developer, architect]
 definition: The folder a service's manifest sits in, with its tests and its frameworks.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/Package/

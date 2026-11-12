@@ -1,4 +1,6 @@
 id: practice.logger
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: Where a service sets up its logging.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/logs/
