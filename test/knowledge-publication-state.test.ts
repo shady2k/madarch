@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
-import { mkdtempSync, rmSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
@@ -21,12 +21,22 @@ function fixture() {
   const draft = createDraft({ home: join(work, 'home'), name: 'publication-shop', gitEnv: gitEnv(IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
   setManifestPublicationState(draft.folder, { status: 'pending' });
-  const product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot: join(work, 'store'), fillQueued: true });
+  // These presses select a fixture adapter: admission sees the agent the default manifest requires, but the queue spy
+  // keeps publication tests from starting it. A launch would leave evidence and fail the assertion below.
+  const launched = join(work, 'agent-launched');
+  const adapter = join(work, 'claude-agent-acp');
+  writeFileSync(adapter, `#!${process.execPath}
+import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(launched)}, 'unexpected launch');
+process.exit(1);
+`);
+  chmodSync(adapter, 0o700);
+  const product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot: join(work, 'store'), fillQueued: true, env: { HOME: join(work, 'home'), PATH: work } });
   products.push(product);
   const internals = product as unknown as { open(): Promise<never>; runQueuedFill(): Promise<void> };
   const open = spyOn(internals, 'open').mockImplementation(async () => { throw new Error('unexpected store open'); });
   const queued = spyOn(internals, 'runQueuedFill').mockResolvedValue(undefined);
-  return { folder: draft.folder, product, open, queued };
+  return { folder: draft.folder, product, open, queued, launched };
 }
 
 test('pending and failed status retain the full unfilled shape without opening the store', async () => {
@@ -45,20 +55,28 @@ test('pending and failed status retain the full unfilled shape without opening t
   expect(open).not.toHaveBeenCalled();
 });
 
+test('pending publication does not bypass the declared plugin agent requirement', async () => {
+  const { product, open, queued } = fixture();
+  expect(await product.startFill()).toMatchObject({ started: false, message: expect.stringContaining('requested an agent but none is selected') });
+  expect(open).not.toHaveBeenCalled();
+  expect(queued).not.toHaveBeenCalled();
+});
+
 test('one accepted fill waits for publication and dispatches through the existing queue once', async () => {
-  const { folder, product, open, queued } = fixture();
-  expect(await product.startFill()).toMatchObject({ started: true, fill: { state: 'running' } });
-  expect(await product.startFill()).toMatchObject({ started: false });
+  const { folder, product, open, queued, launched } = fixture();
+  expect(await product.startFill({ agent: 'claude-code' })).toMatchObject({ started: true, fill: { state: 'running' } });
+  expect(await product.startFill()).toMatchObject({ started: false, message: 'a fill of this product is already running' });
   expect(open).not.toHaveBeenCalled();
   expect(queued).not.toHaveBeenCalled();
   setManifestPublicationState(folder, { status: 'published' });
   await product.settled();
   expect(queued).toHaveBeenCalledTimes(1);
+  expect(existsSync(launched)).toBe(false);
 });
 
 test('publication failure ends the waiting fill with diagnostics and never queues it', async () => {
   const { folder, product, open, queued } = fixture();
-  expect(await product.startFill()).toMatchObject({ started: true });
+  expect(await product.startFill({ agent: 'claude-code' })).toMatchObject({ started: true });
   setManifestPublicationState(folder, { status: 'failed', message: 'schema rejected' });
   await product.settled();
   expect(await product.status()).toMatchObject({ publication: 'failed', publicationMessage: 'schema rejected', fill: { state: 'failed', code: 'store', message: expect.stringContaining('schema rejected') } });
@@ -68,7 +86,7 @@ test('publication failure ends the waiting fill with diagnostics and never queue
 
 test('close cancels a waiting fill without waiting for daemon publication', async () => {
   const { product, queued } = fixture();
-  expect(await product.startFill()).toMatchObject({ started: true });
+  expect(await product.startFill({ agent: 'claude-code' })).toMatchObject({ started: true });
   await product.close();
   await product.settled();
   expect(queued).not.toHaveBeenCalled();
