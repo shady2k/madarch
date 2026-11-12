@@ -106,7 +106,7 @@ export const CATALOG_GROUPS: readonly CatalogGroupData[] = Object.entries(metada
 }));
 
 const kindFiles: Record<string, string> = {};
-const rawKinds: Record<string, Record<string, unknown>> = {};
+export const CATALOG_RAW_KINDS: Record<string, Record<string, unknown>> = {};
 for (const path of Object.keys(CATALOG_FILES).sort(byCodePoint)) {
   if (path === 'catalog.yaml' || path.startsWith('templates/')) continue;
   const parts = path.split('/');
@@ -115,9 +115,9 @@ for (const path of Object.keys(CATALOG_FILES).sort(byCodePoint)) {
   const name = leaf.slice(0, -'.yaml'.length);
   const group = CATALOG_GROUPS.find((group) => group.parent === parent && (group.name === subgroup || group.name === `${parent}.${subgroup}`));
   if (group === undefined) throw new Error(`${import.meta.dir}/../../catalog/${path}:1: no catalogue subgroup matches the folder`);
-  if (Object.hasOwn(rawKinds, name)) throw new Error(`${import.meta.dir}/../../catalog/${path}:1: kind "${name}" is already declared in ${kindFiles[name]}`);
+  if (Object.hasOwn(CATALOG_RAW_KINDS, name)) throw new Error(`${import.meta.dir}/../../catalog/${path}:1: kind "${name}" is already declared in ${kindFiles[name]}`);
   kindFiles[name] = path;
-  rawKinds[name] = { ...parseCatalogYaml(CATALOG_FILES[path]!) as Record<string, unknown>, group: group.name };
+  CATALOG_RAW_KINDS[name] = { ...parseCatalogYaml(CATALOG_FILES[path]!) as Record<string, unknown>, group: group.name };
 }
 export const CATALOG_KIND_FILES: Readonly<Record<string, string>> = kindFiles;
 
@@ -149,4 +149,4 @@ function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
     ...(Object.keys(remaining).length === 0 ? {} : { extra: stringify(remaining).trimEnd().split('\n') }),
   } as CatalogKindData;
 }
-export const CATALOG_KINDS: readonly CatalogKindData[] = Object.entries(rawKinds).map(([name, raw]) => kindData(name, raw));
+export const CATALOG_KINDS: readonly CatalogKindData[] = Object.entries(CATALOG_RAW_KINDS).map(([name, raw]) => kindData(name, raw));

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
-import { CATALOG_KINDS, CATALOG_KIND_FILES, type CatalogKindData } from './catalog-starter.js';
+import { CATALOG_KINDS, CATALOG_KIND_FILES, CATALOG_RAW_KINDS, type CatalogKindData } from './catalog-starter.js';
 import { stringify } from 'yaml';
 import { parseCatalogYaml } from '../product/manifest/kinds.js';
 import { CATALOG_FILES } from './catalog-assets.js';
@@ -310,7 +310,7 @@ function catalogMetadata(kinds: readonly CatalogKindData[]): string {
     }
   }
   const audiences = new Set(kinds.flatMap((kind) => {
-    const declaration = parseCatalogYaml(CATALOG_FILES[CATALOG_KIND_FILES[kind.name]!]!) as {
+    const declaration = CATALOG_RAW_KINDS[kind.name]! as {
       audience?: string[]; facts?: { audience?: string[] }[];
     };
     return [...(declaration.audience ?? []), ...(declaration.facts ?? []).flatMap((fact) => fact.audience ?? [])];
