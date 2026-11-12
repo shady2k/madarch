@@ -55,6 +55,8 @@ None.
 
 ## Acceptance evidence
 
+- Implementation remains partial for the all-engine declaration-only goal: repository-tree/history are still native foundational stages, not ordinary plugin declarations. The owner's disk/git-as-plugin example is not migrated. Explicit native-prerequisite selection without an enabled plugin producer is refused; wildcard general-agent can cover it when enabled with a runnable agent. Full-run plugin targets use declared output union while native stages remain. This is a limitation, not a completed migration claim.
+
 - Independent review identified disabled/omitted plugin-stage admission and cross-plugin prerequisite-completion regressions. Regression scenarios are included in this proposal; implementation fixes and final review are still pending. This is not a green review claim.
 
 - `test/fill-target-selection.test.ts`: before implementation, 1 failure because derives-from was unknown; after implementation, 1 pass and 3 assertions. The fixture selects source and summary, not their dependant report.

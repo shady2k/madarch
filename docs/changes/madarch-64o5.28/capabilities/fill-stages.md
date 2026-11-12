@@ -327,6 +327,19 @@ file is the product's manifest, `workspace.yaml` (decision 0021).
   not judged by derivation: they say what a publication replaces and what it
   rechecks, which is the orchestrator's publication step (madarch-tzte.19.5).
 
+## Coverage limits for declaration-driven plugin fill
+
+- The plugin scheduler derives its ordering from declarations, but repository-tree
+  and history remain native foundational stages. The owner's disk/git-as-ordinary-
+  plugins example has not been migrated. This proposal does not establish that
+  the entire fill engine has completed the declaration-only migration.
+- Explicit selection of a native prerequisite kind without an enabled plugin
+  producer is refused as having no enabled producer. The ordinary wildcard
+  general agent can cover it when enabled and selected with a runnable agent.
+- A full run without explicit targets uses the union of declared plugin outputs
+  for plugin work while preserving native foundational stages. No hardcoded
+  source-kind exception is introduced into the plugin declaration scheduler.
+
 ## Requirement: plugin-declarations — Plugins declare output, input and refinement
 
 Each kind shall declare `derives-from`, replacing `depends-on`, as its prerequisite
