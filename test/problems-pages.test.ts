@@ -6,7 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
@@ -14,10 +14,12 @@ import { startPreparedServer } from './prepared-server.js';
 import { commitProduct, makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
+import { manifestWithRepo } from '../src/product/manifest.js';
+import { parse, stringify } from 'yaml';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
-const BROKEN_FILES = 120;
+const EMPTY_REPOSITORIES = 120;
 
 let work: string;
 let home: string;
@@ -41,12 +43,28 @@ beforeAll(async () => {
   git(repository, 'commit', '--quiet', '-m', 'First');
   folder = makeProduct(home, 'shop', repository);
   withoutPluginTurns(folder);
-  mkdirSync(join(folder, 'docs', 'questions'), { recursive: true });
-  for (let i = 0; i < BROKEN_FILES; i += 1) {
-    writeFileSync(join(folder, 'docs', 'questions', `broken-${String(i).padStart(3, '0')}.md`), 'no front matter\n');
+  // A declared, present repository with no commit is a native graph-context finding, not a retired Markdown read.
+  const workspace = join(folder, 'workspace.yaml');
+  let workspaceText = readFileSync(workspace, 'utf8');
+  for (let i = 0; i < EMPTY_REPOSITORIES; i += 1) {
+    const name = `empty-${String(i).padStart(3, '0')}`;
+    const empty = join(folder, 'repos', name);
+    mkdirSync(empty);
+    git(empty, 'init', '--quiet', '--initial-branch=main');
+    workspaceText = manifestWithRepo(workspaceText, { name, linked: true });
   }
-  // The questions are the graph's: the files are the product repository's commit, and a fill reads them.
-  commitProduct(folder, 'Write the question files that cannot be read');
+  writeFileSync(workspace, workspaceText);
+  // Pagination needs repository facts and one rule, not the starter catalogue's hundreds of planned kinds.
+  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+  const starter = parse(readFileSync(kindsFile, 'utf8'));
+  const kinds = Object.fromEntries(['code.repository', 'code.directory', 'code.file', 'code.commit'].map((name) => {
+    const kind = starter.kinds[name];
+    return [name, { template: kind.template, source: 'graph', capability: 'git' }];
+  }));
+  writeFileSync(kindsFile, stringify({ language: 'en', kinds, problems: { rules: {
+    'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'],
+  } } }));
+  commitProduct(folder, 'Declare empty repositories for paged problems');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
@@ -67,7 +85,7 @@ describe('the Problems page in levels', () => {
     expect(categories.status).toBe(200);
     expect(categories.body.categories.some((category: { rule: string }) => category.rule === 'wiki.unreadable-file')).toBe(true);
     const unreadable = categories.body.categories.find((category: { rule: string }) => category.rule === 'wiki.unreadable-file');
-    expect(unreadable.count).toBeGreaterThanOrEqual(BROKEN_FILES);
+    expect(unreadable.count).toBeGreaterThanOrEqual(EMPTY_REPOSITORIES);
     const openSum = categories.body.categories.reduce((sum: number, category: { open: number }) => sum + category.open, 0);
     // The listing is collected beside the first status answer; its next poll carries the count of exactly these inputs.
     let problemsOpen: number | undefined;
