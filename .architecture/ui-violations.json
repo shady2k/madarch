@@ -136,11 +136,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "342e59c41dfbc1c43c39#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "0252e7aa3ae5931c46a6#1"
   },
@@ -361,21 +356,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "Fact#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "JournalPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "RecordRow#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "DocumentPage#1"
   },
@@ -503,26 +483,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/diagrams/views.tsx",
     "subject": "a17a35e72211b90daa8b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "53c78ee5931ebf53c7dc#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "7a7a3877b1bfb0550e35#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "81e2f7f3a18e3052277e#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/journal.tsx",
-    "subject": "c4804ad8b461cadfb836#1"
   },
   {
     "rule": "raw-ui-element",
