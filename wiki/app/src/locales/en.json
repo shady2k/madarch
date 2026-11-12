@@ -452,7 +452,7 @@
     "fillPhaseHistory_other": "Reading the history: {{count}} commits",
     "fillPhaseHistory_few": "Reading the history: {{count}} commits",
     "fillPhaseHistory_many": "Reading the history: {{count}} commits",
-    "catalogue": "Kind catalogue",
+    "catalogue": "Entity catalogue",
     "catalogueIntro": "Browse the kinds this product declares: what each is, how many records it holds, who fills it, and its state.",
     "catalogueEntities_one": "{{count}} record",
     "catalogueEntities_few": "{{count}} records",

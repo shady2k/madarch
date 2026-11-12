@@ -643,6 +643,8 @@ describe('after the run', () => {
           const chip = bar.querySelector('[data-testid=fill-chip]')!;
           const label = language === 'en' ? 'Sync' : 'Синхронизировать';
           expect(chip.textContent).toBe(label);
+          expect(chip.className).not.toContain('size-9');
+          expect(chip.className).toContain('h-auto');
           expect(chip.getAttribute('aria-label')).toBe(label);
           const dot = chip.querySelector('[data-testid=fill-dot]')!;
           expect(dot.getAttribute('data-state')).toBe('up-to-date');

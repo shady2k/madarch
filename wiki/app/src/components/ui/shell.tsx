@@ -28,7 +28,7 @@ export function ShellRoleButton(props: ButtonProps) { return <Button variant="gh
 export function ShellRoleLabel(props: HTMLAttributes<HTMLSpanElement>) { return <span className="hidden text-small sm:inline" {...props} />; }
 export function ShellError(props: HTMLAttributes<HTMLDivElement>) { return <div className="grid min-h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]" {...props} />; }
 
-export const ShellStatusButton = forwardRef<HTMLButtonElement, ButtonProps & { compact?: boolean }>(function ShellStatusButton({ compact, ...props }, ref) { return <Button ref={ref} className={cn('fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink', compact && 'fill-chip-writing')} {...props} />; });
+export const ShellStatusButton = forwardRef<HTMLButtonElement, ButtonProps & { compact?: boolean }>(function ShellStatusButton({ compact, ...props }, ref) { return <Button ref={ref} size="content" className={cn('fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink', compact && 'fill-chip-writing')} {...props} />; });
 export const ShellStatusWrap = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ShellStatusWrap(props, ref) { return <div ref={ref} className="relative" {...props} />; });
 export function ShellStatusLabel(props: HTMLAttributes<HTMLSpanElement>) { return <span className="fill-chip-label" {...props} />; }
 export function ShellStatusWords(props: HTMLAttributes<HTMLSpanElement>) { return <span className="fill-chip-words" {...props} />; }

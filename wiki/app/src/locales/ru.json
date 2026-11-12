@@ -452,7 +452,7 @@
     "fillPhaseHistory_few": "Читается история: {{count}} коммита",
     "fillPhaseHistory_many": "Читается история: {{count}} коммитов",
     "fillPhaseHistory_other": "Читается история: {{count}} коммита",
-    "catalogue": "Каталог видов",
+    "catalogue": "Каталог сущностей",
     "catalogueIntro": "Виды, объявленные продуктом: что это, сколько записей, кто заполняет и в каком состоянии.",
     "catalogueEntities_one": "{{count}} запись",
     "catalogueEntities_few": "{{count}} записи",
