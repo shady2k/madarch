@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, basename } from 'node:path';
 import puppeteer, { type Page, type HTTPRequest } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { addressOfEntity, addressOfKind } from '../wiki/app/src/knowledge/routes.js';
+import { addressOfEntity, addressOfKind, WIKI_HOME, WIKI_CATALOGUE, WIKI_DOCS, WIKI_GLOSSARY, WIKI_QUESTIONS, WIKI_TASKS, WIKI_PROBLEMS, WIKI_FILL, WIKI_SETTINGS } from '../wiki/app/src/knowledge/routes.js';
 
 function argument(name: string, fallback?: string): string {
   const at = process.argv.indexOf(`--${name}`);
@@ -46,8 +46,9 @@ function add(name: string, path: string, view?: Visit['view']): void {
   const url = urlOf(path);
   if (!visits.some((visit) => visit.url === url && visit.view === view)) visits.push({ name, url, view });
 }
-for (const path of ['', 'catalogue', 'docs', 'glossary', 'questions', 'tasks', 'problems', 'fill', 'settings']) add(path || 'home', path);
-const kinds = [...new Set([...status.kinds, ...catalog.kinds.filter((kind) => kind.page)].map((kind) => kind.kind))].sort();
+for (const [name, path] of [['home', WIKI_HOME], ['catalogue', WIKI_CATALOGUE], ['docs', WIKI_DOCS], ['glossary', WIKI_GLOSSARY], ['questions', WIKI_QUESTIONS], ['tasks', WIKI_TASKS], ['problems', WIKI_PROBLEMS], ['fill', WIKI_FILL], ['settings', WIKI_SETTINGS]]) add(name!, path!);
+// Status includes non-page declarations; only the catalog defines routable kinds.
+const kinds = [...new Set(catalog.kinds.filter((kind) => kind.page).map((kind) => kind.kind))].sort();
 for (const kind of kinds) add(`kind ${kind}`, addressOfKind(kind));
 // Query even zero-count kinds: the catalog can describe declarations rather than live records.
 const representatives = new Map<string, string>();
@@ -64,7 +65,7 @@ for (const kind of kinds) {
   if (id) add(`entity ${kind}`, addressOfEntity(id));
 }
 // code.file, doc.term and code.commit are included above, with the same entity routes the UI uses.
-type Shot = { name: string; url: string; width: number; file: string; settleMs: number; errors: string[] };
+type Shot = { name: string; url: string; width: number; file: string; tiles: string[]; settleMs: number; errors: string[] };
 const shots: Shot[] = [];
 const browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox'] });
 
@@ -72,7 +73,7 @@ const browser = await puppeteer.launch({ executablePath: resolveBrowserExecutabl
  * Scroll to mount deferred diagrams, then wait for finite requests, loaders and DOM mutations to stop.
  */
 async function settle(page: Page, pending: Set<HTTPRequest>): Promise<void> {
-  await page.waitForSelector('[data-testid=knowledge-app]', { timeout: 20_000 });
+  await page.waitForSelector('[data-testid=knowledge-app], .ui-kit-page', { timeout: 20_000 });
   await page.evaluate(() => {
     const state = window as unknown as { walkMutationAt: number; walkObserver?: MutationObserver };
     state.walkObserver?.disconnect(); state.walkMutationAt = Date.now();
@@ -83,11 +84,12 @@ async function settle(page: Page, pending: Set<HTTPRequest>): Promise<void> {
   let bottom = 0;
   for (;;) {
     const ready = await page.evaluate((previousBottom) => {
-      const height = document.documentElement.scrollHeight;
-      if (previousBottom < height) window.scrollTo(0, Math.min(previousBottom, height));
+      const scroller = document.querySelector<HTMLElement>('[data-testid=shell-content]') ?? document.scrollingElement!;
+      const height = scroller.scrollHeight;
+      if (previousBottom < height) scroller.scrollTop = Math.min(previousBottom, height);
       const state = window as unknown as { walkMutationAt: number };
       const loaders = [...document.querySelectorAll('[data-testid=page-loading], [data-diagram=deferred], [data-testid=diagram-loading], [data-testid=mermaid-loading]')];
-      return { height, bottom: window.scrollY + window.innerHeight,
+      return { height, bottom: scroller.scrollTop + scroller.clientHeight,
         quiet: Date.now() - state.walkMutationAt >= 250,
         loading: loaders.some((element) => !element.querySelector('[data-testid=diagram-failure], [data-testid=mermaid-error], [data-testid=likec4-error]')) };
     }, bottom);
@@ -96,7 +98,7 @@ async function settle(page: Page, pending: Set<HTTPRequest>): Promise<void> {
     if (Date.now() > until) throw new Error(`settle timeout: ${pending.size} requests; loaders=${ready.loading}`);
     await new Promise((done) => setTimeout(done, 100));
   }
-  await page.evaluate(async () => { window.scrollTo(0, 0); await document.fonts.ready; await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))); });
+  await page.evaluate(async () => { (document.querySelector<HTMLElement>('[data-testid=shell-content]') ?? document.scrollingElement!).scrollTop = 0; await document.fonts.ready; await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))); });
 }
 
 try {
@@ -153,9 +155,28 @@ try {
         if (errors.length) errors.push(...await page.$$eval('[data-testid=page-error], [data-testid=block-problem], [data-testid=diagram-failure], [data-testid=mermaid-error], [data-testid=likec4-error]', (elements) => elements.map((element) => element.textContent ?? 'page error')).catch(() => []));
         const settleMs = Date.now() - began;
         const file = `${String(index + 1).padStart(3, '0')}-${width}.png`;
-        try { await page.screenshot({ path: join(out, file), fullPage: true }); }
-        catch (error) { errors.push(`screenshot: ${String(error)}`); }
-        shots.push({ name: visit.name, url: visit.url, width, file, settleMs, errors });
+        const tiles: string[] = [];
+        try {
+          await page.screenshot({ path: join(out, file), fullPage: true });
+          // A fixed shell's content does not appear in Puppeteer's fullPage image.
+          // Preserve its normal viewport layout and capture overlapping scroll tiles instead.
+          let previous = 0;
+          for (;;) {
+            const position = await page.evaluate(() => {
+              const scroller = document.querySelector<HTMLElement>('[data-testid=shell-content]');
+              if (!scroller) return 0;
+              scroller.scrollTop = Math.min(scroller.scrollTop + scroller.clientHeight * .9, scroller.scrollHeight - scroller.clientHeight);
+              return scroller.scrollTop;
+            });
+            if (position <= previous) break;
+            previous = position;
+            await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            const tile = file.replace('.png', `-scroll-${tiles.length + 1}.png`);
+            await page.screenshot({ path: join(out, tile), fullPage: true });
+            tiles.push(tile);
+          }
+        } catch (error) { errors.push(`screenshot: ${String(error)}`); }
+        shots.push({ name: visit.name, url: visit.url, width, file, tiles, settleMs, errors });
         console.log(`${visit.name} ${width}: ${settleMs}ms, ${errors.length} errors`);
         // Closing deliberately aborts SSE/background requests; those are not visit failures.
         collecting = false;
@@ -169,7 +190,7 @@ try {
   const elapsedMs = Date.now() - started;
   writeFileSync(join(out, 'results.json'), JSON.stringify({ elapsedMs, pages: visits.length, shots, role }, null, 2));
   const escape = (value: string): string => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
-  writeFileSync(join(out, 'index.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Wiki walk</title><style>body{font:16px system-ui;margin:2rem}article{border:2px solid #bbb;padding:1rem;margin:2rem 0}.error{border-color:#c00}.error h2{color:#c00}img{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><h1>Wiki walk</h1><p>${visits.length} pages, ${shots.length} shots; ${(elapsedMs / 1000).toFixed(1)}s. Role: ${escape(role)}. Red borders mark errors.</p>${shots.map((shot) => `<article class="${shot.errors.length ? 'error' : ''}"><h2>${shot.errors.length ? '🔴 ' : ''}${escape(shot.name)} — ${shot.width}px</h2><a href="${escape(shot.url)}">${escape(shot.url)}</a><p>Settle: ${shot.settleMs}ms</p><pre>${escape(shot.errors.join('\n') || 'No errors')}</pre><a href="${shot.file}"><img loading="lazy" src="${shot.file}" alt="${escape(shot.name)} at ${shot.width}px"></a></article>`).join('')}</html>`);
+  writeFileSync(join(out, 'index.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Wiki walk</title><style>body{font:16px system-ui;margin:2rem}article{border:2px solid #bbb;padding:1rem;margin:2rem 0}.error{border-color:#c00}.error h2{color:#c00}img{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><h1>Wiki walk</h1><p>${visits.length} pages, ${shots.length} shots; ${(elapsedMs / 1000).toFixed(1)}s. Role: ${escape(role)}. Red borders mark errors.</p>${shots.map((shot) => `<article class="${shot.errors.length ? 'error' : ''}"><h2>${shot.errors.length ? '🔴 ' : ''}${escape(shot.name)} — ${shot.width}px</h2><a href="${escape(shot.url)}">${escape(shot.url)}</a><p>Settle: ${shot.settleMs}ms</p><pre>${escape(shot.errors.join('\n') || 'No errors')}</pre>${[shot.file, ...shot.tiles].map((file) => `<a href="${file}"><img loading="lazy" src="${file}" alt="${escape(shot.name)} at ${shot.width}px — ${file}"></a>`).join('')}</article>`).join('')}</html>`);
   console.log(`${visits.length} pages, ${shots.length} shots in ${elapsedMs}ms → ${out}/index.html`);
 }
 if (shots.length !== visits.length * 2 || shots.some((shot) => shot.errors.length)) process.exitCode = 1;
