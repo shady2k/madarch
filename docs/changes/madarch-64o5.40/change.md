@@ -283,3 +283,17 @@ The fifth glossary run is now the serialized PostgreSQL validation in progress
 Its result, a successful after integration timing and whole-suite acceptance
 remain pending. Nested partition success is not a claim that those pending
 validations passed, nor a controlled performance comparison.
+
+
+## Glossary five diagnostic outcome
+
+The fifth glossary run was cancelled and settled at exit -15 after its first
+case failed at 210.5 seconds. It was not a completed six-failure run. Real-data
+disk output now passed nested fanout; the new failure was git's `code.file`
+`graph.files` input being unable to serve the required immutable earlier snapshot.
+This does not justify substituting latest values for explicit earlier reads.
+
+The coordinator released the source hold for a generic `files(pattern, snapshot?)`
+implementation that reads actual captured root partition references, with no
+latest-value fallback. Runtime/graph implementation and rerun evidence remain
+pending. No successful after timing or acceptance result is available.
