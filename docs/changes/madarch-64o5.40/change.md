@@ -349,3 +349,21 @@ and static check eleven are active with source held stable. Their results remain
 pending. A fresh after integration timing and then the whole 249-test suite are
 planned, not completed evidence. No acceptance or controlled speed comparison
 is established by these focused passes.
+
+
+## Full glossary eight result and fresh after timing in progress
+
+The coordinator reports full glossary eight settled at one pass, six failures
+and one error. The second case hit the unchanged 300-second timeout; later
+busy-run failures cascaded from that timeout. The earlier focused first-case
+pass therefore does not establish a green full glossary run. Static check eleven
+passed in 70.79 seconds; static success does not resolve those runtime failures.
+
+A fresh ordinary-plugin after integration run is active in
+`/tmp/m28-after-second-valid`, log `/tmp/m28-after-second.log`, with source held
+stable. It measures actual current training publication before performance
+optimizations so wall cost can be explained from observed work. It has not yet
+produced a valid completed after result. Performance audit may read source and
+plan, but no implementation changes are authorized while this run is active.
+The unequal-total-workload comparison caveat remains mandatory. Whole-suite
+green, successful after timing and acceptance remain pending.
