@@ -21,6 +21,11 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -93,13 +98,27 @@ test('the button fills the store and the pages read the graph it published', asy
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   expect({ state, message: (filledAt['fill'] as { message?: string } | undefined)?.message }).toEqual({ state: 'done', message: undefined });
+  // Native inventory publishes facts, not agent-authored layouts. Supply the fixture's explicit graph templates.
+  const owner = await createTestDatabaseOwner({
+    store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))),
+    graphContract: withManifestContract(await readPinnedGraphContract(product)),
+  });
+  try {
+    await publishFixtureTemplate(owner, product, 'templates/repository.liquid', [
+      { type: 'block', name: 'repository', params: {}, line: 1 },
+      { type: 'block', name: 'folder', params: {}, line: 2 },
+    ]);
+    await publishFixtureTemplate(owner, product, 'templates/file.liquid', [
+      { type: 'block', name: 'file-page', params: {}, line: 1 },
+    ]);
+  } finally { await owner.close(); }
   // The pages read the store this fill published: the repository's own page, its tree, and the file
   // page with the facts of the fixture's file (madarch-8bdc.2.5, items 2 and 3). The old entity index
   // of the agent stage is not what this step's fill writes, and no page is drawn from it here.
   expect(JSON.stringify(filledAt)).toContain('walk-code');
   expect((filledAt['repository'] as Record<string, unknown>)['steps']).toEqual({ 'tree': true, 'history': true });
   const repository = await json('/products/walk/api/page?id=code.repository%3Awalk-code&full=1');
-  expect(repository.status).toBe(200);
+  expect(repository.status, JSON.stringify(repository.body)).toBe(200);
   expect(JSON.stringify(repository.body)).toContain('walk-code');
   const rootBlock = (repository.body['blocks'] as { type: string; data: Record<string, unknown> }[]).find((block) => block.type === 'folder')!;
   expect((rootBlock.data['folders'] as { path: string }[]).map((folder) => folder.path)).toContain('src');
