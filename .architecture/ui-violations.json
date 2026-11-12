@@ -381,36 +381,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "AsIsLine#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "FileFactsBlock#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "FolderBlock#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "FolderFileTable#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "RepositoryFactsBlock#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/repository.tsx",
-    "subject": "RunPage#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "HelpLink#1"
   },
