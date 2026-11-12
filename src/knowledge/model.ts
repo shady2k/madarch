@@ -478,6 +478,8 @@ export interface CatalogKindView {
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   /** The standards or documents the kind declaration cites. */
   sources?: readonly string[];
+  /** The summary has standards available from the single-kind detail request. */
+  sourcesAvailable?: boolean;
   count: number;
   /** The statements the pages of this kind make, when the index holds any. */
   statements?: number;
@@ -533,6 +535,9 @@ export interface KindEstimate {
   /** The time of the kind's volume, or `null` when the figure or the volume is unknown. */
   readonly seconds: number | null;
 }
+
+/** The catalogue list omits declaration details, acquired by a single-kind request. */
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
 export interface CatalogView {

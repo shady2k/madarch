@@ -2,13 +2,16 @@ import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogKindView, CatalogSummaryView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
 
 /** The entity catalogue: every kind the manifest declares, with its words, its count and what fills it (madarch-8bdc.2.5). */
-export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJson<CatalogView>('read the entity catalogue', API.catalog, signal);
+export const getCatalog = (signal?: AbortSignal): Promise<CatalogSummaryView> => readJson<CatalogSummaryView>('read the entity catalogue', API.catalog, signal);
+
+/** The complete declaration of one kind, read when its details are opened. */
+export const getCatalogKind = (kind: string, signal?: AbortSignal): Promise<CatalogKindView> => readJson<CatalogKindView>('read the kind declaration', `${API.catalog}?kind=${encodeURIComponent(kind)}`, signal);
 
 /** The wiki-wide search: pages and entities by title and text, grouped by kind (madarch-o0d). */
 export const getSearch = (query: string, lang: string, signal?: AbortSignal): Promise<SearchView> => readJson<SearchView>('search the wiki', `${API.search}?${new URLSearchParams({ q: query, lang: lang === 'ru' ? 'ru' : 'en' }).toString()}`, signal);

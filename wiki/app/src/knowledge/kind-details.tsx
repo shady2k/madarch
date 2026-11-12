@@ -2,14 +2,14 @@ import { Stack, Text, PageSection, SectionTitle, Paragraph, PlainList, ListItem,
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge.js';
-import { getCatalog } from './api.js';
+import { getCatalog, getCatalogKind } from './api.js';
 import { KLink } from './blocks.js';
 import { KindGraph, relatedKinds, graphStateOf } from './kind-graph.js';
 import { KindSources } from './kind-sources.js';
 import { useRead } from './live.js';
 import { fillWithOf } from './producers.js';
 import { addressOfKind } from './routes.js';
-import type { CatalogView } from './types.js';
+import type { CatalogKindView, CatalogView } from './types.js';
 
 /** The kind's declaration stays separate from the records that happen to exist today. */
 export function KindDetails({ kind, version }: { kind: string; version: number }): ReactElement | null {
@@ -17,8 +17,9 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const read = useRead<CatalogView>(`kind-details\0${kind}\0${language}`, version, (signal) => getCatalog(signal));
   const catalog = read.data;
-  const chosen = catalog?.kinds.find((entry) => entry.kind === kind);
-  if (catalog === null || chosen === undefined) return read.error === null ? null : <Paragraph className="mb-6 text-small text-muted" role="status" data-testid="kind-details-unavailable">{t('knowledge.kindDetails.unavailable')}</Paragraph>;
+  const detail = useRead<CatalogKindView>(`kind-declaration\0${kind}\0${language}`, version, (signal) => getCatalogKind(kind, signal));
+  const chosen = detail.data;
+  if (catalog === null || chosen === null) return read.error === null && detail.error === null ? <Paragraph role="status">{t('knowledge.loading')}</Paragraph> : <Paragraph className="mb-6 text-small text-muted" role="status" data-testid="kind-details-unavailable">{t('knowledge.kindDetails.unavailable')}</Paragraph>;
   const related = relatedKinds(catalog.kinds, kind);
   const description = chosen.descriptions?.[language] ?? chosen.descriptions?.['en'];
   const producer = (chosen.pluginFolders ?? []).length > 0 ? chosen.pluginFolders!.join(', ')

@@ -10,6 +10,7 @@
  * connection.
  */
 import { AuthoredRefusal } from '../graph/authored.js';
+import { catalogSummary } from '../knowledge/catalog-view.js';
 import { languageOf } from '../knowledge/blocks.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { archifyFailurePage } from '../knowledge/view-frames.js';
@@ -211,7 +212,14 @@ export function createKnowledgePart(
       return { response: json(200, { id: identity.id, name: identity.name }) };
     }),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) })),
-    catalog: guarded('read the entity catalogue', async () => ({ response: json(200, await product.catalog()) })),
+    catalog: guarded('read the entity catalogue', async (request) => {
+      const catalog = await product.catalog();
+      const kind = new URL(request.url).searchParams.get('kind');
+      if (kind === null) return { response: json(200, catalogSummary(catalog)) };
+      const detail = catalog.kinds.find((entry) => entry.kind === kind);
+      if (detail === undefined) return refused(404, { field: 'kind', message: `the manifest declares no kind "${kind}"` });
+      return { response: json(200, detail) };
+    }),
     search: guarded('search the wiki', async (request) => {
       const query = new URL(request.url).searchParams.get('q') ?? '';
       if (query.length > 200) return refused(400, { field: 'q', message: '"q" is longer than 200 characters: a search names what it looks for in words' });

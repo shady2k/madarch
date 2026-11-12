@@ -59,7 +59,12 @@ const CATALOG: CatalogView = {
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
 function stub(catalog: CatalogView | null): void {
   (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-    if (url.includes('/api/catalog')) return catalog === null ? json({ message: 'unavailable' }, 503) : json(catalog);
+    if (url.includes('/api/catalog')) {
+      if (catalog === null) return json({ message: 'unavailable' }, 503);
+      const asked = new URL(url, 'http://localhost').searchParams.get('kind');
+      if (asked !== null) return json(catalog.kinds.find((entry) => entry.kind === asked));
+      return json({ ...catalog, kinds: catalog.kinds.map(({ fields, relations, sources, ...entry }) => entry) });
+    }
     if (url.includes('/api/entities')) return json({ kind: 'doc.term', total: 1, rows: [{ id: 'doc.term:order', kind: 'doc.term', label: 'Order', href: '/e/doc.term%3Aorder' }], next: null });
     if (url.includes('/api/views')) return json({ renderer: 'mermaid', views: [] });
     return json({ message: 'not here' }, 404);

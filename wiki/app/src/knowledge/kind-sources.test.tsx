@@ -48,3 +48,36 @@ test('compact sources open an accessible list and Escape closes it', async () =>
     box.remove();
   }
 });
+
+
+test('summary standards are fetched only on disclosure, with loading and error status', async () => {
+  const savedFetch = globalThis.fetch;
+  const box = document.createElement('div');
+  document.body.append(box);
+  const root = createRoot(box);
+  const requested: string[] = [];
+  let finish!: (response: Response) => void;
+  globalThis.fetch = ((url: string) => {
+    requested.push(url);
+    return new Promise<Response>((resolve) => { finish = resolve; });
+  }) as typeof fetch;
+  try {
+    const { sources, ...summary } = kind;
+    await act(async () => { root.render(createElement(KindSources, { kind: { ...summary, sourcesAvailable: true }, compact: true })); });
+    expect(requested).toEqual([]);
+    await act(async () => { box.querySelector('button')!.click(); });
+    expect(requested).toHaveLength(1);
+    expect(new URL(requested[0]!, 'http://localhost').searchParams.get('kind')).toBe(kind.kind);
+    expect(document.querySelector('[role="status"]')!.textContent).toBe('Loading…');
+    await act(async () => { finish(new Response(JSON.stringify(kind))); });
+    expect([...document.querySelectorAll('[role="dialog"] a')].map((link) => link.getAttribute('href'))).toEqual([...sources!]);
+    await act(async () => { box.querySelector('button')!.click(); });
+    await act(async () => { box.querySelector('button')!.click(); });
+    await act(async () => { finish(new Response(JSON.stringify({ message: 'unavailable' }), { status: 503 })); });
+    expect(document.querySelector('[role="status"]')!.textContent).toContain('The kind declaration is unavailable.');
+  } finally {
+    await act(async () => { root.unmount(); });
+    box.remove();
+    globalThis.fetch = savedFetch;
+  }
+});

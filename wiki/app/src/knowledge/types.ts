@@ -225,6 +225,8 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
   sources?: readonly string[];
+  /** The summary has standards available from the single-kind detail request. */
+  sourcesAvailable?: boolean;
   fields?: readonly { name: string; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   pluginFolders?: readonly string[];
@@ -255,6 +257,9 @@ export type CatalogKindView = {
 
 /** One kind's estimate (madarch-stm0.6): a measured volume times a per-unit figure, or unknown. */
 export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
+
+/** List metadata; declaration details are acquired only for a selected kind. */
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
 
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {
