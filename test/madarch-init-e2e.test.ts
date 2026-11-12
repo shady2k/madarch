@@ -122,6 +122,7 @@ describe('madarch init', () => {
     expect(catalog.findings).toEqual([]);
     // The navigation includes catalogue-only kinds, not just kinds with a page template.
     const expectedKinds = [...catalog.kinds.keys()].sort(byCodePoint);
+
     const actualKinds = status.body.kinds as { kind: string; count: number }[];
     expect(actualKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
     expect(actualKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));

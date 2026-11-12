@@ -34,6 +34,8 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { publishRepositoryTemplates } from './structured-template-fixture.js';
+
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -83,7 +85,10 @@ beforeAll(async () => {
   git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the entry', '--date', '2026-03-03T10:00:00Z');
   home = join(work, 'home');
   mkdirSync(home);
-  makeProduct(home, 'tiny', repository, 'tiny');
+  const tiny = makeProduct(home, 'tiny', repository, 'tiny');
+  writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+  git(tiny, 'add', '-A');
+  git(tiny, 'commit', '--quiet', '-m', 'Fill native inventory and history in the fixture');
   const bare = makeProduct(home, 'bare', repository, 'tiny');
   rmSync(join(bare, 'madarch'), { recursive: true });
   const empty = makeProduct(home, 'unconnected', repository, 'tiny');
@@ -137,6 +142,7 @@ describe('an empty product', () => {
     // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
     // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
     seedStarterSet(join(home, 'bare'));
+    writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
     git(join(home, 'bare'), 'add', '-A');
     git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
     await activateTestProduct(join(home, 'bare'), home, join(work, 'store'));
@@ -153,6 +159,7 @@ describe('an empty product', () => {
     const published = readKinds(join(home, 'bare'));
     if (!published.present || published.manifest.catalog === undefined) throw new Error('the fixture starter catalogue is absent');
     expect(status.body.kinds.map((kind: { kind: string }) => kind.kind).sort()).toEqual([...published.manifest.catalog.kinds.keys()].sort());
+
     expect(status.body.catalog).toBeUndefined();
     const response = await fetch(`${server.url}/products/bare/api/catalog`);
     const text = await response.text();
@@ -163,6 +170,7 @@ describe('an empty product', () => {
     // A starter set that grows moves this case with it instead of leaving a number here to edit.
     const read = readKinds(join(home, 'bare'));
     if (!read.present) throw new Error('the server seeded no madarch/kinds.yaml into the bare product');
+
     const seeded = read.manifest;
     expect(seeded.catalog).toBeDefined();
     expect(catalog.kinds.length).toBe(seeded.catalog!.kinds.size);
@@ -274,6 +282,7 @@ describe('the fill the reader watches', () => {
       status = (await get('/products/tiny/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
+    await publishRepositoryTemplates(join(home, 'tiny'), home, join(work, 'store'));
     await new Promise((rest) => setTimeout(rest, 700));
     done = true;
     await reader.cancel();
@@ -433,7 +442,9 @@ describe('the fill the reader watches', () => {
   });
 
   test('filling again an unchanged repository is done at once and changes no page', async () => {
-    const before = (await get(`/products/tiny/api/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
+    const id = recordKey('code.file', 'tiny/src/a.ts');
+    const before = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
+    expect(before.status).toBe(200);
     const started = await fetch(`${server.url}/products/tiny/api/fill`, { method: 'POST' });
     expect(started.status).toBe(202);
     for (let tries = 0; tries < 400; tries += 1) {
@@ -441,8 +452,9 @@ describe('the fill the reader watches', () => {
       if (status.fill.state !== 'running') break;
       await new Promise((rest) => setTimeout(rest, 250));
     }
-    const after = (await get(`/products/tiny/api/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
-    expect(after).toEqual(before);
+    const after = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
+    expect(after.status).toBe(200);
+    expect(after.body).toEqual(before.body);
   }, 120_000);
 });
 
