@@ -93,7 +93,9 @@ A wiki or CLI selection contains the requested kinds and their transitive
 `derives-from` prerequisites only. Never add kinds that depend on the selected
 ones. Both entry points use the same engine selection function and plan.
 For a unit produced by plugin P, `derives-from` prerequisites wait for their
-base/earlier producer units to complete, including units from other plugins.
+base/earlier producer units to complete, including units from other plugins and
+prerequisite-kind units produced by P itself. Only the identical current unit
+(same plugin and kind) is excluded as self, not another kind's unit of P.
 As with `reads`, a producer Q that directly or transitively refines P is not a
 prerequisite of P's unit: the derived unit consumes the prerequisite version
 available before its own later refinements, rather than waiting for that future

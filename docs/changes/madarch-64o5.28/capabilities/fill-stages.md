@@ -419,6 +419,11 @@ so a kind without a dedicated producer still has a declared filler.
 - When: a selected summary fill runs
 - Then: base/earlier source-kind producer units complete before the derived summary-kind unit runs, not merely before it is planned; producers explicitly downstream of that unit's plugin in the refinement chain are not prerequisites
 
+### Scenario: same-plugin-kind-prerequisite
+- Given: summary derives from source and plugin P produces both kinds
+- When: P's summary unit is scheduled
+- Then: it waits for P's source unit to complete; only the identical plugin-and-kind unit is excluded as self
+
 ### Scenario: downstream-refiner-kind-prerequisite
 - Given: summary derives from source and plugin Q directly or transitively refines summary's producer P while also producing source
 - When: unit prerequisites are derived for P's summary unit
