@@ -176,46 +176,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "037ddea9db101663c03d#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "10a286aa8b35cded2d0a#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "4b9e39248b9c33954851#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "4e8e1275f1d570e7f54f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "82fc9b069ffe0ceb54f3#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "9323d04ef06b939abb1e#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "b579ce8929340cbcbd29#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "f4ed193ea6a4bc9559e7#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/history-bar.tsx",
     "subject": "aba60b9ab685aeb043c3#1"
   },
@@ -698,21 +658,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "UnitRow#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "GlossaryPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "Names#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "TermBlockView#1"
   },
   {
     "rule": "local-styled-component",
@@ -1218,26 +1163,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "72a2953009c0b27cbaf9#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "44390fa2fcfdc9c8d8e1#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "44390fa2fcfdc9c8d8e1#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "8c946909a1e9a0ff1925#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/glossary.tsx",
-    "subject": "a8d13e32481a7100ae51#1"
   },
   {
     "rule": "raw-ui-element",
