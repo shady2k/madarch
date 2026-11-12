@@ -2,6 +2,7 @@
 import { dirname, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
@@ -16,7 +17,7 @@ export async function activateTestProduct(folder: string, home: string, knowledg
   const contract = existsSync(resolve(folder, '.git'))
     ? await readPinnedGraphContract(folder)
     : kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT;
-  await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), contract);
+  await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), withManifestContract(contract));
 }
 
 /** Prepare a direct product fixture before clients open, retaining its owner until they close. */
