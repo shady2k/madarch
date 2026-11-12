@@ -97,7 +97,11 @@ async function settle(page: Page, pending: Set<HTTPRequest>): Promise<void> {
     bottom = ready.bottom;
     if (bottom >= ready.height && ready.quiet && !ready.loading && pending.size === 0) break;
     if (Date.now() > until) throw new Error(`settle timeout: ${pending.size} requests; loaders=${ready.loading}`);
-    await new Promise((done) => setTimeout(done, 100));
+    if (bottom < ready.height && !ready.loading && pending.size === 0) {
+      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
+    } else {
+      await new Promise((done) => setTimeout(done, 100));
+    }
   }
   await page.evaluate(async () => { (document.querySelector<HTMLElement>('[data-testid=shell-content]') ?? document.scrollingElement!).scrollTop = 0; await document.fonts.ready; await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))); });
 }
