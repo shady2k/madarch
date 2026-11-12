@@ -1,12 +1,12 @@
 # Reset filled knowledge through the product's store owner
 
 Change: madarch-64o5.22
-Base: 9a73405a7aed53b52a28a55a81e3edefcf7288e7
+Base: 7cbfed93effa7a4e3592b2c522f1cbd1f2760a2d
 Tasks: madarch-64o5.22
 Kind: behavior
 
 ## Intent
-`madarch reset <product>` works both while the owning server is running and
+`madarch reset sample` works both while the owning server is running and
 when it is stopped. A live reset goes through that server; an offline reset
 opens the prepared store as its owner and keeps it open until the reset is
 done. The command reports the removal only after application completes.
@@ -25,26 +25,21 @@ catalogue available before the next explicit Fill.
 Complete proposed capability: `capabilities/product-reset.md`.
 
 ## Preserved contracts
-- product-repository/manifest: reset keeps the product's identity and manifest.
-- product-repository/list: resolving and listing products in the products home is unchanged.
-- product-wiki/manifest-catalogue-before-fill: the catalogue remains graph-only and available before Fill; resetting does not run plugins or agents to rebuild filled knowledge.
+None.
 
 ## Coverage
 - product-reset/reset: test
-- product-repository/manifest: test
-- product-repository/list: test
-- product-wiki/manifest-catalogue-before-fill: test
 
 ## Where it is seen
 Kind: command
-Place: `madarch reset <product> [--home <folder>] --yes`, then the product's status and catalogue
+Place: `madarch reset sample [--home /tmp/products] --yes`, then the product's status and catalogue
 
 1. Fill a fixture product, stop its server and run the reset command. Read the preview, removal report and successful completion.
 2. Open the product again: it is idle and `not-filled`; its manifest kinds remain in the graph-backed catalogue, without filled content or an automatic fill.
 3. Fill a fixture product with its server running, then run the reset command. The same server answers the reset and serves the same idle, `not-filled` state and graph-backed catalogue.
 
 ## Blocking questions
-- Owner approval is required for this behavior proposal. No approval is recorded here.
+None.
 
 ## Acceptance evidence
 `test/product-reset.test.ts` covers the two execution paths:
@@ -52,5 +47,8 @@ Place: `madarch reset <product> [--home <folder>] --yes`, then the product's sta
 - `reset starts a filled fixture over through its running server`
 
 Both cases check the removal report, reset state and graph-only catalogue.
-Static, test, mutation and independent review evidence remain the task owner's
-responsibility; this proposal does not claim those checks have passed.
+Static: bun run check passed, with 18 existing SQL findings and UI debt zero.
+Test: the final reset/store-preparation/server suite passed 169 cases, skipped 8 and failed none, with 2257 assertions across nine files.
+Review: independent ownership and file-safety review found no remaining blocker after table locks and post-await fingerprint checks were added.
+Mutation: not-made. No mutation run was performed; no mutation score or survivors are claimed.
+Evidence: /work/out/b6422/report.md, check-delivery.log, final-stable-suite.log and review.md.
