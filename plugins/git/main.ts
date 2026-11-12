@@ -47,7 +47,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   return { vertices: selectedVertices, edges: selectedEdges, end: problems.some(problem => !problem.endsWith('shallow-history')) ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' } };
 }
 
-function instantOf(text: string): [string, number] {
+export function instantOf(text: string): [string, number] {
   const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:(Z)|([+-])(\d{2}):(\d{2}))$/.exec(text);
   if (match === null) throw new Error(`unreadable git date ${JSON.stringify(text)}`);
   return [new Date(text).toISOString(), match[2] === 'Z' ? 0 : (match[3] === '-' ? -1 : 1) * (Number(match[4]) * 60 + Number(match[5]))];
