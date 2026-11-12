@@ -54,6 +54,20 @@ inputs offered through the existing host agent service to every plugin that
 requests it, never a marker that divides plugins. Tests use scripted agents.
 Checks declare output of the catalogue's Problem kind, not output-free runs.
 
+Resolve the plan from the product's enabled plugins before deciding whether an
+agent is required. Only a planned plugin requesting an agent makes selection
+mandatory. A product enabling only deterministic plugins can run without an
+agent. A missing required agent is refused before acceptance, queueing or start,
+with the requesting plugin's absolute manifest filename, 1-based line and how to
+choose an agent; it is not a no-agent mode or a waiting state. The wiki marks
+the field required only when the plan needs it, disables Run with an actionable
+reason while the required selection is missing, and offers no no-agent option.
+
+Fixtures declare only exercised plugins and keep valid kinds and typed fields.
+Agent-requesting scenarios choose scripted fixtures; no real agent/model runs
+are required. Deterministic-only fixture declarations do not bypass a planned
+plugin's request for an agent.
+
 ## Startup validation and refusal messages
 
 Validate before accepting or queueing a fill. Every refusal begins with the

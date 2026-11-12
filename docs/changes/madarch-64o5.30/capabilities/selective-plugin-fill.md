@@ -30,7 +30,7 @@ scripted fixture, never a real agent or model.
 ### Scenario: refuse-before-acceptance
 - Given: the selected kind's producer needs an agent but none is selected
 - When: the server receives the fill request
-- Then: it refuses with an actionable reason before accepting or queueing the run
+- Then: it refuses before accepting, queueing or starting work, naming the requesting plugin's absolute manifest filename and 1-based source line and how to choose an agent in the wiki or with --agent
 
 ### Scenario: disabled-or-omitted-plugin-stage
 - Given: selected-kind declarations have producers but the runnable plugin stage is disabled or omitted from the run graph
@@ -75,6 +75,35 @@ shall be refused rather than silently changed.
 - Given: a supplied token cap is zero, negative or not a whole number
 - When: a fill is requested
 - Then: validation refuses it as requiring a positive integer before work starts
+
+## Requirement: conditional-agent — Only a plan requesting an agent requires selection
+
+The plan shall use the product's enabled plugins. Agent selection shall be
+required only when a planned plugin requests it. The idle wiki shall mark the
+agent field required for that plan and keep Run disabled with a visible,
+actionable reason while the selection is missing. It shall offer no no-agent
+option and create no waiting-for-agent state. A product enabling only
+deterministic plugins shall be runnable without agent selection. The server
+shall enforce the same condition before accepting, queueing or starting work,
+with the requesting plugin's absolute manifest filename, 1-based source line
+and how to choose an agent. Fixtures shall declare only exercised plugins,
+retain valid kinds and typed fields, and use scripted agents for exercised
+agent requests, never real agents or models.
+
+### Scenario: required-selection-disabled-run
+- Given: an idle fill page whose enabled planned plugin requests an agent and no agent is selected
+- When: setup controls are shown
+- Then: the agent field is required, Run is disabled with a reason explaining how to choose an agent, and no no-agent option is offered
+
+### Scenario: deterministic-only-run
+- Given: a product enables only deterministic plugins for the selected kind and prerequisites and no agent is selected
+- When: the wiki previews the plan and the server receives its fill request
+- Then: the agent field is not required, the missing selection does not disable Run, and the server can start the declared work without an agent
+
+### Scenario: scripted-fixture-only
+- Given: a fixture declares only the plugins it exercises and retains valid kinds and typed fields
+- When: the exercised plugin requests an agent
+- Then: the test selects a scripted agent without invoking a real agent or model or weakening declarations to mask failures
 
 ## Requirement: named-producers — Catalogue and fill setup show plugin names
 

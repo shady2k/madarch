@@ -444,3 +444,30 @@ so a kind without a dedicated producer still has a declared filler.
 - Given: the selected kind has no enabled runnable producer
 - When: a fill is requested
 - Then: it is refused with the kind and declaration location rather than accepted with zero work
+
+## Requirement: plugin-agent-admission — An agent is required only when the plan needs it
+
+The engine shall plan from enabled plugins before deciding whether an agent is
+required. If any planned plugin requests an agent and none is selected, the
+server shall refuse before acceptance, queueing or execution, naming the
+requesting plugin's absolute manifest filename and 1-based line and explaining
+how to select an agent in the wiki or with `--agent`. It shall not accept a
+no-agent mode or a waiting-for-agent state. A product enabling only
+deterministic plugins shall run without an agent. Fixtures shall declare only
+exercised plugins, preserving valid kinds and typed fields; agent-requesting
+scenarios shall use scripted fixtures, never real agents or models.
+
+### Scenario: deterministic-only-agentless
+- Given: a product enables only deterministic plugins producing the selected kind and its prerequisites, and no agent is selected
+- When: the server plans and admits the fill
+- Then: the fill can start without an agent and runs the declared producers
+
+### Scenario: planned-agent-missing
+- Given: an enabled planned plugin requests an agent and none is selected
+- When: the server receives the fill request
+- Then: it refuses before acceptance, queueing or starting any work, naming the plugin's absolute manifest filename and 1-based source line and how to choose an agent
+
+### Scenario: scripted-agent-request
+- Given: a fixture declares the exercised agent-requesting plugin and valid typed kinds, and selects a scripted agent
+- When: the planned fill runs
+- Then: the plugin receives the scripted agent without invoking any real agent or model
