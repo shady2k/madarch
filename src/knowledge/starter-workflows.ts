@@ -35,7 +35,6 @@ const FILL_STAGES: readonly string[] = [
   'repository-tree',
   'repository-history',
   'plugin-turns',
-  'whole-graph-turns',
 ];
 
 /**
