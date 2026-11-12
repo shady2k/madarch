@@ -143,41 +143,10 @@ export interface HistoryEvidence {
 
 type Raw = Record<string, unknown>;
 
-/** A store that declares no code kind holds no file or repository table: an empty answer, never an error. */
-const WIKI_KIND: Readonly<Record<string, string>> = {
-  repository: 'code.repository',
-  directory: 'code.directory',
-  file: 'code.file',
-  commit: 'code.commit',
-  signature: 'code.author',
-};
-
-function graphKindOf(wikiKind: string): string | undefined {
-  for (const [graph, wiki] of Object.entries(WIKI_KIND)) if (wiki === wikiKind) return graph;
-  return undefined;
-}
-
-/**
- * The graph's edge kind one wiki relation names: the git relations the engine holds, and a kind the manifest's own
- * `edges:` declarations make (decision 0035, items 7 and 18), whose graph name is the manifest's name — `code.foreign-key`
- * stands in the edge row as it was declared.
- */
+/** Relations are the ordinary names declared by the product. */
 function graphRelationOf(relation: string, declared?: ReadonlyMap<string, GeneratedEdgeRead>): { kind: string } | undefined {
-  const bare = relation.startsWith('code.') ? relation.slice('code.'.length) : relation;
-  if (bare === `${GIT_KINDS.contains}` || bare === `${GIT_KINDS.touched}` || bare === `${GIT_KINDS.authored}` || bare === `${GIT_KINDS.parent}`) return { kind: bare };
-  if (bare === 'renamed-to' || bare === `${GIT_KINDS.renamedFrom}`) return { kind: `${GIT_KINDS.renamedFrom}` };
-  if (declared?.has(relation) === true) return { kind: relation };
-  if (declared?.has(bare) === true) return { kind: bare };
-  return undefined;
+  return declared?.has(relation) === true ? { kind: relation } : undefined;
 }
-
-const WIKI_RELATION: Readonly<Record<string, string>> = {
-  contains: 'code.contains',
-  touched: 'code.touched',
-  authored: 'code.authored',
-  parent: 'code.parent',
-  [GIT_KINDS.renamedFrom]: 'code.renamed-to',
-};
 
 export function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
   const provenance = properties['provenance'];
@@ -186,7 +155,7 @@ export function spanFromProvenance(properties: Record<string, unknown>): SourceS
   if (place === null || typeof place !== 'object' || Array.isArray(place)) return undefined;
   const held = place as Record<string, unknown>;
   const range = held['range'];
-  const path = held[GIT_KINDS.file];
+  const path = held['file'];
   if (typeof path !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range)) return undefined;
   const measured = range as Record<string, unknown>;
   const { startLine, endLine, startByte, endByte } = measured;
@@ -208,22 +177,13 @@ export function presentedKey(kind: string, properties: Record<string, unknown>):
   if (kind === 'code.gitlink' && typeof properties['path'] === 'string') return `code.gitlink:${String(properties['repository'] ?? '')}/${properties['path']}`;
   if (kind === 'code.repository' && typeof properties['name'] === 'string') return `code.repository:${properties['name']}`;
   if (kind === 'code.commit' && typeof properties['hash'] === 'string') return `code.commit:${properties['hash']}`;
-  if ((kind === 'code.author' || kind === 'code.signature') && typeof properties['email'] === 'string') return `code.author:${properties['email']}`;
+  if (kind === 'code.author' && typeof properties['name'] === 'string' && typeof properties['email'] === 'string') return `code.author:${properties['name']}/${properties['email']}`;
   const recordKey = properties['recordKey'];
   return typeof recordKey === 'string' ? recordKey : String(recordKey ?? '');
 }
 
-function gitDateOf(localClock: string | null, offsetMin: number | null): string | undefined {
-  if (localClock === null || offsetMin === null) return undefined;
-  const sign = offsetMin < 0 ? '-' : '+';
-  const total = Math.abs(offsetMin);
-  return `${localClock}${sign}${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-}
-
 /** The repository a file, folder or gitlink names in its key, and the node it is. */
-const REPOSITORY_KEY = (alias: string): string => `(${alias}.key->'repository'->'key'->>'name')`;
-/** The path a file, folder or gitlink names in its key. */
-const PATH_KEY = (alias: string): string => `(${alias}.key->>'path')`;
+const REPOSITORY_KEY = (alias: string): string => `(${alias}.key->>'repository')`;
 
 /**
  * Whether a vertex has an edge of one relation, as SQL: the entity's id is looked up once (an InitPlan), never per row
@@ -233,64 +193,6 @@ const PATH_KEY = (alias: string): string => `(${alias}.key->>'path')`;
 const EDGE_EXISTS = (side: 'from_node' | 'to_node', relation: string, node: string): string =>
   `EXISTS (SELECT 1 FROM edge e WHERE e.${side} = ${node}.id AND e.context_id = 1 AND e.entity_id = (SELECT id FROM entity WHERE name = '${relation}'))`;
 
-/**
- * One open opinion of a node's table as a jsonb array: its id, its producer and version, its language, its evidence —
- * or, for a bulk read, its language and its values alone (`values`): a list shows values, and nothing in a list shows
- * where a value was stated, so a listing does not pay to carry and parse the evidence of every opinion it reads
- * (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms, against 1.21 MB and 24 ms without them).
- */
-const OPINIONS_OF = (table: string, node: string, columns: readonly string[], values = false): string =>
-  `(SELECT jsonb_agg(jsonb_build_object(${values ? '' : `'id', o."id"::text, 'said_by', o."said_by", `}'lang', o."lang"${values ? '' : `, 'evidence', o."evidence"`}${columns.map((column) => `, '${column}', o."${column}"`).join('')}) ORDER BY o."id")
-     FROM ${table} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND o."context_id" = 1)`;
-
-/**
- * The opinion columns of an entity row: every open opinion of the entity's kind, as jsonb arrays. A product declares
- * only some of the code kinds, so a table the manifest does not declare is not named at all: its column is NULL and the
- * SQL never reaches a table the store does not hold (madarch-hsqs stage C).
- */
-function entityOpinionColumns(declared?: ReadonlySet<string>): string {
-  const columns: string[] = [];
-  if (declared === undefined || declared.has(GIT_KINDS.file)) {
-    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
-      'mode', o."mode", 'language', o."language", 'languages', o."languages",
-
-      'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
-    FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
-    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions`);
-  } else columns.push('  NULL AS file_opinions');
-  if (declared === undefined || declared.has(GIT_KINDS.commit)) {
-    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'])} END AS commit_opinions`);
-  } else columns.push('  NULL AS commit_opinions');
-  if (declared === undefined || declared.has(GIT_KINDS.repository)) {
-    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'])} END AS repository_opinions`);
-  } else columns.push('  NULL AS repository_opinions');
-  return `${columns.join(',\n')},`;
-}
-
-/** The same opinions without their sources: a bulk read of a kind's entities answers every value and no evidence. */
-function entityValueColumns(declared?: ReadonlySet<string>): string {
-  const columns: string[] = [];
-  if (declared === undefined || declared.has(GIT_KINDS.file)) {
-    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.file}' THEN (SELECT jsonb_agg(jsonb_build_object('lang', o."lang",
-      'mode', o."mode", 'language', o."language", 'languages', o."languages",
-
-      'blob', bb."hash", 'bytes', bb."bytes"::text, 'form', bb."form", 'lines', bb."lines"::text) ORDER BY o."id")
-    FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} bb ON bb.id = o."blob_id"
-    WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) END AS file_opinions`);
-  } else columns.push('  NULL AS file_opinions');
-  if (declared === undefined || declared.has(GIT_KINDS.commit)) {
-    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN ${OPINIONS_OF(GIT_TABLES.commit, 'n', ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], true)} END AS commit_opinions`);
-  } else columns.push('  NULL AS commit_opinions');
-  if (declared === undefined || declared.has(GIT_KINDS.repository)) {
-    columns.push(`  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN ${OPINIONS_OF(GIT_TABLES.repository, 'n', ['url', 'default_branch'], true)} END AS repository_opinions`);
-  } else columns.push('  NULL AS repository_opinions');
-  return `${columns.join(',\n')},`;
-}
-
-/** The same columns without the opinions: the history and graph reads answer keys, labels and edges only. */
-const ENTITY_PLAIN_COLUMNS = `  NULL AS file_opinions, NULL AS commit_opinions, NULL AS repository_opinions,`;
-
-/** The scope of a row when the caller names none: its repository's node, or its commit's repository. */
 const ENTITY_SCOPE_EXPRESSION = `(CASE WHEN k.name = '${GIT_KINDS.repository}' THEN n.id
     WHEN k.name IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}', '${GIT_KINDS.gitlink}') THEN (SELECT rn.id FROM node rn JOIN entity re ON re.id = rn.entity_id AND re.name = '${GIT_KINDS.repository}' WHERE rn.key->>'name' = ${REPOSITORY_KEY('n')} AND rn.context_id = 1 LIMIT 1)
     ELSE coalesce(
@@ -298,26 +200,6 @@ const ENTITY_SCOPE_EXPRESSION = `(CASE WHEN k.name = '${GIT_KINDS.repository}' T
       (SELECT min(h2.from_node) FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
          JOIN edge h2 ON h2.to_node = ae.to_node AND h2.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') AND h2.context_id = 1 WHERE ae.from_node = n.id AND ae.context_id = 1)
     ) END)::text`;
-
-/**
- * The entity rows' statement: the key's values, the opinions (or none), the commit's author and the scope. A caller that
- * knows the scope — a history read of one repository — passes it, and every row carries it as a constant, so no row looks
- * its repository up; a caller that names none gets the correlated lookup, and reads few rows.
- */
-function entitySelectSql(scope: string | null, columns: 'full' | 'values' | 'plain', declared?: ReadonlySet<string>): string {
-  const scopeColumn = scope !== null && /^\d+$/u.test(scope) ? `'${scope}'::text` : ENTITY_SCOPE_EXPRESSION;
-  return `SELECT n.id::text AS node_id, k.name AS kind,
-  CASE WHEN k.name = '${GIT_KINDS.repository}' THEN (n.key->>'name') ELSE ${REPOSITORY_KEY('n')} END AS repository_name,
-  ${REPOSITORY_KEY('n')} AS scope_repository_name,
-  ${PATH_KEY('n')} AS path,
-  (n.key->>'hash') AS commit_hash, (n.key->>'name') AS signature_name, (n.key->>'email') AS email,
-${columns === 'plain' ? ENTITY_PLAIN_COLUMNS : columns === 'values' ? entityValueColumns(declared) : entityOpinionColumns(declared)}
-  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe JOIN entity pk ON pk.id = pe.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE pe.from_node = n.id AND pe.context_id = 1) ELSE 0 END AS parent_count,
-  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'name' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 LIMIT 1) END AS commit_author_name,
-  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT sa.key->>'email' FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}' JOIN node sa ON sa.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 LIMIT 1) END AS commit_author_email,
-  ${scopeColumn} AS scope
- FROM node n JOIN entity k ON k.id = n.entity_id AND n.context_id = 1 AND NOT n.removed`;
-}
 
 /** A value with the keys of every object in code point order, so two equal values render equal. */
 function canonical(value: unknown): unknown {
@@ -364,7 +246,7 @@ function quoteColumn(name: string): string {
 
 /** The select over one manifest-declared kind's table: the vertices an opinion stands for, with their keys. */
 function generatedSelect(decl: GeneratedKindRead): string {
-  return `SELECT DISTINCT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed`;
+  return `SELECT DISTINCT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`;
 }
 
 /** One column's value as a reader holds it: a count as a number, a flag as a boolean, everything else as it stands. */
@@ -375,190 +257,13 @@ function valueOfColumn(value: unknown, type: GeneratedKindRead['types'][string])
   return value;
 }
 
-/** One open opinion of an entity, as the reader holds it: its id, its producer, its language, its evidence, its values. */
-interface GraphOpinion {
-  readonly id: string;
-  readonly producer: string;
-  readonly saidBy: string;
-  readonly lang: string | null;
-  readonly evidence: readonly { readonly field: string; readonly value: unknown }[];
-  readonly values: Readonly<Record<string, unknown>>;
-}
-
-/**
- * The opinions one aggregate column reads, from the jsonb array the statement builds. A bulk read (`sources`) states the
- * values alone: it carries no opinion id, no producer and no evidence, so nothing here may guess that it has them.
- */
-function graphOpinions(value: unknown, fields: readonly string[], sources = true): GraphOpinion[] {
-  // A plain read (the history and graph blocks) carries no opinion column: nothing is assembled for it.
-  if (!Array.isArray(value) || value.length === 0) return [];
-  return value.map((entry) => {
-    const held = (entry ?? {}) as Record<string, unknown>;
-    const saidBy = sources ? String(held['said_by'] ?? '') : '';
-    const at = saidBy.lastIndexOf('@');
-    const language = held['lang'] === null || held['lang'] === undefined ? null : String(held['lang']);
-    const places = sources && Array.isArray(held['evidence']) ? held['evidence'] as readonly Record<string, unknown>[] : [];
-    return {
-      id: sources ? String(held['id'] ?? '') : '',
-      saidBy,
-      producer: at < 0 ? saidBy : saidBy.slice(0, at),
-      lang: language,
-      evidence: places.map((one) => ({ field: '', value: one })),
-      values: Object.fromEntries(fields.map((field) => [field, held[field]])),
-    };
-  });
-}
-
-/** One field's values across opinions, each with its source. */
-function fieldOpinions(opinions: readonly GraphOpinion[], field: string): { readonly value: unknown }[] {
-  return opinions.flatMap((opinion) => (opinion.values[field] === null || opinion.values[field] === undefined ? [] : [{ value: opinion.values[field] }]));
-}
-
-/** One field's value when every opinion that states it agrees, else the list of their distinct values. */
-function agreedValue(opinions: readonly GraphOpinion[], field: string): unknown {
-  const values = fieldOpinions(opinions, field).map((one) => one.value);
-  const distinct = new Map(values.map((one) => [JSON.stringify(one), one]));
-  if (distinct.size === 0) return undefined;
-  return distinct.size === 1 ? values[0] : [...distinct.values()];
-}
-
-/**
- * One field's value from an opinion aggregate, in one pass: the value the opinions agree on, or every distinct value in
- * the order they stated them — the rule `agreedValue` applies, without building an opinion object, a value map or a
- * `fieldOpinions` array for every opinion a bulk read carries (madarch-64o5.2, the page budget).
- */
-function agreedField(value: unknown, field: string): unknown {
-  if (!Array.isArray(value)) return undefined;
-  let first: unknown;
-  let firstKey: string | undefined;
-  let contested: unknown[] | undefined;
-  for (const entry of value) {
-    const held = (entry ?? {}) as Record<string, unknown>;
-    const stated = held[field];
-    if (stated === null || stated === undefined) continue;
-    const key = typeof stated === 'string' ? stated : JSON.stringify(stated);
-    if (firstKey === undefined) {
-      firstKey = key;
-      first = stated;
-      continue;
-    }
-    if (key === firstKey) continue;
-    contested ??= [first];
-    if (!contested.some((one) => (typeof one === 'string' ? one : JSON.stringify(one)) === key)) contested.push(stated);
-  }
-  return firstKey === undefined ? undefined : contested ?? first;
-}
-
-/** One entity's opinions as the wiki holds them: every value with its opinion id, producer, language and evidence. */
-function entityOpinions(opinions: readonly GraphOpinion[]): GraphEntityOpinion[] {
-  const out: GraphEntityOpinion[] = [];
-  for (const opinion of opinions) {
-    for (const [field, value] of Object.entries(opinion.values)) {
-      if (value === null || value === undefined) continue;
-      out.push({ field, value, opinionId: opinion.id, producer: opinion.saidBy, lang: opinion.lang, evidence: evidencePlaces(opinionEvidence(opinion)) });
-    }
-  }
-  return out;
-}
-
-/** The raw evidence list of one opinion. */
-function opinionEvidence(opinion: GraphOpinion): unknown {
-  return opinion.evidence.map((one) => one.value);
-}
-
-function keyOf(row: Raw): string {
-  const kind = String(row['kind']);
-  if (kind === `${GIT_KINDS.repository}`) return `code.repository:${String(row['repository_name'])}`;
-  if (kind === `${GIT_KINDS.directory}`) return `code.directory:${String(row['scope_repository_name'])}/${String(row['path'])}`;
-  if (kind === `${GIT_KINDS.file}`) return `code.file:${String(row['scope_repository_name'])}/${String(row['path'])}`;
-  if (kind === `${GIT_KINDS.gitlink}`) return `code.gitlink:${String(row['scope_repository_name'])}/${String(row['path'])}`;
-  if (kind === `${GIT_KINDS.commit}`) return `code.commit:${String(row['commit_hash'])}`;
-  if (kind === `${GIT_KINDS.signature}`) return `code.author:${String(row['email'])}`;
-  return `${kind}:${String(row['node_id'])}`;
-}
-
-function labelOf(row: Raw): string {
-  const kind = String(row['kind']);
-  if (kind === `${GIT_KINDS.repository}`) return String(row['repository_name']);
-  if (kind === `${GIT_KINDS.directory}` || kind === `${GIT_KINDS.file}`) return String(row['path']);
-  if (kind === `${GIT_KINDS.commit}`) return String(row['subject'] ?? row['commit_hash']);
-  if (kind === `${GIT_KINDS.signature}`) return `${String(row['signature_name'])} <${String(row['email'])}>`;
-  return String(row['node_id']);
-}
-
-/**
- * One entity row as the wiki holds it. `sources` says whether the row's statement carried the opinions' ids, producers
- * and evidence: a single entity's read does, a bulk listing (`entitiesOfKinds`) does not, and its entities therefore
- * carry no `evidence` or `opinions` — a list shows values, and no page shows where a value was stated from a list.
- */
-function entityOf(row: Raw, sources = true): GraphEntity {
-  const graphKind = String(row['kind']);
-  const kind = WIKI_KIND[graphKind] ?? graphKind;
-  const properties: Record<string, unknown> = { recordKey: keyOf(row) };
-  const fileOpinions = graphOpinions(row['file_opinions'], ['mode', 'blob', 'bytes', 'form', 'lines', 'language', 'languages'], sources);
-  const commitOpinions = graphOpinions(row['commit_opinions'], ['subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min'], sources);
-  const repositoryOpinions = graphOpinions(row['repository_opinions'], ['url', 'default_branch'], sources);
-  // A bulk read states values alone: its fields are agreed in one pass over the aggregate, never one opinion object a
-  // field. A read that states sources keeps the opinions it built, and each value keeps the opinion that stated it.
-  const valueOf = (aggregate: unknown, opinions: readonly GraphOpinion[], field: string): unknown => sources ? agreedValue(opinions, field) : agreedField(aggregate, field);
-  if (graphKind === `${GIT_KINDS.repository}`) {
-    properties['name'] = row['repository_name'];
-    properties['url'] = valueOf(row['repository_opinions'], repositoryOpinions, 'url');
-    properties['defaultBranch'] = valueOf(row['repository_opinions'], repositoryOpinions, 'default_branch');
-  } else if (graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`) {
-    properties['repository'] = row['scope_repository_name'];
-    properties['path'] = row['path'];
-    if (graphKind === `${GIT_KINDS.file}`) {
-      // Every field the opinions agree on is its value; fields they differ on stand as every value, with the opinions
-      // beside them (A4: nothing wins by rule).
-      properties['mode'] = valueOf(row['file_opinions'], fileOpinions, 'mode');
-      properties['blob'] = valueOf(row['file_opinions'], fileOpinions, 'blob');
-      const bytes = valueOf(row['file_opinions'], fileOpinions, 'bytes');
-      properties['bytes'] = bytes === undefined ? undefined : typeof bytes === 'string' ? Number(bytes) : bytes;
-      properties['form'] = valueOf(row['file_opinions'], fileOpinions, 'form');
-      const lines = valueOf(row['file_opinions'], fileOpinions, 'lines');
-      properties['lines'] = lines === undefined ? undefined : typeof lines === 'string' ? Number(lines) : lines;
-      const languages = valueOf(row['file_opinions'], fileOpinions, 'languages');
-      const candidates = Array.isArray(languages) && languages.every((one) => typeof one === 'string') ? languages as string[] : [];
-      // The file's programming language is an opinion field, like its mode: the opinion's `lang` is the natural language
-      // of a text value, and a language name is no such text (madarch-64o5.2, the files worker's finding).
-      properties['language'] = valueOf(row['file_opinions'], fileOpinions, 'language');
-      properties['candidates'] = candidates;
-    }
-  } else if (graphKind === `${GIT_KINDS.commit}`) {
-    properties['hash'] = row['commit_hash'];
-    properties['subject'] = valueOf(row['commit_opinions'], commitOpinions, 'subject');
-    properties['authoredAt'] = gitDateOf(valueOf(row['commit_opinions'], commitOpinions, 'author_date') as string | null, valueOf(row['commit_opinions'], commitOpinions, 'author_offset_min') as number | null);
-    properties['committedAt'] = gitDateOf(valueOf(row['commit_opinions'], commitOpinions, 'commit_date') as string | null, valueOf(row['commit_opinions'], commitOpinions, 'commit_offset_min') as number | null);
-    properties['effectiveAt'] = properties['committedAt'];
-    properties['merge'] = Number(row['parent_count'] ?? 0) > 1;
-    properties['onFirstParent'] = true;
-    if (row['commit_author_name'] !== null && row['commit_author_name'] !== undefined) properties['author'] = row['commit_author_name'];
-    if (row['commit_author_email'] !== null && row['commit_author_email'] !== undefined) properties['authorEmail'] = row['commit_author_email'];
-  } else if (graphKind === `${GIT_KINDS.signature}`) {
-    properties['name'] = row['signature_name'];
-    properties['email'] = row['email'];
-  }
-  const opinions = sources ? [...entityOpinions(fileOpinions), ...entityOpinions(commitOpinions), ...entityOpinions(repositoryOpinions)] : [];
-  const evidence: GraphEvidence[] = [];
-  if (sources) for (const one of opinions) for (const place of one.evidence) evidence.push(Object.assign({}, place, { field: one.field, ...(one.producer === '' ? {} : { saidBy: one.producer }) }));
-  const span = spanOf(properties['span']) ?? spanFromProvenance(properties);
-  return {
-    key: presentedKey(kind, properties), kind, label: labelOf(row), properties,
-    nodeIds: [String(row['node_id'])], scope: String(row['scope'] ?? ''),
-    ...(span === undefined ? {} : { span }),
-    ...(evidence.length === 0 ? {} : { evidence }),
-    ...(opinions.length === 0 ? {} : { opinions }),
-  };
-}
-
 /** The history's open opinion of one edge's own values: the attributes a reader shows beside the relation. */
 /**
  * One edge's own values, as the wiki shows them beside the relation: every open opinion of the edge in the base
  * context is read, a field they all agree on is its value, and a field they differ on is the list of their values —
  * no producer's opinion is picked, and the newest row is not privileged (the review of stage 1c, finding 4).
  */
-async function edgePropertiesOf(tx: OuterTransaction, edgeIds: readonly string[], graphKind: string, declared?: GeneratedEdgeRead): Promise<Map<string, Record<string, unknown>>> {
+async function edgePropertiesOf(tx: OuterTransaction, edgeIds: readonly string[], _graphKind: string, declared?: GeneratedEdgeRead): Promise<Map<string, Record<string, unknown>>> {
   const properties = new Map<string, Record<string, unknown>>();
   if (edgeIds.length === 0) return properties;
   const opinions = async (table: string, columns: readonly string[]): Promise<Map<string, Record<string, unknown>[]>> => {
@@ -578,17 +283,16 @@ async function edgePropertiesOf(tx: OuterTransaction, edgeIds: readonly string[]
     return distinct.size === 1 ? values[0] : [...distinct.values()];
   };
   // One read loads the whole relation's opinions; agreement is still computed separately for each edge.
-  const columns = declared?.columns ?? (graphKind === `${GIT_KINDS.touched}` ? ['change', 'added', 'removed'] : graphKind === `${GIT_KINDS.parent}` ? ['position'] : graphKind === `${GIT_KINDS.history}` ? ['walk'] : []);
-  const table = declared === undefined
-    ? graphKind === `${GIT_KINDS.touched}` ? GIT_TABLES.touched : graphKind === `${GIT_KINDS.parent}` ? GIT_TABLES.parent_position : graphKind === `${GIT_KINDS.history}` ? GIT_TABLES.history : undefined
-    : declared.table;
+  const columns = declared?.columns ?? [];
+  const table = declared?.table;
   if (table === undefined || columns.length === 0) return properties;
   const grouped = await opinions(table, columns);
   for (const edgeId of edgeIds) {
     const rows = grouped.get(edgeId) ?? [];
     const values = Object.fromEntries(columns.map((field) => [field, agreed(rows, field)]));
-    if (declared === undefined && graphKind === `${GIT_KINDS.touched}`) {
-      for (const field of ['added', 'removed']) if (values[field] !== undefined) values[field] = Number(values[field]);
+    for (const field of columns) if (values[field] !== undefined) {
+      const value = values[field];
+      values[field] = Array.isArray(value) ? value.map((one) => valueOfColumn(one, declared!.types[field] ?? 'text')) : valueOfColumn(value, declared!.types[field] ?? 'text');
     }
     properties.set(edgeId, values);
   }
@@ -741,26 +445,10 @@ export class GraphReader {
 
   async find(key: string): Promise<GraphEntity[]> {
     const colon = key.indexOf(':');
-    const prefix = colon < 0 ? key : key.slice(0, colon);
-    const tail = colon < 0 ? '' : key.slice(colon + 1);
-    const generated = this.generatedKind(prefix);
-    const graphKind = graphKindOf(prefix);
-    if (generated === undefined && (graphKind === undefined || !this.holds(graphKind))) return [];
-    return await this.run(async (tx) => {
-      const generatedMatches = generated === undefined ? [] : await this.generatedFind(tx, generated, tail);
-      if (graphKind === undefined || !this.holds(graphKind)) return this.scoped(generatedMatches);
-      const referenceKind = graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`;
-      const slash = referenceKind ? tail.indexOf('/') : -1;
-      const repository = slash < 0 ? '' : tail.slice(0, slash);
-      const path = slash < 0 ? tail : tail.slice(slash + 1);
-      const condition = graphKind === `${GIT_KINDS.repository}` ? `(k.name = '${GIT_KINDS.repository}' AND n.key->>'name' = $2)`
-        : graphKind === `${GIT_KINDS.commit}` ? "(n.key->>'hash') = $2"
-          : graphKind === `${GIT_KINDS.signature}` ? "(n.key->>'email') = $2"
-            : referenceKind && repository !== '' ? `(${REPOSITORY_KEY('n')} = $2 AND ${PATH_KEY('n')} = $3)` : `${PATH_KEY('n')} = $2`;
-      const params = referenceKind && repository !== '' ? [graphKind, repository, path] : [graphKind, referenceKind ? path : tail];
-      const found = await tx.query<Raw>(`${entitySelectSql(this.scope ?? null, 'full', this.declared)} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
-      return this.scoped([...found.rows.map((row) => entityOf(row)), ...generatedMatches]);
-    });
+    const kind = colon < 0 ? key : key.slice(0, colon);
+    const decl = this.generatedKind(kind);
+    if (decl === undefined) return [];
+    return await this.run(async (tx) => this.scoped(await this.generatedFind(tx, decl, colon < 0 ? '' : key.slice(colon + 1))));
   }
 
 
@@ -929,14 +617,20 @@ export class GraphReader {
       list.push(opinion);
       held.set(String(opinion['node']), list);
     }
-    const repositories = [...new Set([...held.values()].flat().flatMap((opinion) => evidencePlaces(opinion['evidence']).map((one) => one.repository)).filter((name): name is string => typeof name === 'string' && name !== ''))];
+    const facts = await tx.query<Raw>(
+      `SELECT n.id::text AS node_id, ${ENTITY_SCOPE_EXPRESSION} AS scope,
+         CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe WHERE pe.from_node = n.id AND pe.context_id = 1 AND pe.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.parent}')) END AS parent_count,
+         CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT jsonb_build_object('name', sn.key->>'name', 'email', sn.key->>'email') FROM edge ae JOIN node sn ON sn.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}') ORDER BY ae.id LIMIT 1) END AS author
+       FROM node n JOIN entity k ON k.id = n.entity_id WHERE n.id = ANY($1::bigint[])`,
+      [`{${ids.join(',')}}`],
+    );
+    const nodeFacts = new Map(facts.rows.map((row) => [String(row['node_id']), row]));
+    const repositories = [...new Set(opinions.rows.flatMap((opinion) => evidencePlaces(opinion['evidence']).flatMap((place) => place.repository === null ? [] : [place.repository])))];
     const repositoryNodes = new Map<string, string>();
     if (repositories.length > 0) {
-      // A repository's name is its natural key, which the vertex holds (`node.key`), not a column of its opinion table.
       const found = await tx.query<{ name: string; node: string }>(
-        `SELECT (n.key->>'name') AS name, n.id::text AS node FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = $2
-         WHERE (n.key->>'name') = ANY($1::text[]) AND n.context_id = 1 AND NOT n.removed`,
-        [`{${repositories.join(',')}}`, GIT_KINDS.repository],
+        `SELECT n.key->>'name' AS name, n.id::text AS node FROM node n JOIN entity k ON k.id = n.entity_id WHERE k.name = $1 AND n.key->>'name' = ANY($2::text[]) AND n.context_id = 1 AND NOT n.removed`,
+        [GIT_KINDS.repository, `{${repositories.join(',')}}`],
       );
       for (const row of found.rows) repositoryNodes.set(row.name, row.node);
     }
@@ -976,44 +670,43 @@ export class GraphReader {
       // A generated entity is named by the last value of its key: a table by its name, not by its database, a column by
       // the column. Its place is where its open opinions were read — the first place its evidence names — so a page's
       // source block and the links to its code stand on the same rows as its values.
-      const label = keyValues[keyValues.length - 1] ?? key;
+      let label = keyValues[keyValues.length - 1] ?? key;
+      if (decl.kind === GIT_KINDS.file) properties['candidates'] = properties['languages'] ?? [];
+      if (decl.kind === GIT_KINDS.repository) properties['defaultBranch'] = properties['default_branch'];
+      if (decl.kind === GIT_KINDS.commit) {
+        properties['authoredAt'] = properties['author_date'];
+        properties['committedAt'] = properties['commit_date'];
+        properties['effectiveAt'] = properties['commit_date'];
+        properties['merge'] = Number(nodeFacts.get(node)?.['parent_count'] ?? 0) > 1;
+        properties['onFirstParent'] = true;
+        const author = nodeFacts.get(node)?.['author'] as Record<string, unknown> | null | undefined;
+        if (author !== null && author !== undefined) {
+          properties['author'] = author['name'];
+          properties['authorEmail'] = author['email'];
+        }
+        label = String(properties['subject'] ?? properties['hash']);
+      }
+      if (decl.kind === GIT_KINDS.signature) label = `${String(properties['name'])} <${String(properties['email'])}>`;
       // The place its opinions were read at: a page's source block and its links to the code stand on it. A plugin's
       // evidence states lines, not bytes, and a generated entity's span carries no byte offsets.
       const place = evidence.find((one) => typeof one.path === 'string');
-      if (place?.repository !== undefined && place.repository !== null) properties['repository'] = place.repository;
+      if (properties['repository'] === undefined && place?.repository !== undefined && place.repository !== null) properties['repository'] = place.repository;
       const span: SourceSpan | undefined = place?.path === undefined || place.path === null
         ? undefined
         : { path: place.path, lineStart: place.lineStart ?? 1, lineEnd: place.lineEnd ?? place.lineStart ?? 1, byteStart: 0, byteEnd: 0 };
       // The scope a place is read in is its repository's node: a page's source block and its links resolve the
       // repository from it, the way every other entity's place does.
-      const scope = place?.repository === undefined || place.repository === null ? '' : repositoryNodes.get(place.repository) ?? '';
+      const scope = String(nodeFacts.get(node)?.['scope'] ?? (place?.repository === null || place?.repository === undefined ? '' : repositoryNodes.get(place.repository) ?? ''));
       return { key, kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
     });
   }
 
   async kindCounts(): Promise<{ kind: string; count: number }[]> {
-    const parts: string[] = [];
-    const ofKind = (name: string, alias: string): string => `node ${alias} JOIN entity e_${alias} ON e_${alias}.id = ${alias}.entity_id AND e_${alias}.name = '${name}'`;
-    // Every count is of rows a reader sees: the base context, a vertex no removal hides, and its `contains` or
-    // `history` relation standing.
-    if (this.holds(`${GIT_KINDS.repository}`)) parts.push(`SELECT '${GIT_KINDS.repository}' AS kind, count(*)::text AS n FROM ${ofKind(GIT_KINDS.repository, 'r')} WHERE NOT r.removed AND r.context_id = 1`);
-    for (const kind of [GIT_KINDS.directory, GIT_KINDS.file]) {
-      if (!this.holds(kind)) continue;
-      const membership = this.holds(GIT_KINDS.contains) ? ` AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}` : '';
-      parts.push(`SELECT '${kind}' AS kind, count(*)::text AS n FROM ${ofKind(kind, 'n')} WHERE NOT n.removed AND n.context_id = 1${membership}`);
-    }
-    if (this.holds(`${GIT_KINDS.commit}`)) parts.push(`SELECT '${GIT_KINDS.commit}' AS kind, count(*)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' JOIN node c ON c.id = e.to_node AND c.context_id = 1 AND NOT c.removed WHERE e.context_id = 1`);
-    if (this.holds(`${GIT_KINDS.signature}`)) parts.push(`SELECT '${GIT_KINDS.signature}' AS kind, count(*)::text AS n FROM ${ofKind(GIT_KINDS.signature, 's')} WHERE NOT s.removed AND s.context_id = 1 AND EXISTS (SELECT 1 FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = s.id AND e.context_id = 1)`);
-    for (const decl of this.generated?.values() ?? []) parts.push(`SELECT ${quoteLiteral(decl.kind)} AS kind, count(DISTINCT n.id)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
+    const parts = [...this.generated?.values() ?? []].map((decl) => `SELECT ${quoteLiteral(decl.kind)} AS kind, count(DISTINCT n.id)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
     if (parts.length === 0) return [];
     return await this.run(async (tx) => {
       const found = await tx.query<{ kind: string; n: string }>(parts.join(' UNION ALL '));
-      const counts = new Map<string, number>();
-      for (const row of found.rows) {
-        const kind = WIKI_KIND[row.kind] ?? row.kind;
-        counts.set(kind, (counts.get(kind) ?? 0) + Number(row.n));
-      }
-      return [...counts].map(([kind, count]) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind));
+      return found.rows.map((row) => ({ kind: row.kind, count: Number(row.n) })).sort((a, b) => byCodePoint(a.kind, b.kind));
     });
   }
 
@@ -1045,15 +738,14 @@ export class GraphReader {
   }
 
   private async listKinds(kinds: readonly string[], options: { q?: string; after?: string; limit: number }): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
-    const graphKinds = kinds.map(graphKindOf).filter((one): one is string => one !== undefined && this.holds(one));
     const generated = kinds.map((kind) => this.generatedKind(kind)).filter((one): one is GeneratedKindRead => one !== undefined);
-    if (graphKinds.length === 0 && generated.length === 0) return { rows: [], next: null, total: 0 };
+    if (generated.length === 0) return { rows: [], next: null, total: 0 };
     return await this.run(async (tx) => {
       // A page of a manifest-declared kind is chosen in SQL — its key's fields are the order and the cursor — and only
       // the page's opinions are loaded (the review of stage 1c, finding 15). A read of several kinds, or of code kinds,
       // merges what each kind answers and is bounded by those kinds' own counts.
-      if (graphKinds.length === 0 && generated.length === 1) return await this.generatedPage(tx, generated[0]!, options);
-      const entities = [...await this.entitiesOfKinds(tx, graphKinds), ...await this.generatedOfKinds(tx, generated)];
+      if (generated.length === 1) return await this.generatedPage(tx, generated[0]!, options);
+      const entities = await this.generatedOfKinds(tx, generated);
       const text = options.q === undefined || options.q.trim() === '' ? undefined : options.q.trim().toLowerCase();
       const matching = entities.filter((entity) => text === undefined || entity.key.toLowerCase().includes(text) || entity.label.toLowerCase().includes(text));
       matching.sort((a, b) => byCodePoint(a.key, b.key));
@@ -1074,7 +766,7 @@ export class GraphReader {
     const after = options.after === undefined || options.after === '' ? null : (options.after.startsWith(`${decl.kind}:`) ? options.after.slice(decl.kind.length + 1) : options.after);
     const page = await tx.query<Raw>(
       `WITH matching AS MATERIALIZED (
-         SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key, (${rendered}) AS cursor
+         SELECT DISTINCT n.id::text AS node_id, n.uid::text AS uid, n.key AS key, (${rendered}) AS cursor
          FROM ${decl.table} t JOIN node n ON n.id = t.node_id
          WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed
            AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)
@@ -1094,20 +786,6 @@ export class GraphReader {
     return { rows: entities, next: more ? entities[entities.length - 1]?.key ?? null : null, total: Number(page.rows[0]?.['n'] ?? '0') };
   }
 
-  private async entitiesOfKinds(tx: OuterTransaction, graphKinds: readonly string[]): Promise<GraphEntity[]> {
-    // A read of no code kind asks the store nothing: a product that declares only its own kinds holds no code table.
-    if (graphKinds.length === 0) return [];
-    const found = await tx.query<Raw>(
-      `${entitySelectSql(this.scope ?? null, 'values', this.declared)} WHERE k.name = ANY($1::text[])
-       ${this.holds(GIT_KINDS.contains) ? `AND (k.name NOT IN ('${GIT_KINDS.directory}', '${GIT_KINDS.file}') OR ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')})` : ''}
-       AND (k.name <> '${GIT_KINDS.commit}' OR ${EDGE_EXISTS('to_node', GIT_KINDS.history, 'n')})
-       AND (k.name <> '${GIT_KINDS.signature}' OR ${EDGE_EXISTS('from_node', GIT_KINDS.authored, 'n')})
-       ORDER BY n.id`,
-      [`{${graphKinds.join(',')}}`],
-    );
-    return this.scoped(found.rows.map((row) => entityOf(row, false)));
-  }
-
   /** The entities of every manifest-declared kind a read names, from the tables their declarations made. */
   private async generatedOfKinds(tx: OuterTransaction, kinds: readonly GeneratedKindRead[]): Promise<GraphEntity[]> {
     const entities: GraphEntity[] = [];
@@ -1119,25 +797,20 @@ export class GraphReader {
   }
 
   private async entitiesOfIds(tx: OuterTransaction, ids: readonly string[], scope: string | null = this.scope ?? null): Promise<Map<string, GraphEntity>> {
-    if (ids.length === 0) return new Map();
-    const found = await tx.query<Raw>(`${entitySelectSql(scope, 'plain')} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${ids.join(',')}}`]);
-    // The select answers every vertex with a fallback key for the code kinds it does not know; a manifest-declared kind's
-    // table is what answers its vertices, with the key and label its contract gives them (a term's name, not its node id;
-    // the database page's tables and columns are read the same way, madarch-47vw.3).
-    const generated = new Set(this.generated?.keys() ?? []);
-    const held = new Map(found.rows.filter((row) => !generated.has(String(row['kind']))).map((row) => [String(row['node_id']), entityOf(row)]));
-    const missing = ids.filter((id) => !held.has(id));
-    if (missing.length === 0) return held;
+    const held = new Map<string, GraphEntity>();
+    if (ids.length === 0) return held;
     for (const decl of this.generated?.values() ?? []) {
-      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY node_id`, [`{${missing.join(',')}}`]);
-      for (const entity of await this.generatedEntities(tx, decl, rows.rows)) held.set(entity.nodeIds[0]!, entity);
+      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY node_id`, [`{${ids.join(',')}}`]);
+      for (const entity of await this.generatedEntities(tx, decl, rows.rows)) {
+        held.set(entity.nodeIds[0]!, scope === null ? entity : { ...entity, scope });
+      }
     }
     return held;
   }
 
   async neighbors(entity: GraphEntity, options: { relations?: readonly string[]; direction?: 'out' | 'in' | 'both'; limit: number }): Promise<NeighborGroup[]> {
     if (this.declared !== undefined && this.declared.size === 0) return [];
-    const wanted = (options.relations ?? ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-to'])
+    const wanted = (options.relations ?? ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-from'])
       .map((relation) => ({ relation, graph: graphRelationOf(relation, this.generatedEdges) }))
       .filter((one): one is { relation: string; graph: { kind: string } } => one.graph !== undefined);
     if (wanted.length === 0) return [];
@@ -1156,7 +829,7 @@ export class GraphReader {
         const byRelation = new Map<string, Map<string, number>>();
         for (const row of relevant) {
           const relationName = row['relation']!;
-          const wiki = WIKI_RELATION[relationName] ?? `code.${relationName}`;
+          const wiki = relationName;
           const held = byRelation.get(wiki) ?? new Map<string, number>();
           const other = row[far]!;
           held.set(other, (held.get(other) ?? 0) + 1);
@@ -1239,15 +912,6 @@ export class GraphReader {
     if (repository === undefined || path === undefined) return [];
     const tables = new Set<string>();
     for (const decl of this.generated?.values() ?? []) tables.add(decl.table);
-    const gitVertices: readonly { kind: string; table: string }[] = [
-      { kind: GIT_KINDS.repository, table: GIT_TABLES.repository },
-      { kind: GIT_KINDS.directory, table: GIT_TABLES.directory },
-      { kind: GIT_KINDS.file, table: GIT_TABLES.file },
-      { kind: GIT_KINDS.gitlink, table: GIT_TABLES.gitlink },
-      { kind: GIT_KINDS.commit, table: GIT_TABLES.commit },
-      { kind: GIT_KINDS.signature, table: GIT_TABLES.signature },
-    ];
-    for (const held of gitVertices) if (this.holds(held.kind)) tables.add(held.table);
     if (tables.size === 0) return [];
     return await this.run(async (tx) => {
       const found = await tx.query<{ node_id: string; said_by: string }>(
@@ -1358,29 +1022,13 @@ export class GraphReader {
           params.push(after.slice(after.indexOf(':') + 1));
           condition += ` AND ${keyText} > $2`;
         }
-        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed AND ${condition} GROUP BY n.id, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
-        const counted = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
+        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
+        const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
         const rows = await this.generatedEntities(tx, generated, page.rows);
         return { total: Number(counted.rows[0]?.n ?? '0'), rows };
       });
     }
-    // A kind the manifest's declarations made is named by its own name (`code.table`), not the git kinds' prefix-free one.
-    const declaredKind = this.generated?.has(kind) === true ? kind : undefined;
-    const graphKind = declaredKind ?? graphKindOf(kind);
-    if (graphKind === undefined || !this.holds(graphKind)) return { total: 0, rows: [] };
-    return await this.run(async (tx) => {
-      // A kind the manifest's declarations made answers from its own table; the git kinds from theirs.
-      const entities = declaredKind === undefined ? await this.entitiesOfKinds(tx, [graphKind]) : await this.generatedOfKinds(tx, [this.generated!.get(declaredKind)!]);
-      const referenceKind = graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`;
-      const head = declaredKind === undefined ? `code.${graphKind}:` : `${graphKind}:`;
-      const rest = prefix.startsWith(head) ? prefix.slice(head.length) : '';
-      const pathPrefix = referenceKind && rest !== '' && rest.includes('/') ? rest : undefined;
-      const matching = entities.filter((entity) => pathPrefix !== undefined
-        ? String(entity.properties['path'] ?? '').startsWith(pathPrefix)
-        : entity.key.startsWith(prefix)).sort((a, b) => byCodePoint(a.key, b.key));
-      const tail = after === undefined ? matching : matching.filter((entity) => byCodePoint(entity.key, after) > 0);
-      return { total: matching.length, rows: tail.slice(0, limit) };
-    });
+    return { total: 0, rows: [] };
   }
 
   /**
@@ -1394,22 +1042,22 @@ export class GraphReader {
     if (!this.holds(GIT_KINDS.file)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; path: string; repository: string; scope: string; lines: number | null; total: string }>(
-        `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->'repository'->'key'->>'name') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
-                (SELECT CASE WHEN count(DISTINCT b."lines") = 1 THEN min(b."lines") ELSE NULL END
-                   FROM ${GIT_TABLES.file} o LEFT JOIN ${GIT_TABLES.blob} b ON b.id = o."blob_id"
+        `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->>'repository') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
+                (SELECT CASE WHEN count(DISTINCT o."lines") = 1 THEN min(o."lines") ELSE NULL END
+                   FROM ${GIT_TABLES.file} o
                   WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
                 count(*) OVER ()::text AS total
          FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
          WHERE n.context_id = 1 AND NOT n.removed
            AND ($1::text = '' OR left((n.key->>'path'), length($1::text)) = $1::text)
            AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}
-         ORDER BY (n.key->'repository'->'key'->>'name'), (n.key->>'path') LIMIT $2::bigint`,
+         ORDER BY (n.key->>'repository'), (n.key->>'path') LIMIT $2::bigint`,
         [prefix, String(limit)],
       );
       return {
         total: Number(found.rows[0]?.total ?? '0'),
         rows: found.rows.map((row) => ({
-          key: `code.${GIT_KINDS.file}:${row.repository}/${row.path}`,
+          key: `${GIT_KINDS.file}:${row.repository}/${row.path}`,
           node: row.node,
           path: row.path,
           repository: row.repository,
@@ -1530,7 +1178,7 @@ export class GraphReader {
          FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.parent}'
          JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true
          JOIN node cn ON cn.id = e.to_node
-         LEFT JOIN LATERAL (SELECT o.commit_date FROM ${GIT_TABLES.commit} o WHERE o.node_id = cn.id AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git-history' ORDER BY o.id DESC LIMIT 1) pc ON true
+         LEFT JOIN LATERAL (SELECT o.commit_date FROM ${GIT_TABLES.commit} o WHERE o.node_id = cn.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pc ON true
          LEFT JOIN edge ae ON ae.to_node = cn.id AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
          LEFT JOIN node sn ON sn.id = ae.from_node
          LEFT JOIN edge te ON te.from_node = cn.id AND te.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.touched}')
@@ -1568,7 +1216,7 @@ export class GraphReader {
          )
          SELECT c.id::text AS node, to_char(co.commit_date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date, (sn.key->>'name') AS who
          FROM branch b JOIN node c ON c.id = b.commit
-         LEFT JOIN LATERAL (SELECT o.commit_date, o.subject FROM ${GIT_TABLES.commit} o WHERE o.node_id = c.id AND o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git-history' ORDER BY o.id DESC LIMIT 1) co ON true
+         LEFT JOIN LATERAL (SELECT o.commit_date, o.subject FROM ${GIT_TABLES.commit} o WHERE o.node_id = c.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) co ON true
          LEFT JOIN edge ae ON ae.to_node = c.id AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}')
          LEFT JOIN node sn ON sn.id = ae.from_node
          ORDER BY co.commit_date DESC, (c.key->>'hash') LIMIT $2::int`,
@@ -1734,7 +1382,7 @@ export class GraphReader {
           `WITH tree AS MATERIALIZED (
            SELECT f.id AS file_node, (f.key->>'path') AS path
            FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}'
-           WHERE (f.key->'repository'->'key'->>'name') = $1 AND f.context_id = 1 AND NOT f.removed
+           WHERE (f.key->>'repository') = $1 AND f.context_id = 1 AND NOT f.removed
              AND EXISTS (SELECT 1 FROM edge c JOIN entity ce ON ce.id = c.entity_id AND ce.name = '${GIT_KINDS.contains}'
                          WHERE c.to_node = f.id AND c.context_id = 1)
          ), dates AS MATERIALIZED (
@@ -1813,21 +1461,21 @@ export class GraphReader {
     if (!this.holds(GIT_KINDS.history) || !this.holds(GIT_KINDS.commit)) return { entities: [], edges: [] };
     return await this.run(async (tx) => {
       const found = await tx.query<Raw>(
-        `${entitySelectSql(scope, 'plain')} WHERE
+        `SELECT n.id::text AS node_id FROM node n WHERE n.context_id = 1 AND NOT n.removed AND (
            n.id = $1::bigint
-           OR (n.key->'repository'->'key'->>'name') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
+           OR (n.key->>'repository') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
            OR n.id IN (SELECT e.to_node FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = $1::bigint)
            OR n.id IN (SELECT ae.from_node FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
                         JOIN edge h ON h.to_node = ae.to_node AND h.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') WHERE h.from_node = $1::bigint)
-         ORDER BY n.id`,
+         ) ORDER BY n.id`,
         [scope],
       );
-      const entities = found.rows.map((row) => entityOf(row));
-      const byId = new Map(found.rows.map((row) => [String(row['node_id']), entityOf(row)]));
+      const byId = await this.entitiesOfIds(tx, found.rows.map((row) => String(row['node_id'])), scope);
+      const entities = [...byId.values()];
       const edges = await tx.query<{ id: string; relation: string; from_node: string; to_node: string; discriminator: string; change: string | null; added: string | null; removed: string | null; position: number | null; walk: number | null }>(
         `WITH evidence_nodes AS (
            SELECT n.id FROM node n
-           WHERE n.id = $1::bigint OR (n.key->'repository'->'key'->>'name') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
+           WHERE n.id = $1::bigint OR (n.key->>'repository') = (SELECT r.key->>'name' FROM node r WHERE r.id = $1::bigint)
              OR n.id IN (SELECT he.to_node FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}' WHERE he.from_node = $1::bigint)
              OR n.id IN (SELECT ae.from_node FROM edge ae JOIN entity ak ON ak.id = ae.entity_id AND ak.name = '${GIT_KINDS.authored}'
                           JOIN edge he ON he.to_node = ae.to_node AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') WHERE he.from_node = $1::bigint)
@@ -1849,7 +1497,7 @@ export class GraphReader {
           const from = byId.get(row.from_node);
           const to = byId.get(row.to_node);
           if (from === undefined || to === undefined) return [];
-          return [{ from: from.key, to: to.key, relation: WIKI_RELATION[row.relation] ?? `code.${row.relation}`, properties: {
+          return [{ from: from.key, to: to.key, relation: row.relation, properties: {
             ...(row.change === null ? {} : { change: row.change }),
             ...(row.added === null ? {} : { added: Number(row.added) }),
             ...(row.removed === null ? {} : { removed: Number(row.removed) }),
@@ -1952,9 +1600,8 @@ export class GraphReader {
       const nodeIds = new Set<string>(subject.nodeIds);
       for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
       // Path history needs the commits' subject and clock, not their complete changed-path lists.
-      const entityRows = await tx.query<Raw>(`${entitySelectSql(subject.scope === '' ? null : subject.scope, shape === 'path' ? 'values' : 'plain', new Set([GIT_KINDS.commit]))} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
-      const entities = entityRows.rows.map((row) => entityOf(row, shape !== 'path'));
-      const byId = new Map(entityRows.rows.map((row, index) => [String(row['node_id']), entities[index]!]));
+      const byId = await this.entitiesOfIds(tx, [...nodeIds], subject.scope === '' ? null : subject.scope);
+      const entities = [...byId.values()];
       const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];
       return {
         entities,
@@ -1963,7 +1610,7 @@ export class GraphReader {
           const from = byId.get(String(row['from_node']));
           const to = byId.get(String(row['to_node']));
           if (from === undefined || to === undefined) return [];
-          return [{ from: from.key, to: to.key, relation: WIKI_RELATION[String(row['relation'])] ?? `code.${String(row['relation'])}`, properties: {
+          return [{ from: from.key, to: to.key, relation: String(row['relation']), properties: {
             ...(row['change'] === null ? {} : { change: row['change'] }),
             ...(row['added'] === null ? {} : { added: Number(row['added']) }),
             ...(row['removed'] === null ? {} : { removed: Number(row['removed']) }),
