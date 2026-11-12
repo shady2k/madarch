@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { type Clock, type CompiledElement, type CompiledInterface, type CompiledModel, type CompiledRelation, type CompiledZone, type HistoryStore, type ReadModel } from './api.js';
 import { createTestHistory } from './test-database.js';
+import { clusterQuery, CLUSTER_PORT } from '../src/adapters/postgres-cluster.js';
 
 /** A clock a test moves by hand, never the real one. */
 function fakeClock(initial: number): Clock & { set(t: number): void } {
@@ -14,12 +15,29 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 }
 
 const openHistories = new Set<HistoryStore>();
+let databaseBaseline: string[];
+
+async function processDatabases(): Promise<string[]> {
+  const socketDir = process.env['MADARCH_TEST_PG_SOCKET']!;
+  const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => {} };
+  const rows = await clusterQuery<{ datname: string }>(cluster, 'postgres', 'SELECT datname FROM pg_database WHERE starts_with(datname, $1) ORDER BY datname', [`t_${process.pid}_`]);
+  return rows.map((row) => row.datname);
+}
+
+beforeAll(async () => {
+  databaseBaseline = await processDatabases();
+});
+
+afterAll(async () => {
+  expect(await processDatabases()).toEqual(databaseBaseline);
+});
 
 async function history(clock: Clock): Promise<HistoryStore> {
   const instance = await createTestHistory({ clock });
   openHistories.add(instance);
   return instance;
 }
+
 
 afterEach(async () => {
   await Promise.all([...openHistories].map((instance) => instance.close()));
