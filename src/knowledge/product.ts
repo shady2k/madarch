@@ -34,8 +34,8 @@ import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
-import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
-import { hasSuccessfulFill, readLiveRun, readStoreStamp } from '../fill/state-store.js';
+import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
@@ -43,7 +43,7 @@ import { withHistoryLinks, type HistoryContext, type HistorySelection } from './
 import { graphMarkdownEntities, pageOpinionKinds, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
-import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
+import { agentUsageOf, readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
@@ -1623,7 +1623,6 @@ export class KnowledgeProduct {
       this.generation += 1;
       this.storeStamp = undefined;
       this.statusMemo = undefined;
-      this.runViewMemo = undefined;
       this.filesMemo = undefined;
       this.manifestMemo = undefined;
       this.storeOf = undefined;
@@ -1842,7 +1841,7 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, productName: product.name, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, problemCount: () => this.problemsCache?.listing.open, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, productName: product.name, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run)?.finishedAt === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt!, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, problemCount: () => this.problemsCache?.listing.open, resolver, repoOfScope, readSource },
 
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
@@ -1901,7 +1900,9 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     const publication = manifestPublicationState(this.folder);
     if (publication !== undefined && publication.status !== 'published') {
-      return { ...await this.unpublishedStatus(product), publication: publication.status === 'failed' ? 'failed' : 'pending', ...(publication.status === 'failed' ? { publicationMessage: publication.message } : {}) };
+      const body = await this.unpublishedStatus(product);
+      const run = await this.runViewOf();
+      return { ...body, fill: { ...body.fill, ...(run === null ? {} : { run }) }, publication: publication.status === 'failed' ? 'failed' : 'pending', ...(publication.status === 'failed' ? { publicationMessage: publication.message } : {}) };
     }
     // Establish an existing cold store's publication before capturing the body's memo key.
     // An unfilled product still opens no store merely to answer a poll.
@@ -2036,12 +2037,15 @@ export class KnowledgeProduct {
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined, followed = false): Promise<WikiStatus> {
+    // Resolve the persisted run outside the best-effort graph refresh: a failed store read is not "never ran".
+    const run = await this.runViewOf();
+    let live: WikiStatus;
     try {
-      return { ...await this.statusLiveNow(body, ctx, followed), publication: 'done' };
+      live = await this.statusLiveNow(body, ctx, followed);
     } catch {
-      // The store could not be read for this answer: the fill state is this process's own and is answered regardless.
-      return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent(), publication: 'done' };
+      live = { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
     }
+    return { ...live, fill: { ...live.fill, ...(run === null ? {} : { run }) }, publication: 'done' };
   }
 
   /**
@@ -2185,10 +2189,8 @@ export class KnowledgeProduct {
     const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
     if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
-    const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
-      ...(run === null ? {} : { run }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
     const filled = await hasSuccessfulFill(await this.open());
@@ -2254,47 +2256,32 @@ export class KnowledgeProduct {
   private readonly traceReader = new TraceSpanReader();
 
   /** The newest run's trace as the run page states it, or null when the store holds no trace. */
-  private runViewMemo: { key: string; view: FillRunView | null } | undefined;
 
-  private runViewOf(runId?: string): FillRunView | null {
-    // A server trace is the api role's own request log, not the fill the status states: read the newest fill/update
-    // trace unless a caller names a run.
-    const candidates = traceFiles(this.storeFolder()).filter((one) => !one.runId.startsWith('server-'));
-    const chosenEntry = runId === undefined
-      ? candidates.sort((left, right) => {
-        const leftSize = (() => { try { return statSync(left.file).size; } catch { return 0; } })();
-        const rightSize = (() => { try { return statSync(right.file).size; } catch { return 0; } })();
-        return rightSize - leftSize || right.modifiedAt - left.modifiedAt;
-      })[0]
-      : candidates.find((one) => one.runId === runId);
-    const chosen = chosenEntry?.runId;
-    // The trace's size is its generation while a fill is still writing: a status answer made from a partial trace is
-    // not kept once the trace has grown.
-    const traceSize = (() => { try { return chosenEntry === undefined ? 0 : statSync(chosenEntry.file).size; } catch { return 0; } })();
-    const key = `${chosen ?? ''}|${this.fillRunId ?? ''}|${traceSize}`;
-    if (this.runViewMemo?.key === key) return this.runViewMemo.view;
-    if (chosen === undefined) return null;
-    try {
-      const run = readTraceRunSummary({ store: this.storeFolder(), runId: chosen }, this.traceReader);
-      const view: FillRunView = {
-        runId: run.runId,
-        startedAt: new Date(run.startedAtMs).toISOString(),
-        finishedAt: new Date(run.endedAtMs).toISOString(),
-        wallMs: run.report.wallMs,
-        spans: run.report.spanCount,
-        slowest: run.report.names.slice(0, 5).map((name) => ({ name: name.name, count: name.count, selfMs: name.selfMs })),
-        steps: run.steps.map((step) => ({
-          step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
-          slowest: step.slowest,
-        })),
-        agentUsage: run.report.agentUsage,
-      };
-      this.runViewMemo = { key, view };
-      return view;
-    } catch {
-      // A store whose fill never ran holds no trace: nothing is made up for it.
-      return null;
-    }
+  private async runViewOf(runId?: string): Promise<FillRunView | null> {
+    if (!existsSync(storeDatabasePath(this.storeFolder()))) return null;
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const owner = await this.open();
+    const record = runId === undefined ? await readLatestRun(owner, product.name) : await readRun(owner, runId);
+    if (record === null || record.product !== product.name) return null;
+    const configuration = await readRunConfiguration(owner, record.runId);
+    const chosenEntry = traceFiles(this.storeFolder()).find((one) => one.runId === record.runId);
+    const run = chosenEntry === undefined ? undefined : readTraceRunSummary({ store: this.storeFolder(), runId: record.runId }, this.traceReader);
+    return {
+      runId: record.runId,
+      state: record.state,
+      ...(configuration === null ? {} : { selection: configuration.snapshot.targets ?? null }),
+      startedAt: new Date(record.createdAt).toISOString(),
+      ...(['succeeded', 'completed_partial', 'cancelled', 'blocked', 'failed'].includes(record.state) ? { finishedAt: new Date(record.updatedAt).toISOString() } : {}),
+      wallMs: run?.report.wallMs ?? record.updatedAt - record.createdAt,
+      spans: run?.report.spanCount ?? 0,
+      slowest: run?.report.names.slice(0, 5).map((name) => ({ name: name.name, count: name.count, selfMs: name.selfMs })) ?? [],
+      steps: run?.steps.map((step) => ({
+        step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
+        slowest: step.slowest,
+      })) ?? [],
+      agentUsage: run?.report.agentUsage ?? agentUsageOf([]),
+    };
   }
 
   /**
