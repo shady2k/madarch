@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildViews, tabsOf, type GraphView } from '../src/knowledge/views.js';
 import { archifyFailurePage, archifyFrame, likec4Model, workspaceOf } from '../src/knowledge/view-frames.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
@@ -106,7 +108,7 @@ test('a relation whose ends are one element is drawn by Mermaid, and the view sa
 
 test('renderer HTTP failure stays 500 and includes escaped actionable diagnostics',async()=>{
   const message='/tmp/diagram/document.json:1: renderer exit 1: missing /tmp/app/renderer.mjs <script>bad</script>';
-  const product={folder:'/tmp/madarch-knowledge-view-regressions-renderer-failure',viewFrame:async()=>({ok:false,status:500,message})} as unknown as KnowledgeProduct;
+  const product={folder:join(tmpdir(),'madarch-knowledge-view-regressions-renderer-failure'),viewFrame:async()=>({ok:false,status:500,message})} as unknown as KnowledgeProduct;
   const part=createKnowledgePart({json:(status,body)=>new Response(JSON.stringify(body),{status}),refused:(status,body)=>({response:new Response(JSON.stringify(body),{status})}),errorLog:()=>undefined},product,()=>[]);
   const handled=await part.viewFrame(new Request('http://localhost/api/view-frame?renderer=archify&lang=ru'));
   expect(handled.response.status).toBe(500);
