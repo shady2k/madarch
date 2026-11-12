@@ -1061,13 +1061,26 @@ export class GraphReader {
     const rendered = fields.length === 0 ? `n.uid::text` : `concat_ws('/', ${fields.join(', ')})`;
     const text = options.q === undefined || options.q.trim() === '' ? undefined : options.q.trim().toLowerCase();
     const after = options.after === undefined || options.after === '' ? null : (options.after.startsWith(`${decl.kind}:`) ? options.after.slice(decl.kind.length + 1) : options.after);
-    const where = `t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0) AND ($2::text IS NULL OR (${rendered}) > $2::text)`;
-    const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE ${where} ORDER BY (${rendered}) LIMIT $3::bigint`, [text ?? null, after, String(options.limit + 1)]);
-    const total = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)`, [text ?? null]);
-    const more = page.rows.length > options.limit;
-    const shown = more ? page.rows.slice(0, options.limit) : page.rows;
+    const page = await tx.query<Raw>(
+      `WITH matching AS MATERIALIZED (
+         SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key, (${rendered}) AS cursor
+         FROM ${decl.table} t JOIN node n ON n.id = t.node_id
+         WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed
+           AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)
+       ), total AS (SELECT count(*)::text AS n FROM matching)
+       SELECT page.node_id, page.uid, page.key, total.n FROM total
+       LEFT JOIN LATERAL (
+         SELECT * FROM matching WHERE $2::text IS NULL OR cursor > $2::text
+         ORDER BY cursor LIMIT $3::bigint
+       ) page ON true
+       ORDER BY page.cursor`,
+      [text ?? null, after, String(options.limit + 1)],
+    );
+    const rows = page.rows.filter((row) => row['node_id'] !== null);
+    const more = rows.length > options.limit;
+    const shown = more ? rows.slice(0, options.limit) : rows;
     const entities = await this.generatedEntities(tx, decl, shown);
-    return { rows: entities, next: more ? entities[entities.length - 1]?.key ?? null : null, total: Number(total.rows[0]?.n ?? '0') };
+    return { rows: entities, next: more ? entities[entities.length - 1]?.key ?? null : null, total: Number(page.rows[0]?.['n'] ?? '0') };
   }
 
   private async entitiesOfKinds(tx: OuterTransaction, graphKinds: readonly string[]): Promise<GraphEntity[]> {
