@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
-import { daemonFills } from '../src/product/daemon.js';
+import { daemonFills } from '../src/product/daemon-fills.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createTestDatabaseOwner } from './test-database.js';
 

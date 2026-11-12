@@ -383,7 +383,7 @@ describe('madarch new', () => {
     while (otherPort === firstPort) otherPort = await freePort();
     const products = join(home, 'products');
     try {
-      const first = runCommand(['new', '--port', String(firstPort), '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      const first = runCommand(['new', '--template', 'none', '--port', String(firstPort), '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
       expect(first.status).toBe(0);
       const firstFacts = JSON.parse(first.stdout) as { port: number; reused: boolean; requestedPort?: number; portNote?: string };
       expect(firstFacts.port).toBe(firstPort);
@@ -391,7 +391,7 @@ describe('madarch new', () => {
       expect(firstFacts.requestedPort).toBe(firstPort);
       // The server keeps its port: the machine consumer is told the same
       // thing the human lines say, never a silently smaller answer.
-      const second = runCommand(['new', '--port', String(otherPort), '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      const second = runCommand(['new', '--template', 'none', '--port', String(otherPort), '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
       expect(second.status).toBe(0);
       const facts = JSON.parse(second.stdout) as { port: number; reused: boolean; requestedPort?: number; portNote?: string; url: string };
       expect(facts.reused).toBe(true);
@@ -401,7 +401,7 @@ describe('madarch new', () => {
       expect(facts.portNote).toContain(`--port ${otherPort} does not apply`);
       expect(facts.url).toBe(`http://127.0.0.1:${firstPort}/products/idea-${todayName()}-2/`);
       // A run that names no port asked for none: no note, and no requestedPort.
-      const third = runCommand(['new', '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
+      const third = runCommand(['new', '--template', 'none', '--json', '--no-open'], { MADARCH_HOME: home, MADARCH_APP: app });
       expect(third.status).toBe(0);
       const thirdFacts = JSON.parse(third.stdout) as Record<string, unknown>;
       expect('requestedPort' in thirdFacts).toBe(false);

@@ -637,16 +637,25 @@ export async function stopStoreForExit(store: string, options: { readonly force?
     // stopped anything (measured: a daemon's role held a server's stop for its whole two-second wait this way). No
     // `pg_ctl` means no server of this install runs, so there is nothing to stop.
     const bin = join(postgresInstallFolder(process.env), 'bin');
-    if (!existsSync(join(bin, postgresProgram('pg_ctl')))) return;
+    if (!existsSync(join(bin, postgresProgram('pg_ctl')))) {
+      if (process.platform === 'win32' && holderOf(key) !== null) throw new Error(`${key}:1: PostgreSQL is still recorded but pg_ctl is missing`);
+      return;
+    }
     // No question is asked of the server first either: `pg_ctl stop` answers "not running" for a server that is gone, and a
     // connection this process tried to open before it (up to its own two-second bound) is time the store's death may not
     // spend (madarch-8bdc.12).
     // A shutdown checkpoint can wait on disk I/O. Keep the event loop free so the ending role's deadline can fire.
+    const postmaster = process.platform === 'win32' ? holderOf(key) : null;
     const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', key, '-m', 'fast', '-w', 'stop'], {
       stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
       env: { ...process.env, LC_ALL: 'C' },
     });
     const code = await stopping.exited;
+    if (process.platform === 'win32') {
+      // Windows shutdown must finish before its caller can exit; pg_ctl failure is not a stopped store.
+      if (code !== 0 && holderOf(key) !== null) throw new Error(`${key}:1: pg_ctl failed to stop the PostgreSQL server (exit ${code})`);
+      if (holderOf(key) !== null || (postmaster !== null && alive(postmaster))) throw new Error(`${key}:1: PostgreSQL still holds postmaster.pid after pg_ctl stop`);
+    }
     // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
     // its socket away would make it look gone.
     if (code === 0) removeSocketFiles(socketDir);

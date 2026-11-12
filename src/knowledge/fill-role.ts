@@ -100,18 +100,17 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     // so the process-exit path uses only force shutdown below; giveUp keeps normal close behavior.
     void stopQueues(state);
     state.running = undefined;
-    await Promise.race([
-      (async () => {
-        // The database folder the role opened for each store — `<store>/graph` — and the ones it had not opened yet: a
-        // role killed before its first pass found the store still has a server to stop, and the server's own use of it
-        // died with the server.
-        const databases = new Set<string>([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((folder) => join(folder, 'graph'))]);
-        // Each server gets its stop request now: one store's shutdown checkpoint must not keep another store running
-        // until the role's deadline exits the process.
-        await Promise.all([...databases].map(async (database) => await stopStoreForExit(database, { force: true })));
-      })(),
-      Bun.sleep(Math.max(0, deadline - Date.now())),
-    ]);
+    const cleanup = (async () => {
+      // The database folder the role opened for each store — `<store>/graph` — and the ones it had not opened yet: a
+      // role killed before its first pass found the store still has a server to stop, and the server's own use of it
+      // died with the server.
+      const databases = new Set<string>([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((folder) => join(folder, 'graph'))]);
+      // Each server gets its stop request now: one store's shutdown checkpoint must not keep another store running
+      // until the role's deadline exits the process.
+      await Promise.all([...databases].map(async (database) => await stopStoreForExit(database, { force: true })));
+    })();
+    if (process.platform === 'win32') await cleanup;
+    else await Promise.race([cleanup, Bun.sleep(Math.max(0, deadline - Date.now()))]);
     process.exit(exitCode);
   };
   const watcher = options.parentPid === undefined ? undefined : setInterval(() => {
@@ -134,13 +133,15 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     withoutSignals();
     await stopQueues(state);
     for (const owner of [...state.owners]) {
-      await Promise.race([owner.close().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
+      if (process.platform === 'win32') await owner.close();
+      else await Promise.race([owner.close().catch(() => undefined), Bun.sleep(ENDING_MS / 2)]);
       state.owners.delete(owner);
     }
     // Every store this role opened, and the ones it had not opened yet: the last close of a server is the one that stops it,
     // and a store the role never reached still has one (madarch-8bdc.12).
     for (const folder of new Set([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((store) => join(store, 'graph'))])) {
-      await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
+      if (process.platform === 'win32') await stopStoreForExit(folder);
+      else await Promise.race([stopStoreForExit(folder), Bun.sleep(ENDING_MS / 2)]);
     }
   };
   try {

@@ -31,7 +31,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FillRunResult } from '../src/fill/orchestrator-host.js';
 import type { RunStatus } from '../src/fill/orchestrator.js';
-import { daemonFills, daemonUpdateWatch, type DaemonFills } from '../src/product/daemon.js';
+import { daemonFills, type DaemonFills } from '../src/product/daemon-fills.js';
+import { daemonUpdateWatch } from '../src/product/daemon.js';
 import type { UpdateWatch } from '../src/product/fill-updates.js';
 import { createTestDatabaseOwner } from './test-database.js';
 

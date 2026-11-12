@@ -27,7 +27,7 @@ import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestr
 import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
-import { daemonFills } from '../src/product/daemon.js';
+import { daemonFills } from '../src/product/daemon-fills.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

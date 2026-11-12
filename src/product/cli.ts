@@ -10,9 +10,7 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
-import { readPinnedGraphContract } from './fill-stages.js';
 import { assertFillGitVersion } from '../fill/git-version.js';
-import { validateProductManifests } from '../graph/manifest-publication.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
@@ -25,7 +23,7 @@ import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl, daemonIsRunning } from './daemon.js';
 import { API } from '../knowledge/addresses.js';
-import { applyReset, type ResetPlan } from '../knowledge/reset.js';
+import type { ResetPlan } from '../knowledge/reset.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
@@ -34,8 +32,6 @@ import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
 import { productsHome, type DraftEnv } from './home.js';
 import type { FinishedKnowledgeStore } from '../knowledge/fill-run.js';
-import { readKinds } from './manifest/kinds.js';
-import { readFillTargets } from '../knowledge/fill-targets.js';
 import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
 import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
@@ -627,6 +623,8 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
           const read = readProduct(folder);
           // A manifestless folder has no graph-backed product to activate.
           if (read.ok) {
+            const { readPinnedGraphContract } = await import('./preparation-contract.js');
+            const { validateProductManifests } = await import('../graph/manifest-publication.js');
             const manifests = validateProductManifests(folder);
             if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
             // Standalone serve has no daemon publisher: activate before its connect-only API role.
@@ -818,7 +816,9 @@ function productHomeOf(named: string | undefined): string {
   const choice = await templateChoice(parsed);
   const template = choice.id;
   const { createDraft } = await import('./draft.js');
+  const draftStarted = performance.now();
   const draft = createDraft({ ...(home === undefined ? {} : { home }), template });
+  if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup draft ${(performance.now() - draftStarted).toFixed(1)} ms`);
   if (draft.outcome !== 'created') {
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
@@ -868,6 +868,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
   await mkdir(dirname(databasePath), { recursive: true });
+  const { readPinnedGraphContract } = await import('./preparation-contract.js');
   const workers = parsed.workers ?? 16;
   await requestStorePreparation(databasePath, await readPinnedGraphContract(folder));
   const owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
@@ -1013,6 +1014,9 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   // A selective fill (madarch-stm0.6, decision 0035 items 11 and 31): the entities the person named, the kinds they need
   // and the kinds that need them, in the dependency order the manifest declares. The command names what the request
   // added before the run starts, so a press that fills more than it was asked for says so.
+  const { readKinds } = await import('./manifest/kinds.js');
+  const { readFillTargets } = await import('../knowledge/fill-targets.js');
+  const { readPinnedGraphContract } = await import('./preparation-contract.js');
   let targets: { kinds: readonly string[]; vertex?: string } | undefined;
   if (parsed.entities !== undefined || parsed.vertex !== undefined) {
     const kinds = readKinds(folder);
@@ -1088,7 +1092,9 @@ function nextSteps(folder: string, init: boolean): void {
  * JSON line is printed.
  */
 async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>): Promise<number> {
+  const daemonStarted = performance.now();
   const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
+  if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup ensureDaemon ${(performance.now() - daemonStarted).toFixed(1)} ms`);
   if (!started.ok) { console.error(started.message); return 1; }
   const name = encodeURIComponent(basename(folder));
   const url = `${started.url}/products/${name}/`;
@@ -1236,6 +1242,7 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
       if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
     } else {
+      const { applyReset } = await import('../knowledge/reset.js');
       applyReset(folder, plan);
     }
   } catch (error) {
