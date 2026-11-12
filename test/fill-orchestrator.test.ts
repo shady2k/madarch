@@ -273,7 +273,7 @@ test('concurrent tracked reads and progress keep their durable sequence allocati
     runId, at: NOW + 2, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary,
   })));
   expect(eventBatch.map((event) => event.seq)).toEqual([last + 4, last + 5, last + 6]);
-  expect((await readProgress(opened.owner, runId)).slice(-3)).toEqual(eventBatch);
+  expect((await readProgress(opened.owner, runId)).slice(-3)).toEqual([...eventBatch]);
 });
 
 test('a failed progress batch rolls back its events without rolling back committed tracked reads', async () => {
