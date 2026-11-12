@@ -136,29 +136,29 @@ function context(): RenderContext {
 }
 
 describe('the catalogue view lists every declared kind', () => {
-  test('kind details preserve typed fields and project both relation directions without inventing endpoints', async () => {
+  test('kind details publish page properties and project both relation directions without inventing endpoints', async () => {
     const ctx = context();
     const written = ctx.manifest.kinds.get('written')!;
     const person = ctx.manifest.kinds.get('by-person')!;
     const fields = [{ name: 'owner', type: 'text' as const, nullable: true, reference: 'by-person', producers: ['agent'] }];
     const kinds = new Map(ctx.manifest.kinds);
-    kinds.set('written', { ...written, fields, relations: [{ type: 'contains', to: 'by-person:{owner}', line: 1 }] });
+    kinds.set('written', { ...written, fields, details: ['owner'], relations: [{ type: 'contains', to: 'by-person:{owner}', line: 1 }] });
     kinds.set('by-person', person);
     const catalog = ctx.manifest.catalog!;
     const entries = new Map(catalog.kinds);
     entries.set('empty', { ...entries.get('empty')!, relationsOut: ['contains'], relationsIn: ['contains'] });
-    const manifest = { ...ctx.manifest, kinds, catalog: { ...catalog, kinds: entries }, edges: new Map([
+    const manifest = { ...ctx.manifest, properties: new Map([['owner', { name: 'owner', labels: { en: 'Owner', ru: 'Владелец' }, format: 'text' as const, line: 2 }]]), kinds, catalog: { ...catalog, kinds: entries }, edges: new Map([
       ['owns', { name: 'owns', from: ['written'], to: ['filled'], repeats: false, fields: [], line: 1 }],
     ]) };
     const rows = await catalogKinds({ ...ctx, manifest });
-    expect(rows.find((row) => row.kind === 'written')!.fields).toEqual(fields);
+    expect(rows.find((row) => row.kind === 'written')!.fields).toEqual([{ name: 'owner', labels: { en: 'Owner', ru: 'Владелец' }, reference: 'by-person', declaration: { file: ctx.manifest.file, line: 2 } }]);
     expect(rows.find((row) => row.kind === 'written')!.relations).toEqual([
       { direction: 'out', name: 'owns', kind: 'filled' },
       { direction: 'out', name: 'contains', kind: 'by-person' },
     ]);
     expect(rows.find((row) => row.kind === 'by-person')!.relations).toContainEqual({ direction: 'in', name: 'contains', kind: 'written' });
     expect(rows.find((row) => row.kind === 'filled')!.relations).toContainEqual({ direction: 'in', name: 'owns', kind: 'written' });
-    expect(rows.find((row) => row.kind === 'empty')!.fields).toBeUndefined();
+    expect(rows.find((row) => row.kind === 'empty')!.fields).toEqual([]);
     expect(rows.find((row) => row.kind === 'empty')!.relations).toEqual([
       { direction: 'out', name: 'contains' }, { direction: 'in', name: 'contains' },
     ]);
@@ -182,7 +182,7 @@ describe('the catalogue view lists every declared kind', () => {
     const kinds = await catalogKinds(ctx);
     for (const kind of kinds) {
       expect(kind.sources).toEqual([`https://example.test/${kind.kind}`]);
-      expect(kind).not.toHaveProperty('declaration');
+      expect(kind.declaration).toEqual({ file: ctx.manifest.file, line: ctx.manifest.catalog!.kinds.get(kind.kind)!.line });
       expect(kind).not.toHaveProperty('template');
     }
   });

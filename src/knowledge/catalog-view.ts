@@ -18,7 +18,7 @@ import type { CatalogKindView, CatalogSummaryView, CatalogView, KindProducer, Wi
 
 /** The list carries navigation and fill metadata; declaration details are read only when a kind is opened. */
 export function catalogSummary(view: CatalogView): CatalogSummaryView {
-  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, ...kind }) => ({
+  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, declaration, ...kind }) => ({
     ...kind,
     ...(sources === undefined || sources.length === 0 ? {} : { sourcesAvailable: true }),
   })) };
@@ -142,7 +142,21 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     const estimate = estimateOf(count, turns.generatedOf?.(kind), count);
     return {
       kind, subgroup,
-      ...(decl?.fields === undefined ? {} : { fields: decl.fields }),
+      declaration: { file: ctx.manifest.file, line: decl?.line ?? entry!.line },
+      fields: (decl?.details ?? []).flatMap((name) => {
+        const property = ctx.manifest.properties.get(name);
+        if (property === undefined) return [];
+        const field = decl?.fields?.find((field) => field.name === name);
+        const binding = field?.binding;
+        const meaning = binding?.kind === 'agent' ? binding.description
+          : binding?.kind === 'plugin' ? ctx.manifest.plugins?.get(binding.plugin)?.contract?.vertices
+            .find((vertex) => vertex.kind === kind)?.fields.find((field) => field.name === binding.field)?.meaning
+          : undefined;
+        return [{ name, labels: { ...property.labels },
+          ...(meaning === undefined ? {} : { meaning }),
+          ...(field?.reference === undefined ? {} : { reference: field.reference }),
+          declaration: { file: ctx.manifest.file, line: property.line } }];
+      }),
       relations: relationsOf(ctx, kind),
       ...(entry === undefined ? {} : { sources: [...entry.sources] }),
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),

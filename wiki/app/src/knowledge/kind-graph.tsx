@@ -80,7 +80,7 @@ export function graphStateOf(kind: CatalogKindView, filling: boolean): GraphStat
 
 /** One box in the graph: its entity's name, its state and the kinds it needs. */
 const BOX_WIDTH = 208;
-const BOX_HEIGHT = 46;
+const BOX_HEIGHT = 66;
 const GAP = 14;
 const COLUMN = BOX_WIDTH + 56;
 
@@ -130,18 +130,20 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
   }));
   const height = Math.max(...layers.map((layer) => layer.length), 1) * (BOX_HEIGHT + GAP) + 16;
   const width = Math.max(layers.length, 1) * COLUMN;
-  const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
+  const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? t('knowledge.kindDetails.untranslatedKind');
   const chosenX = chosen === null ? undefined : place.get(chosen)?.x;
+  const chosenY = chosen === null ? undefined : place.get(chosen)?.y;
   useEffect(() => {
     const frame = viewport.current;
     if (frame === null || chosenX === undefined) return;
     frame.scrollLeft = Math.max(0, chosenX + BOX_WIDTH / 2 - frame.clientWidth / 2);
-  }, [chosen, chosenX]);
+    frame.scrollTop = Math.max(0, (chosenY ?? 0) + BOX_HEIGHT / 2 - frame.clientHeight / 2);
+  }, [chosen, chosenX, chosenY]);
   return (
     <PageSection data-testid="kind-graph">
       {cycles.length > 0 && <Paragraph className="m-0 text-small" role="alert" data-testid="dependencies-cycle">{t('knowledge.dependencies.cycle', { cycle: cycles.join('; ') })}</Paragraph>}
       {/* The graph is its own frame: on a phone it scrolls sideways inside the page, and the page itself never does. */}
-      <GraphViewport ref={viewport} data-testid="dependencies-graph">
+      <GraphViewport ref={viewport} className={chosen === null ? undefined : "max-h-96 overflow-auto"} data-testid="dependencies-graph">
         <GraphCanvas width={width} height={height}>
           <GraphEdges width={width} height={height}>
             {nodes.flatMap((node) => node.dependsOn.flatMap((dependency) => {
@@ -175,6 +177,7 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
                   <Text data-testid="dependency-state">{t(`knowledge.catalogueState.${graphStateOf(node.kind, filling)}`)}</Text>
                   <Badge variant="outline" data-testid="dependency-count">{node.kind.count}</Badge>
                 </GraphMetadata>
+                {(node.kind.pluginFolders ?? []).length > 0 && <Text className="block truncate text-small text-muted" data-testid="dependency-plugin">{node.kind.pluginFolders!.join(', ')}</Text>}
               </KLink>
             </GraphBox>
           ))}
