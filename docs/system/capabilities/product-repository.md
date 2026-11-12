@@ -175,7 +175,7 @@ page opinions. They do not open a retired registry or parse document headers
 at request time. Invalid current declarations are reported with file, line and
 field; they do not switch the wiki to a plain working-tree Markdown reader.
 
-### Historical contract-v1 requirements (superseded at runtime)
+**Historical contract-v1 requirements (superseded at runtime).**
 
 The registry, document-field and live-edit scenarios below record the earlier
 contract-v1 design, not the current reader's behavior. Decision 0035 and
