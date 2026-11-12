@@ -65,7 +65,7 @@ to publish all its outputs when only a subset is selected.
 
 A plugin.json retains name/version/entry/runtime and service rights. `produces`
 is nonempty. Each entry owns `kind`, `fields`, `reads`, `refines`, and optional
-`coverage`, plus optional `satisfaction: authored`. There is no plugin-wide reads/refines fallback. Omitted reads and
+`coverage`. There is no plugin-wide reads/refines fallback. Omitted reads and
 refines mean empty lists. Multiple output entries do not split the plugin into
 new plugins. Optional plugin `concurrency` is a positive simultaneous-unit limit,
 not an ordering rule. Checks produce the catalogue's Problem kind.
@@ -184,8 +184,7 @@ only its declared selected fields, not the whole entity.
 
 ## 12. Authored satisfaction and observable outcomes
 
-An output may declare `satisfaction: authored`. Authored material satisfies a
-prerequisite through an enabled ordinary plugin
+Authored material satisfies a prerequisite through an enabled ordinary plugin
 that observes/publishes the authored version and explicitly reports success.
 A kind does not need a generating agent when this authored-input producer
 satisfies it. Merely finding catalogue rows, a native-kind exception, or a
