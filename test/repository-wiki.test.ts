@@ -345,7 +345,7 @@ git(folder,'commit','-qm','the nested file moves');
       // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
       const categories = await json(server, 'half', '/api/problems');
       expect(categories.status).toBe(200);
-      expect((categories.body['categories'] as { rule: string }[]).filter((category) => category.rule === 'wiki.unreadable-file')).toEqual(before.body['categories']);
+      expect((categories.body['categories'] as { rule: string }[]).filter((category) => category.rule === 'wiki.unreadable-file')).toEqual(before.body['categories'] as { rule: string }[]);
       const sources = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
       expect(sources.status).toBe(200);
       const emptySource = (sources.body['sources'] as { key: string }[]).find((source) => source.key === join(folder, 'repos', 'empty-code'));
