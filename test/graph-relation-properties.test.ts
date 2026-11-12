@@ -54,7 +54,7 @@ test('relation properties are batched without mixing edges, producers, contexts 
       expect(result.total).toBe(3);
       expect(result.rows.map((row) => [row.to.properties?.['path'], row.properties])).toEqual([
         ['a.txt', { change: 'modified', added: 9, removed: 2 }],
-        ['b.txt', { change: ['added', 'modified'], added: Number.NaN, removed: 0 }],
+        ['b.txt', { change: ['added', 'modified'], added: [2, 7], removed: 0 }],
         ['c.txt', { change: 'added', added: 3, removed: 0 }],
       ]);
       expect(result.rows.map((row) => row.discriminator)).toEqual(['', '', '']);
