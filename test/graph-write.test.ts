@@ -18,7 +18,7 @@ import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
-import { ensureEdge, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { ensureVertex, publishGraphDrafts, publishOpinion } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
 import { unevidencedOpinions } from '../src/graph/consistency.js';
@@ -738,13 +738,10 @@ describe('the manifest makes the table and the writer fills it', () => {
     const from = ids.rows.find((row) => row.name === 'From')!.id;
     const to = ids.rows.find((row) => row.name === 'To')!.id;
     const before = Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0');
-    await owner.transaction('write', async (tx) => {
-      const journal = journalFor('bulk@1');
-      journalOn(tx, journal);
-      await ensureEdge(tx, graph, 'doc.links', from, to, '', undefined, 1);
-      await ensureEdge(tx, graph, 'doc.links', to, from, '', undefined, 1);
-      await writeJournal(tx, journal);
-    });
+    const links = [['From', 'To'], ['To', 'From']].map(([from, to]) => ({
+      kind: 'doc.links', from: { kind: 'doc.page', key: { title: from! } }, to: { kind: 'doc.page', key: { title: to! } }, producer: 'bulk', producerVersion: '1',
+    }));
+    await owner.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: links, removals: [] }));
     const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { edges: { entity: string; from: string; to: string; discriminator: string; context: number; state: string }[] } }>('SELECT change FROM operation ORDER BY seq'));
     expect(entries.rows).toHaveLength(before + 1);
     const edges = entries.rows[entries.rows.length - 1]!.change.edges;
@@ -754,13 +751,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(new Set(edges.flatMap((one) => [one.from, one.to]))).toEqual(new Set(uids.rows.map((row) => row.uid)));
     // The same batch again declares nothing: no edge is made, so no event is journaled and no entry is written.
     const again = Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0');
-    await owner.transaction('write', async (tx) => {
-      const journal = journalFor('bulk@1');
-      journalOn(tx, journal);
-      await ensureEdge(tx, graph, 'doc.links', from, to, '', undefined, 1);
-      await ensureEdge(tx, graph, 'doc.links', to, from, '', undefined, 1);
-      await writeJournal(tx, journal);
-    });
+    expect(await owner.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: links, removals: [] }))).toBe(0);
     expect(Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0')).toBe(again);
   }, 120_000);
 
