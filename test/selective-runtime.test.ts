@@ -28,7 +28,7 @@ test('a selected fill forwards agent and cap to the run without starting an adap
 
 test('the product refuses an omitted producer stage before queue acceptance', async () => {
   mkdirSync(join(folder, 'plugins/probe'), { recursive: true });
-  writeFileSync(join(folder, 'plugins/probe/plugin.json'), JSON.stringify({ name: 'probe', version: '1.0.0', runtime: { name: 'bun', version: Bun.version }, entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: ['id'] }], reads: [] }));
+  writeFileSync(join(folder, 'plugins/probe/plugin.json'), JSON.stringify({ name: 'probe', version: '1.0.0', runtime: { name: 'bun', version: Bun.version }, entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: ['id'], reads: [] }] }));
   writeFileSync(join(folder, 'plugins/probe/main.ts'), '');
   writeFileSync(join(folder, 'madarch/kinds.yaml'), `kinds:
   probe.summary:

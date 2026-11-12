@@ -198,7 +198,7 @@ describe('the catalogue view lists every declared kind', () => {
         binding: { kind: 'plugin' as const, plugin, major: '1', field: 'value' },
       })),
     });
-    const plugin = (id: string, path?: string) => ({ id, version: '1', inputs: [], outputs: ['written'], closure: [], declaration: { name: id, version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun' as const, version: '1' }, produces: [{ kind: id === 'unbound' ? 'other' : 'written', fields: '*' as const }], reads: [] }, line: 1, ...(path === undefined ? {} : { path }) });
+    const plugin = (id: string, path?: string) => ({ id, version: '1', inputs: [], outputs: ['written'], closure: [], declaration: { name: id, version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun' as const, version: '1' }, produces: [{ kind: id === 'unbound' ? 'other' : 'written', fields: '*' as const, reads: [] }] }, line: 1, ...(path === undefined ? {} : { path }) });
     const plugins = new Map([
       ['zebra', plugin('zebra', 'custom/z-reader')],
       ['alpha', plugin('alpha', 'custom/a-reader')],

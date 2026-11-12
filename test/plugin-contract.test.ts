@@ -72,7 +72,7 @@ plugins:
   - { id: g, version: 1, path: plugins/g, inputs: [], outputs: [], closure: [plugins/g/plugin.json] }
 `;
     const folder = product(manifest, { ...CONTRACT, outputs: { vertices: [], edges: [] } });
-    writeFileSync(join(folder, 'plugins/g/plugin.json'), JSON.stringify({ name: 'g', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: '*', fields: '*' }], reads: [] }));
+    writeFileSync(join(folder, 'plugins/g/plugin.json'), JSON.stringify({ name: 'g', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: '*', fields: '*', reads: [] }] }));
     const read = parseKinds(manifest, 'madarch/kinds.yaml', folder);
     expect(read.findings).toEqual([]);
     const contract = manifestContractOf(read);

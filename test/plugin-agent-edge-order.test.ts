@@ -77,7 +77,7 @@ function fixture(agent: boolean) {
   const product = makeProduct(home, 'agent-fixture', repo, 'repo');
   const folder = join(product, 'plugins/probe-summary');
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: '*' }], reads: [], runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
+  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: '*', reads: [] }], runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);

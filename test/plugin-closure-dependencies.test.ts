@@ -10,7 +10,7 @@ afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force
 function plugin(source: string): string {
   const root = mkdtempSync(join(tmpdir(), 'closure-deps-'));
   roots.push(root);
-  writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'dependency-test', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*' }], reads: [], runtime: { name: 'bun', version: Bun.version } }));
+  writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'dependency-test', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*', reads: [] }], runtime: { name: 'bun', version: Bun.version } }));
   writeFileSync(join(root, 'main.ts'), source);
   return root;
 }
