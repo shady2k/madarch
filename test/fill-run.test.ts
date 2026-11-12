@@ -63,7 +63,7 @@ describe('the one fill', () => {
   test('names this step\'s passes and nothing else', () => {
     // The tree and the history, and the plugin turn that reads the file vertices the tree published
     // (decision 0035, items 6 and 15).
-    expect(fillSteps()).toEqual(['plugin-turns', 'repository-history', 'repository-tree', 'whole-graph-turns']);
+    expect(fillSteps()).toEqual(['plugin-turns', 'repository-history', 'repository-tree']);
   }, 120_000);
 
   test('runs every step through one function', async () => {
