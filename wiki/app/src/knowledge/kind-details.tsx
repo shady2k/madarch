@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge.js';
 import { getCatalog, getCatalogKind } from './api.js';
+import { relationLabel } from './relation-labels.js';
 import { KLink } from './blocks.js';
 import { KindGraph, graphStateOf } from './kind-graph.js';
 import { KindSources } from './kind-sources.js';
@@ -55,7 +56,7 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
       <SectionTitle>{t('knowledge.kindDetails.relations')}</SectionTitle>
       {(chosen.relations ?? []).length === 0 ? <Paragraph className="text-muted">{t('knowledge.kindDetails.noRelations')}</Paragraph> : <PlainList className="space-y-1">
         {chosen.relations!.map((relation, index) => <ListItem key={`${relation.direction}:${relation.name}:${relation.kind ?? ''}:${index}`} data-direction={relation.direction}>
-          <Text>{t(relation.direction === 'in' ? 'knowledge.relationIn' : 'knowledge.relationOut', { relation: relation.name })}</Text>{' '}
+          <Text>{t(relation.direction === 'in' ? 'knowledge.relationIn' : 'knowledge.relationOut', { relation: relationLabel(relation.name, t) })}</Text>{' '}
           {relation.kind !== undefined && (relation.kind === '*' ? <Text>{relation.kind}</Text> : <KLink href={addressOfKind(relation.kind)}>{name(relation.kind)}</KLink>)}
         </ListItem>)}
       </PlainList>}
