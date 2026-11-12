@@ -1541,7 +1541,7 @@ export class GraphReader {
              SELECT e.from_node FROM ancestors a JOIN edge e ON e.to_node = a.id
              JOIN entity rk ON rk.id = e.entity_id AND rk.name = '${GIT_KINDS.contains}'
            ), imports AS (
-             SELECT e.id, e.from_node, e.to_node FROM edge e JOIN entity rk ON rk.id = e.entity_id AND rk.name = 'imports'
+             SELECT e.id, e.from_node, e.to_node FROM edge e JOIN entity rk ON rk.id = e.entity_id AND rk.name = 'code.imports'
              WHERE e.from_node IN (SELECT id FROM ancestors) OR e.to_node IN (SELECT id FROM ancestors)
            ), members AS (
              SELECT from_node AS id FROM imports UNION SELECT to_node FROM imports
