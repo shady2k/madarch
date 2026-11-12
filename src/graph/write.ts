@@ -509,7 +509,7 @@ async function stateOpinions(executor: SqlExecutor, entity: string, table: strin
   for (let at = 0; at < inputs.length;) {
     const seen = new Set<string>();
     let end = at;
-    while (end < inputs.length && end - at < PUBLICATION_ROWS) {
+    while (end < inputs.length && end - at < Math.min(PUBLICATION_ROWS, Math.floor(65_535 / (fields.length + 8)))) {
       const input = inputs[end]!;
       const identity = opinionIdentity(input.ownerId, input.saidBy, input.lang);
       if (seen.has(identity)) break;
@@ -827,6 +827,109 @@ interface Declared {
  * edges whose ends now stand), then the references each key and each edge end names — an unresolved one is recorded
  * and the publication goes on. Answers how many rows were written; a rerun of the same answer writes none.
  */
+/** Resolve endpoint identities and publish edge opinions in bounded, ordered identity waves. */
+async function publishEdges(executor: SqlExecutor, contract: GraphContract, drafts: readonly EdgeDraft[], contextId: number, journal: Journal): Promise<number> {
+  let written = 0;
+  for (let at = 0; at < drafts.length;) {
+    const seen = new Set<string>();
+    const firstKind = drafts[at]!.kind;
+    let end = at;
+    while (end < drafts.length && end - at < PUBLICATION_ROWS && drafts[end]!.kind === firstKind) {
+      const draft = drafts[end]!;
+      const endpointUid = (ref: EntityRefDraft): string => {
+        const target = contract.vertex.find(kind => kind.name === ref.kind);
+        const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `an endpoint of ${JSON.stringify(draft.kind)}`);
+        return keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]);
+      };
+      const identity = canonicalJson([draft.kind, endpointUid(draft.from), endpointUid(draft.to), draft.discriminator ?? '']);
+      if (seen.has(identity)) break;
+      seen.add(identity);
+      end += 1;
+    }
+    const batch = drafts.slice(at, end);
+    const kind = contract.edge.find(kind => kind.name === firstKind);
+    const attribute = edgeOfKind(contract, firstKind);
+    const refs = batch.map(draft => (['from', 'to'] as const).map(field => {
+      const ref = draft[field];
+      const target = contract.vertex.find(kind => kind.name === ref.kind);
+      const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
+      return { ref, key, uid: keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
+    }));
+    const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
+    const byUid = new Map(nodes.rows.map(node => [node.uid, node.id]));
+    const missing: Record<string, unknown>[] = [];
+    const resolved: { draft: EdgeDraft; from: string; to: string; fromUid: string; toUid: string; discriminator: string }[] = [];
+    const referenceActions: { missing: Record<string, unknown>[]; resolved?: typeof resolved[number] }[] = [];
+    for (let index = 0; index < batch.length; index += 1) {
+      const draft = batch[index]!;
+      const pair = refs[index]!;
+      const from = byUid.get(pair[0]!.uid);
+      const to = byUid.get(pair[1]!.uid);
+      if (from !== undefined && to !== undefined) {
+        const row = { draft, from, to, fromUid: pair[0]!.uid, toUid: pair[1]!.uid, discriminator: draft.discriminator ?? '' };
+        resolved.push(row); referenceActions.push({ missing: [], resolved: row });
+      }
+      else {
+        const start = missing.length;
+        for (let side = 0; side < 2; side += 1) {
+        if ((side === 0 ? from : to) !== undefined) continue;
+        const ref = pair[side]!;
+        missing.push({ referrer_node: (side === 0 ? to : from) ?? null, edge_entity: draft.kind, field: side === 0 ? 'from' : 'to', target_entity: ref.ref.kind, target_key: ref.key, producer: `${draft.producer}@${draft.producerVersion}`, against_node: null, edge_discriminator: draft.discriminator ?? '', context_id: contextId });
+        }
+        referenceActions.push({ missing: missing.slice(start) });
+      }
+    }
+    if (resolved.length > 0) {
+      const entityId = await entityIdOf(executor, firstKind, 'edge');
+      const payload = JSON.stringify(resolved.map(row => ({ from_node: row.from, to_node: row.to, discriminator: row.discriminator })));
+      const made = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
+        `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id)
+         SELECT $2::bigint, x.from_node, x.to_node, x.discriminator, $3::bigint FROM jsonb_to_recordset($1::jsonb) AS x(from_node bigint, to_node bigint, discriminator text)
+         ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator`, [payload, entityId, String(contextId)]);
+      const held = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
+        `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator FROM edge e
+         JOIN jsonb_to_recordset($1::jsonb) AS x(from_node bigint, to_node bigint, discriminator text) ON e.from_node = x.from_node AND e.to_node = x.to_node AND e.discriminator = x.discriminator
+         WHERE e.entity_id = $2::bigint AND e.context_id = $3::bigint`, [payload, entityId, String(contextId)]);
+      const edgeKey = (row: { from_node: string; to_node: string; discriminator: string }): string => JSON.stringify([row.from_node, row.to_node, row.discriminator]);
+      const byKey = new Map(held.rows.map(row => [edgeKey(row), row.id]));
+      const created = new Set(made.rows.map(row => row.id));
+      const rows = resolved.map(row => ({ ...row, id: byKey.get(JSON.stringify([row.from, row.to, row.discriminator]))! }));
+      const fields = kind!.fields.map(field => field.name);
+      const inputOf = (row: typeof rows[number], values: ReadonlyMap<string, unknown>): OpinionInput => ({ ownerId: row.id, edgeId: row.id, saidBy: `${row.draft.producer}@${row.draft.producerVersion}`, values, evidence: evidenceList(row.draft), lang: row.draft.lang ?? null });
+      const existenceJournal = journalFor(journal.author);
+      await stateOpinions(executor, firstKind, attribute.table, 'edge_id', rows.filter(row => created.has(row.id)).map(row => ({ ...inputOf(row, new Map()), lang: null })), fields, contextId, existenceJournal);
+      const opinionJournal = journalFor(journal.author);
+      const changed = await stateOpinions(executor, firstKind, attribute.table, 'edge_id', rows.map(row => inputOf(row, new Map(Object.entries(row.draft.values ?? {})))), fields, contextId, opinionJournal);
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index]!;
+        if (created.has(row.id)) { journal.declaredEdge(firstKind, row.id, row.fromUid, row.toUid, row.discriminator, contextId); written += 1; }
+        for (const event of existenceJournal.opinions.filter(event => event.edge === row.id)) journal.opinion(event);
+        for (const event of opinionJournal.opinions.filter(event => event.edge === row.id)) journal.opinion(event);
+        if (changed[index]) written += 1;
+      }
+
+    }
+    for (let index = 0; index < referenceActions.length;) {
+      const unresolved = referenceActions[index]!.resolved === undefined;
+      let stop = index + 1;
+      while (stop < referenceActions.length && (referenceActions[stop]!.resolved === undefined) === unresolved) stop += 1;
+      const actions = referenceActions.slice(index, stop);
+      if (unresolved) await executor.query(
+      `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
+       SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(referrer_node bigint, edge_entity text, field text, target_entity text, target_key jsonb, producer text, against_node bigint, edge_discriminator text, context_id bigint)
+       ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`, [JSON.stringify(actions.flatMap(action => action.missing))]);
+      else await executor.query(
+        `DELETE FROM unresolved_reference u USING jsonb_to_recordset($1::jsonb) AS x(edge_entity text, producer text, context_id bigint, from_node bigint, to_node bigint, discriminator text)
+         WHERE u.edge_entity = x.edge_entity AND u.producer = x.producer AND u.context_id = x.context_id AND u.edge_discriminator = x.discriminator
+         AND (u.referrer_node = x.from_node OR u.referrer_node = x.to_node OR u.referrer_node IS NULL)`,
+        [JSON.stringify(actions.flatMap(action => action.resolved === undefined ? [] : [action.resolved]).map(row => ({ edge_entity: firstKind, producer: `${row.draft.producer}@${row.draft.producerVersion}`, context_id: contextId, from_node: row.from, to_node: row.to, discriminator: row.discriminator }))) ]);
+      index = stop;
+    }
+    at = end;
+  }
+  return written;
+}
+
 export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[] } = {}): Promise<number> {
   let written = 0;
   // The entry's author is the publication's: a plugin and its version, a record pass's producer, or the agent or a person
@@ -860,35 +963,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   }
   // An edge whose ends do not stand is a reference no vertex answers: recorded, never invented. A published edge's
   // records go.
-  for (const draft of drafts.edges ?? []) {
-    const ends: (string | undefined)[] = [];
-    for (const [field, ref] of [['from', draft.from], ['to', draft.to]] as const) {
-      ends.push(await referencedNodeOf(executor, contract, ref, `the ${field} of the edge ${JSON.stringify(draft.kind)}`));
-    }
-    const [fromNode, toNode] = ends;
-    if (fromNode === undefined || toNode === undefined) {
-      for (const [field, ref, other] of [['from', draft.from, toNode], ['to', draft.to, fromNode]] as const) {
-        const named = field === 'from' ? fromNode : toNode;
-        if (named !== undefined) continue;
-        const target = contract.vertex.find((held) => held.name === ref.kind);
-        await recordUnresolved(executor, {
-          referrer: other ?? null, edgeEntity: draft.kind, field, targetEntity: ref.kind,
-          targetKey: canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of ${JSON.stringify(draft.kind)}`),
-          producer: `${draft.producer}@${draft.producerVersion}`, against: null, discriminator: draft.discriminator ?? '', contextId,
-        });
-      }
-      continue;
-    }
-    const edge = await ensureEdge(executor, contract, draft.kind, fromNode, toNode, draft.discriminator ?? '', { producer: draft.producer, producerVersion: draft.producerVersion, ...(draft.evidence === undefined ? {} : { evidence: draft.evidence }) }, contextId, journal);
-    if (edge.created) written += 1;
-    if (await publishEdgeOpinion(executor, contract, draft.kind, edge.id, draft, contextId, journal)) written += 1;
-    await executor.query(
-      `DELETE FROM unresolved_reference WHERE edge_entity = $1 AND producer = $2 AND context_id = $3::bigint
-         AND (referrer_node = $4::bigint OR referrer_node = $5::bigint OR referrer_node IS NULL)
-         AND edge_discriminator = $6`,
-      [draft.kind, `${draft.producer}@${draft.producerVersion}`, String(contextId), fromNode, toNode, draft.discriminator ?? ''],
-    );
-  }
+  written += await publishEdges(executor, contract, drafts.edges ?? [], contextId, journal);
   for (const { draft, nodeId } of declared) await checkKeyReferences(executor, contract, draft.kind, nodeId, draft.key, `${draft.producer}@${draft.producerVersion}`, contextId);
   await writeJournal(executor, journal);
   return written;
