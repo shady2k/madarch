@@ -974,7 +974,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
     }
     return locators.get(metadataPath)?.(path) ?? 1;
   };
-  const manifest = validateKinds({ ...metadata, kinds }, at, file, productFolder, files);
+  const manifest = parseKinds({ root: { ...metadata, kinds }, at }, file, productFolder, files);
   const location = (line: number) => locations[line - 1] ?? { file, line: 1 };
   const remap = (finding: Finding): Finding => finding.file === file
     ? { ...finding, ...location(finding.line), source: location(finding.line).file }
@@ -1169,18 +1169,19 @@ function jsonLine(text: string, segment: number): number {
   return text.slice(0, at).split('\n').length;
 }
 
-export function parseKinds(text: string, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
+export function parseKinds(input: string | { root: unknown; at: (path: (string | number)[]) => number }, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
   const findings: Finding[] = [];
-  const { doc, lines } = parsedManifest(text, file);
-  const at = lineLocator(doc, lines);
-  for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
-  if (doc.errors.length > 0) return nothing(file, findings);
-  const root: unknown = doc.toJS();
-  return validateKinds(root, at, file, productFolder, files);
-}
-
-function validateKinds(root: unknown, at: (path: (string | number)[]) => number, file: string, productFolder: string, files: ProductFileRead): KindsManifest {
-  const findings: Finding[] = [];
+  let root: unknown;
+  let at: (path: (string | number)[]) => number;
+  if (typeof input === 'string') {
+    const { doc, lines } = parsedManifest(input, file);
+    at = lineLocator(doc, lines);
+    for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
+    if (doc.errors.length > 0) return nothing(file, findings);
+    root = doc.toJS();
+  } else {
+    ({ root, at } = input);
+  }
   if (root === null || typeof root !== 'object' || Array.isArray(root)) {
     return nothing(file, [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }]);
   }
