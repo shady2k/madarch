@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { quarantined } from './quarantine.js';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { keepsProductEntry, startServer as startClientServer, type ServerOptions, type StartedServer } from '../src/server/http.js';
+import { keepsProductEntry, type ServerOptions, type StartedServer } from '../src/server/http.js';
+import { startPreparedServer as startClientServer, activateTestProduct } from './prepared-server.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
@@ -42,15 +42,19 @@ function product(home: string, folder: string, id: string): void {
   mkdirSync(join(path, 'madarch'));
   writeFileSync(join(path, 'madarch', 'kinds.yaml'), `kinds:
   document:
+    template: templates/document.liquid
     source: graph
+    origin: person
     key: [title]
     fields:
-      - { name: title, type: text }
-      - { name: path, type: text }
-      - { name: markdown, type: text }
-      - { name: anchors, type: json }
-      - { name: links, type: json }
+      - { name: title, type: text, producers: [fixture] }
+      - { name: path, type: text, producers: [fixture] }
+      - { name: markdown, type: text, producers: [fixture] }
+      - { name: anchors, type: json, producers: [fixture] }
+      - { name: links, type: json, producers: [fixture] }
 `);
+  mkdirSync(join(path, 'templates'));
+  writeFileSync(join(path, 'templates', 'document.liquid'), '{{ title }}');
   // A product folder is its own Git checkout; the files producer reads it into the graph.
   gitCommit(path);
 }
@@ -172,19 +176,11 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
 }, 40_000);
 
-quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('products-home mode lists products and routes each wiki under its folder', async () => {
+test('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
-  // Routing needs two products and one stored document, not the starter's graph kinds or plugin turns.
-  for (const name of ['alpha', 'beta']) {
-    const folder = join(home, name);
-    mkdirSync(join(folder, 'docs'), { recursive: true });
-    mkdirSync(join(folder, 'madarch'));
-    writeFileSync(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: ${name}-id\nname: ${name}\n`);
-    writeFileSync(join(folder, 'docs', 'vision.md'), `# ${name} vision\n`);
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: {}\n');
-    gitCommit(folder);
-  }
+  product(home, 'alpha', 'alpha-id');
+  product(home, 'beta', 'beta-id');
   server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
   const index = await fetch(server.url, { redirect: 'manual' });
   expect(index.status).toBe(302);
@@ -217,6 +213,7 @@ test('the root opens a product directly: the only one, the last this browser ope
   expect(followed).not.toContain('<h1>Products</h1>');
   // A second product, changed later: the most recently changed one opens.
   product(home, 'beta', 'beta-id');
+  await activateTestProduct(join(home, 'beta'), home);
   const later = new Date(Date.now() + 60_000);
   utimesSync(join(home, 'beta', 'workspace.yaml'), later, later);
   await Bun.sleep(5_200);
