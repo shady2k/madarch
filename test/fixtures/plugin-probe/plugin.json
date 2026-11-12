@@ -10,8 +10,8 @@
   "produces": [
     {
       "kind": "probe",
-      "fields": "*"
+      "fields": "*",
+      "reads": []
     }
-  ],
-  "reads": []
+  ]
 }

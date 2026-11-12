@@ -9,8 +9,8 @@
   "produces": [
     {
       "kind": "fixture.problem",
-      "fields": "*"
+      "fields": "*",
+      "reads": []
     }
-  ],
-  "reads": []
+  ]
 }
