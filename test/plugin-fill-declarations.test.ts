@@ -135,5 +135,46 @@ test('catalogue preview plans requested closure and configured outputs, not raw 
   const manifest = manifestOf([kind('File'), kind('Summary', ['description'], ['File'])], [plugin('index'), plugin('summary', [output('Summary')]), general()]);
   expect(fillRequirementsOf(manifest, '/product')(['File'])).toEqual({});
   expect(fillRequirementsOf(manifest, '/product')(['Summary'])).toEqual({});
-  expect(fillRequirementsOf({ ...manifest, plugins: new Map() }, '/product')(['File'])).toEqual({ fillPlanRefusal: '/product/kinds.yaml:4: selected kind File has no enabled producer; enable its producer' });
+  expect(fillRequirementsOf({ ...manifest, plugins: new Map() }, '/product')(['File'])).toEqual({});
+});
+
+test('manifest planning does not turn available agent capability into executable coverage', () => {
+  const manifest = manifestOf([kind('File')], [general()]);
+  const plan = planManifestFill(manifest, '/product', ['File'], false);
+  expect(plan.order).toEqual([]);
+  expect(plan.requiresAgent).toBe(false);
+  expect([...plan.outputs]).toEqual([]);
+  expect(plan.producers('File', 'description')).toEqual([]);
+  expect(plan.unproducedKinds).toEqual([{
+    kind: 'File', outcome: 'abstained',
+    reason: 'kind File has no configured producer; configure an ordinary producer or kind.agent',
+  }]);
+  expect(fillRequirementsOf(manifest, '/product')(['File'])).toEqual({});
+});
+test('manifest planning requires a selected adapter for explicitly configured agent output', () => {
+  const manifest = manifestOf([kind('File')], [general()]);
+  const file = manifest.kinds.get('File')!;
+  const configured = { ...manifest, kinds: new Map([['File', { ...file, agent: { plugin: 'general', fields: '*' } }]]) } as KindsManifest;
+  expect(() => planManifestFill(configured, '/product', ['File'], false)).toThrow(/general.*requested an agent/);
+  const plan = planManifestFill(configured, '/product', ['File'], true);
+  expect(plan.order).toEqual(['general']);
+  expect(plan.requiresAgent).toBe(true);
+  expect(plan.outputs.get('general')?.get('File')).toEqual(['description', 'title']);
+  expect(plan.unproducedKinds).toEqual([]);
+  expect(fillRequirementsOf(configured, '/product')(['File'])).toEqual({ requiresAgent: true });
+});
+test('manifest planning reports missing prerequisites without scheduling their dependants', () => {
+  const catalogue = [kind('File'), kind('Summary', ['description'], ['File']), kind('Independent')];
+  const manifest = manifestOf(catalogue, [plugin('summary', [output('Summary', '*', { reads: ['File'] })]), plugin('independent', [output('Independent')]), general()]);
+  const plan = planManifestFill(manifest, '/product', ['Summary', 'Independent'], false);
+  expect(plan.order).toEqual(['independent']);
+  expect(plan.selectedKinds).toEqual(['Independent']);
+  expect(plan.outputs.has('summary')).toBe(false);
+  expect(plan.producers('File', 'description')).toEqual([]);
+  expect(plan.producers('Summary', 'description')).toEqual([]);
+  expect(plan.requiresAgent).toBe(false);
+  expect(plan.unproducedKinds).toEqual([
+    { kind: 'Summary', outcome: 'abstained', reason: 'required prerequisite has no configured producer for Summary' },
+    { kind: 'File', outcome: 'abstained', reason: 'kind File has no configured producer; configure an ordinary producer or kind.agent' },
+  ]);
 });
