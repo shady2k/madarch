@@ -59,4 +59,6 @@ None.
 - `bun run check` passed, including architecture, UI, catalogue, workflow and quarantine checks. The architecture debt list did not grow.
 - Independent same-model review found and resolved legacy template Fill planning, invalid dependency repair watching and unsupported mutable-scope loss. Final bounded review reports no blocking findings.
 - Native repository-page tests no longer inject replacement repository templates after Fill. Explicit graph-unit fixtures use the declaration producer, not a second conflicting producer.
-- Final focused test results follow after completion.
+- Final focused run: `sudo -u box env MADARCH_SKIP_PERF=1 bun test test/startup-template-publication.test.ts test/template-declarations.test.ts test/manifest-publication.test.ts test/manifest-start.test.ts` — 34 pass, 0 fail, 188 assertions. This includes CLI refusal before listening, Files-only pages, real watcher refresh, last-valid retention, legacy producer retirement and idempotence.
+- The earlier red run was 0 pass / 3 fail for the file, directory and repository pages. The same three page cases now pass without template-agent generation or the old repository-template fixture injection.
+- Final `bun run check` passed after all source/test changes. The document gate reports only missing owner approval; no approval or closure is recorded.
