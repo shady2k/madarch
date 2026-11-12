@@ -9,7 +9,7 @@
  * kind is the same name without the prefix (`file`), which is what the reader
  * and the pages have always called it. `manifestKinds` is that one mapping.
  */
-import type { EdgeContract, GraphContract, VertexContract } from '../../graph/contract.js';
+import type { EdgeContract, EntityRefDraft, GraphContract, VertexContract } from '../../graph/contract.js';
 import { contractOf, generatedTableName } from '../../graph/contract.js';
 import type { KindsManifest } from '../../product/manifest/kinds.js';
 
@@ -142,13 +142,13 @@ export function canonicalGitKind(manifest: KindsManifest, name: string): string 
 }
 
 /** Resolve a declared git-backed entity and its reference keys before publication. */
-export function canonicalGitEntityRef<T extends { readonly kind: string; readonly key: Readonly<Record<string, unknown>> }>(manifest: KindsManifest, ref: T): T {
+export function canonicalGitEntityRef<T extends EntityRefDraft>(manifest: KindsManifest, ref: T): Omit<T, 'kind' | 'key'> & EntityRefDraft {
   const kind = canonicalGitKind(manifest, ref.kind);
   const bound = [...manifest.kinds.values()].some((held) => held.capability === 'git' && canonicalGitKind(manifest, held.name) === kind);
   const declared = bound ? GIT_CONTRACT.vertex.find((vertex) => vertex.name === kind) : undefined;
   const key = Object.fromEntries(Object.entries(ref.key).map(([name, value]) => {
     if (value !== null && typeof value === 'object' && 'kind' in value && 'key' in value) {
-      return [name, canonicalGitEntityRef(manifest, value as { kind: string; key: Readonly<Record<string, unknown>> })];
+      return [name, canonicalGitEntityRef(manifest, value as EntityRefDraft)];
     }
     const field = declared?.fields.find((field) => field.name === name);
     if (field?.reference !== undefined && typeof value === 'string') {

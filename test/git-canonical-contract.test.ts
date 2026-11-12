@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { KindDecl, KindsManifest } from '../src/product/manifest/kinds.js';
-import { canonicalGitEntityRef, canonicalGitKind, GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { canonicalGitEntityRef, canonicalGitKind, GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { canonicalDeclaredEntityRef, declaredKindReads, graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { keyUid } from '../src/graph/uid.js';
 
@@ -32,7 +32,7 @@ describe('git-backed declarations share one storage identity', () => {
 
   test('draft identity and nested references match the native producer declaration', () => {
     const held = manifest();
-    const expected = { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'app' } }, path: 'src/schema.ts' } };
+    const expected = { kind: GIT_KINDS.file, key: { repository: { kind: GIT_KINDS.repository, key: { name: 'app' } }, path: 'src/schema.ts' } };
     expect(canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: 'app', path: 'src/schema.ts' } })).toEqual(expected);
     expect(canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: { kind: 'code.repository', key: { name: 'app' } }, path: 'src/schema.ts' } })).toEqual(expected);
     expect(canonicalGitEntityRef(held, expected)).toEqual(expected);
