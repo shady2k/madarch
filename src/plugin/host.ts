@@ -16,6 +16,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { snapshotTools, type TrustedTool } from './tools.js';
 import { releaseTools } from './release-tools.js';
+import { snapshotFilesystemInputs } from './filesystem-inputs.js';
 import { PluginAgentBridge, type PluginAgentOptions, type PluginAgentReport } from './agent.js';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
@@ -345,7 +346,7 @@ export class PluginHost {
     const spec: SandboxSpec = {
       closureFolder: snapshot.folder,
       tools,
-      filesystemInputs: this.options.filesystemInputs ?? [],
+      filesystemInputs: snapshotFilesystemInputs(this.options.filesystemInputs ?? [], this.options.workRoot),
       ...(readsRepository && (this.options.filesystemInputs?.length ?? 0) === 0 ? { repository: this.options.repository } : {}),
       workFolder,
       runtime: process.execPath,
