@@ -160,6 +160,14 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       expect(parent?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts' });
       const child = outcome.result.vertices.find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'child');
       expect(child?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE });
+      const selected = await session.runUnit({ unitId: 'selected-database', kind: 'code.database', key: {}, inputs: {
+        patterns: ['**/*.ts'], contract: { vertices: [{ kind: 'code.database', fields: [{ name: 'repository' }] }] }, edgeOutputs: [],
+      } });
+      if (selected.state !== 'extracted') throw new Error(JSON.stringify(selected));
+      expect(selected.result.vertices.map((vertex) => vertex.kind)).toEqual(['code.database']);
+      expect(selected.result.vertices[0]?.values).toEqual({ repository: 'app' });
+      expect(selected.result.edges).toEqual([]);
+      expect(selected.result.end).toEqual(outcome.result.end);
     } finally {
       await session.close();
     }

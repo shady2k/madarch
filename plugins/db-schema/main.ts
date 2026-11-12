@@ -709,7 +709,11 @@ function composedProblems(literal: Literal, place: Place): Problem[] {
 // ---- the unit's answer -----------------------------------------------------------------------
 
 async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = (unit.inputs ?? {}) as { patterns?: unknown };
+  const inputs = (unit.inputs ?? {}) as {
+    patterns?: unknown;
+    contract?: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[] };
+    edgeOutputs?: readonly { kind: string; from: string; to: string }[];
+  };
   const patterns = Array.isArray(inputs.patterns) && inputs.patterns.length > 0 && inputs.patterns.every((one) => typeof one === 'string' && one !== '')
     ? (inputs.patterns as string[])
     : [];
@@ -743,7 +747,20 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     }
     context.progress(at + 1, files.length, file.path);
   }
-  return answerOf(model);
+  const result = answerOf(model);
+  if (inputs.contract === undefined) return result;
+  const output = inputs.contract.vertices.find((vertex) => vertex.kind === unit.kind);
+  if (output === undefined) throw new Error(`no selected output contract for ${unit.kind}`);
+  const fields = new Set(output.fields.map((field) => field.name));
+  const edgeOutputs = new Set((inputs.edgeOutputs ?? []).map((edge) => JSON.stringify([edge.kind, edge.from, edge.to])));
+  return {
+    ...result,
+    vertices: result.vertices?.filter((vertex) => vertex.kind === unit.kind).map((vertex) => ({
+      ...vertex,
+      ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }),
+    })),
+    edges: result.edges?.filter((edge) => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind]))),
+  };
 }
 
 /** The vertices and edges of the model, and how the unit ended. */
