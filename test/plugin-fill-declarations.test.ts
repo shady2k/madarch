@@ -58,3 +58,21 @@ test('readers consume the pre-refinement snapshot, not their own downstream refi
   expect(plan.order).toEqual(['reader', 'review']);
   expect(plan.predecessors.get('reader')).toEqual([]);
 });
+
+test('derived-kind units wait for prerequisite units from other producers', () => {
+  const catalogue = [...kinds, { name: 'summary', fields: ['body'], derivesFrom: ['note'], file: '/product/kinds.yaml', line: 8 }];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [
+    plugin('source'), plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] }),
+    plugin('review', { produces: [{ kind: '*', fields: '*' }], refines: ['*'] }),
+  ] });
+  expect(plan.unitPredecessors('summary', 'summary')).toEqual([{ plugin: 'source', kind: 'note' }]);
+  expect(plan.unitPredecessors('review', 'summary')).toEqual(expect.arrayContaining([{ plugin: 'review', kind: 'note' }]));
+});
+
+test('kind prerequisite edges combined with plugin reads still refuse genuine unit cycles', () => {
+  const catalogue = [...kinds, { name: 'summary', fields: ['body'], derivesFrom: ['note'], file: '/product/kinds.yaml', line: 8 }];
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [
+    plugin('source', { reads: ['summary'] }),
+    plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] }),
+  ] })).toThrow(/fill declarations form a cycle/);
+});

@@ -109,7 +109,32 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   }
   const active = order.filter((name) => [...outputs.get(name)!.keys()].some((kind) => selected.has(kind)));
   if (input.agentSelected === false) for (const name of active) if (plugins.get(name)!.manifest.agent !== undefined) refuse(plugins.get(name)!, ['agent'], `plugin ${name} requested an agent but none is selected; choose --agent or select one in the wiki`);
+  const unitPredecessors = (plugin: string, kind: string): { plugin: string; kind: string }[] => {
+    const held = new Map<string, { plugin: string; kind: string }>();
+    const add = (producer: string, output: string) => {
+      if (selected.has(output)) held.set(`${producer}:${output}`, { plugin: producer, kind: output });
+    };
+    for (const previous of predecessors.get(plugin) ?? []) if (active.includes(previous)) for (const output of outputs.get(previous)!.keys()) add(previous, output);
+    for (const prerequisite of kinds.get(kind)?.derivesFrom ?? []) for (const [producer, output] of outputs) {
+      if (output.has(prerequisite) && !reachable(producer, plugin, refinements)) add(producer, prerequisite);
+    }
+    return [...held.values()].sort((a, b) => `${a.plugin}:${a.kind}`.localeCompare(`${b.plugin}:${b.kind}`));
+  };
+  const visitedUnits = new Set<string>();
+  const visitingUnits: string[] = [];
+  const visitUnit = (plugin: string, kind: string) => {
+    const id = `${plugin}:${kind}`;
+    const at = visitingUnits.indexOf(id);
+    if (at >= 0) refuse(plugins.get(plugin)!, ['reads'], `fill declarations form a cycle: ${[...visitingUnits.slice(at), id].join(' -> ')}`);
+    if (visitedUnits.has(id)) return;
+    visitingUnits.push(id);
+    for (const dependency of unitPredecessors(plugin, kind)) visitUnit(dependency.plugin, dependency.kind);
+    visitingUnits.pop();
+    visitedUnits.add(id);
+  };
+  for (const plugin of active) for (const kind of outputs.get(plugin)!.keys()) if (selected.has(kind)) visitUnit(plugin, kind);
   return {
+    unitPredecessors,
     order: active,
     outputs,
     refinements,

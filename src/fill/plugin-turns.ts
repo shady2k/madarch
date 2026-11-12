@@ -53,11 +53,9 @@ export interface PluginTurnWiring {
   /**
    * The kinds this fill was asked for (decision 0035, items 11 and 31; madarch-stm0.6): their turns only, in this
    * dependency order, and with a vertex, the one entity of that kind's unit whose answer is published. Absent, the
-   * fill takes every kind the manifest binds a plugin to, as a whole fill does.
+   * fill takes every kind an enabled plugin declares it produces.
    */
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
-  /** Whether every plugin turn of this run has published; absent, a whole-graph turn is planned at once. */
-  readonly wholeGraphReady?: () => Promise<boolean>;
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
   /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
@@ -76,17 +74,14 @@ export interface PluginTurnWiring {
   };
 }
 
-/** One unit of a plugin's turn: the plugin and the kind whose documents it reads, or the whole graph. */
+/** One unit of a plugin's turn: its selected output kind and declared producer. */
 export interface PluginTurnUnit {
   readonly id: string;
   readonly plugin: PluginDecl;
-  /** The kind whose documents the unit reads; absent for a plugin that reads the whole graph. */
-  readonly kind?: KindDecl;
+  readonly kind: KindDecl;
   readonly lock: PluginLockEntry;
   /** The document patterns the plugin's kinds name; the plugin also knows its own contract's patterns. */
   readonly patterns: readonly string[];
-  /** Whether this unit reads the whole graph once, after every other plugin turn. */
-  readonly wholeGraph: boolean;
 }
 
 /** Whether a plugin declares output for a kind, regardless of its implementation or bindings. */
@@ -109,19 +104,9 @@ export function pluginTurnUnitId(plugin: string, kind: string, vertex?: string):
   return `${plugin}:${kind}${vertex === undefined ? '' : `@${vertex}`}`;
 }
 
-/**
- * The units one fill's plugin turns plan: one per plugin, in the turn of the earliest kind it produces, so a plugin that
- * writes several kinds answers them in one read (decision 0035, item 11). A plugin the lock does not hold plans nothing.
- *
- * A plugin's turn is planned when one of its kinds' patterns names a document the graph holds, and also when the plugin
- * itself holds entities the graph still has (decision 0035, item 7): a complete answer retracts what the producer held
- * in every kind it produces and this answer does not state, so a declaration that narrowed a pattern — which committed
- * in the product repository, and so moved the unit's inputs — has its old facts taken out by the very turn that reads
- * the new declaration. Only a product that neither names a document of the plugin's kinds nor holds an entity the
- * plugin produced plans no unit, so a wiki-only product pays for no plugin read.
- */
+/** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
-  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
+  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
   const units: PluginTurnUnit[] = [];
   for (const name of plan.order) {
     const plugin = wiring.manifest.plugins!.get(name)!;
@@ -132,13 +117,9 @@ export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginT
     }
     const selected = outputKindsOf(wiring.manifest, plugin).filter((kind) => wiring.targets === undefined || wiring.targets.kinds.includes(kind.name));
     const patterns = [...new Set(selected.flatMap((kind) => kind.terms ?? []))];
-    for (const kind of selected) units.push({ id: pluginTurnUnitId(name, kind.name, wiring.targets?.vertex), plugin, kind, lock, patterns, wholeGraph: false });
+    for (const kind of selected) units.push({ id: pluginTurnUnitId(name, kind.name, wiring.targets?.vertex), plugin, kind, lock, patterns });
   }
   return units;
-}
-
-export async function planWholeGraphTurns(_wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
-  return [];
 }
 
 /**
@@ -165,14 +146,10 @@ function evidenceDeclarations(manifest: KindsManifest): EvidenceDeclaration[] {
 /** The unit a worker re-derives from its id, against the manifest it reads itself. */
 function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
   const cut = id.indexOf(':');
-  if (cut < 0) throw new Error(`src/fill/plugin-turns.ts:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind> or <plugin>:whole-graph@<digest>`);
+  if (cut < 0) throw new Error(`src/fill/plugin-turns.ts:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind>`);
   const rest = id.slice(cut + 1);
   const plugin = wiring.manifest.plugins?.get(id.slice(0, cut));
   const lock = plugin === undefined ? undefined : wiring.locks.get(plugin.id);
-  if (plugin !== undefined && lock !== undefined && rest.startsWith('whole-graph@')) {
-    if (plugin.contract?.reads !== 'whole-graph') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${JSON.stringify(id)} names a whole-graph turn, and the plugin ${plugin.id} reads one unit at a time`);
-    return { id, plugin, lock, patterns: [], wholeGraph: true };
-  }
   const at = rest.indexOf('@');
   const kindName = at < 0 ? rest : rest.slice(0, at);
   const kind = wiring.manifest.kinds.get(kindName);
@@ -180,7 +157,7 @@ function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
   if (kind === undefined || plugin === undefined || lock === undefined || !fills(plugin, kind)) {
     throw new Error(`src/fill/plugin-turns.ts:1: the unit ${JSON.stringify(id)} names a plugin or a kind the manifest no longer declares, or a plugin the lock no longer holds`);
   }
-  return { id, plugin, kind, lock, patterns, wholeGraph: false };
+  return { id, plugin, kind, lock, patterns };
 }
 
 /** One evidence of a plugin's answer as the graph's writer states it: `commitOrDigest` is the commit or digest. */
@@ -248,7 +225,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
     unit: unit.id,
     plugin: unit.plugin.id,
     pluginVersion: unit.lock.version,
-    kind: unit.kind?.name ?? 'whole-graph',
+    kind: unit.kind.name,
     ...(unit.plugin.bounds === undefined ? {} : { bounds: unit.plugin.bounds }),
     ...(usage.budget === undefined ? {} : { budget: usage.budget }),
     save: usage.save,
@@ -306,22 +283,19 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         kinds: [unit.kind], kind: unit.kind,
         files: (await graphFiles(wiring.owner, wiring.contract)).map((file) => ({ path: `${file.repository}/${file.path}`, repository: file.repository, filePath: file.path })),
       };
-      const outcome = await session.runUnit(unit.wholeGraph
-        ? { unitId: id, kind: 'whole-graph', key: {}, inputs: { wholeGraph: true } }
-        : { unitId: id, kind: unit.kind!.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: agentInputs ?? { pattern: unit.patterns[0] ?? '', patterns: [...unit.patterns] } });
+      const outcome = await session.runUnit({ unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: agentInputs ?? { pattern: unit.patterns[0] ?? '', patterns: [...unit.patterns] } });
       if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
       const only = wiring.targets?.vertex;
-      // A whole-graph plugin answers every kind its contract declares in one turn, so its whole answer is drafted and
-      // compared; a unit turn drafts the kinds the fill asked for (madarch-stm0.7.1; madarch-47vw.3 item 3).
-      const selectedKinds = new Set([unit.kind!.name]);
+      // Publish this kind's unit; other declared results belong to their own units.
+      const selectedKinds = new Set([unit.kind.name]);
       if (only !== undefined && !outcome.result.vertices.some((vertex) => entityIdOf(wiring, vertex.kind, vertex.key) === only)) {
         throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered no entity ${JSON.stringify(only)} in the unit ${unit.id}: the plugin states no such value at the commit this fill read, and nothing was rewritten`);
       }
-      const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
+      const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
       const answered = new Map<string, Set<string>>();
       for (const vertex of outcome.result.vertices) {
-        if (!vertexKinds.has(vertex.kind)) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind?.name ?? 'whole-graph')}, and its contract declares ${[...vertexKinds].join(', ') || 'none'}`);
+        if (!vertexKinds.has(vertex.kind)) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}, and its contract declares ${[...vertexKinds].join(', ') || 'none'}`);
         if (!selectedKinds.has(vertex.kind) || (only !== undefined && entityIdOf(wiring, vertex.kind, vertex.key) !== only)) continue;
         const allowed = declarationPlan.outputs.get(unit.plugin.id)?.get(vertex.kind) ?? [];
         for (const field of Object.keys(vertex.values ?? {})) if (!allowed.includes(field)) {
@@ -360,14 +334,11 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       // The unit's entry names its author and, under the debug setting, every request it made — its refusals, its
       // failures and any the unit abandoned included, each with its answer's size and its cause's class, never an
       // argument or a text. It is a draft like the rest, so it lands in the publication's own transaction.
-      draft.write({ kind: 'journal', evidence: unit.kind?.name ?? 'whole-graph', value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
+      draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
       journaled = true;
       if (outcome.result.end.state === 'complete' && only === undefined) {
-        // A unit's complete answer retracts the entities its producer held and this answer does not state. A whole-graph
-        // plugin states every kind its contract declares, so each is compared; a unit turn states the kinds the fill asked for.
-        const removalKinds = (unit.wholeGraph
-          ? [...new Set((unit.plugin.contract?.vertices ?? []).map((vertex) => vertex.kind))].filter((kind) => wiring.manifest.kinds.has(kind))
-          : [...vertexKinds].filter((kind) => selectedKinds.has(kind))).sort(byCodePoint);
+        // A complete unit retracts only this producer's missing entities of its selected kind.
+        const removalKinds = [...vertexKinds].filter((kind) => selectedKinds.has(kind)).sort(byCodePoint);
         for (const kind of removalKinds) {
           const held = answered.get(kind) ?? new Set<string>();
           for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
@@ -409,18 +380,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
 
 /** The fill stage of the plugin turns: the units are the manifest's, the work is each plugin's own. */
 export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
-  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
-  const scheduledKinds = new Map([...(wiring.manifest.plugins?.values() ?? [])].map((plugin) => [plugin.id, outputKindsOf(wiring.manifest, plugin).filter((kind) => wiring.targets === undefined || wiring.targets.kinds.includes(kind.name))]));
+  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
   return {
     id: PLUGIN_TURN_STAGE_ID,
     version: 5,
     unitScheduling(id) {
       const unit = unitOf(wiring, id);
       const plan = declarationPlan;
-      const selected = (plugin: PluginDecl) => scheduledKinds.get(plugin.id) ?? [];
-      const after = (plan.predecessors.get(unit.plugin.id) ?? []).flatMap((name) => selected(wiring.manifest.plugins!.get(name)!).map((kind) => pluginTurnUnitId(name, kind.name, wiring.targets?.vertex)));
-      // Units of one producer are ordered by the kinds' declared prerequisites as well.
-      for (const kind of selected(unit.plugin)) if (unit.kind?.derivesFrom?.includes(kind.name)) after.push(pluginTurnUnitId(unit.plugin.id, kind.name, wiring.targets?.vertex));
+      const after = plan.unitPredecessors(unit.plugin.id, unit.kind.name).map((dependency) => pluginTurnUnitId(dependency.plugin, dependency.kind, wiring.targets?.vertex));
       return { after, group: unit.plugin.id, concurrency: plan.concurrency.get(unit.plugin.id) ?? 1 };
     },
     consumes: { required: [], optional: [] },
@@ -432,35 +399,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       const holdsKinds = pluginKindsOf(wiring.manifest).length > 0;
       const units = await planPluginTurns(wiring);
       if (units.length === 0) return { units: [], ...(holdsKinds ? { coverage: 'nothing-found' as const } : {}) };
-      return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind?.name ?? 'whole-graph' })), coverage: 'planned' };
-    },
-    async execute(unit, context) {
-      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal);
-      return { outcome: 'draft' };
-    },
-    validate: () => ({ ok: true }),
-  };
-}
-
-/**
- * The whole-graph turn (madarch-stm0.7.1, piece 3): a plugin whose contract reads the whole graph is planned here, in a
- * stage of its own after every plugin turn, and only once the run's plugin turns have all published. Its plan reads the
- * digest of what the graph holds then, not the digest a plan made before those turns could have known.
- */
-export function createWholeGraphTurnStage(wiring: PluginTurnWiring): FillStage {
-  return {
-    id: WHOLE_GRAPH_STAGE_ID,
-    version: 1,
-    consumes: { required: [{ capability: 'plugin-claim', scope: 'product' }], optional: [] },
-    produces: [{ kind: 'plugin-claim', schemaVersion: 1, scope: 'product' }],
-    after: ['plugin-turns'],
-    configSchema: Type.Object({}),
-    defaults: { ...DEFAULT_STAGE_DEFAULTS, enabled: true, concurrency: 1, config: {} },
-    async plan(): Promise<{ units: { id: string; scope: string }[]; coverage?: 'planned' | 'nothing-found' }> {
-      const holds = false;
-      const units = await planWholeGraphTurns(wiring);
-      if (units.length === 0) return { units: [], ...(holds ? { coverage: 'nothing-found' as const } : {}) };
-      return { units: units.map((unit) => ({ id: unit.id, scope: 'whole-graph' })), coverage: 'planned' };
+      return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind.name })), coverage: 'planned' };
     },
     async execute(unit, context) {
       await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal);
@@ -472,5 +411,3 @@ export function createWholeGraphTurnStage(wiring: PluginTurnWiring): FillStage {
 
 /** The stage's id, as a workflow may name it. */
 export const PLUGIN_TURN_STAGE_ID = 'plugin-turns';
-/** The whole-graph turn's stage id. */
-export const WHOLE_GRAPH_STAGE_ID = 'whole-graph-turns';

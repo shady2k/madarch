@@ -11,14 +11,6 @@
     {
       "kind": "probe.finding",
       "fields": "*"
-    },
-    {
-      "kind": "probe.opinion",
-      "fields": "*"
-    },
-    {
-      "kind": "probe.keyed",
-      "fields": "*"
     }
   ],
   "reads": []
