@@ -57,6 +57,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   const snapshot = reads.storesOnly ? [] : (reads.processes ?? processes)();
   if (snapshot === undefined) return false;
   const tree = reads.storesOnly ? [] : applicationProcessTree(state.pid, snapshot);
+  if (!reads.processes && !reads.storesOnly) console.error(`Windows stop process tree: ${JSON.stringify(snapshot.filter((row) => tree.includes(row.pid) || tree.includes(row.parent)))}`);
   const root = knowledgeRootOf(state.home);
   let folders: string[] = [];
   try { folders = readdirSync(root).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }

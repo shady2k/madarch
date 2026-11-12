@@ -4,6 +4,8 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { stopWindowsDaemon } from '../src/product/windows-daemon-stop.js';
+import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 
 interface Options { binary: string; os: string; arch: string }
 function args(argv: string[]): Options {
@@ -58,8 +60,8 @@ async function removeWork(): Promise<void> {
   if (stopped !== 0) throw new Error(`could not stop the walk's server before removing ${work} (exit ${stopped})`);
   // The product's own store server is a process of its own, and it outlives the daemon that started it: the walk's
   // scratch folder is named in its command line, so a walk stops what still names the folder before the folder goes
-  // (measured: a `postgres -D <scratch>/…/pgdata` left after `madarch stop`). Windows has no `pkill`; there the runner
-  // tears the processes down with the job.
+  // (measured: a `postgres -D <scratch>/…/pgdata` left after `madarch stop`). The Windows foreground
+  // tree and its clusters have already been explicitly stopped and awaited by finish().
   if (process.platform !== 'win32') spawnSync('pkill', ['-f', work], { stdio: 'ignore' });
   await new Promise((done) => setTimeout(done, 500));
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -213,16 +215,24 @@ async function serveCheck(): Promise<void> {
   if (product === '') throw new Error('the walk read no product folder from the facts madarch new printed');
   // `serve` is still the foreground command: it serves until it is ended.
   const server = spawn(npx, shellParameters([...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open']), { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
-  const finish = (process_: ReturnType<typeof spawn>) => {
-    if (process_.pid === undefined) return;
-    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(process_.pid), '/T', '/F'], { stdio: 'ignore' });
-    else { try { process.kill(-process_.pid, 'SIGTERM'); } catch { /* already stopped */ } }
-  };
+  // Capture close before signaling: taskkill's exit is not proof that inherited handles or PostgreSQL are gone.
+  const closed = new Promise<void>((done, reject) => { server.once('close', () => done()); server.once('error', reject); });
+  let finishing: Promise<void> | undefined;
+  const finish = (): Promise<void> => finishing ??= (async () => {
+    if (server.pid !== undefined) {
+      if (process.platform === 'win32') {
+        // This foreground serve is the walk's child, not the daemon named in the home's state file.
+        // Sweep its stores too: force-killing the npm shell alone leaves PostgreSQL holding scratch files.
+        if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
+      } else { try { process.kill(-server.pid, 'SIGTERM'); } catch { /* already stopped */ } }
+    }
+    await closed;
+  })();
   let serveOut = '';
   let serveErr = '';
   server.stdout.setEncoding('utf8').on('data', (part: string) => { serveOut += part; });
   server.stderr.setEncoding('utf8').on('data', (part: string) => { serveErr += part; });
-  const serveTimeout = setTimeout(() => finish(server), 90_000);
+  const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 90_000);
   try {
     // The address is the one the command prints once it stands.
     let address: string | undefined;
@@ -235,7 +245,7 @@ async function serveCheck(): Promise<void> {
     if (address === undefined) throw new Error(`npx madarch serve printed no address for the product it serves. stdout: ${serveOut}; stderr: ${serveErr}`);
     const base = address.startsWith('http') && address.endsWith('/') ? address : `${address.replace(/\/$/, '')}/`;
     if (!await waitForProduct(base)) throw new Error(`npx madarch serve did not reopen the graph-backed product at ${base}. stdout: ${serveOut}; stderr: ${serveErr}`);
-  } finally { clearTimeout(serveTimeout); finish(server); }
+  } finally { clearTimeout(serveTimeout); await finish(); }
   console.log(`$ npx madarch serve --product ${product} --port 0 --no-open  (the foreground serve names its own free port)`);
   console.log(`walk passed (plugin-free store fixture, Fill completed): npx madarch new --home ${home} served ${product} on the port the walk named, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
   await removeWork();
