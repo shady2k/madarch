@@ -397,8 +397,10 @@ export type KindUsageView = {
 
 export type FillRunView = {
   runId: string;
+  state: string;
+  selection?: { kinds: readonly string[]; vertex?: string } | null;
   startedAt: string;
-  finishedAt: string;
+  finishedAt?: string;
   wallMs: number;
   spans: number;
   slowest: { name: string; count: number; selfMs: number }[];

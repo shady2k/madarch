@@ -23,6 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { requestStorePreparation, requestStoreReset } from '../product/store-preparation.js';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
+import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
 import { byCodePoint } from '../model/order.js';
 import { documentSections } from './anchors.js';
@@ -34,8 +35,8 @@ import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
-import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
-import { hasSuccessfulFill, readLiveRun, readStoreStamp } from '../fill/state-store.js';
+import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
@@ -43,7 +44,7 @@ import { withHistoryLinks, type HistoryContext, type HistorySelection } from './
 import { graphMarkdownEntities, pageOpinionKinds, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
-import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
+import { agentUsageOf, readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
@@ -257,6 +258,7 @@ export class KnowledgeProduct {
   /** The store's own stamp when this process last read it: a publication moves it, whoever ran the fill. */
   private storeStamp: string | undefined;
   private opening: Promise<void> | undefined;
+  private storeOpening: Promise<DatabaseOwner | null> | undefined;
   /** The store's fill-run queue, opened with the store and closed with it (madarch-8bdc.9). */
   private fillQueue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   private fill: FillState = { state: 'idle' };
@@ -384,6 +386,30 @@ export class KnowledgeProduct {
   }
 
 
+  /** Connects to the prepared store without reading or publishing the catalogue. */
+  private async openStore(): Promise<DatabaseOwner>;
+  private async openStore(preparedOnly: true): Promise<DatabaseOwner | null>;
+  private async openStore(preparedOnly = false): Promise<DatabaseOwner | null> {
+    if (this.closed) throw new Error('the wiki is shutting down');
+    this.lastUse = Date.now();
+    this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
+    this.storeOpening ??= preparedOnly
+      ? openPreparedDatabaseOwner(storeDatabasePath(this.storeFolder()), ['fill-state', 'orchestrator'])
+      : createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
+    const opening = this.storeOpening;
+    try {
+      const owner = await opening;
+      if (owner === null) {
+        if (this.storeOpening === opening) this.storeOpening = undefined;
+        if (!preparedOnly) return await this.openStore();
+      }
+      return owner;
+    } catch (error) {
+      if (this.storeOpening === opening) this.storeOpening = undefined;
+      throw error;
+    }
+  }
+
   /**
    * Opens the store once, in this process (madarch-8bdc.9): the wiki reads the database the fill writes, directly. A store
    * with no tables at all (an empty folder the home made, or an earlier madarch's) is given them here, as the fill's own
@@ -396,7 +422,6 @@ export class KnowledgeProduct {
     if (publication?.status === 'pending') throw new WikiReadError('The catalogue is being published. Please wait.');
     if (publication?.status === 'failed') throw new WikiReadError(`The catalogue could not be published: ${publication.message}`);
     this.lastUse = Date.now();
-    this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
       // Managed readers use only what the daemon published, not a second read of the checkout.
       const manifests = publication === undefined ? validateProductManifests(this.folder) : undefined;
@@ -405,7 +430,7 @@ export class KnowledgeProduct {
         const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
         await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
       }
-      const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
+      const owner = await this.openStore();
       try {
         await owner.ready;
         if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
@@ -416,6 +441,7 @@ export class KnowledgeProduct {
       } catch (error) {
         // An owner that failed to open is given back: a retry must not leave a connection behind per request.
         await owner.close().catch(() => undefined);
+        this.storeOpening = undefined;
         throw error;
       }
       this.reader = { owner, seq: this.generation };
@@ -571,10 +597,10 @@ export class KnowledgeProduct {
 
   /** Gives back the reader of a product nobody is reading, unless a fill is under way. */
   private async closeIfIdle(): Promise<void> {
-    if (this.closed || this.running !== undefined || this.reader === undefined || Date.now() - this.lastUse < READER_IDLE_MS) return;
-    const held = this.reader;
+    if (this.closed || this.running !== undefined || this.storeOpening === undefined || Date.now() - this.lastUse < READER_IDLE_MS) return;
+    const held = this.storeOpening;
     await this.swapping.catch(() => undefined);
-    if (this.reader !== held) return;
+    if (this.storeOpening !== held) return;
     this.reader = undefined;
     this.opening = undefined;
     // The store's fill-run queue is opened on this reader's owner and asks it for statements on pg-boss's own
@@ -582,7 +608,8 @@ export class KnowledgeProduct {
     const queue = this.fillQueue;
     this.fillQueue = undefined;
     if (queue !== undefined) await queue.stop().catch(() => undefined);
-    await held.owner.close().catch(() => undefined);
+    this.storeOpening = undefined;
+    await held.then((owner) => owner?.close()).catch(() => undefined);
   }
 
   /**
@@ -1611,7 +1638,8 @@ export class KnowledgeProduct {
         const held = this.fillQueue;
         this.fillQueue = undefined;
         if (held !== undefined) await held.stop();
-        await this.reader?.owner.close();
+        await this.storeOpening?.then((owner) => owner?.close());
+        this.storeOpening = undefined;
         this.reader = undefined;
         this.opening = undefined;
         await requestStoreReset(storeDatabasePath(this.storeFolder()), contract);
@@ -1623,7 +1651,6 @@ export class KnowledgeProduct {
       this.generation += 1;
       this.storeStamp = undefined;
       this.statusMemo = undefined;
-      this.runViewMemo = undefined;
       this.filesMemo = undefined;
       this.manifestMemo = undefined;
       this.storeOf = undefined;
@@ -1842,7 +1869,7 @@ export class KnowledgeProduct {
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
     });
     return {
-      ctx: { productFolder: product.folder, productName: product.name, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run) === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, problemCount: () => this.problemsCache?.listing.open, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, productName: product.name, manifest: read.manifest, graph, markdown, language, ...((this.fill.run ?? this.fillExtras.run)?.finishedAt === undefined ? {} : { fillRun: { finishedAt: (this.fill.run ?? this.fillExtras.run)!.finishedAt!, wallMs: (this.fill.run ?? this.fillExtras.run)!.wallMs } }), ...(this.fill.unread === undefined ? {} : { unreadRepositories: this.fill.unread }), repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], ownRepository: productRepositoryId(product), webOf, historyEvidence: (scope) => graph.historyEvidence(scope), ...(after === undefined || after === '' ? {} : { pageAfter: after }), ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, problemCount: () => this.problemsCache?.listing.open, resolver, repoOfScope, readSource },
 
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...emptyRepositories],
@@ -1901,7 +1928,9 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     const publication = manifestPublicationState(this.folder);
     if (publication !== undefined && publication.status !== 'published') {
-      return { ...await this.unpublishedStatus(product), publication: publication.status === 'failed' ? 'failed' : 'pending', ...(publication.status === 'failed' ? { publicationMessage: publication.message } : {}) };
+      const body = await this.unpublishedStatus(product);
+      const run = await this.runViewOf();
+      return { ...body, fill: { ...body.fill, ...(run === null ? {} : { run }) }, publication: publication.status === 'failed' ? 'failed' : 'pending', ...(publication.status === 'failed' ? { publicationMessage: publication.message } : {}) };
     }
     // Establish an existing cold store's publication before capturing the body's memo key.
     // An unfilled product still opens no store merely to answer a poll.
@@ -2036,12 +2065,15 @@ export class KnowledgeProduct {
    * cache has replaced — while a fill holds the collection back, the answer is pending (madarch-u3vw.8).
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined, followed = false): Promise<WikiStatus> {
+    // Resolve the persisted run outside the best-effort graph refresh: a failed store read is not "never ran".
+    const run = await this.runViewOf();
+    let live: WikiStatus;
     try {
-      return { ...await this.statusLiveNow(body, ctx, followed), publication: 'done' };
+      live = await this.statusLiveNow(body, ctx, followed);
     } catch {
-      // The store could not be read for this answer: the fill state is this process's own and is answered regardless.
-      return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent(), publication: 'done' };
+      live = { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
     }
+    return { ...live, fill: { ...live.fill, ...(run === null ? {} : { run }) }, publication: 'done' };
   }
 
   /**
@@ -2185,10 +2217,8 @@ export class KnowledgeProduct {
     const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
     if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
-    const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
-      ...(run === null ? {} : { run }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
     const filled = await hasSuccessfulFill(await this.open());
@@ -2253,48 +2283,45 @@ export class KnowledgeProduct {
 
   private readonly traceReader = new TraceSpanReader();
 
-  /** The newest run's trace as the run page states it, or null when the store holds no trace. */
-  private runViewMemo: { key: string; view: FillRunView | null } | undefined;
+  private traceSummaryMemo: { key: string; value: ReturnType<typeof readTraceRunSummary> } | undefined;
 
-  private runViewOf(runId?: string): FillRunView | null {
-    // A server trace is the api role's own request log, not the fill the status states: read the newest fill/update
-    // trace unless a caller names a run.
-    const candidates = traceFiles(this.storeFolder()).filter((one) => !one.runId.startsWith('server-'));
-    const chosenEntry = runId === undefined
-      ? candidates.sort((left, right) => {
-        const leftSize = (() => { try { return statSync(left.file).size; } catch { return 0; } })();
-        const rightSize = (() => { try { return statSync(right.file).size; } catch { return 0; } })();
-        return rightSize - leftSize || right.modifiedAt - left.modifiedAt;
-      })[0]
-      : candidates.find((one) => one.runId === runId);
-    const chosen = chosenEntry?.runId;
-    // The trace's size is its generation while a fill is still writing: a status answer made from a partial trace is
-    // not kept once the trace has grown.
-    const traceSize = (() => { try { return chosenEntry === undefined ? 0 : statSync(chosenEntry.file).size; } catch { return 0; } })();
-    const key = `${chosen ?? ''}|${this.fillRunId ?? ''}|${traceSize}`;
-    if (this.runViewMemo?.key === key) return this.runViewMemo.view;
-    if (chosen === undefined) return null;
-    try {
-      const run = readTraceRunSummary({ store: this.storeFolder(), runId: chosen }, this.traceReader);
-      const view: FillRunView = {
-        runId: run.runId,
-        startedAt: new Date(run.startedAtMs).toISOString(),
-        finishedAt: new Date(run.endedAtMs).toISOString(),
-        wallMs: run.report.wallMs,
-        spans: run.report.spanCount,
-        slowest: run.report.names.slice(0, 5).map((name) => ({ name: name.name, count: name.count, selfMs: name.selfMs })),
-        steps: run.steps.map((step) => ({
-          step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
-          slowest: step.slowest,
-        })),
-        agentUsage: run.report.agentUsage,
-      };
-      this.runViewMemo = { key, view };
-      return view;
-    } catch {
-      // A store whose fill never ran holds no trace: nothing is made up for it.
-      return null;
+  /** The persisted run is authoritative; its trace only supplies metrics. */
+  private async runViewOf(runId?: string): Promise<FillRunView | null> {
+    if (!existsSync(storeDatabasePath(this.storeFolder()))) return null;
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const publication = manifestPublicationState(this.folder);
+    const preparing = publication !== undefined && publication.status !== 'published';
+    const owner = preparing ? await this.openStore(true) : await this.openStore();
+    if (owner === null) return null;
+    const record = runId === undefined ? await readLatestRun(owner, product.name) : await readRun(owner, runId);
+    if (record === null || record.product !== product.name) return null;
+    const configuration = await readRunConfiguration(owner, record.runId);
+    const chosenEntry = traceFiles(this.storeFolder()).find((one) => one.runId === record.runId);
+    let run: ReturnType<typeof readTraceRunSummary> | undefined;
+    if (chosenEntry !== undefined) {
+      const stat = statSync(chosenEntry.file);
+      const key = `${chosenEntry.file}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+      if (this.traceSummaryMemo?.key !== key) {
+        this.traceSummaryMemo = { key, value: readTraceRunSummary({ store: this.storeFolder(), runId: record.runId }, this.traceReader) };
+      }
+      run = this.traceSummaryMemo.value;
     }
+    return {
+      runId: record.runId,
+      state: record.state,
+      ...(configuration === null ? {} : { selection: configuration.snapshot.targets ?? null }),
+      startedAt: new Date(record.createdAt).toISOString(),
+      ...(['succeeded', 'completed_partial', 'cancelled', 'blocked', 'failed'].includes(record.state) ? { finishedAt: new Date(record.updatedAt).toISOString() } : {}),
+      wallMs: run?.report.wallMs ?? record.updatedAt - record.createdAt,
+      spans: run?.report.spanCount ?? 0,
+      slowest: run?.report.names.slice(0, 5).map((name) => ({ name: name.name, count: name.count, selfMs: name.selfMs })) ?? [],
+      steps: run?.steps.map((step) => ({
+        step: step.step, wallMs: step.wallMs, peakRssBytes: step.peakRssBytes, startRssBytes: step.startRssBytes,
+        slowest: step.slowest,
+      })) ?? [],
+      agentUsage: run?.report.agentUsage ?? agentUsageOf([]),
+    };
   }
 
   /**
@@ -3198,7 +3225,8 @@ export class KnowledgeProduct {
     this.listeners.clear();
     await this.fillQueue?.stop().catch(() => undefined);
     this.fillQueue = undefined;
-    if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
+    await this.storeOpening?.then((owner) => owner?.close()).catch(() => undefined);
+    this.storeOpening = undefined;
     this.reader = undefined;
     this.opening = undefined;
   }
