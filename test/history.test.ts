@@ -419,21 +419,28 @@ describe('lossless: what is stored reads back as compiled', () => {
   test('the union read carries entities and scenarios beside the seven kinds, sorted by id', async () => {
     const clock = fakeClock(DAY(2));
     const h = await history(clock);
-    await h.store({
-      source: 'shop',
-      commit: 'c1',
-      committedAt: DAY(1),
-      model: model(
-        [element('a')],
-        [relation('r1', 'a', 'a')],
-        { entities: [entity('z-entity'), entity('a-entity')], scenarios: [scenario('z-scenario', { steps: [{ id: 's1', relation: 'r1' }] }), scenario('a-scenario')] },
-      ),
-    });
+    const ids = ['z', 'ä', 'a', 'A', '😀'];
+    const stored = model(
+      [element('a')],
+      [relation('r1', 'a', 'a')],
+      {
+        entities: ids.map((id) => entity(`${id}-entity`, { name: `${id} entity` })),
+        scenarios: ids.map((id) => scenario(`${id}-scenario`, { steps: [{ id: 's1', relation: 'r1' }], requirements: [`${id}/requirement`] })),
+      },
+    );
+    const result = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: stored });
+    expect(result.errors).toEqual([]);
 
     const union = await readModel(h, { valid: DAY(1), known: DAY(2) });
-    expect(union.entities.map((e) => e.id)).toEqual(['a-entity', 'z-entity']);
-    expect(union.scenarios.map((s) => s.id)).toEqual(['a-scenario', 'z-scenario']);
-    // The compiled model's own key order is fixed (`history-assertions.ts`), so JSON is its canonical bytes.
+    const sortedIds = ['A', 'a', 'z', 'ä', '😀'];
+    expect(union.entities.map((e) => e.id)).toEqual(sortedIds.map((id) => `${id}-entity`));
+    expect(union.scenarios.map((s) => s.id)).toEqual(sortedIds.map((id) => `${id}-scenario`));
+    const expected = model(stored.elements, stored.relations, {
+      entities: sortedIds.map((id) => entity(`${id}-entity`, { name: `${id} entity` })),
+      scenarios: sortedIds.map((id) => scenario(`${id}-scenario`, { steps: [{ id: 's1', relation: 'r1' }], requirements: [`${id}/requirement`] })),
+    });
+    // Compare complete bytes, including nested content, not only the ids or two readers that could lose the same data.
+    expect(JSON.stringify(union)).toBe(JSON.stringify(expected));
     expect(JSON.stringify(union)).toBe(JSON.stringify(await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) })));
   });
 
