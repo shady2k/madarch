@@ -1,5 +1,5 @@
 /** Git byte transport used by the repository metadata stages. */
-const raise = (message: string): never => { throw new Error(message); };
+function raise(message: string): never { throw new Error(message); }
 
 /** The most bytes of git's standard error one failure may name; the rest is cut and said to be cut. */
 const GIT_ERROR_BYTES = 4_000;
@@ -11,11 +11,10 @@ const GIT_ERROR_BYTES = 4_000;
  * answered; it never holds those bytes.
  */
 export async function gitStream(root: string, args: readonly string[], onChunk: (chunk: Uint8Array) => void, options: { readonly input?: string } = {}): Promise<number> {
-    const executable = process.env['MADARCH_TOOL_GIT'];
-    if (executable === undefined) raise('the declared pinned git tool is unavailable');
-    let process_: ReturnType<typeof Bun.spawn>;
+    const executable = process.env['MADARCH_TOOL_GIT'] ?? raise('the declared pinned git tool is unavailable');
+    const process_ = (() => {
     try {
-      process_ = Bun.spawn([executable, ...args], {
+      return Bun.spawn([executable, ...args], {
         cwd: root,
         stdin: options.input === undefined ? 'ignore' : new TextEncoder().encode(options.input),
         stdout: 'pipe',
@@ -25,6 +24,7 @@ export async function gitStream(root: string, args: readonly string[], onChunk: 
     } catch (error) {
       raise(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)}`);
     }
+    })();
     const errors: Uint8Array[] = [];
     const drained = (async () => { for await (const chunk of process_.stderr as ReadableStream<Uint8Array>) errors.push(chunk); })();
     let bytes = 0;
