@@ -35,6 +35,16 @@ import { readProduct } from '../product/manifest.js';
  * the chain has no transition from what the chain stands in — the same thing read one step later, which is how the
  * reader used to meet `fill-chain/no-transition`. A fill of this product runs one at a time (decision 0027).
  */
+/** Settle only a request that failed before its host began; never overwrite an existing active or terminal run. */
+export async function failRequestedFill(database: import('../fill/state-store.js').FillStateDatabase, runId: string, message: string): Promise<boolean> {
+  const run = await readRun(database, runId);
+  if (run?.state !== 'created') return false;
+  const failed = await advanceRun(database, { runId, expectedState: 'created', event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
+  if (!failed.ok) return false;
+  await writeFillEnd(database, { runId, state: 'failed', message });
+  return true;
+}
+
 const ALREADY_RUNNING = ['fill-orchestrator/chain-active', 'fill-orchestrator/chain-held'];
 
 /** Whether one refusal means a fill of this product is already running. */
@@ -261,7 +271,12 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
             },
           }),
         });
-        if (!result.ok) return { ok: false, state: 'failed', refused: true, message: await refusalWords(owner, options.productFolder, result), units: 0 };
+        if (!result.ok) {
+          const message = await refusalWords(owner, options.productFolder, result);
+          await failRequestedFill(owner, options.runId, message);
+          recordEnd = false;
+          return { ok: false, state: 'failed', refused: true, message, units: 0 };
+        }
         if (!result.settled || result.state !== 'succeeded') {
           // The run's own durable events name why a unit did not publish: the stage's error, with the
           // file and line it was raised from, is what an engineer reads first (madarch-8bdc.2.5, item 2).
@@ -294,7 +309,9 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           const failed = await advanceRun(owner, { runId: options.runId, event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
           if (!failed.ok) throw new Error(failed.refusal.reason);
         } else if (service === undefined) {
-          // Initialization of a repeated request must not replace the existing run's end.
+          // A request is persisted before dispatch; an initialization failure must end that created row too.
+          // Repeated requests for a run already begun must not replace its existing end.
+          await failRequestedFill(owner, options.runId, message);
           recordEnd = false;
         }
         return { ok: false, state: 'failed', message, units: 0 };

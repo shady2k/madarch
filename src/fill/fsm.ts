@@ -453,7 +453,16 @@ export const RUN_STATES = [
 export type RunState = typeof RUN_STATES[number];
 
 /** What a run carries in the database besides its state name. */
+/** The original press and the resolved dependency order, kept with the run it requested. */
+export interface RunSelection {
+  readonly selected: readonly string[];
+  readonly order: readonly string[];
+  readonly vertex?: string;
+  readonly groups?: readonly { readonly kind: string; readonly group: string | null; readonly plugin: string; readonly stageUnitId: string }[];
+}
+
 export interface RunContext {
+  readonly selection?: RunSelection;
   /** How many times planning ran; a resume after a pause opens the next epoch. */
   readonly planningEpoch: number;
   /** True once planning closed its epoch; completion needs it closed. */

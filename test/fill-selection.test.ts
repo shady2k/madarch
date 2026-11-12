@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { readFillEnd } from '../src/fill/orchestrator-store.js';
 import { readRunUnits } from '../src/fill/state-store.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { createDraft } from '../src/product/draft.js';
@@ -117,6 +118,10 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
   test('the fill page request fills exactly the selected kinds, with the kinds their dependencies add, and no agent', async () => {
     const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: null, tokenCap: null }) });
     expect(pressed.status).toBe(202);
+    expect(pressed.body.runId).toBeString();
+    const requested = await call(`/api/fill-runs?run=${encodeURIComponent(pressed.body.runId)}`);
+    expect(requested.status).toBe(200);
+    expect(requested.body.run).toMatchObject({ runId: pressed.body.runId, selected: ['doc.term'], order: pressed.body.order });
     // The order the engine runs them in: the kinds doc.term needs come first.
     expect(pressed.body.order).toEqual(['code.repository', 'code.directory', 'code.file', 'doc.term']);
     // The fill is the product's own: wait for its end, then read what it ran.
@@ -136,6 +141,16 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       expect(await reopened.runView()).toMatchObject({ state: 'succeeded', selection: latest.body.run.selection });
       expect((await reopened.status()).fill.run?.runId).toBe(latest.body.run.runId);
     } finally { await reopened.close(); }
+    const history = await call('/api/fill-runs');
+    expect(latest.body.run.runId).toBe(pressed.body.runId);
+    expect(history.body.runs.filter((run: { runId: string }) => run.runId === pressed.body.runId)).toHaveLength(1);
+    expect(history.body.runs[0]).toMatchObject({ runId: latest.body.run.runId, state: 'succeeded', remainingMs: 0, selected: ['doc.term'], order: pressed.body.order });
+    const detail = await call(`/api/fill-runs?run=${encodeURIComponent(latest.body.run.runId)}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.run).toMatchObject({ runId: latest.body.run.runId, state: latest.body.run.state, selected: ['doc.term'], order: latest.body.run.selection.kinds, summary: latest.body.run });
+    const refusedHistoricalPause = await call(`/api/pause?run=${encodeURIComponent(pressed.body.runId)}`, { method: 'POST' });
+    expect(refusedHistoricalPause.status).toBe(409);
+
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
     try {
       const rows = await owner.run(async (tx) => await tx.query<{ run_id: string }>('SELECT run_id FROM fill_unit_generation ORDER BY updated_at DESC LIMIT 1'));
@@ -170,6 +185,10 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       await recordRunConfiguration(newerOwner, { runId: 'newer-without-trace', digest: 'fixture', at: Date.now(), snapshot: { repository: folder, defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture', targets: { kinds: ['doc.term'], vertex: 'named-term' } } });
       const newest = await call('/api/run');
       expect(newest.body.run).toMatchObject({ runId: 'newer-without-trace', state: 'created', spans: 0, selection: { kinds: ['doc.term'], vertex: 'named-term' } });
+      const savedHistory = await call('/api/fill-runs');
+      expect(savedHistory.body.runs.filter((run: { runId: string }) => run.runId === 'newer-without-trace')).toHaveLength(1);
+      const savedDetail = await call('/api/fill-runs?run=newer-without-trace');
+      expect(savedDetail.body.run).toMatchObject({ runId: 'newer-without-trace', state: 'created', selected: null, order: ['doc.term'], vertex: 'named-term', summary: newest.body.run });
       const named = await call(`/api/run?run=${encodeURIComponent(latest.body.run.runId)}`);
       expect(named.body.run.runId).toBe(latest.body.run.runId);
       const newestStatus = await call('/api/status');
@@ -183,16 +202,44 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       expect(unrecorded.body.run).toMatchObject({ runId: 'failed-before-configuration', state: 'failed' });
       expect(unrecorded.body.run.selection).toBeUndefined();
 
-      // A warmed status must still read durable runs and refuse a real store fault, not reuse its last answer.
-      const reader = new (await import('../src/knowledge/product.js')).KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
-      try {
-        expect((await reader.status()).fill.run?.runId).toBe('failed-before-configuration');
-        await newerOwner.run(async (tx) => { await tx.query('DROP TABLE fill_run CASCADE'); });
-        await expect(reader.status()).rejects.toThrow('fill_run');
-        await expect(reader.runView()).rejects.toThrow('fill_run');
-      } finally { await reader.close(); }
     } finally { await newerOwner.close(); }
 
   }, 600_000);
+
+  test('a precreated native request fails durably when pinned workflow initialization fails', async () => {
+    const workflow = join(folder, 'madarch', 'workflows.yaml');
+    const previous = readFileSync(workflow, 'utf8');
+    writeFileSync(workflow, 'workflows: [broken\n');
+    execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(IDENTITY) });
+    execFileSync('git', ['commit', '--quiet', '-m', 'Broken workflow fixture'], { cwd: folder, env: gitEnv(IDENTITY) });
+    try {
+      const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'] }) });
+      expect(pressed.status).toBe(202);
+      const runId = pressed.body.runId as string;
+      let detail: any;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        detail = (await call(`/api/fill-runs?run=${encodeURIComponent(runId)}`)).body.run;
+        if (detail.state === 'failed') break;
+        await new Promise((rest) => setTimeout(rest, 250));
+      }
+      expect(detail).toMatchObject({ runId, state: 'failed', selected: ['doc.term'] });
+      const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
+      try { expect((await readFillEnd(owner, runId))?.state).toBe('failed'); } finally { await owner.close(); }
+      expect((await call('/api/status')).body.fill.state).toBe('failed');
+    } finally {
+      writeFileSync(workflow, previous);
+    }
+  }, 120_000);
+
+  test('a warmed status still reads durable runs and refuses a real store fault', async () => {
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
+    const reader = new (await import('../src/knowledge/product.js')).KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
+    try {
+      expect((await reader.status()).fill.run?.runId).toBeString();
+      await owner.run(async (tx) => { await tx.query('DROP TABLE fill_run CASCADE'); });
+      await expect(reader.status()).rejects.toThrow('fill_run');
+      await expect(reader.runView()).rejects.toThrow('fill_run');
+    } finally { await reader.close(); await owner.close(); }
+  }, 120_000);
 
 });

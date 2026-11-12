@@ -9,9 +9,9 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
-import { PlanList, ProblemsPage } from './loop.js';
+import { ProblemsPage } from './loop.js';
 import { addressOfEntity, addressOfKind, wikiRouteOf, WIKI_QUESTIONS } from './routes.js';
-import type { Problem, ProblemCategories, ProblemCategory, ProblemItems, ProblemSources, RefreshPlan } from './types.js';
+import type { Problem, ProblemCategories, ProblemCategory, ProblemItems, ProblemSources } from './types.js';
 
 type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
 
@@ -252,55 +252,6 @@ describe('the problems page', () => {
     expect(page.querySelector('[data-testid=problems-empty]')!.textContent).toBe('No problems. Every ground and link resolves and nobody has recorded a correction.');
   });
 });
-
-describe('the refresh plan', () => {
-  const plan = (over: Partial<RefreshPlan> = {}): RefreshPlan => ({
-    languageChanged: false,
-    pages: [
-      { id: 'domain:orders', path: 'docs/domains/orders.md', reasons: [{ kind: 'answer', question: 'q', title: 'Which discount does an order get?' }, { kind: 'ground-changed', statement: 'tax-at-checkout', ground: 'doc:README.md#tax' }] },
-      { id: 'product:shop', path: 'docs/product.md', reasons: [{ kind: 'new-service', services: ['code.service:shipping'] }, { kind: 'correction', correction: 'c', statement: 'product:shop#takes-orders' }] },
-    ],
-    unchanged: ['docs/domains/payments.md'], unplaced: [], problems: [], ...over,
-  });
-
-  test('lists the pages the agent will edit with why, and says how many stay as they are', async () => {
-    const list = into(createElement(PlanList, { plan: plan() }));
-    await until(() => list.querySelector('[data-testid=refresh-plan]') !== null, 'the plan');
-    expect(list.querySelector('[data-testid=plan-summary]')!.textContent).toBe('The agent will edit 2 pages: 1 page stays as it is and costs no agent run.');
-    expect([...list.querySelectorAll('[data-testid=plan-page]')].map((p) => p.getAttribute('data-path'))).toEqual(['docs/domains/orders.md', 'docs/product.md']);
-    expect([...list.querySelectorAll('[data-testid=plan-reason]')].map((r) => r.textContent)).toEqual([
-      'answer to «Which discount does an order get?»', 'doc:README.md#tax changed (statement tax-at-checkout)', 'new in the code and named by no page: code.service:shipping', 'corrected statement takes-orders',
-    ]);
-  });
-
-  test('nothing to do says nothing needs the agent; an answer that reaches no page and a file that could not be read are told', async () => {
-    const nothing = into(createElement(PlanList, { plan: plan({ pages: [], unchanged: ['docs/product.md'] }) }));
-    await until(() => nothing.querySelector('[data-testid=plan-nothing]') !== null, 'the empty plan');
-    expect(nothing.querySelector('[data-testid=plan-nothing]')!.textContent).toContain('Nothing needs the agent');
-    rendered?.unmount();
-    document.body.innerHTML = '';
-    const told = into(createElement(PlanList, { plan: plan({ unplaced: [{ kind: 'question', slug: 'lost', title: 'Lost one', reason: 'no page of the product is about code.service:nowhere' }], problems: ['docs/questions/broken.md:1: the file has no front matter'] }) }));
-    await until(() => told.querySelector('[data-testid=plan-unplaced]') !== null, 'the unplaced');
-    expect(told.querySelector('[data-testid=plan-unplaced]')!.textContent).toBe('Not placed: «Lost one». no page of the product is about code.service:nowhere');
-    expect(told.querySelector('[data-testid=plan-problem]')!.textContent).toBe('docs/questions/broken.md:1: the file has no front matter');
-  });
-
-  test('in Russian the counts take the Russian plural', async () => {
-    await setWikiLanguage('ru');
-    const many = plan({ pages: Array.from({ length: 5 }, (_, i) => ({ id: `domain:d${i}`, path: `docs/domains/d${i}.md`, reasons: [{ kind: 'language' as const, from: 'en', to: 'ru' }] })), unchanged: [] });
-    const list = into(createElement(PlanList, { plan: many }));
-    await until(() => list.querySelector('[data-testid=plan-summary]') !== null, 'the plan');
-    expect(list.querySelector('[data-testid=plan-summary]')!.textContent).toBe('Агент поправит 5 страниц:');
-    expect(list.querySelector('[data-testid=plan-reason]')!.textContent).toBe('перевести с en на ru, сохранив основания');
-    rendered?.unmount();
-    document.body.innerHTML = '';
-    const two = into(createElement(PlanList, { plan: plan() }));
-    await until(() => two.querySelector('[data-testid=plan-summary]') !== null, 'the plan');
-    expect(two.querySelector('[data-testid=plan-summary]')!.textContent).toBe('Агент поправит 2 страницы: 1 страница остаётся как есть и не стоит запуска агента.');
-  });
-
-  });
-
 
 describe('questions and tasks use ordinary graph routes', () => {
   test('entry links open the declared kind lists', () => {

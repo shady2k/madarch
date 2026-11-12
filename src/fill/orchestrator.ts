@@ -383,7 +383,7 @@ export function admissionOrder(
 
 /** Appends one durable progress event and hands it to the sink, in that order. */
 async function emit(
-  orchestrator: FillOrchestrator,
+  orchestrator: Pick<FillOrchestrator, 'database' | 'sink'>,
   event: { readonly runId: string; readonly at: number; readonly stage: string; readonly unitId: string; readonly generation: number | null; readonly kind: ProgressKind; readonly summary: string },
 ): Promise<void> {
   const stored = await appendProgress(orchestrator.database, {
@@ -2115,7 +2115,7 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
  * that waits for a retry whose moment has come counts as runnable: the next
  * sweep makes it so, and a run is not finished while it waits.
  */
-export async function runEvidence(orchestrator: FillOrchestrator, runId: string): Promise<RunEvidence> {
+export async function runEvidence(orchestrator: RunControlContext, runId: string): Promise<RunEvidence> {
   const units = await readRunUnits(orchestrator.database, runId);
   // "Runnable" is everything the run still owes work for and the scheduler will put to a worker: the
   // units it may admit now (`planned`), the ones waiting for a worker (`ready`), and the ones waiting for
@@ -2149,7 +2149,7 @@ export interface RunSettleOutcome {
  * outstanding. Nothing is settled while work stands, which is the whole point of
  * the guards behind them.
  */
-async function settleRun(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<RunSettleOutcome> {
+async function settleRun(orchestrator: RunControlContext, options: { readonly runId: string }): Promise<RunSettleOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
@@ -2189,7 +2189,7 @@ async function settleRun(orchestrator: FillOrchestrator, options: { readonly run
 }
 
 /** Settles the product's chain to quiescent once its run finished and nothing is outstanding. */
-async function settleChain(orchestrator: FillOrchestrator, _runId: string, evidence: RunEvidence): Promise<void> {
+async function settleChain(orchestrator: RunControlContext, _runId: string, evidence: RunEvidence): Promise<void> {
   const database = orchestrator.database;
   const chain = await readChain(database, orchestrator.product);
   if (chain === null || chain.state !== 'active') return;
@@ -2198,6 +2198,9 @@ async function settleChain(orchestrator: FillOrchestrator, _runId: string, evide
   };
   await advanceChain(database, { product: orchestrator.product, event: { type: 'settle', at: orchestrator.clock(), evidence: chainEvidence } });
 }
+
+/** Durable cancellation and settlement need no registry, source, queue or executor. */
+export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'>;
 
 /** What one cancellation did. */
 export interface CancelOutcome {
@@ -2216,7 +2219,7 @@ export interface CancelOutcome {
  * cancelled generation is a record: only its own run's cancellation reaches it,
  * and a publication that raced it is refused by the publication's own check.
  */
-export async function cancelRun(orchestrator: FillOrchestrator, options: { readonly runId: string; readonly cause: string }): Promise<CancelOutcome> {
+export async function cancelRun(orchestrator: RunControlContext, options: { readonly runId: string; readonly cause: string }): Promise<CancelOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);

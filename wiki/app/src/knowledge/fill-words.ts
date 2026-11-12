@@ -30,17 +30,3 @@ export function fillPhaseWords(fill: FillState, t: Translate): string {
   const phase = phaseWords(fill, t);
   return fill.rebuilt === 'extractors-changed' ? `${t('knowledge.fillRebuiltExtractors')}. ${phase}` : phase;
 }
-
-export function fillWords(fill: FillState, t: Translate): string {
-  // What the run's trace says it has done, where it says anything: the units it planned and
-  // published, or the spans it has written so far. A run with no trace yet keeps the old words.
-  const progress = fill.progress;
-  if (progress !== undefined && progress.planned > 0) {
-    return t('knowledge.repository.progressCounts', { published: progress.published, planned: progress.planned });
-  }
-  if (progress !== undefined && progress.spans > 0) {
-    return t('knowledge.repository.fillSpans', { spans: progress.spans });
-  }
-  const phase = phaseWords(fill, t);
-  return fill.rebuilt === 'extractors-changed' ? `${t('knowledge.fillRebuiltExtractors')}. ${phase}` : phase;
-}
