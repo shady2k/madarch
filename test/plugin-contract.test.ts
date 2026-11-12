@@ -60,6 +60,7 @@ describe('a kind\'s table comes from the manifest', () => {
   test('a novel kind with unbound fields still declares its complete storage schema', () => {
     const manifest = `kinds:
   custom.page:
+    semantics: other
     source: document
     template: templates/t.liquid
     fields:
@@ -123,6 +124,6 @@ describe('a kind\'s table comes from the manifest', () => {
     const other = product(noPlugin, CONTRACT);
     const readOther = parseKinds(noPlugin, 'madarch/kinds.yaml', other);
     expect(manifestContractOf(readOther).vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
-    expect(declaredKindReads(readOther).size).toBe(0);
+    expect(declaredKindReads(readOther).has('doc.term')).toBe(true);
   });
 });

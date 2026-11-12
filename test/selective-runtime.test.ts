@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
-import type { KnowledgeProduct } from '../src/knowledge/product.js';
+import { KnowledgeProduct } from '../src/knowledge/product.js';
 
 const folder = mkdtempSync(join(tmpdir(), 'madarch-selected-agent-'));
 mkdirSync(join(folder, 'madarch'));
@@ -24,4 +24,27 @@ test('a selected fill forwards agent and cap to the run without starting an adap
   expect(body).not.toHaveProperty('error');
   expect(response.response.status).toBe(202);
   expect(presses).toEqual([{ agent: 'scripted', tokenCap: 200, targets: { kinds: ['probe.summary'] } }]);
+});
+
+test('the product refuses an omitted producer stage before queue acceptance', async () => {
+  mkdirSync(join(folder, 'plugins/probe'), { recursive: true });
+  writeFileSync(join(folder, 'plugins/probe/plugin.json'), JSON.stringify({ name: 'probe', version: '1.0.0', runtime: { name: 'bun', version: Bun.version }, entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: ['id'] }], reads: [] }));
+  writeFileSync(join(folder, 'plugins/probe/main.ts'), '');
+  writeFileSync(join(folder, 'madarch/kinds.yaml'), `kinds:
+  probe.summary:
+    template: templates/summary.liquid
+    source: graph
+    fields: [{ name: id, type: text }]
+    key: [id]
+    derives-from: []
+plugins:
+  - { id: probe, version: 1, path: plugins/probe, inputs: [], outputs: [], closure: [plugins/probe/plugin.json, plugins/probe/main.ts] }
+`);
+  writeFileSync(join(folder, 'madarch/workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree]\n');
+  const product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(folder, 'store'), fillQueued: true });
+  product.product = () => ({ folder } as ReturnType<KnowledgeProduct['product']>);
+  const result = await product.startFill({ agent: null, targets: { kinds: ['probe.summary'] } });
+  expect(result.started).toBe(false);
+  if (result.started) throw new Error('the producer stage was excluded');
+  expect(result.message).toContain('madarch/workflows.yaml:2: selected producer probe cannot run');
 });
