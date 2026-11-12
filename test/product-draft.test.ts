@@ -105,6 +105,24 @@ describe('productsHome', () => {
 });
 
 describe('createDraft', () => {
+  test('global ignores cannot omit the generated starter files from its first commit', () => {
+    const config = tempFolder('madarch-products-ignore-config-');
+    const excludes = join(config, 'ignore');
+    const globalConfig = join(config, 'gitconfig');
+    writeFileSync(excludes, '*.json\nnode_modules/\n');
+    writeFileSync(globalConfig, `[core]\nexcludesFile = ${JSON.stringify(excludes.replaceAll('\\', '/'))}\n`);
+    const home = tempFolder('madarch-products-global-ignore-');
+    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: { ...gitEnv(GIT_ENV), GIT_CONFIG_GLOBAL: globalConfig } });
+    expect(draft).toMatchObject({ outcome: 'created' });
+    if (draft.outcome !== 'created') return;
+    const files = tracked(draft.folder);
+    for (const plugin of BUNDLED_PLUGINS) {
+      for (const file of plugin.files) expect(files).toContain(`${plugin.folder}/${file.path}`);
+    }
+    expect(files.some((file) => file.startsWith('repos/'))).toBe(false);
+    expect(git(['status', '--porcelain'], draft.folder).stdout).toBe('');
+  });
+
   test('the complete starter is staged without exceeding the Windows command-line limit', () => {
     const spawn = spyOn(childProcess, 'spawnSync');
     try {

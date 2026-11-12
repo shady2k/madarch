@@ -268,8 +268,9 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);
-    // Let git walk this newly reserved folder: bundled dependencies exceed Windows' command-line limit as paths.
-    const add = runGit(folder, ['add', '-A'], options.gitEnv);
+    // Only generated files occupy this reserved folder. Force includes starter files hidden by global ignores;
+    // letting git walk it avoids expanding bundled dependency paths beyond Windows' command-line limit.
+    const add = runGit(folder, ['add', '--force', '-A'], options.gitEnv);
     if (!add.ok) throw new Error(`git add failed in ${folder}: ${add.output}`);
     const commit = runGit(folder, ['commit', '--quiet', '-m', 'Create the draft product'], options.gitEnv);
     if (!commit.ok) throw new Error(`git commit failed in ${folder}: ${commit.output}`);
