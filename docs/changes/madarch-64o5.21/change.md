@@ -57,6 +57,18 @@ None.
   existing debounce, active-fill deferral and restart contracts.
 - Bounded manual mutation: removing the pre-fill gate made the focused watcher
   suite fail (12 passed, 1 failed); restoring it gave 13 passed, 0 failed.
+- `bun run check`: passed, including architecture, UI, catalogue, workflows and quarantine checks.
+- `MADARCH_SKIP_PERF=1 bun test test/server-sources.test.ts`: 82 passed,
+  0 failed on isolated rerun after two five-second timeouts in the combined run.
+- `MADARCH_SKIP_PERF=1 bun test test/status-work.test.ts`: 3 passed, 0 failed.
+- The combined touched-area run passed all seven fill-update-run cases and the
+  draft-status case, but timed out in knowledge-server and two source-server cases;
+  it was stopped after remaining stuck in knowledge-server. An isolated
+  knowledge-server rerun also timed out in its 60-second setup. This is not a
+  green result for that suite. A further isolated run reached the catalogue case
+  but again hit its 30-second bound; its late assertion expected `manifest: ok`
+  and received `not-filled` while no successful fill had been established.
+  The remaining stuck process was stopped. This suite needs follow-up before acceptance.
 - Independent same-model review: no remaining blocking findings after fixing
   per-product read failure handling and adding the transition test.
 - Document gate parses the proposal and coverage. It still refuses admission
