@@ -36,6 +36,12 @@ for (const running of [false, true]) test(`reset starts a filled fixture over ${
     const filled = await command(home, 'fill-stages', '--product', folder, '--steps', 'repository-tree,repository-history', '--json');
     expect(filled.code, JSON.stringify(filled)).toBe(0);
     expect(JSON.parse(filled.out.trim().split('\n').at(-1)!).state).toBe('succeeded');
+    const filledOwner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))) });
+    try {
+      await filledOwner.ready;
+      const rows = await filledOwner.run((tx) => tx.query<{ count: string }>("SELECT count(*) FROM node n JOIN entity e ON e.id=n.entity_id WHERE NOT n.removed AND e.name NOT LIKE 'manifest.%'"));
+      expect(Number(rows.rows[0]!.count)).toBeGreaterThan(0);
+    } finally { await filledOwner.close(); }
     const app = join(root, 'app'); mkdirSync(join(app, 'dist'), { recursive: true }); writeFileSync(join(app, 'dist', 'index.html'), '<html>Fixture</html>');
     if (running) {
       const daemon = await ensureDaemon({ home, port: 0, appFolder: app, env: { ...process.env, MADARCH_OWN_WIKI: 'off' }, print: () => {} });
@@ -75,7 +81,7 @@ for (const running of [false, true]) test(`reset starts a filled fixture over ${
     try {
       await owner.ready;
       const kinds = await owner.run((tx) => tx.query<{ entity: string }>('SELECT DISTINCT e.name AS entity FROM node n JOIN entity e ON e.id=n.entity_id WHERE NOT n.removed ORDER BY entity'));
-      expect(kinds.rows.length).toBeGreaterThan(0);
+      expect(kinds.rows.map((row) => row.entity)).toContain('manifest.catalogue');
       expect(kinds.rows.every((row) => MANIFEST_CONTRACT.vertex.some((kind) => kind.name === row.entity))).toBe(true);
     } finally { await owner.close(); }
   } finally {
