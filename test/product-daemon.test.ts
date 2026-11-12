@@ -178,6 +178,36 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
 }, 40_000);
 
+test('a doubled slash under a product mount opens the same app address', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-slashes-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'sample', 'sample-id');
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  const normal = await fetch(`${server.url}/products/sample/`);
+  const doubled = await fetch(`${server.url}/products/sample//`);
+  expect(normal.status).toBe(200);
+  expect(doubled.status).toBe(200);
+  expect(await doubled.text()).toBe(await normal.text());
+  const nested = await fetch(`${server.url}/products/sample//kit?view=sample`);
+  expect(nested.status).toBe(200);
+  const unknown = await fetch(`${server.url}/products/sample//missing.example/unknown`);
+  expect(unknown.status).toBe(404);
+  const refusal = await unknown.json() as { message: string };
+  expect(refusal.message).toContain('/missing.example/unknown');
+  expect(refusal.message).toMatch(/wiki-app\.ts:\d+:/);
+});
+
+test('the kit showcase is served as an app route under a product mount', async () => {
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-kit-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'sample', 'sample-id');
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  const response = await fetch(`${server.url}/products/sample/kit`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toContain('text/html');
+  expect(await response.text()).toContain('/products/sample/assets/');
+});
+
 test('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));
   const home = join(root, 'products'); mkdirSync(home);
