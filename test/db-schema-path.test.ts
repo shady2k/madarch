@@ -8,6 +8,7 @@
  * A literal the parsers cannot read whole is a partial unit naming its file and its line, never a smaller answer: the
  * case runs the plugin in the sandbox with a source it holds and reads the cause it answers with.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -69,6 +70,7 @@ const COMPOSED_LINE = SOURCE.split('\n').findIndex((line) => line.includes('cons
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases that need one are skipped with it. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -247,6 +249,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(join(code, 'src', 'schema.ts'), SOURCE);
     mkdirSync(join(code, 'fixtures'), { recursive: true });
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
+    useFixturePlugins(folder, ['db-schema']);
     const kindsPath = join(folder, 'madarch', 'kinds.yaml');
     writeFileSync(kindsPath, readFileSync(kindsPath, 'utf8').replaceAll('terms: ["**/*.ts", "**/*.tsx"]', 'terms: ["src/**/*.ts"]'));
     const kinds = parseDocument(readFileSync(kindsPath, 'utf8'));

@@ -1,3 +1,5 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
+import { execFileSync } from 'node:child_process';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * Closing a product while its graph verdicts read the store (madarch-8bdc.2.9). `graphVerdicts` owns a connection of
@@ -41,6 +43,7 @@ describe('closing a product while its graph verdicts read the store', () => {
     try {
       const draft = createDraft({ home: join(work, 'home'), name: 'close-shop', gitEnv: gitEnv(IDENTITY) });
       if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
+      useFixturePlugins(draft.folder, []);
       const storeRoot = join(work, 'store');
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
@@ -97,6 +100,9 @@ test('a standalone fill does not start validation, while an explicit request sti
   try {
     const draft = createDraft({ home: join(work, 'home'), name: 'inline-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
+    useFixturePlugins(draft.folder, []);
+    execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
+    execFileSync('git', ['commit', '--quiet', '-m', 'Declare native-only fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
     const storeRoot = join(work, 'store');
     let judgeCalls = 0;
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot, graphJev: {
@@ -104,7 +110,7 @@ test('a standalone fill does not start validation, while an explicit request sti
     } });
     await withStorePreparationOwner(async () => {
       await requestStorePreparation(storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), await readPinnedGraphContract(draft.folder));
-      expect(await product!.startFill({ targets: { kinds: ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author'] } })).toMatchObject({ started: true });
+      expect(await product!.startFill()).toMatchObject({ started: true });
       await product!.settled();
     });
     expect(product.fillState()).toMatchObject({ state: 'done' });

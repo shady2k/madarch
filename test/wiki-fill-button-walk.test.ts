@@ -6,6 +6,7 @@
  * The product is a fixture this test makes: its manifest, a native tree/history workflow, and one code repository
  * with one source file. No plugin or model runs: these pages need only repository inventory and history.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, expect, test as bunTest } from 'bun:test';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
 
@@ -56,6 +57,7 @@ beforeAll(async () => {
   writeFileSync(join(product, 'docs', 'product.md'), '# Walk\n\nA small product the walk fills.\n');
   // The product holds its own copy of the starter set, as `madarch init` leaves it; the fill workflow is its own.
   seedStarterSet(product);
+  useFixturePlugins(product, []);
   writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
   git(product, 'init', '-q', '-b', 'main');
   git(product, 'add', '-A');
@@ -65,7 +67,7 @@ beforeAll(async () => {
   const app = join(root, 'app');
   mkdirSync(app, { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>walk</title>\n');
-  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => console.error(line) });
 }, 180_000);
 
 afterAll(async () => {
@@ -91,7 +93,7 @@ test('the button fills the store and the pages read the graph it published', asy
   let filledAt: Record<string, unknown> = {};
   for (let attempt = 0; attempt < 600 && state !== 'done'; attempt++) {
     const status = await json('/products/walk/api/status');
-    expect(status.status).toBe(200);
+    expect(status.status, JSON.stringify(status.body)).toBe(200);
     filledAt = status.body;
     state = String((filledAt['fill'] as { state?: string } | undefined)?.state ?? '');
     if (state === 'failed' || state === 'stopped') break;

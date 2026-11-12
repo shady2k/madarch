@@ -3,6 +3,7 @@
  * `fill-chain/no-transition`, an internal code that named nothing they could act on — a fill of one product runs one at a
  * time (decision 0027), and the answer is that one is already running, since when, and where its progress is.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -77,6 +78,7 @@ describe('a fill started while the product\'s fill runs', () => {
     const draft = createDraft({ home, name: 'served-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
+    useFixturePlugins(folder, []);
     product = draft.name;
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });
@@ -138,7 +140,7 @@ describe('a fill started while the product\'s fill runs', () => {
     await background;
     await service.stop();
     const answer = await fillCommand();
-    expect(answer.code).toBe(0);
+    expect(answer.code, `${answer.stdout}\n${answer.stderr}`).toBe(0);
     expect(answer.stdout).toContain('Units:');
     expect(answer.stdout).toContain('Watch the pages with: madarch serve');
   }, 300_000);
