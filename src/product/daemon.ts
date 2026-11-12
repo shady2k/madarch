@@ -25,6 +25,7 @@ import { knowledgeRootOf } from './store.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { selfCommand } from './self-command.js';
 import { runningVersion } from './version.js';
+import { here } from '../model/raise.js';
 import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
 import type { ValidatedManifests } from '../graph/manifest-publication.js';
 import { setManifestPublicationState } from './manifest-publication-state.js';
@@ -619,9 +620,10 @@ export function daemonStatus(options: { home?: string }): number {
  * pass. The run is named after its product and commit, so one commit never starts two
  * runs, and its progress is what the fill progress answers.
  */
-export function daemonUpdateWatch(home: string, fills: Pick<DaemonFills, 'activity' | 'run'>, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
+export function daemonUpdateWatch(home: string, fills: Pick<DaemonFills, 'activity' | 'run' | 'filled'>, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
   return createUpdateWatch({
     home,
+    filled: async (product) => await fills.filled(product.folder),
     ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
     ...(options.intervalMs === undefined ? {} : { intervalMs: options.intervalMs }),
     ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
@@ -631,7 +633,7 @@ export function daemonUpdateWatch(home: string, fills: Pick<DaemonFills, 'activi
       // commit that waits for a fill leaves none behind. `run`'s own rule still governs the race.
       const active = await fills.activity({ product: request.product });
       if (active.state === 'active' && active.activeRunState !== null && !['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'].includes(active.activeRunState)) {
-        return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} already runs ${String(active.activeRunId)}, which stands ${active.activeRunState}` };
+        return { started: false, deferred: true, reason: `${here()}: the product ${JSON.stringify(request.product.name)} already runs ${String(active.activeRunId)}, which stands ${active.activeRunState}` };
       }
       const answer = await fills.run({ product: request.product, runId: request.runId });
       if (answer.ok) return { started: true };

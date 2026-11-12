@@ -122,6 +122,7 @@ function recorder(answer: (request: UpdateRunRequest) => UpdateRunAnswer = () =>
 function watcherOf(world: Fixture, start: (request: UpdateRunRequest) => Promise<UpdateRunAnswer>, options: { debounceMs?: number; enabled?: () => boolean } = {}) {
   return createUpdateWatch({
     home: world.home,
+    filled: async () => true,
     start,
     debounceMs: options.debounceMs ?? 20,
     intervalMs: 0,
@@ -149,6 +150,42 @@ test('a checkout\'s HEAD commit is read from the refs files, on a branch or deta
   } finally {
     world.remove();
   }
+});
+
+test('pre-fill commits are baselines, including failed fill reads, and only later post-fill commits update', async () => {
+  const world = fixture();
+  let filled = false;
+  let unreadable = false;
+  const run = recorder();
+  const lines: string[] = [];
+  const watch = createUpdateWatch({
+    home: world.home, start: run.start, debounceMs: 0, intervalMs: 0,
+    filled: async () => {
+      if (unreadable) throw new Error('fixture store unavailable');
+      return filled;
+    },
+    enabled: () => true, watchPath: () => () => undefined, log: (line) => lines.push(line),
+  });
+  try {
+    await watch.outset();
+    const before = world.commit(world.codeRepo, 'index.ts', 'export const price = 2;\n', 'before Fill');
+    await watch.pass();
+    expect(run.asked).toEqual([]);
+    expect(watch.pending()).toEqual([]);
+    expect(readSeenHeads(world.home)[seenKey('shop', 'library')]?.commit).toBe(before);
+    filled = true;
+    await watch.pass();
+    expect(run.asked).toEqual([]);
+    const after = world.commit(world.codeRepo, 'index.ts', 'export const price = 3;\n', 'after Fill');
+    unreadable = true;
+    expect((await watch.pass()).unreadable).toHaveLength(1);
+    expect(run.asked).toEqual([]);
+    expect(lines.at(-1)).toMatch(/fill-updates\.ts:\d+/);
+    expect(readSeenHeads(world.home)[seenKey('shop', 'library')]?.commit).toBe(before);
+    unreadable = false;
+    await watch.pass();
+    expect(run.asked.map((request) => request.commit)).toEqual([after]);
+  } finally { watch.stop(); world.remove(); }
 });
 
 describe('the update after commits to a default branch', () => {
@@ -274,6 +311,7 @@ describe('the update after commits to a default branch', () => {
       const run = recorder();
       const watch = createUpdateWatch({
         home: world.home,
+    filled: async () => true,
         start: run.start,
         debounceMs: 20,
         intervalMs: 0,
@@ -387,6 +425,7 @@ describe('the update after commits to a default branch', () => {
       const run = recorder();
       const watch = createUpdateWatch({
         home: world.home,
+    filled: async () => true,
         start: run.start,
         debounceMs: 20,
         intervalMs: 0,
@@ -428,6 +467,7 @@ describe('the update after commits to a default branch', () => {
       const run = recorder();
       const watch = createUpdateWatch({
         home: world.home,
+    filled: async () => true,
         start: run.start,
         debounceMs: 20,
         intervalMs: 0,

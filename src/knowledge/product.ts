@@ -2169,7 +2169,7 @@ export class KnowledgeProduct {
       ...(repository === undefined ? {} : { repository }),
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       // Manifest publication alone is not a fill; a successful repository-free run is.
-      filled: this.pins.size > 0 || await hasSuccessfulFill(await this.open()),
+      filled: await hasSuccessfulFill(await this.open()),
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
     };
   }
@@ -2344,7 +2344,7 @@ export class KnowledgeProduct {
     // (`numbersOf`), because a snapshot moves them without moving a file.
     const loop = await this.loopCounts();
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
-    const filled = this.pins.size > 0 || await hasSuccessfulFill(await this.open());
+    const filled = await hasSuccessfulFill(await this.open());
     const body: WikiStatus = {
       ...common,
       manifest: filled ? 'ok' : 'not-filled',
