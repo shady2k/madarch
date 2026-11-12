@@ -71,11 +71,6 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/loop/planned.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/loop/views.ts",
     "symbol": "src/adapters/database-owner.ts"
   },
