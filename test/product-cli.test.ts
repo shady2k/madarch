@@ -219,7 +219,10 @@ describe('the single start command', () => {
       test(`nonterminal init in ${checkout ? 'a checkout' : 'an empty folder'} ${template === undefined ? 'without a template' : 'with an explicit template'}`, async () => {
         const base = scratchFolder('madarch-init-script-');
         const work = join(base, 'work'); mkdirSync(work);
-        if (checkout) expect(spawnSync(realGit(), ['init', '--initial-branch=main'], { cwd: work, env: gitEnv(GIT_ENV) }).status).toBe(0);
+        if (checkout) {
+          expect(spawnSync(realGit(), ['init', '--initial-branch=main'], { cwd: work, env: gitEnv(GIT_ENV) }).status).toBe(0);
+          writeFileSync(join(work, 'README.md'), '# Code checkout\n');
+        }
         const home = join(base, 'products');
         try {
           const run = runCommand(['init', work, '--home', home, '--port', '0', '--json', '--no-open', ...(template === undefined ? [] : ['--template', template])], { MADARCH_APP: builtApp(base) }, base);
@@ -255,6 +258,7 @@ describe('the single start command', () => {
       if (checkout) {
         const git = spawnSync(realGit(), ['init', '--initial-branch=main'], { cwd: work, env: gitEnv(GIT_ENV) });
         expect(git.status).toBe(0);
+        writeFileSync(join(work, 'README.md'), '# Code checkout\n');
       }
       const home = join(base, 'products');
       startedHomes.push(home);
