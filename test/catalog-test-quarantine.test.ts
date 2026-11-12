@@ -23,7 +23,7 @@ describe('test quarantine in the starter catalogue', () => {
   test('the manifest keeps the plugin fields, typed references, natural key and discovery dependencies', () => {
     const kind = manifest.kinds['code.test-quarantine'];
     expect(kind.key).toEqual(['repository', 'path', 'name']);
-    expect(kind['derives-from']).toEqual(['code.file', 'code.test-case', 'code.commit', 'task']);
+    expect(kind['derives-from']).toEqual(['code.file']);
     expect(kind.fields).toEqual([
       { name: 'repository', type: 'text', binding: 'test-quarantine@1.repository' },
       { name: 'path', type: 'text', binding: 'test-quarantine@1.path' },
