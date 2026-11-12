@@ -1,4 +1,6 @@
 id: scrum.increment
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: The usable result the team adds to the product in a sprint.
 sources:
 - https://scrumguides.org/scrum-guide.html

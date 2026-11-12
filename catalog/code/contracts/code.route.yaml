@@ -1,4 +1,6 @@
 id: practice.http-route
+purpose: structure
+audience: [developer, architect, analyst, tester]
 definition: An HTTP route a service serves, read from its code.
 sources:
 - https://c4model.com/abstractions

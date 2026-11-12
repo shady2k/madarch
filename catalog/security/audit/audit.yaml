@@ -1,4 +1,6 @@
 id: practice.audit
+purpose: quality
+audience: [security-engineer, architect]
 definition: A recorded examination of the product or its process against a standard, with its findings.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/53/a/final

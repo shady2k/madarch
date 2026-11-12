@@ -175,6 +175,16 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
     .filter((entry) => entry.kinds.length > 0);
 }
 
+/** Reader-purpose sections use the vocabulary order, populated pages, and the reader's explicit audience. */
+export function navPurposes(status: WikiStatus, role: string) {
+  const visible = status.kinds.filter((kind) => kind.count > 0 && kind.page !== false
+    && (role === 'everything' || kind.audience === undefined || kind.audience.includes(role)));
+  return [...(status.purposes ?? [])]
+    .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((purpose) => ({ ...purpose, rows: purpose.kinds.flatMap((name) => visible.filter((kind) => kind.kind === name)) }))
+    .filter((purpose) => purpose.rows.length > 0);
+}
+
 function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: WikiRoute; onNavigate?: () => void }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
@@ -185,7 +195,8 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const { role, roles } = useRole();
-  const groups = leadGroups(navGroups(status, pendingOf), role, roles);
+  const purposes = navPurposes(status, role);
+  const groups = status.purposes === undefined ? leadGroups(navGroups(status, pendingOf), role, roles) : [];
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
   const waitingLink = (id: string, href: string, Icon: typeof HomeIcon, label: string, count: number, active: boolean): ReactElement => (
@@ -241,6 +252,12 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </NavigationSection>
+        {purposes.map((purpose) => (
+          <NavigationSection key={purpose.id} data-nav-purpose={purpose.id}>
+            <NavigationHeading>{purpose.labels[language] ?? purpose.labels['en'] ?? purpose.id}</NavigationHeading>
+            {purpose.rows.map((kind) => kindLink(kind))}
+          </NavigationSection>
+        ))}
         {groups.length > 0 && <NavigationHeading>{t('knowledge.kinds')}</NavigationHeading>}
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';

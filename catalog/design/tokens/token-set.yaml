@@ -1,4 +1,6 @@
 id: dtcg.token-set
+purpose: structure
+audience: [designer, developer]
 definition: A named set of design tokens that a theme or a context selects.
 sources:
 - https://www.designtokens.org/TR/2025.10/resolver/

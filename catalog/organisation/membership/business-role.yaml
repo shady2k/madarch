@@ -1,4 +1,6 @@
 id: org.role
+purpose: history
+audience: [product-lead, product, architect]
 definition: A part a person plays in the organisation, such as product owner or developer.
 sources:
 - https://www.w3.org/TR/vocab-org/

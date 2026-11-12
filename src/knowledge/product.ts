@@ -2353,6 +2353,7 @@ export class KnowledgeProduct {
       language: context.manifest.language ?? 'en',
       findingCount: context.findings.length,
       kinds: await kindSummaries(context.ctx),
+      ...(context.manifest.purposes === undefined ? {} : { purposes: [...context.manifest.purposes.values()].sort((a, b) => a.order - b.order || byCodePoint(a.id, b.id)).map((purpose) => ({ id: purpose.id, labels: { ...purpose.labels }, order: purpose.order, kinds: [...context.manifest.kinds.values()].filter((kind) => kind.purpose === purpose.id).map((kind) => kind.name) })) }),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled,

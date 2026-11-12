@@ -1,4 +1,6 @@
 id: practice.source
+purpose: structure
+audience: [developer, architect]
 definition: The source text of one repository file at its recorded commit.
 sources:
 - https://git-scm.com/docs/git-show

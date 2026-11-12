@@ -1,4 +1,6 @@
 id: practice.ownership-assignment
+purpose: history
+audience: [product-lead, architect, developer, operations]
 definition: A recorded statement that one element is owned by one person or group, and since when.
 sources:
 - https://backstage.io/docs/features/software-catalog/well-known-relations

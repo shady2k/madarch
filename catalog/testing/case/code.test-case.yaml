@@ -1,4 +1,6 @@
 id: istqb.test-case
+purpose: quality
+audience: [tester, developer]
 definition: A test and the code it exercises.
 sources:
 - https://glossary.istqb.org/en_US/term/test-case

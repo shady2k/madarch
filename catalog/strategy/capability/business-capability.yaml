@@ -1,4 +1,6 @@
 id: archimate.capability
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: What the organisation is able to do, independent of how it does it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/

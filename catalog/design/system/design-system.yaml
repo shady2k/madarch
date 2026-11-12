@@ -1,4 +1,6 @@
 id: practice.design-system
+purpose: understand
+audience: [designer, developer, architect]
 definition: The tokens, components and rules a product draws its interface from.
 sources:
 - https://www.nngroup.com/articles/design-systems-101/

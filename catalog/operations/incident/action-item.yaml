@@ -1,4 +1,6 @@
 id: sre.action-item
+purpose: quality
+audience: [operations, platform-devops]
 definition: A piece of work a postmortem asks for, with its owner and how it is tracked.
 sources:
 - https://sre.google/workbook/postmortem-culture/

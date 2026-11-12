@@ -1,4 +1,6 @@
 id: practice.user-story
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
 definition: A short narrative of a need from one person's point of view, with the benefit it carries.
 sources:
 - https://glossary.istqb.org/en_US/term/user-story

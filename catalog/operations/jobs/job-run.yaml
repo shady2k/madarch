@@ -1,4 +1,6 @@
 id: practice.job-run
+purpose: history
+audience: [operations, platform-devops]
 definition: One execution of a scheduled job, with its result and how long it took.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/

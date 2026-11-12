@@ -1,4 +1,6 @@
 id: practice.package-manifest
+purpose: structure
+audience: [developer, architect, platform-devops, security-engineer]
 definition: A file that declares a package and its dependencies.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/

@@ -1,4 +1,6 @@
 id: practice.snapshot
+purpose: history
+audience: [architect, platform-devops, operations]
 definition: A full restore point of the graph at a time; the journal holds the increments from which the rest is rebuilt.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/209/final

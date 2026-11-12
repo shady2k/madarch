@@ -1,4 +1,6 @@
 id: cyclonedx.component
+purpose: quality
+audience: [security-engineer, platform-devops, developer]
 definition: One component of a software bill of materials, of a type such as library, container or application.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

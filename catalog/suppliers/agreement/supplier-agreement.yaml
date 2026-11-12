@@ -1,4 +1,6 @@
 id: practice.supplier-agreement
+purpose: operations
+audience: [product-lead, operations, security-engineer]
 definition: The terms a supplier and the product agreed, including the security and the reporting they require.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final

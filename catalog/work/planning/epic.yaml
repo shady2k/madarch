@@ -1,4 +1,6 @@
 id: practice.epic
+purpose: understand
+audience: [developer, product, product-lead, tester]
 definition: A stakeholder need larger than one iteration, which features and stories refine.
 sources:
 - https://glossary.istqb.org/en_US/term/epic

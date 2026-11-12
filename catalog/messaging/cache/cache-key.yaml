@@ -1,4 +1,6 @@
 id: practice.cache-key
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: The name a cached value is stored under, with its namespace and its lifetime.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9111.html

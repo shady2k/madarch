@@ -1,4 +1,6 @@
 id: practice.pull-request-review
+purpose: quality
+audience: [developer, tester]
 definition: The review one or more people gave a proposed change, with its comments and its verdict.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

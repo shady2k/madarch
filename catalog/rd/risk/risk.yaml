@@ -1,4 +1,6 @@
 id: arc42.risk
+purpose: quality
+audience: [product, analyst, architect, developer]
 definition: Something that may happen and would harm a goal, with its likelihood and its effect.
 sources:
 - https://arc42.org/overview

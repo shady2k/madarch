@@ -1,4 +1,6 @@
 id: practice.incident-timeline
+purpose: history
+audience: [operations, platform-devops]
 definition: 'The ordered times of an incident: detection, acknowledgement, mitigation and resolution.'
 sources:
 - https://sre.google/workbook/postmortem-culture/

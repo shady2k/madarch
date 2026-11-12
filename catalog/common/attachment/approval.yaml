@@ -1,4 +1,6 @@
 id: practice.approval
+purpose: history
+audience: [product-lead, analyst, developer]
 definition: 'A responsible person''s decision on an approval package: approved, or declined with a reason, with who decided
   and when.'
 sources:

@@ -1,4 +1,6 @@
 id: practice.job-schedule
+purpose: operations
+audience: [operations, platform-devops]
 definition: When and how often a scheduled job runs, with the limits it runs under.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/

@@ -1,4 +1,6 @@
 id: practice.troubleshooting-guide
+purpose: operations
+audience: [operations, product, developer]
 definition: The symptoms of a known failure and what resolves each of them.
 sources:
 - https://diataxis.fr/

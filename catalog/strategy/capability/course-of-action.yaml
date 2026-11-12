@@ -1,4 +1,6 @@
 id: archimate.course-of-action
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A chosen approach that works towards a goal over time.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/

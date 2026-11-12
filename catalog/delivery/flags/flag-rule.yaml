@@ -1,4 +1,6 @@
 id: openfeature.targeting-rule
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The condition under which one variant of a feature flag is served.
 sources:
 - https://openfeature.dev/specification/glossary

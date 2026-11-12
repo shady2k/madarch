@@ -1,4 +1,6 @@
 id: alertmanager.route
+purpose: operations
+audience: [operations, platform-devops]
 definition: The rule that decides which receiver an alert goes to, by its labels.
 sources:
 - https://prometheus.io/docs/alerting/latest/configuration/

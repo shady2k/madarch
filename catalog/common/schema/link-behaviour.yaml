@@ -1,4 +1,6 @@
 id: manifest.link-behaviours
+purpose: structure
+audience: [architect, product-lead]
 definition: 'What a link type does when its entities change: its cardinality, its backlink, whether it is required and how
   it is copied or removed; its id is its key under link-behaviours.'
 sources:

@@ -1,4 +1,6 @@
 id: nist800-34.recovery-plan
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The ordered steps that restore one system, with the evidence that each step worked.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

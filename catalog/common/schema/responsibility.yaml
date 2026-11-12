@@ -1,4 +1,6 @@
 id: manifest.responsibility
+purpose: structure
+audience: [architect, product-lead]
 definition: The shared part of an authored kind that names the responsible person who answers for an entity and the executor,
   a person or an agent, who carries the work.
 sources:

@@ -1,4 +1,6 @@
 id: practice.directory
+purpose: structure
+audience: [developer, architect]
 definition: A folder of a code repository, which holds files and further folders.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/

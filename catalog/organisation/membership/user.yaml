@@ -1,4 +1,6 @@
 id: backstage.user
+purpose: history
+audience: [product-lead, product, architect]
 definition: A person the product knows, with the identity they sign in by.
 sources:
 - https://backstage.io/docs/features/software-catalog/well-known-relations

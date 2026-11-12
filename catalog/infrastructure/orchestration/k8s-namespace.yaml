@@ -1,4 +1,6 @@
 id: kubernetes.namespace
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A named division of a cluster within which names and quotas hold.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

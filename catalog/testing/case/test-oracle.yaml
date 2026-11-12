@@ -1,4 +1,6 @@
 id: istqb.test-oracle
+purpose: quality
+audience: [tester, developer]
 definition: The source a test takes its expected result from, such as a golden file or a specification.
 sources:
 - https://glossary.istqb.org/en_US/term/test-oracle

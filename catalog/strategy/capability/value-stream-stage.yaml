@@ -1,4 +1,6 @@
 id: archimate.value-stream-stage
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: One step of a value stream, with the capabilities that enable it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/

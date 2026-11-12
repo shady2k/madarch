@@ -1,4 +1,6 @@
 id: openfeature.evaluation-context
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The facts about a caller that the rules of a feature flag are evaluated against.
 sources:
 - https://openfeature.dev/specification/glossary

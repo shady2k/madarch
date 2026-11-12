@@ -1,4 +1,6 @@
 id: istqb.test-session
+purpose: quality
+audience: [tester, developer]
 definition: One bounded period of exploratory testing, with what it found.
 sources:
 - https://glossary.istqb.org/en_US/term/exploratory-testing

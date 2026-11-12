@@ -1,4 +1,6 @@
 id: openfeature.flag-set
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: The collection of feature flags one provider serves for one context.
 sources:
 - https://openfeature.dev/specification/glossary

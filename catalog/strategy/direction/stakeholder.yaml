@@ -1,4 +1,6 @@
 id: archimate.stakeholder
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A person or group with an interest in the product and a concern that shapes it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/

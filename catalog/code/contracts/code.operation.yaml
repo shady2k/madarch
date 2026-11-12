@@ -1,4 +1,6 @@
 id: practice.api-operation
+purpose: structure
+audience: [developer, architect, analyst, tester]
 definition: An operation an OpenAPI or a gRPC contract declares.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html

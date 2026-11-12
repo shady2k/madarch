@@ -1,4 +1,6 @@
 id: practice.sftp-endpoint
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A file transfer endpoint a service writes files to or reads them from.
 sources:
 - https://www.rfc-editor.org/rfc/rfc4253.html

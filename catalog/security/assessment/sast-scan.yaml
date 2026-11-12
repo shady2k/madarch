@@ -1,4 +1,6 @@
 id: practice.sast-scan
+purpose: quality
+audience: [security-engineer, tester, developer]
 definition: A tool run that reads the source for patterns that may be exploitable.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html

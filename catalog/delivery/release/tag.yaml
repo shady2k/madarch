@@ -1,4 +1,6 @@
 id: practice.tag
+purpose: history
+audience: [developer, platform-devops, operations]
 definition: A name fixed to one revision, which a release or a build may be taken from; it is not a release.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

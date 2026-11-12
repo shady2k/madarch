@@ -1,4 +1,6 @@
 id: practice.evaluation-result
+purpose: quality
+audience: [developer, tester, product-lead]
 definition: What one evaluation measured, with the threshold it was compared against.
 sources:
 - https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd

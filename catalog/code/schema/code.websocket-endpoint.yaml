@@ -1,4 +1,6 @@
 id: practice.websocket-endpoint
+purpose: structure
+audience: [developer, architect, analyst]
 definition: A WebSocket endpoint a service offers, with the messages it exchanges.
 sources:
 - https://www.rfc-editor.org/rfc/rfc6455.html

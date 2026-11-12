@@ -1,4 +1,6 @@
 id: oscal.system-security-plan
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: The plan that binds a system to a profile, its controls and how they are implemented.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

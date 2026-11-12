@@ -1,4 +1,6 @@
 id: practice.database-change
+purpose: operations
+audience: [operations, platform-devops]
 definition: A change to a database's schema or its data, with the way back if it fails.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/job/

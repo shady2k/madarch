@@ -1,4 +1,6 @@
 id: practice.license-agreement
+purpose: operations
+audience: [product-lead, operations, security-engineer]
 definition: The terms under which a supplier lets the product use a component or a service.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/

@@ -1,4 +1,6 @@
 id: practice.information-classification
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: The level a piece of information is classified at, which decides who may see it.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

@@ -1,4 +1,6 @@
 id: otel.metric-instrument
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: A declared counter, gauge or histogram and the code that updates it.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/metrics/

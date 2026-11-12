@@ -1,4 +1,6 @@
 id: scrum.definition-of-done
+purpose: quality
+audience: [product, product-lead, tester, developer]
 definition: The shared standard an increment must meet to count as done.
 sources:
 - https://scrumguides.org/scrum-guide.html

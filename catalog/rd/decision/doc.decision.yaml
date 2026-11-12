@@ -1,4 +1,6 @@
 id: practice.decision
+purpose: history
+audience: [product, analyst, architect, developer]
 definition: 'An architecture decision record: what was decided, why, and what follows from it.'
 sources:
 - https://adr.github.io/madr/

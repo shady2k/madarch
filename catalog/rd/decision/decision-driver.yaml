@@ -1,4 +1,6 @@
 id: madr.decision-driver
+purpose: understand
+audience: [product, analyst, architect, developer]
 definition: A force or concern a decision was made against, as MADR records it.
 sources:
 - https://adr.github.io/madr/

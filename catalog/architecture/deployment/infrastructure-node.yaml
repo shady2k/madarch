@@ -1,4 +1,6 @@
 id: c4.infrastructure-node
+purpose: operations
+audience: [architect, operations, platform-devops]
 definition: A node that supports the deployment without running the software itself, such as a load balancer or a DNS zone.
 sources:
 - https://c4model.com/diagrams/deployment

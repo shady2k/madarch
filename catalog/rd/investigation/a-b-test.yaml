@@ -1,4 +1,6 @@
 id: practice.ab-test
+purpose: understand
+audience: [product, analyst, designer, tester]
 definition: An experiment that gives different people different variants and compares the outcome.
 sources:
 - https://openfeature.dev/specification/glossary

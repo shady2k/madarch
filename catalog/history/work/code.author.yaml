@@ -1,4 +1,6 @@
 id: practice.commit-author
+purpose: history
+audience: [developer, architect, product-lead]
 definition: A person who made commits.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

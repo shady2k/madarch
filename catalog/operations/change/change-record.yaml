@@ -1,4 +1,6 @@
 id: practice.change-record
+purpose: history
+audience: [operations, platform-devops]
 definition: What was changed in an environment, when, by whom and with what result.
 sources:
 - https://dora.dev/guides/dora-metrics/

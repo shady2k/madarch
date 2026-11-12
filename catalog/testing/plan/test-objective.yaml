@@ -1,4 +1,6 @@
 id: istqb.test-objective
+purpose: quality
+audience: [tester, developer]
 definition: The purpose a test level or a test is meant to serve.
 sources:
 - https://glossary.istqb.org/en_US/term/test-objective

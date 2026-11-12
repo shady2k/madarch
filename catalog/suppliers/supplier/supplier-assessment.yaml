@@ -1,4 +1,6 @@
 id: practice.supplier-assessment
+purpose: quality
+audience: [product-lead, operations, security-engineer]
 definition: The check of a supplier's security and its dependability, with what it found.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final

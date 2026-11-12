@@ -1,4 +1,6 @@
 id: practice.tracker-task
+purpose: history
+audience: [developer, product, product-lead, tester]
 definition: A tracker task that commit messages name, with the commits that name it.
 sources:
 - https://scrumguides.org/scrum-guide.html

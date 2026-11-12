@@ -1,4 +1,6 @@
 id: practice.prototype
+purpose: understand
+audience: [product, designer, developer, architect]
 definition: A throwaway build that explores an option before the product is committed to it.
 sources:
 - https://www.nngroup.com/articles/paper-prototyping/

@@ -1,4 +1,6 @@
 id: practice.user-journey
+purpose: understand
+audience: [product, analyst, designer]
 definition: A person's experience of reaching an outcome over time, including the moments outside the product.
 sources:
 - https://www.nngroup.com/articles/journey-mapping-101/

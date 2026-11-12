@@ -1,4 +1,6 @@
 id: alertmanager.receiver
+purpose: operations
+audience: [operations, platform-devops]
 definition: A place alerts are delivered to, such as a chat channel or a paging service.
 sources:
 - https://prometheus.io/docs/alerting/latest/configuration/

@@ -1,4 +1,6 @@
 id: cldr.locale
+purpose: structure
+audience: [designer, developer]
 definition: A language and region the product is translated for, with its formatting rules.
 sources:
 - https://unicode.org/reports/tr35/

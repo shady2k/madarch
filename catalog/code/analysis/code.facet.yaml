@@ -1,4 +1,6 @@
 id: practice.file-facet
+purpose: structure
+audience: [developer, architect]
 definition: What the code reader found out about one file, such as its role and its language.
 sources:
 - https://c4model.com/abstractions

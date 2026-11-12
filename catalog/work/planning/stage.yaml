@@ -1,4 +1,6 @@
 id: practice.stage
+purpose: understand
+audience: [developer, product, product-lead, tester]
 definition: A part of a feature that bounds the work one responsible person or agent carries to its end; a stage holds tasks
   and bugs.
 sources:

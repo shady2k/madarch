@@ -1,4 +1,6 @@
 id: istqb.test-data
+purpose: quality
+audience: [tester, developer]
 definition: The data a test needs to run, kept apart from the test code.
 sources:
 - https://glossary.istqb.org/en_US/term/test-data

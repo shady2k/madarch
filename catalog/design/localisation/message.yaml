@@ -1,4 +1,6 @@
 id: unicode-mf2.message
+purpose: structure
+audience: [designer, developer]
 definition: A user-facing text with its placeholders, defined once and translated per language.
 sources:
 - https://messageformat.unicode.org/

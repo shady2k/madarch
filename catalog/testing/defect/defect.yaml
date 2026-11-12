@@ -1,4 +1,6 @@
 id: istqb.defect
+purpose: quality
+audience: [tester, developer]
 definition: An imperfection in a work product that may cause a failure.
 sources:
 - https://glossary.istqb.org/en_US/term/defect

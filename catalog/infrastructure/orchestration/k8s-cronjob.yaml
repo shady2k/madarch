@@ -1,4 +1,6 @@
 id: kubernetes.cronjob
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A Kubernetes workload that runs a job on a schedule.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

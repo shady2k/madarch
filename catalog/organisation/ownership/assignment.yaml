@@ -1,4 +1,6 @@
 id: practice.assignment
+purpose: history
+audience: [product-lead, product, architect]
 definition: A piece of work given to a person or a group, with the time it is expected in.
 sources:
 - https://scrumguides.org/scrum-guide.html

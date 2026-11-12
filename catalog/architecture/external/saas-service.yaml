@@ -1,4 +1,6 @@
 id: practice.saas-service
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A software service a supplier runs for the product, reached over an interface.
 sources:
 - https://c4model.com/abstractions

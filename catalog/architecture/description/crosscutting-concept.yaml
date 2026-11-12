@@ -1,4 +1,6 @@
 id: arc42.crosscutting-concept
+purpose: understand
+audience: [architect, analyst, developer]
 definition: arc42's view of a principle or pattern that applies across building blocks, such as logging or persistence.
 sources:
 - https://arc42.org/overview

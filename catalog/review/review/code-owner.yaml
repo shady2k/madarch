@@ -1,4 +1,6 @@
 id: codeowners.owner
+purpose: history
+audience: [developer, architect]
 definition: A person or a team a CODEOWNERS pattern makes the reviewer of some paths; it is review ownership only.
 sources:
 - https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners

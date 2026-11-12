@@ -1,4 +1,6 @@
 id: practice.tutorial
+purpose: understand
+audience: [product, analyst, developer, operations]
 definition: A lesson that teaches by making a person complete a small piece of work.
 sources:
 - https://diataxis.fr/

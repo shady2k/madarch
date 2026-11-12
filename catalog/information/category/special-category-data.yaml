@@ -1,4 +1,6 @@
 id: gdpr.special-category-data
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: Personal data of the kinds the GDPR treats as specially protected, such as health or beliefs.
 sources:
 - https://gdpr-info.eu/art-9-gdpr/

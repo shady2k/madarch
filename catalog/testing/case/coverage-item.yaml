@@ -1,4 +1,6 @@
 id: istqb.coverage-item
+purpose: quality
+audience: [tester, developer]
 definition: The thing a test suite is measured to have exercised, such as a branch or a requirement.
 sources:
 - https://glossary.istqb.org/en_US/term/coverage

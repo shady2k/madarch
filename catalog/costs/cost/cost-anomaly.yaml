@@ -1,4 +1,6 @@
 id: focus.anomaly
+purpose: quality
+audience: [product-lead, operations, platform-devops]
 definition: A cost that departed from what was expected, with the resource that caused it.
 sources:
 - https://focus.finops.org/

@@ -1,4 +1,6 @@
 id: manifest.workflows
+purpose: structure
+audience: [architect, product-lead]
 definition: A named sequence of stages the engine runs, with the limits and the settings it runs under; its id is its key
   under workflows.
 sources:

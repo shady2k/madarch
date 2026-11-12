@@ -1,4 +1,6 @@
 id: practice.design-frame
+purpose: structure
+audience: [designer, product, analyst]
 definition: A frame or artboard in a design tool that specifies a screen or a component.
 sources:
 - https://www.nngroup.com/articles/design-systems-101/

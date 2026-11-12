@@ -1,4 +1,6 @@
 id: practice.changelog
+purpose: history
+audience: [product, analyst, developer, operations]
 definition: The ordered list of what changed in the product between releases.
 sources:
 - https://keepachangelog.com/

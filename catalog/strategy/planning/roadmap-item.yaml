@@ -1,4 +1,6 @@
 id: practice.roadmap-item
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: A planned piece of the product's future, placed in time against epics and releases.
 sources:
 - https://www.atlassian.com/agile/product-management/product-roadmaps

@@ -1,4 +1,6 @@
 id: graphql.schema-type
+purpose: structure
+audience: [developer, architect, analyst]
 definition: A type of a GraphQL schema, with its fields.
 sources:
 - https://spec.graphql.org/

@@ -1,4 +1,6 @@
 id: manifest.kinds
+purpose: structure
+audience: [architect, product-lead]
 definition: 'A declared kind of entity in the product manifest: its concept id, definition, sources, acquisition, status,
   relation constraints and template policy; its id is its key under kinds.'
 sources:

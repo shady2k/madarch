@@ -1,4 +1,6 @@
 id: istqb.test-basis
+purpose: quality
+audience: [tester, developer]
 definition: The body of knowledge a test condition is derived from, such as a requirement or a story.
 sources:
 - https://glossary.istqb.org/en_US/term/test-basis

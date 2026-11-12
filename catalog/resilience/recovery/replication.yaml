@@ -1,4 +1,6 @@
 id: nist800-34.replication
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The continuous copying of data or of a service to a second place, with its lag.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

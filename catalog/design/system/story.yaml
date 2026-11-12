@@ -1,4 +1,6 @@
 id: storybook.story
+purpose: structure
+audience: [designer, developer]
 definition: One rendered state of a component, as Storybook's Component Story Format declares it.
 sources:
 - https://storybook.js.org/docs/api/csf

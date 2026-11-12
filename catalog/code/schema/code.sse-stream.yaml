@@ -1,4 +1,6 @@
 id: practice.sse-stream
+purpose: structure
+audience: [developer, architect, analyst]
 definition: A server-sent event stream a service offers to its clients.
 sources:
 - https://html.spec.whatwg.org/multipage/server-sent-events.html

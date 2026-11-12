@@ -1,4 +1,6 @@
 id: practice.network-port
+purpose: operations
+audience: [developer, architect, operations, platform-devops]
 definition: A network port a service listens on or publishes.
 sources:
 - https://www.rfc-editor.org/rfc/rfc6335.html

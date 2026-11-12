@@ -1,4 +1,6 @@
 id: practice.vcs-repository
+purpose: structure
+audience: [developer, architect, platform-devops]
 definition: 'A version control repository: the history and the tree the extractors read; it is not a domain repository.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/

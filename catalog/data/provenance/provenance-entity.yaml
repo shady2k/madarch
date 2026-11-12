@@ -1,4 +1,6 @@
 id: prov.entity
+purpose: history
+audience: [analyst, architect, security-engineer]
 definition: A piece of data whose origin is recorded, as PROV-O defines an entity.
 sources:
 - https://www.w3.org/TR/prov-o/

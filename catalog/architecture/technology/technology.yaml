@@ -1,4 +1,6 @@
 id: practice.technology
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A language, framework, runtime or platform the product builds on; its version and its end of life are attributes,
   not kinds.
 sources:

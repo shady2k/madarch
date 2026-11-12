@@ -1,4 +1,6 @@
 id: istqb.test-plan
+purpose: quality
+audience: [tester, developer]
 definition: The objectives, the means and the schedule of the testing for a product or a change.
 sources:
 - https://glossary.istqb.org/en_US/term/test-plan

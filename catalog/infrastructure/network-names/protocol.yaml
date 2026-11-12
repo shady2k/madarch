@@ -1,4 +1,6 @@
 id: practice.protocol
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
 definition: An agreed set of rules two parties speak, such as HTTP or SMTP.
 sources:
 - https://www.rfc-editor.org/rfc/rfc791.html

@@ -1,4 +1,6 @@
 id: sre.sla
+purpose: operations
+audience: [operations, product-lead, analyst]
 definition: An agreement that states the service level and what happens when it is missed, whether with a user or with another
   service; the SLA is the one kind a supplier agreement names.
 sources:

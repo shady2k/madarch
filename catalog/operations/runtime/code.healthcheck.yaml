@@ -1,4 +1,6 @@
 id: practice.compose-healthcheck
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: A configured compose healthcheck command and its timing.
 sources:
 - https://docs.docker.com/compose/

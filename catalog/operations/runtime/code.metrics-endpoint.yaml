@@ -1,4 +1,6 @@
 id: practice.metrics-endpoint
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: The route that serves a service's metrics.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/metrics/

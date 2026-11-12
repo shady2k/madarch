@@ -1,4 +1,6 @@
 id: practice.release-notes
+purpose: history
+audience: [product, analyst, developer, operations]
 definition: What one release changes for the people who use the product.
 sources:
 - https://keepachangelog.com/

@@ -1,4 +1,6 @@
 id: practice.escalation-policy
+purpose: operations
+audience: [operations, platform-devops]
 definition: The order in which people are told about an unanswered alert, and after how long.
 sources:
 - https://sre.google/workbook/on-call/

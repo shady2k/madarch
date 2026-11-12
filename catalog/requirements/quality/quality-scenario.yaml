@@ -1,4 +1,6 @@
 id: arc42.quality-scenario
+purpose: quality
+audience: [product, analyst, tester, architect]
 definition: A concrete, measurable situation that states a quality requirement so a test can judge it.
 sources:
 - https://arc42.org/overview

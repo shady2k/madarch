@@ -1,4 +1,6 @@
 id: stix.indicator
+purpose: quality
+audience: [security-engineer, architect]
 definition: An observable pattern, such as an address or a file hash, that suggests an attack.
 sources:
 - https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html

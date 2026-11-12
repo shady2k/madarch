@@ -1,4 +1,6 @@
 id: terraform.variable
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: A named value an infrastructure definition takes from its surroundings.
 sources:
 - https://developer.hashicorp.com/terraform/language/values/variables

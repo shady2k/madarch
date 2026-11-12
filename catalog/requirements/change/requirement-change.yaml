@@ -1,4 +1,6 @@
 id: practice.requirement-change
+purpose: understand
+audience: [product, analyst, tester, architect, product-lead]
 definition: A change to a stated requirement, with what it replaces and why.
 sources:
 - https://www.omg.org/spec/SACM/

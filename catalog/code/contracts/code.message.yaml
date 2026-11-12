@@ -1,4 +1,6 @@
 id: practice.message-schema
+purpose: structure
+audience: [developer, architect, analyst, tester]
 definition: The shape of a message sent over a channel.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0

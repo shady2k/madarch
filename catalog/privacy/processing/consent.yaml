@@ -1,4 +1,6 @@
 id: gdpr.consent
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: A person's freely given agreement to the processing of their data, which can be withdrawn.
 sources:
 - https://gdpr-info.eu/art-7-gdpr/

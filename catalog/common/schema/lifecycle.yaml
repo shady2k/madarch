@@ -1,4 +1,6 @@
 id: manifest.lifecycle
+purpose: structure
+audience: [architect, product-lead]
 definition: The statuses and transitions an authored kind attaches through the manifest; an entity has one current status,
   an open question linked to it makes it blocked rather than giving it a status, and a kind the code produces has only its
   as-is and to-be.

@@ -1,4 +1,6 @@
 id: practice.time-entry
+purpose: history
+audience: [product-lead, developer]
 definition: A record of time spent on an entity, with its type (work time, waiting or an agent's run), its duration and the
   person or agent that spent it.
 sources:

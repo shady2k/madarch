@@ -1,4 +1,6 @@
 id: practice.reservation
+purpose: operations
+audience: [developer, product, analyst, product-lead]
 definition: A responsible person's hold over a subtree of work, so no one else changes it until the hold is released.
 sources:
 - https://svnbook.red-bean.com/en/1.8/svn.advanced.locking.html

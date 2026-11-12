@@ -1,4 +1,6 @@
 id: c4.software-system
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A system that delivers value to its users, described from outside, as C4 defines it.
 sources:
 - https://c4model.com/abstractions

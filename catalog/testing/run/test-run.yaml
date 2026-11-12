@@ -1,4 +1,6 @@
 id: istqb.test-run
+purpose: quality
+audience: [tester, developer]
 definition: One execution of a test suite on one version of the product.
 sources:
 - https://glossary.istqb.org/en_US/term/test-run

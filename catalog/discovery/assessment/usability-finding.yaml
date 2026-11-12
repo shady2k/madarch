@@ -1,4 +1,6 @@
 id: practice.usability-finding
+purpose: quality
+audience: [designer, tester, product, analyst]
 definition: A problem a usability test found, with the session that showed it.
 sources:
 - https://www.nngroup.com/articles/usability-testing-101/

@@ -1,4 +1,6 @@
 id: practice.asset
+purpose: structure
+audience: [designer, developer]
 definition: A file a screen shows, such as an image, an icon or a font.
 sources:
 - https://www.w3.org/Graphics/SVG/

@@ -1,4 +1,6 @@
 id: practice.iam-policy
+purpose: operations
+audience: [security-engineer, architect]
 definition: A written rule that says who may do what with which resources.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final

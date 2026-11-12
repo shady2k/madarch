@@ -1,4 +1,6 @@
 id: cyclonedx.ml-model
+purpose: structure
+audience: [developer, architect, product-lead]
 definition: A trained model the product uses, with the data and the code that produced it.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

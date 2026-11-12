@@ -1,4 +1,6 @@
 id: practice.firewall-rule
+purpose: operations
+audience: [operations, platform-devops, security-engineer]
 definition: A rule that allows or refuses traffic between addresses, ports and protocols.
 sources:
 - https://www.rfc-editor.org/rfc/rfc4949.html

@@ -1,4 +1,6 @@
 id: istqb.test-condition
+purpose: quality
+audience: [tester, developer]
 definition: A testable aspect of the product that is meant to be tested.
 sources:
 - https://glossary.istqb.org/en_US/term/test-condition

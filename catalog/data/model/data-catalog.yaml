@@ -1,4 +1,6 @@
 id: dcat.catalog
+purpose: structure
+audience: [analyst, architect, developer]
 definition: 'A curated collection of dataset records, as a DCAT catalog is: the datasets one publisher describes together.'
 sources:
 - https://www.w3.org/TR/vocab-dcat-3/

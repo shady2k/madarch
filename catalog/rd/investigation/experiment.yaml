@@ -1,4 +1,6 @@
 id: practice.experiment
+purpose: understand
+audience: [product, analyst, architect, developer]
 definition: A controlled trial that tests a hypothesis and concludes with a finding.
 sources:
 - https://openfeature.dev/specification/glossary

@@ -1,4 +1,6 @@
 id: oscal.poam
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
 definition: A plan of action and milestones for the weaknesses an assessment found.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/

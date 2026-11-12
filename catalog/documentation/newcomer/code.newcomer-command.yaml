@@ -1,4 +1,6 @@
 id: practice.setup-command
+purpose: operations
+audience: [developer, platform-devops]
 definition: A command the README tells a newcomer to run.
 sources:
 - https://diataxis.fr/

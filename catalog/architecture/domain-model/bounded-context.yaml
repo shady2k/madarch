@@ -1,4 +1,6 @@
 id: ddd.bounded-context
+purpose: structure
+audience: [architect, developer, analyst]
 definition: A boundary within which one model and one language hold, as domain-driven design defines it.
 sources:
 - https://www.domainlanguage.com/ddd/reference/

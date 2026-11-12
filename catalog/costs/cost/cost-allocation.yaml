@@ -1,4 +1,6 @@
 id: focus.allocation
+purpose: operations
+audience: [product-lead, operations, platform-devops]
 definition: How a cost is split over the products, the teams or the services that caused it.
 sources:
 - https://focus.finops.org/

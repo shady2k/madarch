@@ -1,4 +1,6 @@
 id: practice.health-endpoint
+purpose: operations
+audience: [developer, operations, platform-devops]
 definition: The route that tells whether a service is alive.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/

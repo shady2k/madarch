@@ -1,4 +1,6 @@
 id: practice.network-zone
+purpose: structure
+audience: [operations, platform-devops, architect]
 definition: A part of the network with one level of trust, which traffic crosses at a controlled point.
 sources:
 - https://cyclonedx.org/docs/1.6/json/

@@ -1,4 +1,6 @@
 id: practice.frontend-route
+purpose: structure
+audience: [designer, developer]
 definition: A client-side address that renders a screen and calls the operations it needs.
 sources:
 - https://c4model.com/abstractions

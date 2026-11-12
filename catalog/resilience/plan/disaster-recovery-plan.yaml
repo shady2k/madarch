@@ -1,4 +1,6 @@
 id: nist800-34.disaster-recovery-plan
+purpose: operations
+audience: [operations, platform-devops, architect]
 definition: The part of the contingency plan that covers a site or a region loss.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final

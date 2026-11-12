@@ -1,4 +1,6 @@
 id: practice.release-plan
+purpose: understand
+audience: [product, product-lead, analyst]
 definition: What a release is meant to contain, and when it is expected.
 sources:
 - https://www.atlassian.com/agile/product-management/product-roadmaps

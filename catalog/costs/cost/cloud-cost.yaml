@@ -1,4 +1,6 @@
 id: focus.cloud-cost
+purpose: operations
+audience: [product-lead, operations, platform-devops]
 definition: The cost a cloud provider charges for the resources the product uses.
 sources:
 - https://focus.finops.org/

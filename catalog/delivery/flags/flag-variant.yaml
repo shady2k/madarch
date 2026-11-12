@@ -1,4 +1,6 @@
 id: openfeature.variant
+purpose: operations
+audience: [developer, platform-devops, operations]
 definition: One value a feature flag can take, chosen by its rules.
 sources:
 - https://openfeature.dev/specification/glossary

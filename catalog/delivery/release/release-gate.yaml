@@ -1,4 +1,6 @@
 id: practice.release-gate
+purpose: quality
+audience: [developer, platform-devops, operations]
 definition: A check a release must pass before it may go on to the next environment.
 sources:
 - https://dora.dev/guides/dora-metrics/

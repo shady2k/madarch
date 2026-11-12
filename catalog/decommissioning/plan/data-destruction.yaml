@@ -1,4 +1,6 @@
 id: nist800-88.destruction
+purpose: operations
+audience: [operations, platform-devops, product-lead]
 definition: The method by which data is made unrecoverable when its medium is retired.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/88/r1/final
