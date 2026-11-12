@@ -12,6 +12,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
 const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-home-'));
@@ -28,6 +29,7 @@ const CODE_FILES = 6;
 beforeAll(() => {
   const git = (...args: string[]): void => { execFileSync('git', args, { cwd: REPOSITORY, env: GIT_ENV }); };
   git('init', '-q', '-b', 'main');
+  useRepositoryPlugins(REPOSITORY);
   put('package.json', `${JSON.stringify({ name: 'start-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`);
   for (let index = 0; index < CODE_FILES; index++) {
     const name = `f${String(index).padStart(3, '0')}`;
