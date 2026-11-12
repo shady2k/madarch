@@ -18,6 +18,7 @@ import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun 
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import { fillSteps } from './steps.js';
 import { assertFillGitVersion } from './git-version.js';
+import { createRunRepositoryInputs } from '../plugin/repository-input.js';
 
 import type { StageRegistry } from './registry.js';
 import { createStagesFill, type StagesFillOptions, type UnreadRepository } from '../product/fill-stages.js';
@@ -157,33 +158,38 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  const fill = await createStagesFill({ product, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }) }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
-  const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
-  // Reading the pins is what names a checkout with no commit: the answer says what the run did for
-  // it once the run has settled, and a run of this product still reads every other repository.
-  await fill.wiring.snapshot();
-  const service = createFillOrchestratorService({
-    owner: options.database as never,
-    registry: fill.registry,
-    wiring: () => wiring,
-    ...(options.clock === undefined ? {} : { clock: options.clock }),
-    ...(options.limits === undefined ? {} : { limits: options.limits }),
-    ...(options.log === undefined ? {} : { log: options.log }),
-    ...(options.sink === undefined ? {} : { sink: options.sink }),
-    ...(options.workers === undefined ? {} : { workers: options.workers }),
-    ...(options.maxPasses === undefined ? {} : { maxPasses: options.maxPasses }),
-  });
-  options.onService?.(service);
+  const repositoryInputs = createRunRepositoryInputs();
   try {
-    const result = await service.run({ product: fill.product, runId });
-    const unread = fill.unread();
-    // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
-    const kinds = fill.kinds;
-    const declaredKinds = kinds === undefined ? undefined : kinds === false ? [] : [...kinds.vertex, ...kinds.edge];
-    const withKind = declaredKinds === undefined ? result : { ...result, declaredKinds };
-    if (unread.length === 0) return withKind;
-    return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
+    const fill = await createStagesFill({ product, prepareRepositoryInputs: repositoryInputs.prepare, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }) }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
+    const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
+    // Reading the pins is what names a checkout with no commit: the answer says what the run did for
+    // it once the run has settled, and a run of this product still reads every other repository.
+    await fill.wiring.snapshot();
+    const service = createFillOrchestratorService({
+      owner: options.database as never,
+      registry: fill.registry,
+      wiring: () => wiring,
+      ...(options.clock === undefined ? {} : { clock: options.clock }),
+      ...(options.limits === undefined ? {} : { limits: options.limits }),
+      ...(options.log === undefined ? {} : { log: options.log }),
+      ...(options.sink === undefined ? {} : { sink: options.sink }),
+      ...(options.workers === undefined ? {} : { workers: options.workers }),
+      ...(options.maxPasses === undefined ? {} : { maxPasses: options.maxPasses }),
+    });
+    try {
+      options.onService?.(service);
+      const result = await service.run({ product: fill.product, runId });
+      const unread = fill.unread();
+      // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
+      const kinds = fill.kinds;
+      const declaredKinds = kinds === undefined ? undefined : kinds === false ? [] : [...kinds.vertex, ...kinds.edge];
+      const withKind = declaredKinds === undefined ? result : { ...result, declaredKinds };
+      if (unread.length === 0) return withKind;
+      return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
+    } finally {
+      if (options.keepService !== true) await service.stop();
+    }
   } finally {
-    if (options.keepService !== true) await service.stop();
+    await repositoryInputs.close();
   }
 }

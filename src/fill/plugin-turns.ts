@@ -50,6 +50,8 @@ export interface PluginTurnWiring {
   readonly locks: ReadonlyMap<string, PluginLockEntry>;
   readonly owner: GraphOwner;
   readonly snapshots: SnapshotSource;
+  /** Run-owned sanitized sources; the host still copies them privately for every invocation. */
+  readonly prepareRepositoryInputs?: typeof prepareRepositoryInputs;
   /** Optional repository-path prefixes selected by this fill. */
   readonly paths?: readonly string[];
   /** The contract the manifest's declarations made: the file table the units are read from, the tables the claims go to. */
@@ -344,7 +346,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const repositoryInputs = await (async () => {
     try {
       return pluginRightsOf(closure).filesystem === true
-        ? await withSpan('plugin.repositories', {}, async () => await prepareRepositoryInputs(await wiring.snapshots.pins(), workRoot))
+        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot))
         : { filesystemInputs: [], repositories: [] };
     } catch (error) {
       rmSync(workRoot, { recursive: true, force: true });

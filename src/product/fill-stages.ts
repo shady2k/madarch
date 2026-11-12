@@ -47,6 +47,8 @@ type FillDatabase = Parameters<typeof createOneGraphSchema>[0];
 
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
+  /** Run-owned repository preparation; each PluginHost still snapshots its own input bytes. */
+  readonly prepareRepositoryInputs?: typeof import('../plugin/repository-input.js').prepareRepositoryInputs;
   /** The owning process prepares the exact pinned contract before any fill client attaches. */
   readonly prepareContract?: (contract: import('../graph/contract.js').GraphContract) => Promise<void>;
   /** The product's folder: its manifest, the product repository, and its `repos/`. */
@@ -185,7 +187,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);

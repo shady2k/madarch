@@ -1,5 +1,7 @@
 /** Isolated read-only repository inputs for ordinary filesystem-capable plugins. */
 import { execFile } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RepositoryPin } from './repository-snapshot.js';
 import { sandboxInputPath } from './sandbox.js';
@@ -42,4 +44,41 @@ export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], wo
       ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) });
   }
   return { filesystemInputs, repositories };
+}
+
+/**
+ * One pressed run owns these sanitized object stores. Only their source bytes are
+ * shared: PluginHost still copies every input into each invocation's private root.
+ */
+export function createRunRepositoryInputs() {
+  let closed = false;
+  let signature: string | undefined;
+  let root: string | undefined;
+  let held: ReturnType<typeof prepareRepositoryInputs> | undefined;
+  return {
+    async prepare(pins: readonly RepositoryPin[], workRoot: string): ReturnType<typeof prepareRepositoryInputs> {
+      if (closed) throw new Error('repository input: this run has closed its repository inputs');
+      const requested = JSON.stringify(pins);
+      if (signature !== undefined && signature !== requested) throw new Error('repository input: repository pins changed within one run');
+      signature = requested;
+      held ??= (async () => {
+        root = await mkdtemp(join(tmpdir(), 'madarch-run-repositories-'));
+        return await prepareRepositoryInputs(pins, root);
+      })();
+      const prepared = await held;
+      return {
+        filesystemInputs: prepared.filesystemInputs,
+        repositories: prepared.repositories.map((repository, index) => ({
+          ...repository,
+          root: sandboxInputPath(prepared.filesystemInputs[index]!.name, filesystemInputSnapshotPath(workRoot, prepared.filesystemInputs[index]!.name)),
+        })),
+      };
+    },
+    async close(): Promise<void> {
+      closed = true;
+      // A failed preparation can still have created part of its private directory.
+      await held?.catch(() => undefined);
+      if (root !== undefined) await rm(root, { recursive: true, force: true });
+    },
+  };
 }
