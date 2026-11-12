@@ -20,7 +20,7 @@ import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
-const sandboxProblem = checkCgroupDelegation(cgroupParent())?.message ?? (await sandboxSetupProblem({ cgroupParent: cgroupParent() }))?.message;
+const sandboxProblem = process.env['MADARCH_PLUGIN_SANDBOX'] === 'off' && process.env['MADARCH_SANDBOX_REQUIRED'] !== '1' ? undefined : checkCgroupDelegation(cgroupParent())?.message ?? (await sandboxSetupProblem({ cgroupParent: cgroupParent() }))?.message;
 if (sandboxProblem !== undefined && process.env['MADARCH_SANDBOX_REQUIRED'] === '1') throw new Error(sandboxProblem);
 
 const fields = [

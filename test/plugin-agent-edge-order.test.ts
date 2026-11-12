@@ -20,7 +20,7 @@ import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
-const sandboxProblem = checkCgroupDelegation(cgroupParent())?.message ?? (await sandboxSetupProblem({ cgroupParent: cgroupParent() }))?.message;
+const sandboxProblem = process.env['MADARCH_PLUGIN_SANDBOX'] === 'off' && process.env['MADARCH_SANDBOX_REQUIRED'] !== '1' ? undefined : checkCgroupDelegation(cgroupParent())?.message ?? (await sandboxSetupProblem({ cgroupParent: cgroupParent() }))?.message;
 if (sandboxProblem !== undefined && process.env['MADARCH_SANDBOX_REQUIRED'] === '1') throw new Error(sandboxProblem);
 
 const fields = [
@@ -144,7 +144,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       if (run.state !== 'succeeded') throw new Error(JSON.stringify(run));
       const rows = await owner.transaction('snapshot', async (tx) => await tx.query(`SELECT * FROM ${generatedTableName('probe.link', 'edge')} WHERE state='open'`));
       expect(rows.rows).toHaveLength(1);
-      expect(sessions).toHaveLength(2);
+      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);
     } finally { await owner.close(); }
   }, 120_000);
 });

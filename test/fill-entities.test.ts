@@ -35,6 +35,7 @@ const GLOSSARY = `# Glossary
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases are skipped with it, never passed. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -120,10 +121,10 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
   }, 600_000);
 
   test('a kind with no plugin of its own plans no plugin turn', async () => {
-    // A commit needs no kind before it and no kind of this product depends on it: the set is the commit alone, and it
-    // has no plugin, so the run plans no plugin turn at all.
-    const answer = await fillCommand('--entity', 'code.commit');
+    // Authors need commits and repositories, all host-filled; dependants of those added dependencies stay out.
+    const answer = await fillCommand('--entity', 'code.author');
     expect(answer.code).toBe(0);
+    expect(answer.stdout).toContain('Also filling code.commit, needed by code.author.');
     expect(answer.stdout).toContain('Also filling code.repository, needed by code.commit.');
     expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.commit, code.author.');
     expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual([]);
@@ -135,8 +136,8 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     const answer = await fillCommand('--entity', 'code.file');
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Also filling doc.term, which depends on code.file.');
-    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, doc.term.');
-    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/db-schema:code.database']);
+    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, code.test-quarantine, doc.term.');
+    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/db-schema:code.database', 'plugin-turns/test-quarantine:code.test-quarantine']);
   }, 600_000);
 
   test('a vertex fill rewrites exactly the entity it names and nothing else', async () => {

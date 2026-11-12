@@ -16,6 +16,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 import type { KnowledgeProduct } from '../src/knowledge/product.js';
 import { gitEnv } from './git-env.js';
+import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -27,6 +28,7 @@ const GLOSSARY = `# Glossary
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases are skipped with it, never passed. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -75,6 +77,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     const draft = createDraft({ home, name: 'selection-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
+    useExtractedGlossary(folder);
     product = draft.name;
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });
