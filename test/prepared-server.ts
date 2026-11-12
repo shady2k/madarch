@@ -19,6 +19,18 @@ export async function activateTestProduct(folder: string, home: string, knowledg
   await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), contract);
 }
 
+/** Prepare a direct product fixture before clients open, retaining its owner until they close. */
+export async function prepareTestProduct(folder: string, home: string, knowledgeRoot = knowledgeRootOf(home)): Promise<() => Promise<void>> {
+  const closeOwner = await retainTestStorePreparationOwner();
+  try {
+    await activateTestProduct(folder, home, knowledgeRoot);
+    return closeOwner;
+  } catch (error) {
+    await closeOwner();
+    throw error;
+  }
+}
+
 /** Keep the production owner service alive until all server readers and fills close. */
 export async function startPreparedServer(options: Parameters<typeof startServer>[0]): Promise<StartedServer> {
   const home = options.productHome ?? (options.productFolder === undefined ? undefined : dirname(options.productFolder));

@@ -21,6 +21,7 @@ import { gitEnv } from './git-env.js';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { productStoreFolder } from '../src/product/store.js';
+import { activateTestProduct, prepareTestProduct } from './prepared-server.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -48,6 +49,7 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
 let work: string;
 let folder: string;
 let product: KnowledgeProduct;
+let closePreparation: (() => Promise<void>) | undefined;
 
 /** One git command in the product's repository. */
 const git = (...args: string[]): string => execFileSync('git', args, { cwd: folder, encoding: 'utf8', env: gitEnv(IDENTITY) });
@@ -60,6 +62,7 @@ function commit(message: string): void {
 
 /** Runs one fill of the product and waits for it: a refusal or a failure names what went wrong. */
 async function refill(): Promise<void> {
+  await activateTestProduct(folder, join(work, 'home'), join(work, 'store'));
   const started = await product.startFill();
   if (!('started' in started) || started.started !== true) throw new Error(`the fill did not start: ${JSON.stringify(started)}`);
   await product.settled();
@@ -98,12 +101,14 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
 
   afterAll(async () => {
     await product?.close();
+    await closePreparation?.();
     rmSync(work, { recursive: true, force: true });
   });
 
   test('the starter authored terms do not run an unbound glossary plugin', async () => {
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
     commit('A glossary document beside authored terms');
+    closePreparation = await prepareTestProduct(folder, join(work, 'home'), join(work, 'store'));
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
     await refill();
     expect((await product.glossary()).terms).toEqual([]);
@@ -114,6 +119,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
   test('the first fill publishes the terms the glossary states, and the listing and the page read only the graph', async () => {
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
     commit('Add the glossary');
+    await activateTestProduct(folder, join(work, 'home'), join(work, 'store'));
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
     await refill();
 
