@@ -16,7 +16,6 @@ import { closureOf } from '../src/plugin/closure.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { createTestDatabaseOwner } from './test-database.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
