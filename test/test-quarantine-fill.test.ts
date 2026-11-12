@@ -11,6 +11,7 @@ import { gitEnv } from './git-env.js';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
 
@@ -69,7 +70,7 @@ describe('test quarantine through a real fill', () => {
       await fill();
       const owner = await createTestDatabaseOwner({
         store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))),
-        graphContract: await readPinnedGraphContract(folder),
+        graphContract: withManifestContract(await readPinnedGraphContract(folder)),
       });
       try { await publishFixtureTemplate(owner, folder, 'templates/test-quarantine.liquid'); }
       finally { await owner.close(); }
