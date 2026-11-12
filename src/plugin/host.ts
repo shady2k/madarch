@@ -475,12 +475,13 @@ ${text === '' ? '(empty)' : text}` };
         }
         const held = this.inFlight.get(chunk.unitId);
         if (held === undefined) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk names no active unit` }); return; }
-        this.countBytes(held, bytes);
+        const decoded = Buffer.from(chunk.data, 'base64');
+        this.countBytes(held, decoded.byteLength);
         if (this.failure !== undefined) return;
         const accumulated = this.resultChunks.get(chunk.unitId) ?? { count: 0, bytes: [] };
         if (chunk.sequence !== accumulated.count) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunks must arrive in sequence` }); return; }
         accumulated.count += 1;
-        accumulated.bytes.push(Buffer.from(chunk.data, 'base64'));
+        accumulated.bytes.push(decoded);
         this.resultChunks.set(chunk.unitId, accumulated);
         held.lastSign = Date.now();
         return;
@@ -517,7 +518,7 @@ ${text === '' ? '(empty)' : text}` };
       this.unitByRequest.delete(key);
       const held = unitId === undefined ? undefined : this.inFlight.get(unitId);
       if (value.error === undefined) {
-        if (held !== undefined) this.countBytes(held, bytes);
+        if (held !== undefined && !this.resultChunks.has(held.unitId)) this.countBytes(held, bytes);
         waiter.resolve(value.result);
         return;
       }
