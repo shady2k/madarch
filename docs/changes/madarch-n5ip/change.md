@@ -36,4 +36,4 @@ None.
 To be recorded on the task after checks and independent review.
 
 ## DONE WHEN
-`madarch demo` clones and serves the upstream product when absent, fast-forwards and serves it on a later run, and on network failure names the network and offers `madarch new`; the embedded Fieldnote product and its command are removed; the reader's empty-home instruction is `madarch demo` in English or Russian.
+`madarch demo` clones and serves the upstream product when absent, fast-forwards and serves it on a later run, and on network failure names the network and offers `madarch init`; the embedded Fieldnote product and its command are removed; the reader's empty-home instruction is `madarch demo` in English or Russian.

@@ -10,7 +10,7 @@ A person currently must keep `madarch serve` attached to a terminal for each pro
 
 ## Out of scope
 - Installing a system service or surviving reboot (the service install is its own task after Monday).
-- Changing the `madarch serve` foreground contract, or the `madarch new`/`init` output contract beyond not blocking: their accepted `new`/`init` wording stays the one madarch-74k4.2.6 landed; `--host` stays theirs alone where the shared daemon cannot honor it, because the daemon binds loopback only.
+- Changing the `madarch serve` foreground contract, or the `madarch init`/`init` output contract beyond not blocking: their accepted `new`/`init` wording stays the one madarch-74k4.2.6 landed; `--host` stays theirs alone where the shared daemon cannot honor it, because the daemon binds loopback only.
 - Model-serving configuration, authentication, remote binding or multi-user access.
 
 ## Changes to requirements

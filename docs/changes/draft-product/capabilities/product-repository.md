@@ -10,8 +10,8 @@ skills, its prototypes and the manifest naming the code repositories it spans
 with a temporary name, a stable id and a complete but empty skeleton, which
 the person and their agent fill in.
 
-## Requirement: draft — `madarch new` creates a draft product repository
-When `madarch new` is run, it shall create, under the products home, a folder
+## Requirement: draft — `madarch init` creates a draft product repository
+When `madarch init` is run, it shall create, under the products home, a folder
 named `idea-YYYY-MM-DD` from the day's date — `idea-YYYY-MM-DD-2`, and `-3`
 and so on when that day's names are taken — make it a git
 repository whose first commit holds the skeleton, and print the product's
@@ -41,22 +41,22 @@ leaving no folder behind.
 
 ### Scenario: new-draft
 - Given: `MADARCH_HOME` names a scratch folder and the day is 2026-10-09
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: `products/idea-2026-10-09` exists as a git repository with one commit holding `AGENTS.md`, `CLAUDE.md`, `workspace.yaml`, `.gitignore`, `docs/`, `model/`, `skills/` and `prototypes/`, `repos/` exists untracked, and the command printed that folder and the product's id
 
 ### Scenario: second-draft-that-day
 - Given: `products/idea-2026-10-09` exists
-- When: `madarch new` is run again the same day
+- When: `madarch init` is run again the same day
 - Then: `products/idea-2026-10-09-2` is created, with its own id and its own first commit
 
 ### Scenario: home-not-usable
 - Given: the path `MADARCH_HOME` names is a file
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: it exits 2 naming that path, and no product folder is created anywhere
 
 ### Scenario: framing-commit-fails
 - Given: a products home that is created and a git that refuses to commit
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: it exits 1 naming what git said, and the folder it made is gone
 
 ## Requirement: manifest — A product is read from its manifest and keeps its id
@@ -73,7 +73,7 @@ schema version this madarch knows, and a `workspace.yaml` that cannot be read
 shall each be refused, naming the file and the field or reason.
 
 ### Scenario: draft-manifest
-- Given: a draft created by `madarch new`
+- Given: a draft created by `madarch init`
 - When: its manifest is read
 - Then: the id is the one the command printed, the name is the folder's name, and the schema version is the one madarch writes
 
@@ -93,11 +93,11 @@ shall each be refused, naming the file and the field or reason.
 - Then: it opens, and its id and name are read as usual
 
 ### Scenario: constitution-is-written-once
-- Given: a draft created by `madarch new`
+- Given: a draft created by `madarch init`
 - When: its `AGENTS.md` is read
 - Then: it names `docs/`, `model/`, `skills/`, `prototypes/` and `repos/` and what each is for, says that `skills/` holds the team's own skills, and carries madarch's marker comments around the part madarch maintains
 
 ### Scenario: no-absolute-path
-- Given: a draft created by `madarch new` in a scratch products home
+- Given: a draft created by `madarch init` in a scratch products home
 - When: every file the command wrote is searched for that home's absolute path
 - Then: none holds it

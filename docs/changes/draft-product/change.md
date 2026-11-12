@@ -10,7 +10,7 @@ Today madarch reads repositories that already exist: a repository declares its
 intended model, madarch compiles it and builds a static wiki from it. Nothing
 lets a person with only an idea start: there is no product repository to hold
 the idea, and no wiki that follows the files as they are written. After this
-change `madarch new` creates a draft product repository — a real git
+change `madarch init` creates a draft product repository — a real git
 repository holding the product's constitution, its manifest and its folders —
 and a local madarch serves that product's wiki, read from the working tree,
 and opens it in the browser; a Markdown file saved under the product's `docs/`
@@ -19,7 +19,7 @@ server still running. This is outcome 1 of the idea-to-wiki charter: the first
 step of the milestone's walk, from an empty folder to a named product.
 
 Stories:
-- As a person with only an idea, I run `madarch new` and my draft's wiki opens
+- As a person with only an idea, I run `madarch init` and my draft's wiki opens
 in the browser, naming the product and listing the pages it has.
 - As the agent working in the product root, I write `docs/vision.md` and the
 page appears; the reader who has that page open sees the new text within
@@ -36,7 +36,7 @@ them): the served app shows a document as formatted text first.
 - Writing from the wiki: the page editor, the chat, comments, sign-in and MCP
 (decisions 0017 and 0018; the agent-access milestone).
 - The contract a document is checked against on write and on commit: outcome 2
-(madarch-fe1). `madarch new` installs no hook in the product repository.
+(madarch-fe1). `madarch init` installs no hook in the product repository.
 - The product's open questions (outcome 3, madarch-0uc), prototypes
 (outcome 4, madarch-ls3), naming the product, its remote and `madarch list`
 (outcome 5, madarch-mni).
@@ -146,7 +146,7 @@ Chosen by the agent while planning this change:
   documents, `model/` for the intended model, `skills/` for the team's own
   skills (never a copy of the skill set), `prototypes/` and an untracked
   `repos/`.
-- **`AGENTS.md` is written once.** `madarch new` writes the constitution and
+- **`AGENTS.md` is written once.** `madarch init` writes the constitution and
   never rewrites the file afterwards; the part madarch maintains later lives
   between its marker comments, so the skill set may add its own sections
   safely. Nothing madarch writes holds an absolute path to the product, and
@@ -226,7 +226,7 @@ Recorded on the change's tasks as `check:` comments and in the stages'
 acceptance records, with the walk's numbers.
 
 ## DONE WHEN
-After `madarch new` the draft's wiki opens in the browser, and a file the agent
+After `madarch init` the draft's wiki opens in the browser, and a file the agent
 saves under `docs/` changes its page without a restart. Where it is seen: the
 address the command prints, opened in the browser on the draft's home page and
 on the page of `docs/vision.md`; the file is written while the server runs, and

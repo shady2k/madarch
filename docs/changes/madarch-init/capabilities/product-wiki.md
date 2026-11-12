@@ -451,7 +451,7 @@ The server watches the product working tree and answers one Server-Sent Events s
 
 ## Requirement: serve — A local madarch serves the wiki and opens it
 When a local madarch is given a product folder, it shall serve that product's
-wiki at its address and print the address; `madarch new` shall create the
+wiki at its address and print the address; `madarch init` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
 product of the current folder when it is given none. `madarch serve` shall
 also serve an existing directory with no `workspace.yaml` as a temporary,
@@ -460,7 +460,7 @@ folder's name supplies only the temporary display name; no manifest, product
 id or sample document is written or treated as manifest data. A directory
 that does not exist, a manifest that cannot be read, or a manifest that does
 not parse remains refused with its cause. Manifest reading and lifecycle
-commands remain strict. `madarch new` shall open the address in the browser the
+commands remain strict. `madarch init` shall open the address in the browser the
 machine uses; where no browser can be opened, it shall say so and print the
 address without failing. The server shall serve the app's built files and
 answer the wiki's pages; a request it cannot answer shall be refused with a
@@ -472,7 +472,7 @@ message naming what was asked for, and no document's content shall be logged.
 
 ### Scenario: new-opens-the-wiki
 - Given: `MADARCH_HOME` names a scratch folder and the machine's browser opener is recorded
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: the command prints the address, opens that address in the browser, and the address answers the draft's home page while the command runs
 ### Scenario: serve-an-existing-product
 - Given: a draft created earlier and no server running
@@ -672,10 +672,10 @@ When a product manifest declares repositories, the overview shall list each in c
 - Then: the README is rendered and the top-level entries are shown in code-point order
 
 ## Requirement: getting-started — Empty product guidance follows product state
-Inside a product, the getting-started panel shall not recommend `madarch new`. If the product has no repositories, it shall recommend `cd path/to/checkout && madarch init` or `madarch repo add name url`. If it has repositories but no documents, it shall recommend running setup-shady2k-skills in the product folder with an agent. The heading shall have no empty space above it. A folder without a product manifest keeps guidance for starting a new product.
+Inside a product, the getting-started panel shall not recommend `madarch init`. If the product has no repositories, it shall recommend `cd path/to/checkout && madarch init` or `madarch repo add name url`. If it has repositories but no documents, it shall recommend running setup-shady2k-skills in the product folder with an agent. The heading shall have no empty space above it. A folder without a product manifest keeps guidance for starting a new product.
 
 
 ### Scenario: getting-started-states
 - Given: a product with no repositories, or a product with repositories but no documents
 - When: the empty overview is shown
-- Then: the first recommends init or repo add, the second recommends setup-shady2k-skills with an agent, neither recommends madarch new, and the heading has no top margin
+- Then: the first recommends init or repo add, the second recommends setup-shady2k-skills with an agent, neither recommends madarch init, and the heading has no top margin

@@ -91,7 +91,7 @@ Complete proposed capability: `capabilities/product-wiki.md`. Every accepted req
 - product-wiki/pages: the product's documents are still the wiki's pages, and the kinds the wiki shows today keep their templates, labels, details and descriptions; the starter set declares the six new fields for exactly the kinds that had the behaviour, so every page it shows is the page it showed.
 - product-wiki/live: a saved manifest still changes the pages at the next read; a `views`, `sequence`, `system`, `definition-block`, `listing` or `nav` line saved into a kind's declaration takes effect with it.
 - product-wiki/serve: serving a product is still one read of its working tree; the six fields add no route.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now declares the six fields.
+- product-repository/draft: `madarch init` still writes the starter set as the product's own files; what it writes now declares the six fields.
 
 ## Coverage
 - product-wiki/views: test, static
@@ -159,7 +159,7 @@ None.
     entity and the tables its foreign keys reach. The first draft chose the reading by whether the graph held tables under
     the key, which turned an empty database's answer into an empty table box; the review of `2ecabd83` caught it, and the
     declared form replaces the guess, so no graph a page is drawn from answers differently from `02d3b00e`.
-  - The pages of the starter set are compared, not assumed: a script renders every page of a product `madarch new` makes
+  - The pages of the starter set are compared, not assumed: a script renders every page of a product `madarch init` makes
     from the generated training repository and fills — 1 326 pages, 65 kind listings, the 478 diagram views the pages ask
     for, 65 kind maps, the findings and the home — at `02d3b00e` and at this revision. Every one is identical; the only
     difference is the five kind summaries that gain `nav` or `listing`. The script is
@@ -192,7 +192,7 @@ Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05, on the reviewed cha
   test/starter-set-upgrade.test.ts`: 157 pass, 5 fail — `product-wiki-pages`' five `chmod 000` cases, which the run of a
   root user reads (4.4 proved them failing at 4730a814 in a clean worktree). `test/madarch-init-e2e.test.ts` alone: 2
   pass, 1 fail, its agent offer reading `prime-agent` as installed because this machine has it on `PATH`.
-- **The pages of the starter set, compared**: the generated training repository, a product `madarch new` makes from each
+- **The pages of the starter set, compared**: the generated training repository, a product `madarch init` makes from each
   revision's own starter set and fills, then every page (`product.page`), every kind's listing, the 478 diagram views the
   pages ask for (sequence 429, state 30, er 11, c4-component 4, c4-container 1, c4-context 1, deployment 1, domain 1), the
   65 kind maps, the findings and the home, at `02d3b00e` and here: `same pages (1326)`, `same listings (65)`,

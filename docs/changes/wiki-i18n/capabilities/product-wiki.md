@@ -116,9 +116,9 @@ The server watches the product working tree and answers one Server-Sent Events s
 
 ## Requirement: serve — A local madarch serves the wiki and opens it
 When a local madarch is given a product folder, it shall serve that product's
-wiki at its address and print the address; `madarch new` shall create the
+wiki at its address and print the address; `madarch init` shall create the
 draft and serve its wiki in one command, and `madarch serve` shall serve the
-product of the current folder when it is given none. `madarch new` shall open
+product of the current folder when it is given none. `madarch init` shall open
 the address in the browser the machine uses; where no browser can be opened,
 it shall say so and print the address without failing. The server shall serve
 the app's built files and answer the wiki's pages; a request it cannot answer
@@ -131,7 +131,7 @@ content shall be logged.
 
 ### Scenario: new-opens-the-wiki
 - Given: `MADARCH_HOME` names a scratch folder and the machine's browser opener is recorded
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: the command prints the address, opens that address in the browser, and the address answers the draft's home page while the command runs
 ### Scenario: serve-an-existing-product
 - Given: a draft created earlier and no server running

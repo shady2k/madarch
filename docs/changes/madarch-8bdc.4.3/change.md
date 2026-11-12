@@ -9,7 +9,7 @@ Kind: behavior
 Decision 0033 (item 12) and the owner's points 28, 29 and 31 tie the entity catalog to the wiki's POV: a kind
 belongs to exactly one subgroup, a role lists the areas or subgroups it leads, and the ten roles are product,
 analyst, architect, developer, operations, tester, designer, security engineer, platform/DevOps and product
-lead. The starter set `madarch new` writes now declares all ten, each with the areas or subgroups it leads, and
+lead. The starter set `madarch init` writes now declares all ten, each with the areas or subgroups it leads, and
 every area is led by at least one role. The engine keeps no list of roles: a role's name is the product's own
 data, as a kind's is.
 
@@ -52,7 +52,7 @@ file's end.
 - product-wiki/pages: the product's documents are still the wiki's pages; a role changes what stands open and what leads, as it did.
 - product-wiki/live: a saved manifest still changes the roles the wiki offers at the next read.
 - product-wiki/serve: the settings route still keeps the reader's role in the madarch home; it now accepts the product's roles.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now declares ten roles.
+- product-repository/draft: `madarch init` still writes the starter set as the product's own files; what it writes now declares ten roles.
 
 ## Coverage
 - product-wiki/catalog: test
@@ -68,7 +68,7 @@ file's end.
 Kind: command
 Place: the starter set's `roles:` and `bun run check`
 
-1. Make a product with `madarch new` and open `madarch/kinds.yaml`: its `roles:` block declares the ten roles, each with `lead:` naming the areas or subgroups it leads, and the six roles the wiki had keep the `open:` lists they had.
+1. Make a product with `madarch init` and open `madarch/kinds.yaml`: its `roles:` block declares the ten roles, each with `lead:` naming the areas or subgroups it leads, and the six roles the wiki had keep the `open:` lists they had.
 2. Run `bun run check`: the catalog check passes with the ten roles, and every area of the catalog is reached by at least one role's `lead`.
 3. Remove an area from every role's `lead` and run it again: it prints the manifest's full path, the area's line and the words "no role leads it", with the roles that exist, and exits 1.
 

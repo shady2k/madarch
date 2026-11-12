@@ -316,7 +316,7 @@ naming the manifest's file and full path, the line the expectation stands on, th
 kind and the general kind it means. A kind the documents do hold shall not be
 reported. An expectation that names a kind the manifest does not declare, or a
 kind whose entities do not come from documents, shall be a finding of the
-manifest at its own line. The starter manifest `madarch new` writes shall declare
+manifest at its own line. The starter manifest `madarch init` writes shall declare
 the four document kinds a product's documents are expected to hold: use cases,
 business rules, requirements and decisions.
 
@@ -331,7 +331,7 @@ business rules, requirements and decisions.
 - Then: no finding is made for that kind
 
 ### Scenario: starter-set-expects-four-kinds
-- Given: a product made by `madarch new` whose documents hold none of the four kinds the starter manifest expects
+- Given: a product made by `madarch init` whose documents hold none of the four kinds the starter manifest expects
 - When: its wiki reads the documents
 - Then: four findings, one per kind, at the line that declares `documents.expect`; and given the training product, whose documents hold all four, then no finding at all
 

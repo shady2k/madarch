@@ -8,7 +8,7 @@ Kind: behavior
 ## Intent
 
 Keep `madarch init [folder]` as the only command that starts a product.
-Retire `madarch new` without an alias. Connect a Git checkout when one is
+Retire `madarch init` without an alias. Connect a Git checkout when one is
 present, otherwise create an empty draft under the products home. Open its wiki.
 
 Follow the owner's latest correction, recorded on 2026-11-12: a terminal asks
