@@ -226,16 +226,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "2cc94da7166937fc6eb7#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "c6b15d47a48b74d40332#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "0252e7aa3ae5931c46a6#1"
   },
@@ -772,42 +762,7 @@
   {
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "CorrectionBox#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "DocumentPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "DocumentsPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "EntityCard#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "ExcerptView#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "GroundCard#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "StatementPage#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "Trail#1"
   },
   {
     "rule": "local-styled-component",
