@@ -17,7 +17,7 @@ test('the full starter catalogue stays bounded while single-kind details retain 
   const read = readKinds(folder);
   if (!read.present) throw new Error('starter manifest is absent');
   const manifest = read.manifest;
-  const ctx = { manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext;
+  const ctx = { productFolder: folder, manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext;
   const kinds = await catalogKinds(ctx);
   for (const kind of kinds) {
     const declaration = manifest.kinds.get(kind.kind);
