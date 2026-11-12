@@ -148,40 +148,6 @@ function graphRelationOf(relation: string, declared?: ReadonlyMap<string, Genera
   return declared?.has(relation) === true ? { kind: relation } : undefined;
 }
 
-export function spanFromProvenance(properties: Record<string, unknown>): SourceSpan | undefined {
-  const provenance = properties['provenance'];
-  if (provenance === null || typeof provenance !== 'object' || Array.isArray(provenance)) return undefined;
-  const place = (provenance as Record<string, unknown>)['place'];
-  if (place === null || typeof place !== 'object' || Array.isArray(place)) return undefined;
-  const held = place as Record<string, unknown>;
-  const range = held['range'];
-  const path = held['file'];
-  if (typeof path !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range)) return undefined;
-  const measured = range as Record<string, unknown>;
-  const { startLine, endLine, startByte, endByte } = measured;
-  if (typeof startLine !== 'number' || typeof endLine !== 'number' || typeof startByte !== 'number' || typeof endByte !== 'number') return undefined;
-  return { path, lineStart: startLine, lineEnd: endLine, byteStart: startByte, byteEnd: endByte };
-}
-
-export function spanOf(value: unknown): SourceSpan | undefined {
-  if (value === null || typeof value !== 'object') return undefined;
-  const span = value as Record<string, unknown>;
-  const { path, lineStart, lineEnd, byteStart, byteEnd } = span;
-  if (typeof path !== 'string' || typeof lineStart !== 'number' || typeof lineEnd !== 'number' || typeof byteStart !== 'number' || typeof byteEnd !== 'number') return undefined;
-  return { path, lineStart, lineEnd, byteStart, byteEnd };
-}
-
-export function presentedKey(kind: string, properties: Record<string, unknown>): string {
-  if (kind === 'code.file' && typeof properties['path'] === 'string') return `code.file:${String(properties['repository'] ?? '')}/${properties['path']}`;
-  if (kind === 'code.directory' && typeof properties['path'] === 'string') return `code.directory:${String(properties['repository'] ?? '')}/${properties['path']}`;
-  if (kind === 'code.gitlink' && typeof properties['path'] === 'string') return `code.gitlink:${String(properties['repository'] ?? '')}/${properties['path']}`;
-  if (kind === 'code.repository' && typeof properties['name'] === 'string') return `code.repository:${properties['name']}`;
-  if (kind === 'code.commit' && typeof properties['hash'] === 'string') return `code.commit:${properties['hash']}`;
-  if (kind === 'code.author' && typeof properties['name'] === 'string' && typeof properties['email'] === 'string') return `code.author:${properties['name']}/${properties['email']}`;
-  const recordKey = properties['recordKey'];
-  return typeof recordKey === 'string' ? recordKey : String(recordKey ?? '');
-}
-
 /** The repository a file, folder or gitlink names in its key, and the node it is. */
 const REPOSITORY_KEY = (alias: string): string => `(${alias}.key->>'repository')`;
 
