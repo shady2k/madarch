@@ -116,3 +116,12 @@ revision, an all-green result, or a process-approval receipt.
 
 - `test/fill-target-selection.test.ts`: before implementation, 1 failure because derives-from was unknown; after implementation, 1 pass and 3 assertions. The fixture selects source and summary, not their dependant report.
 - Implementation evidence and tracker check receipts are recorded separately by the coordinator after the final source revision. This observation is not a receipt for the full required checks.
+
+
+## Main integration merge and glossary profiling (2026-11-12)
+
+The architecture reference was corrected before merging: repository facts now come from the declared ordinary disk and git plugins, not the deleted native repository-facts stage. Main `9bdeee93` was merged with a no-fast-forward merge, retaining its wiki kind pages, section graphs and fill-page presentation. The declaration-driven ordinary-plugin contract remains authoritative for fill semantics. Earlier partial-native observations above are historical, not the current implementation.
+
+A fresh merged-source glossary baseline passed its first two cases but took 178.456 and 203.945 seconds. The corresponding fill spans were 164.917 and 196.618 seconds. These timings are a performance defect, not acceptance merely because the tests passed. Existing trace capture found repeated pre-invocation work and thousands of durable graph-read transactions; details and final measurements follow in the delivery report.
+
+The import validator now indexes verified absolute paths instead of finding each dependency by a linear scan. Every file is still hashed and every reachable import is still checked. A tracked-read sequence index preserves the existing read and progress transactions. Glossary content reads use eight workers and restore original file order before extraction; no file or content is omitted. A pressed fill prepares sanitized pinned repository object stores once and still copies them into each invocation's private filesystem inputs; the run removes its source stores in a finally block. No existing limits or timeouts were raised.
