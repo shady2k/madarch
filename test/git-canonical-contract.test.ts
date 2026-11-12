@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { KindDecl, KindsManifest } from '../src/product/manifest/kinds.js';
 import { canonicalGitEntityRef, canonicalGitKind, GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
-import { declaredKindReads, graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { canonicalDeclaredEntityRef, declaredKindReads, graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { keyUid } from '../src/graph/uid.js';
 
 function manifest(): KindsManifest {
   const repository: KindDecl = { name: 'code.repository', title: 'label', relations: [], line: 1, template: 'repository.liquid', source: 'graph', capability: 'git', key: ['name'], derivesFrom: [], fields: [{ name: 'name', type: 'text' }] };
@@ -35,6 +36,8 @@ describe('git-backed declarations share one storage identity', () => {
     expect(canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: 'app', path: 'src/schema.ts' } })).toEqual(expected);
     expect(canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: { kind: 'code.repository', key: { name: 'app' } }, path: 'src/schema.ts' } })).toEqual(expected);
     expect(canonicalGitEntityRef(held, expected)).toEqual(expected);
+    const draft = canonicalDeclaredEntityRef(held, { kind: 'code.file', key: { repository: 'app', path: 'src/schema.ts' } });
+    expect(keyUid(draft.kind, [JSON.stringify(draft.key)])).toBe(keyUid(expected.kind, [JSON.stringify(expected.key)]));
   });
 
   test('a similarly named kind without the capability binding remains independent', () => {
