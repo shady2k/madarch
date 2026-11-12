@@ -10,6 +10,7 @@ import { KindDetails } from './kind-details.js';
 import { KindSources } from './kind-sources.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 import { TableOfContents } from '@/components/ui/table-of-contents.js';
+import { FilterResults } from '@/components/ui/filter-bar.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -163,38 +164,43 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
   const operations = summary?.listing === 'operations';
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState('');
-  const [more, setMore] = useState<EntityRef[]>([]);
-  const [operationMore, setOperationMore] = useState<NonNullable<EntityListing['operations']>>({});
-  const [next, setNext] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [appended, setAppended] = useState<{ listing: EntityListing; rows: EntityRef[]; operations: NonNullable<EntityListing['operations']>; next: string | null; error: string | null } | null>(null);
   useEffect(() => {
-    const wait = setTimeout(() => setAsked(query), query === '' ? 0 : 200);
+    const wait = setTimeout(() => setAsked(query), 200);
     return () => clearTimeout(wait);
   }, [query]);
   useTabTitle(kindName(kind, 'many'));
   const read = useRead<EntityListing>(`${kind}\0${asked}`, version, (signal) => getEntities(kind, { q: asked }, signal));
-  const listing = read.data;
-  // A fresh listing starts the rows over: what "load more" appended belonged to the one before.
-  useEffect(() => {
-    setMore([]);
-    setOperationMore({});
-    setNext(listing?.next ?? null);
-  }, [listing]);
+  const shown = useRef<{ kind: string; listing: EntityListing } | null>(null);
+  if (read.data !== null) shown.current = { kind, listing: read.data };
+  const listing = shown.current?.kind === kind ? shown.current.listing : null;
+  // Appended pages belong to one response, never to its replacement, even for the first render.
+  const more = appended?.listing === listing ? appended : null;
+  const next = more === null ? listing?.next ?? null : more.next;
+  const error = more?.error ?? null;
+  const operationMore = more?.operations;
   const listingRef = useRef<EntityListing | null>(null);
   listingRef.current = listing;
-  const rows = [...(listing?.rows ?? []), ...more];
+  const rows = [...(listing?.rows ?? []), ...(more?.rows ?? [])];
   const load = (): void => {
-    if (next === null) return;
+    if (next === null || read.data !== listing || query !== asked) return;
     const mine = listing;
+    if (mine === null) return;
     getEntities(kind, { q: asked, after: next }).then(
       (answer) => {
-        // A commit that reread the listing meanwhile makes this page of rows a stale one.
         if (listingRef.current !== mine) return;
-        setMore((held) => [...held, ...answer.rows]);
-        setOperationMore((held) => ({...held, ...answer.operations}));
-        setNext(answer.next);
+        setAppended((held) => ({
+          listing: mine,
+          rows: [...(held?.listing === mine ? held.rows : []), ...answer.rows],
+          operations: { ...(held?.listing === mine ? held.operations : {}), ...answer.operations },
+          next: answer.next,
+          error: null,
+        }));
       },
-      (failure: unknown) => setError(message(failure)),
+      (failure: unknown) => {
+        if (listingRef.current !== mine) return;
+        setAppended((held) => ({ listing: mine, rows: held?.listing === mine ? held.rows : [], operations: held?.listing === mine ? held.operations : {}, next, error: message(failure) }));
+      },
     );
   };
   return (
@@ -209,6 +215,7 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
       <KindDetails kind={kind} version={version} />
       <KindMap kind={kind} version={version} />
       <SectionTitle>{t('knowledge.kindDetails.records')}</SectionTitle>
+      <FilterResults>
       <Stack className="flex items-center gap-3">
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="w-96 max-w-full" data-testid="kind-filter" />
         {listing !== null && <Text className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</Text>}
@@ -232,7 +239,8 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
           </TableBody>
         </Table>
       )}
-      {next !== null && <Stack className="mt-4"><Button variant="default" size="default" onClick={load} data-testid="kind-more">{t('knowledge.more')}</Button></Stack>}
+      {next !== null && <Stack className="mt-4"><Button variant="default" size="default" disabled={read.data !== listing || query !== asked} onClick={load} data-testid="kind-more">{t('knowledge.more')}</Button></Stack>}
+      </FilterResults>
     </PageSection>
   );
 }
