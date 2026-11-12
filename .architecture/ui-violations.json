@@ -862,11 +862,6 @@
   {
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "KindMap#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "StatementPage#1"
   },
   {

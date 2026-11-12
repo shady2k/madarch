@@ -143,7 +143,7 @@ function KindMap({ kind, version }: { kind: string; version: number }): ReactEle
   const read = useRead<{ renderer: DiagramRenderer; views: DiagramView[] }>(`map\0${kind}\0${lang}`, version, (signal) => getViews(new URLSearchParams({ type: 'domain-map', subject: kind }).toString(), lang, signal));
   const view = read.data?.views[0];
   if (read.data === null || view === undefined || view.empty !== null) return null;
-  return <div className="mb-6" data-testid="kind-map"><DiagramsView block={{ type: 'diagrams', title: t('knowledge.views.kindMap'), renderer: read.data.renderer, views: [view] }} /></div>;
+  return <Stack className="mb-6" data-testid="kind-map"><DiagramsView block={{ type: 'diagrams', title: t('knowledge.views.kindMap'), renderer: read.data.renderer, views: [view] }} /></Stack>;
 }
 
 /** A kind's entities: filtered by text, a hundred at a time. */
