@@ -1769,14 +1769,6 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     const first = cycle[0]!;
     findings.push({ file, line: kinds.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
   }
-  const order = cycle === undefined ? dependencyOrder(dependencies) : undefined;
-  const orderIndex = new Map((order ?? []).map((name, index) => [name, index] as const));
-  const closureOf = (kind: string): Set<string> => {
-    const held = new Set<string>([kind]);
-    const walk = (name: string): void => { for (const dependency of dependencies.get(name) ?? []) if (!held.has(dependency)) { held.add(dependency); walk(dependency); } };
-    walk(kind);
-    return held;
-  };
   const checkField = (owner: string, field: FieldDecl, ownerLine: number, edge: boolean): void => {
     const line = field.line ?? ownerLine;
     const what = edge ? 'edge kind' : 'kind';
@@ -1801,15 +1793,6 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
   for (const plugin of plugins.values()) {
     for (const output of plugin.outputs) if (!kinds.has(output)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": output ${JSON.stringify(output)} is not a kind the manifest declares` });
     for (const input of plugin.inputs) if (!kinds.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is not a kind the manifest declares` });
-    if (orderIndex.size === 0) continue;
-    const declaredOutputs = plugin.outputs.filter((output) => orderIndex.has(output));
-    if (declaredOutputs.length === 0) continue;
-    // A plugin that reads the whole graph asks for no particular kind as its input: the graph is its input, and the
-    // declared list names what a person should see it read, not a dependency closure (madarch-stm0.7.1, piece 3).
-    if (plugin.contract?.reads === 'whole-graph') continue;
-    const earliest = declaredOutputs.reduce((first, next) => (orderIndex.get(next)! < orderIndex.get(first)! ? next : first));
-    const closure = closureOf(earliest);
-    for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });
   }
   // `journal: { debug: true }` keeps every request a plugin makes, its reads included, in the journal; off by default,
   // and a plugin never logs itself.

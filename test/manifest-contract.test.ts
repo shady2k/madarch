@@ -83,9 +83,9 @@ describe('the manifest contract preflight', () => {
     expect(findings(text)).toContainEqual(expect.stringContaining('kind "a": "derives-from" names the kind "missing", and the manifest declares no such kind'));
   });
 
-  test('a plugin whose input lies outside the closure of its earliest output kind is refused', () => {
+  test('plugin reads are independent of the selected kind prerequisite closure', () => {
     const text = VALID.replace('inputs: [a], outputs: [a, b]', 'inputs: [a], outputs: [b]').replace('    derives-from: [a]', '    derives-from: []');
-    expect(findings(text)).toContainEqual(expect.stringContaining('plugin "git": input "a" is outside the dependency closure of its earliest output kind "b"'));
+    expect(findings(text)).toEqual([]);
   });
 
   test('any declared field may stand in the natural key: the key is the vertex\'s, and no field is authoritative', () => {
