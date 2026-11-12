@@ -610,43 +610,6 @@ export async function publishEdgeOpinion(executor: SqlExecutor, contract: GraphC
   return await stateOpinion(executor, kind.name, kind.table, 'edge_id', edgeId, `${draft.producer}@${draft.producerVersion}`, new Map(Object.entries(draft.values ?? {})), fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), undefined, edgeId);
 }
 
-/**
- * One edge of a kind between two nodes, declared: made where it stands in no other way, found where it does. The
- * producer's existence opinion of the edge is stated with it, so "who says this edge exists" is answerable for an
- * attribute-free edge too.
- */
-export async function ensureEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, fromNode: string, toNode: string, discriminator = '', opinion?: { readonly producer: string; readonly producerVersion: string; readonly evidence?: readonly EvidenceDraft[] }, contextId = 1, journal?: Journal): Promise<{ id: string; created: boolean }> {
-  journal = heldJournal(executor, journal);
-  if (!contract.edge.some((held) => held.name === kindName)) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kindName)} is no kind the product declares: the contract holds ${contract.edge.length === 0 ? 'none' : contract.edge.map((one) => one.name).join(', ')}`);
-  const entityId = await entityIdOf(executor, kindName, 'edge');
-  const made = await executor.query<{ id: string; from_uid: string; to_uid: string }>(
-    `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)
-     ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING
-     RETURNING id::text AS id, (SELECT uid::text FROM node WHERE id = $2::bigint) AS from_uid, (SELECT uid::text FROM node WHERE id = $3::bigint) AS to_uid`,
-    [entityId, fromNode, toNode, discriminator, String(contextId)],
-  );
-  const created = made.rows[0];
-  let id = created?.id;
-  if (id === undefined) {
-    const held = await executor.query<{ id: string }>(
-      `SELECT id::text AS id FROM edge WHERE entity_id = $1::bigint AND from_node = $2::bigint AND to_node = $3::bigint AND discriminator = $4 AND context_id = $5::bigint`,
-      [entityId, fromNode, toNode, discriminator, String(contextId)],
-    );
-    id = held.rows[0]?.id;
-    if (id === undefined) throw new Error(`${WHERE}:1: the edge of ${JSON.stringify(kindName)} between ${fromNode} and ${toNode} was declared and the store holds neither it nor its echo`);
-  }
-  // Every edge a publication makes is journaled as declared — with or without an opinion — and an edge that already
-  // stands is journaled by nothing (codex, stage 2 review, item 2). The existence opinion is the producer's first
-  // statement of the edge; an edge that already stands keeps its opinion, and a rerun writes nothing.
-  if (created !== undefined) {
-    journal?.declaredEdge(kindName, created.id, created.from_uid, created.to_uid, discriminator, contextId);
-    if (opinion !== undefined) await publishEdgeOpinion(executor, contract, kindName, created.id, { values: {}, ...opinion }, contextId, journal);
-  }
-  return { id: id!, created: created !== undefined };
-}
-
-
-
 /** One edge by its id, removed: its opinions go with it (a consistent cascade), never the vertices it names. */
 export async function removeEdgeById(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, journal?: Journal): Promise<boolean> {
   journal = heldJournal(executor, journal);
