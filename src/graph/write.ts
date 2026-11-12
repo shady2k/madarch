@@ -525,61 +525,7 @@ async function stateOpinion(executor: SqlExecutor, entity: string, table: string
   return true;
 }
 
-/** Publishes a batch of one kind's vertex opinions, retaining input order in the journal. */
-export async function publishOpinions(executor: SqlExecutor, contract: GraphContract, drafts: readonly Parameters<typeof publishOpinion>[2][], contextId = 1, journal?: Journal): Promise<readonly boolean[]> {
-  if (drafts.length === 0) return [];
-  journal = heldJournal(executor, journal);
-  const first = drafts[0]!;
-  const vertex = vertexOf(contract, first.kind);
-  if (drafts.some((draft) => draft.kind !== first.kind)) throw new Error(`${WHERE}:1: an opinion batch must state one kind`);
-  const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
-  const identity = (node: string, producer: string, lang: string | null): string => JSON.stringify([node, producer, lang]);
-  const keys = drafts.map((draft) => identity(draft.nodeId, draft.producer, draft.lang ?? null));
-  const sequential = async (): Promise<boolean[]> => {
-    const results: boolean[] = [];
-    for (const draft of drafts) results.push(await publishOpinion(executor, contract, draft, contextId, journal));
-    return results;
-  };
-  // Repeated inputs observe the opinion the preceding input wrote, just as individual calls do.
-  if (new Set(keys).size !== keys.length || drafts.some((draft) => draft.producer.includes('@'))) return await sequential();
-  const held = await executor.query<{ node_id: string; producer: string; lang: string | null }>(
-    `SELECT node_id::text AS node_id, split_part(said_by, '@', 1) AS producer, lang FROM ${vertex.table}
-     WHERE node_id = ANY($1::bigint[]) AND context_id = $2::bigint AND state = 'open'`,
-    [drafts.map((draft) => draft.nodeId), String(contextId)],
-  );
-  const existing = new Set(held.rows.map((row) => identity(row.node_id, row.producer, row.lang)));
-  // Existing opinions retain the writer's comparison, replacement and evidence-only update path.
-  if (keys.some((key) => existing.has(key))) return await sequential();
-  const values = drafts.map((draft) => valuesOf(vertex, draft));
-  const evidence = drafts.map(evidenceList);
-  const columns = [...fields, 'said_by', 'lang', 'evidence', 'translated_from', 'source_digest', 'context_id', 'node_id'];
-  const rows = drafts.map((draft, at) => ({
-    ...Object.fromEntries(fields.map((field) => [field, values[at]!.get(field) ?? null])),
-    said_by: `${draft.producer}@${draft.producerVersion}`, lang: draft.lang ?? null, evidence: evidence[at],
-    translated_from: draft.translatedFrom ?? null, source_digest: draft.sourceDigest ?? null, context_id: contextId, node_id: draft.nodeId,
-  }));
-  const made = await executor.query<{ id: string; node_id: string; said_by: string; lang: string | null; said_at: string; translated_from: string | null; source_digest: string | null; owner_uid: string }>(
-    `INSERT INTO ${vertex.table} (${columns.map((column) => quote(column, 'column')).join(', ')})
-     SELECT ${columns.map((column) => `r.${quote(column, 'column')}`).join(', ')}
-     FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS input(value, ordinal)
-     CROSS JOIN LATERAL jsonb_populate_record(NULL::${vertex.table}, input.value) AS r ORDER BY input.ordinal
-     RETURNING id::text AS id, node_id::text AS node_id, said_by, lang,
-       to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at,
-       translated_from::text AS translated_from, source_digest, (SELECT uid::text FROM node WHERE id = node_id) AS owner_uid`,
-    [canonicalJson(rows)],
-  );
-  const returned = new Map(made.rows.map((row) => [identity(row.node_id, row.said_by.slice(0, row.said_by.lastIndexOf('@')), row.lang), row]));
-  for (const [at, draft] of drafts.entries()) {
-    const row = returned.get(keys[at]!);
-    if (row === undefined) throw new Error(`${WHERE}:1: the opinion batch did not return the row of node ${draft.nodeId}`);
-    journal?.opinion({ id: row.id, entity: vertex.name, node: draft.uid ?? row.owner_uid, state: 'opened',
-      fields: [...values[at]!.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field),
-      lang: draft.lang ?? null, said_by: row.said_by, values: Object.fromEntries(fields.map((field) => [field, values[at]!.get(field) ?? null])),
-      evidence: evidence[at]!, translated_from: row.translated_from, source_digest: row.source_digest, context: contextId, said_at: row.said_at });
-    if (journal !== undefined) await flushJournalIfFull(executor, journal);
-  }
-  return drafts.map(() => true);
-}
+
 
 /**
  * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
@@ -639,31 +585,7 @@ export async function ensureEdge(executor: SqlExecutor, contract: GraphContract,
   return { id: id!, created: created !== undefined };
 }
 
-/** Declares many edges of one kind at once, with the batch the fill's history pass needs; each stands once. */
-export async function ensureEdges(executor: SqlExecutor, contract: GraphContract, kindName: string, edges: readonly { readonly from: string; readonly to: string; readonly discriminator?: string }[], contextId = 1, journal?: Journal): Promise<void> {
-  journal = heldJournal(executor, journal);
-  if (!contract.edge.some((held) => held.name === kindName)) throw new Error(`${WHERE}:1: the edge kind ${JSON.stringify(kindName)} is no kind the product declares`);
-  if (edges.length === 0) return;
-  const entityId = await entityIdOf(executor, kindName, 'edge');
-  for (let at = 0; at < edges.length; at += 500) {
-    const chunk = edges.slice(at, at + 500);
-    const made = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-      `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) SELECT $1::bigint, e.from_node, e.to_node, e.discriminator, $2::bigint
-       FROM unnest($3::bigint[], $4::bigint[], $5::text[]) AS e(from_node, to_node, discriminator) ON CONFLICT DO NOTHING
-       RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator`,
-      [entityId, String(contextId), `{${chunk.map((one) => one.from).join(',')}}`, `{${chunk.map((one) => one.to).join(',')}}`, `{${chunk.map((one) => `"${(one.discriminator ?? '').replace(/["\\]/gu, '\\$&')}"`).join(',')}}`],
-    );
-    // The batch's declarations are journaled as events of the entry the caller is building — one entry, one statement
-    // per 500 edges, and one more statement for the uids all its ends name (codex, stage 2 review, item 2).
-    if (journal !== undefined && made.rows.length > 0) {
-      const uids = await uidsOfNodes(executor, [...new Set(made.rows.flatMap((row) => [row.from_node, row.to_node]))]);
-      for (const row of made.rows) journal.declaredEdge(kindName, row.id, uids.get(row.from_node) ?? '', uids.get(row.to_node) ?? '', row.discriminator, contextId);
-      // The batch's declarations are written where the batch ends, so one bulk declaration of a whole history never
-      // makes one row of the entry (codex, stage 2 review, item 7).
-      await flushJournalIfFull(executor, journal);
-    }
-  }
-}
+
 
 /** One edge by its id, removed: its opinions go with it (a consistent cascade), never the vertices it names. */
 export async function removeEdgeById(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, journal?: Journal): Promise<boolean> {

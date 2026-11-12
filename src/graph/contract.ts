@@ -199,15 +199,4 @@ export const EMPTY_CONTRACT: GraphContract = { vertex: [], edge: [], dictionary:
 /** The columns a reader or a writer names without the kind's own: the opinion's own, in the order `OPINION_COLUMNS`. */
 export const OPINION_FIELDS = ['id', 'said_by', 'said_at', 'state', 'confirmed_field', 'reason', 'confirmed_with', 'evidence', 'lang', 'translated_from', 'source_digest', 'context_id'] as const;
 
-/** The contract a manifest's declarations make: the capability's own tables for every kind it binds. */
-export function contractOf(capabilityContracts: readonly { readonly kinds: readonly string[]; readonly edges: readonly string[]; readonly contract: GraphContract }[], declaredKinds: readonly string[], declaredEdges: readonly string[]): GraphContract {
-  const vertex: VertexContract[] = [];
-  const edge: EdgeContract[] = [];
-  const dictionary: DictionaryContract[] = [];
-  for (const entry of capabilityContracts) {
-    for (const kind of entry.contract.vertex) if (declaredKinds.includes(kind.name) && entry.kinds.includes(kind.name)) vertex.push(kind);
-    for (const one of entry.contract.edge) if (declaredEdges.includes(one.name) && entry.edges.includes(one.name)) edge.push(one);
-    for (const one of entry.contract.dictionary) if (declaredKinds.some((kind) => entry.kinds.includes(kind)) && !dictionary.some((held) => held.name === one.name)) dictionary.push(one);
-  }
-  return { vertex, edge, dictionary };
-}
+

@@ -18,7 +18,7 @@ import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
-import { ensureEdges, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { ensureEdge, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
 import { unevidencedOpinions } from '../src/graph/consistency.js';
@@ -686,7 +686,8 @@ describe('the manifest makes the table and the writer fills it', () => {
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('bulk@1');
       journalOn(tx, journal);
-      await ensureEdges(tx, graph, 'doc.links', [{ from, to }, { from: to, to: from }], 1);
+      await ensureEdge(tx, graph, 'doc.links', from, to, '', undefined, 1);
+      await ensureEdge(tx, graph, 'doc.links', to, from, '', undefined, 1);
       await writeJournal(tx, journal);
     });
     const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { edges: { entity: string; from: string; to: string; discriminator: string; context: number; state: string }[] } }>('SELECT change FROM operation ORDER BY seq'));
@@ -701,7 +702,8 @@ describe('the manifest makes the table and the writer fills it', () => {
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('bulk@1');
       journalOn(tx, journal);
-      await ensureEdges(tx, graph, 'doc.links', [{ from, to }, { from: to, to: from }], 1);
+      await ensureEdge(tx, graph, 'doc.links', from, to, '', undefined, 1);
+      await ensureEdge(tx, graph, 'doc.links', to, from, '', undefined, 1);
       await writeJournal(tx, journal);
     });
     expect(Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0')).toBe(again);
