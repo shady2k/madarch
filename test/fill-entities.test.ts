@@ -1,6 +1,6 @@
 /**
  * A fill of the entities a person names (madarch-stm0.6, decision 0035 items 11 and 31): `madarch fill --entity <kind>`
- * adds the kinds that entity's declaration depends on and the kinds that depend on it, names what it added, and runs them
+ * adds the kinds that entity's declaration depends on, names what it added, and runs them
  * in the dependency order the manifest declares; `--vertex <entity id>` rewrites exactly that entity. A fill with no
  * entity named is the whole fill it always was.
  */
@@ -115,29 +115,36 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     expect(answer.stdout).toContain('Also filling code.file, needed by doc.term.');
     // The kinds the term kind needs, and the kinds those need, come first: the dependency closure of the request.
     expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, doc.term.');
-    // The term kind's turn ran, and only that kind's plugin turn was planned.
-    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/glossary:doc.term']);
+    // Ordinary repository producers cover the prerequisites; no unrelated producer is selected.
+    expect([...new Set((await runUnits(answer.stdout)).map((unit) => unit.split('#')[0]))].sort()).toEqual([
+      'plugin-turns/disk:code.directory', 'plugin-turns/disk:code.file', 'plugin-turns/disk:code.repository',
+      'plugin-turns/git:code.file', 'plugin-turns/git:code.repository', 'plugin-turns/glossary:doc.term',
+    ]);
     expect(Object.keys(await terms()).sort()).toEqual(['Claim', 'Fill']);
   }, 600_000);
 
-  test('a kind with no plugin of its own plans no plugin turn', async () => {
-    // Authors need commits and repositories, all host-filled; dependants of those added dependencies stay out.
+  test('an author fill selects ordinary history producers and their prerequisites only', async () => {
+    // Authors need commits and repository files; unrelated downstream consumers stay out.
     const answer = await fillCommand('--entity', 'code.author');
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Also filling code.commit, needed by code.author.');
     expect(answer.stdout).toContain('Also filling code.repository, needed by code.commit.');
-    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.commit, code.author.');
-    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual([]);
+    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.commit, code.author.');
+    const units = (await runUnits(answer.stdout)).map((unit) => unit.split('#')[0]);
+    expect(units).toContain('plugin-turns/git:code.author');
+    expect(units).toContain('plugin-turns/git:code.commit');
+    expect(units.every((unit) => /^plugin-turns\/(disk|git):code\./u.test(unit))).toBe(true);
     expect(answer.stdout).toContain('Units:');
   }, 600_000);
 
-  test('a kind with a plugin and its dependants in the set are filled in one order', async () => {
-    // code.file is read by doc.term, so a fill of the files takes the term kind with it, after the files.
+  test('a file fill excludes downstream consumers and preserves their graph opinions', async () => {
+    const before = await terms();
     const answer = await fillCommand('--entity', 'code.file');
     expect(answer.code).toBe(0);
-    expect(answer.stdout).toContain('Also filling doc.term, which depends on code.file.');
-    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, code.test-quarantine, doc.term.');
-    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/db-schema:code.database', 'plugin-turns/test-quarantine:code.test-quarantine']);
+    expect(answer.stdout).not.toContain('Also filling doc.term');
+    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file.');
+    expect((await runUnits(answer.stdout)).every((unit) => /^plugin-turns\/(disk|git):code\./u.test(unit))).toBe(true);
+    expect(await terms()).toEqual(before);
   }, 600_000);
 
   test('a vertex fill rewrites exactly the entity it names and nothing else', async () => {
