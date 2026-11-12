@@ -2,14 +2,14 @@ import { InlineCode } from '@/components/ui/inline-content.js';
 import { Breadcrumb } from '@/components/ui/breadcrumb.js';
 import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, Stack, Text, PageArticle, Preformatted, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
 import { KindDetails } from './kind-details.js';
 import { KindSources } from './kind-sources.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
-import { TableOfContents } from '@/components/ui/table-of-contents.js';
+import { ResponsiveContents } from '@/components/ui/table-of-contents.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -616,16 +616,6 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const { data, error } = useRead<CatalogView>('catalogue', version, getCatalog);
   const [filter, setFilter] = useState('');
   const [view, setView] = useState('table');
-  const [jumpTo, setJumpTo] = useState<string | null>(null);
-  useEffect(() => {
-    if (jumpTo === null || view !== 'table') return;
-    // Radix mounts the newly selected panel after the view change.
-    const frame = requestAnimationFrame(() => {
-      document.getElementById(jumpTo)?.scrollIntoView?.({ block: 'start' });
-      setJumpTo(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [jumpTo, view]);
   if (error !== null && data === null) {
     return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   }
@@ -653,12 +643,9 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
   const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
   const kindId = (kind: string): string => `catalogue-kind-${encodeURIComponent(kind)}`;
-  const kindContents = (kinds: CatalogKindView[]) => kinds.map((kind) => ({ id: kindId(kind.kind), label: nameOf(kind) }));
   const contents = sections.map((section) => ({
     id: sectionId(section.key), label: section.name,
-    children: [...kindContents(section.kinds), ...section.subgroups.map((subgroup) => ({
-      id: sectionId(subgroup.key), label: subgroup.name, children: kindContents(subgroup.kinds),
-    }))],
+    children: section.subgroups.map((subgroup) => ({ id: sectionId(subgroup.key), label: subgroup.name })),
   }));
   const producerWords = (kind: CatalogKindView): string => {
     if ((kind.plugins ?? []).length > 0) return t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') });
@@ -712,7 +699,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</Paragraph>
       </PageHeader>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
-      <Stack layout="catalogue">
+      <Stack layout={view === 'table' ? 'catalogue' : undefined} data-testid="catalogue-layout">
       <Stack className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
@@ -736,9 +723,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
       </Tabs>
       </Stack>
-      <ContentsSidebar data-testid="catalogue-contents">
-        <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
-      </ContentsSidebar>
+      {view === 'table' && <ResponsiveContents title={t('knowledge.catalogueViews.contents')} items={contents} />}
       </Stack>
     </PageSection>
   );
