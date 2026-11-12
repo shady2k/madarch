@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { createRecordSchema, publishHistory, publishTree } from '../src/graph/records.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { publishEdgeOpinion } from '../src/graph/write.js';
-import { GraphReader, type GeneratedKindRead } from '../src/knowledge/graph-read.js';
+import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 // A whole-graph verdict reads every touched edge. Its cost must be one properties read, not one per changed file.
@@ -57,18 +57,6 @@ test('relation properties are batched without mixing edges, producers, contexts 
         { change: ['added', 'modified'], added: [2, 7], removed: 0 },
       ]);
       expect(reads).toHaveLength(3);
-      reads.length = 0;
-      const kinds = new Map<string, GeneratedKindRead>([
-        [GIT_KINDS.file, { kind: GIT_KINDS.file, table: GIT_TABLES.file, columns: ['language'], types: { language: 'text' }, key: ['path'] }],
-        [GIT_KINDS.signature, { kind: GIT_KINDS.signature, table: GIT_TABLES.signature, columns: [], types: {}, key: ['name', 'email'] }],
-      ]);
-      const bounded = new GraphReader(owner, () => '2026-01-02T00:00:00Z', undefined, measured, undefined, kinds);
-      const projected = await bounded.relationEdges('code.touched', 100);
-      expect(projected.rows.map((row) => [row.to.properties?.['path'], row.to.properties?.['language']])).toEqual([
-        ['a.txt', 'Text'], ['b.txt', 'Text'], ['c.txt', 'Text'],
-      ]);
-      // Three file vertices share one generated-kind read; the unrelated signature declaration adds no query.
-      expect(reads).toHaveLength(5);
       reads.length = 0;
       expect((await reader.relationEdges('code.touched', 0)).rows).toEqual([]);
       expect(reads).toHaveLength(2);

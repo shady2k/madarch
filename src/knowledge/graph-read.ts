@@ -1100,20 +1100,12 @@ export class GraphReader {
     // The select answers every vertex with a fallback key for the code kinds it does not know; a manifest-declared kind's
     // table is what answers its vertices, with the key and label its contract gives them (a term's name, not its node id;
     // the database page's tables and columns are read the same way, madarch-47vw.3).
-    const held = new Map<string, GraphEntity>();
-    const generatedIds = new Map<GeneratedKindRead, string[]>();
-    for (const row of found.rows) {
-      const id = String(row['node_id']);
-      const decl = this.generatedKind(String(row['kind']));
-      if (decl === undefined) held.set(id, entityOf(row));
-      else {
-        const ids = generatedIds.get(decl) ?? [];
-        ids.push(id);
-        generatedIds.set(decl, ids);
-      }
-    }
-    for (const [decl, ids] of generatedIds) {
-      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY node_id`, [`{${ids.join(',')}}`]);
+    const generated = new Set(this.generated?.keys() ?? []);
+    const held = new Map(found.rows.filter((row) => !generated.has(String(row['kind']))).map((row) => [String(row['node_id']), entityOf(row)]));
+    const missing = ids.filter((id) => !held.has(id));
+    if (missing.length === 0) return held;
+    for (const decl of this.generated?.values() ?? []) {
+      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY node_id`, [`{${missing.join(',')}}`]);
       for (const entity of await this.generatedEntities(tx, decl, rows.rows)) held.set(entity.nodeIds[0]!, entity);
     }
     return held;
