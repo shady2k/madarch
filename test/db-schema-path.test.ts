@@ -248,7 +248,11 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(join(code, 'src', 'schema.ts'), SOURCE);
     mkdirSync(join(code, 'fixtures'), { recursive: true });
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
-    const kinds = parseDocument(starterManifestText().replaceAll('terms: ["**/*.ts", "**/*.tsx"]', 'terms: ["src/**/*.ts"]'));
+    const kinds = parseDocument(starterManifestText());
+    for (const name of ['code.database', 'code.table', 'code.column', 'code.index']) {
+      expect(kinds.toJS().kinds[name].terms).toEqual(['**/*.ts', '**/*.tsx']);
+      kinds.setIn(['kinds', name, 'terms'], ['src/**/*.ts']);
+    }
     kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, binding: { agent: 'The structured source excerpt a page shows.' } });
     writeFolderManifest(folder, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
