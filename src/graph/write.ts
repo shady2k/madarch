@@ -264,11 +264,7 @@ async function entityIdOf(executor: SqlExecutor, kind: string, sort: 'node' | 'e
 }
 
 /** The uids of nodes, by their local id: a journal event names a vertex or an edge's end by its uid, never by an id. */
-async function uidsOfNodes(executor: SqlExecutor, ids: readonly string[]): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  const found = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`, [`{${ids.join(',')}}`]);
-  return new Map(found.rows.map((row) => [row.id, row.uid]));
-}
+
 
 /** A value with the keys of every object in code point order, so two equal values render equal. */
 function canonical(value: unknown): unknown {
