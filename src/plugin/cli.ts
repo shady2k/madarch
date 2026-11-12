@@ -7,10 +7,11 @@
  *
  * The run's scratch folder holds its trace and logs — every host decision and
  * every iteration writes a span and a line there — and is printed when the
- * command starts.
+ * command starts. Anonymous scratch folders are removed when the command ends;
+ * use --work to keep the trace and logs.
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import * as os from 'node:os';
 import { join, resolve } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
@@ -25,7 +26,7 @@ interface PluginOptions {
   readonly folder: string;
   readonly repository: string | undefined;
   readonly units: readonly UnitRequest[];
-  readonly work: string;
+  readonly work: string | undefined;
   readonly json: boolean;
   readonly plugins: number;
   readonly unitsPerPlugin: number;
@@ -45,6 +46,7 @@ const USAGE = [
   'units one plugin is given at a time (the smaller of it and what the plugin declared).',
   '',
   'The run\'s scratch folder holds its trace and the plugin\'s standard error; it is printed first.',
+  'Anonymous scratch folders are removed when the command ends. Use --work to keep trace and logs.',
 ].join('\n');
 
 /** One refusal of the command line: what is wrong, and the exit it needs. */
@@ -123,7 +125,7 @@ function parse(args: readonly string[]): PluginOptions | number {
   const folder = resolve(words[0]!);
   if (verb === 'run' && repository === undefined) return refuse('madarch plugin run needs --repo: the repository the plugin reads, bound read-only');
   if (verb === 'run' && units.length === 0) return refuse('madarch plugin run needs at least one --unit: the units the plugin executes');
-  const workFolder = work === undefined ? mkdtempSync(join(tmpdir(), 'madarch-plugin-')) : resolve(work);
+  const workFolder = work === undefined ? undefined : resolve(work);
   return { verb, folder, repository, units, work: workFolder, json, plugins, unitsPerPlugin };
 }
 
@@ -160,35 +162,43 @@ export async function pluginCommand(args: readonly string[]): Promise<number> {
   }
   const parsed = parse(args);
   if (typeof parsed === 'number') return parsed;
-  const trace = openTrace({ store: parsed.work, runId: `plugin-${parsed.verb}-${String(process.pid)}` });
+  let work: string | undefined;
+  let trace: ReturnType<typeof openTrace> | undefined;
   try {
+    work = parsed.work ?? mkdtempSync(join(os.tmpdir(), 'madarch-plugin-'));
+    trace = openTrace({ store: work, runId: `plugin-${parsed.verb}-${String(process.pid)}` });
+    const workRoot = work;
     return await runInTrace(trace, async () => {
-      console.log(`work: ${parsed.work}`);
+      console.log(`work: ${workRoot}`);
       if (parsed.verb === 'check') {
         const report = await checkConformance({
           pluginFolder: parsed.folder,
           ...(parsed.repository === undefined ? {} : { repository: parsed.repository }),
-          workRoot: parsed.work,
+          workRoot,
           ...(parsed.units.length === 0 ? {} : { units: parsed.units }),
           ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }),
         });
-        return reportCheck(report, parsed.json, parsed.work);
+        return reportCheck(report, parsed.json, workRoot);
       }
       const work: RunnerUnit[] = parsed.units.map((unit) => ({ pluginFolder: parsed.folder, unit }));
       const results = await runUnits({
         repository: parsed.repository!,
-        workRoot: parsed.work,
+        workRoot,
         trust: 'production',
         settings: { pluginsAtOnce: parsed.plugins, unitsPerPlugin: parsed.unitsPerPlugin },
         ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }),
       }, work);
-      return reportRun(results, parsed.json, parsed.work);
+      return reportRun(results, parsed.json, workRoot);
     });
   } catch (error) {
     const failed = error as Error & { code?: string; file?: string; line?: number };
     console.error(`${failed.file === undefined ? 'src/plugin/cli.ts:1' : `${failed.file}:${String(failed.line ?? 1)}`}: ${failed.code === undefined ? '' : `${failed.code}: `}${failed.message}`);
     return 1;
   } finally {
-    closeTrace(trace);
+    try {
+      if (trace !== undefined) closeTrace(trace);
+    } finally {
+      if (parsed.work === undefined && work !== undefined) rmSync(work, { recursive: true, force: true });
+    }
   }
 }
