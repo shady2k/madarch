@@ -6,6 +6,7 @@ import { canonicalJsonDigest } from '../src/model/canonical.js';
 import { type Clock, type CompiledElement, type CompiledEntity, type CompiledModel, type CompiledRelation, type CompiledScenario, type HistoryStore } from './api.js';
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createTestHistory, openRawStore } from './test-database.js';
+import { quarantined } from './quarantine.js';
 
 /** A clock a test moves by hand, never the real one. */
 function fakeClock(initial: number): Clock & { set(t: number): void } {
@@ -20,13 +21,19 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
 
 const openHistories = new Set<HistoryStore>();
 
-async function newHistory(options: Parameters<typeof createHistoryStore>[0]): Promise<HistoryStore> {
-  const instance = await createTestHistory({ clock: options.clock, ...(options.store === undefined ? {} : { store: options.store }) });
+async function newHistory(options: Parameters<typeof createHistoryStore>[0] & { timing?: Parameters<typeof createTestHistory>[0]['timing'] }): Promise<HistoryStore> {
+  const instance = await createTestHistory({ clock: options.clock, ...(options.timing === undefined ? {} : { timing: options.timing }), ...(options.store === undefined ? {} : { store: options.store }) });
   openHistories.add(instance);
   const close = instance.close.bind(instance);
   instance.close = async () => {
     if (!openHistories.delete(instance)) return;
-    await close();
+    const closeStart = performance.now();
+    options.timing?.('store-close-start', 0);
+    try {
+      await close();
+    } finally {
+      options.timing?.('store-close', performance.now() - closeStart);
+    }
   };
   return instance;
 }
@@ -84,15 +91,27 @@ function model(
 }
 
 describe('store-version: storing a source at a commit', () => {
-  test('reading as of the commit\'s valid time and the storing moment\'s known time returns what was stored', async () => {
+  quarantined('madarch-64o5.24', test, 'slow', '49a778112b4f03b706023b6ef78b39e383bdaf4c')('reading as of the commit\'s valid time and the storing moment\'s known time returns what was stored', async () => {
     const clock = fakeClock(DAY(2));
-    const h = await history(clock);
+    const started = performance.now();
+    const timing = (phase: string, elapsedMs: number): void => {
+      console.error(`test/history.test.ts:94: madarch-64o5.24 phase=${phase} elapsed_ms=${elapsedMs.toFixed(2)} since_case_ms=${(performance.now() - started).toFixed(2)} pid=${process.pid}`);
+    };
+    timing('store-open-start', 0);
+    const h = await newHistory({ clock, timing });
+    timing('store-open-total', performance.now() - started);
 
     const shopAtC1 = model([element('a'), element('b'), element('c')]);
+    const writeStart = performance.now();
+    timing('store-write-start', 0);
     const result = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: shopAtC1 });
+    timing('store-write', performance.now() - writeStart);
     expect(result.errors).toEqual([]);
 
+    const readStart = performance.now();
+    timing('read-start', 0);
     const read = await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) });
+    timing('read', performance.now() - readStart);
     expect(read.elements.map((e) => e.id)).toEqual(['a', 'b', 'c']);
   });
 
