@@ -462,12 +462,13 @@ describe('the navigation by group', () => {
     ],
   } as unknown as WikiStatus;
 
-  test('the groups come in the manifest\'s order with the number of entities each holds; a kind with none, the home page and an empty group are not shown; a kind with no group stands in "other"', () => {
+  test('the groups come in the manifest\'s order with the number of entities each holds; a kind with none and the home page are not shown, but an empty group remains; a kind with no group stands in "other"', () => {
     const groups = navGroups(status, () => 0);
     // The home page (the single kind) counts in its group's number and is not listed: it is the "Home" entry.
     expect(groups.map((entry) => [entry.group, entry.total, entry.kinds.map((one) => one.kind)])).toEqual([
       ['product', 3, ['domain']],
       ['code', 803, ['code.file', 'code.symbol']],
+      ['tests', 0, []],
       [null, 3, ['code.weird']],
     ]);
   });
@@ -499,12 +500,12 @@ describe('the navigation by group', () => {
     ] } as unknown as WikiStatus, () => 0);
     // The listing's row is a kind row like every other; the loop's own place keeps the task out of the groups, while
     // its entities still count in the group's number.
-    expect(groups.map((entry) => [entry.group, entry.kinds.map((one) => one.kind), entry.total])).toEqual([['product', ['domain', 'doc.term'], 10]]);
+    expect(groups.map((entry) => [entry.group, entry.kinds.map((one) => one.kind), entry.total])).toEqual([['product', ['domain', 'doc.term'], 10], ['code', [], 0], ['tests', [], 0]]);
   });
 
   test('a kind whose pages are being written is shown with its pending units', () => {
     const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 0 })] } as unknown as WikiStatus, (name) => (name === 'domain' ? 2 : 0));
-    expect(groups.map((entry) => entry.kinds.map((one) => one.kind))).toEqual([['domain']]);
+    expect(groups.map((entry) => entry.kinds.map((one) => one.kind))).toEqual([['domain'], [], []]);
   });
 });
 
