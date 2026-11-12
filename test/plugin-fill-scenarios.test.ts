@@ -62,7 +62,7 @@ async function open(f: ReturnType<typeof fixture>) {
   const run = async (target: string, runId: string) => await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: f.releaseHashes,
     steps: ['plugin-turns'], targets: { kinds: [target] }, runId,
     prepareContract: async contract => { await prepareStore(owner, { contract }); } });
-  const rows = async (kind: string) => (await owner.transaction('snapshot', async tx => await tx.query<Record<string, unknown>>(`SELECT * FROM ${generatedTableName(kind, 'vertex')} WHERE state='open'`))).rows;
+  const rows = async (kind: string) => (await owner.transaction('snapshot', async tx => await tx.query<Record<string, unknown>>(`SELECT o.*, n.key->>'path' AS path FROM ${generatedTableName(kind, 'vertex')} o JOIN node n ON n.id=o.node_id WHERE o.state='open' ORDER BY n.key->>'path' COLLATE "C"`))).rows;
   return { owner, run, rows };
 }
 
