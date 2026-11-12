@@ -333,7 +333,7 @@ export class KnowledgeProduct {
       const owner = await this.open();
       await this.followStoreFill();
       const read = await this.manifestRead(this.options.productFolder);
-      if (!read.present || !await hasSuccessfulFill(owner)) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
       if (read.manifest.findings.length > 0) {
         const first = read.manifest.findings[0]!;
         throw new LoopRefusal(409, `${resolve(this.folder, first.file)}:${first.line}: ${first.message}`);
@@ -359,8 +359,9 @@ export class KnowledgeProduct {
   async importAuthored() {
     return await withSpan('authored.import', {}, async () => {
       const owner = await this.open();
+      await this.followStoreFill();
       const read = await this.manifestRead(this.folder);
-      if (!read.present || !await hasSuccessfulFill(owner)) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const identity = this.product();
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
       const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
