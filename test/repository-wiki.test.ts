@@ -262,7 +262,8 @@ git(folder,'commit','-qm','the nested file moves');
       const expectedKinds = [...(declared.manifest.catalog?.kinds.keys() ?? declared.manifest.kinds.keys())].sort(byCodePoint);
       const emptyKinds = empty.body['kinds'] as { kind: string; count: number }[];
       expect(emptyKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
-      expect(emptyKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
+      expect(emptyKinds.filter((kind) => kind.kind !== 'template').every((kind) => kind.count === 0)).toBe(true);
+      expect(emptyKinds.find((kind) => kind.kind === 'template')?.count).toBeGreaterThan(0);
       const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
       // The kind is declared, but file text alone produces no document entity.

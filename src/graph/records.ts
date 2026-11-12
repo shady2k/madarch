@@ -1186,13 +1186,13 @@ export interface FileDate {
 
 export async function fileFacts(owner: DatabaseOwner, repository: string, path: string, options: { readonly history?: boolean } = {}): Promise<(FileRecord & { readonly created: FileDate | null; readonly modified: FileDate | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
   return await withSpan('records.fileFacts', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
-    const repositoryId = await repositoryIdOf(tx, repository);
     const found = await tx.query<Record<string, unknown>>(`${FILE_SELECT} WHERE (n.key->'repository'->'key'->>'name') = $1::text AND (n.key->>'path') = $2::text AND n.context_id = 1 AND NOT n.removed`, [repository, path]);
     const row = found.rows[0];
     if (row === undefined) return null;
     // A product that declares no commit, touched or history kind holds no history table: the file's own facts stand,
     // and its dates and authors are absent rather than a read of a table the manifest never made (madarch-hsqs stage C).
     if (options.history === false) return { ...fileOf(row), created: null, modified: null, commitCount: 0, authors: [] };
+    const repositoryId = await repositoryIdOf(tx, repository);
     const history = await tx.query<Record<string, unknown>>(
       `${RENAME_CHAIN}
        SELECT (ct.key->>'hash') AS commit, ${COMMIT_OPINIONS('ct')} AS commit_opinions, ${WALK_OPINIONS('he')} AS walk, (sn.key->>'name') AS name
