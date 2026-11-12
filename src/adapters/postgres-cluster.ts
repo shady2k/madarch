@@ -624,10 +624,15 @@ export async function stopStoreForExit(store: string, options: { readonly force?
     // No question is asked of the server first either: `pg_ctl stop` answers "not running" for a server that is gone, and a
     // connection this process tried to open before it (up to its own two-second bound) is time the store's death may not
     // spend (madarch-8bdc.12).
-    const stopped = runBinary(join(bin, postgresProgram('pg_ctl')), ['-D', key, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
+    // A shutdown checkpoint can wait on disk I/O. Keep the event loop free so the ending role's deadline can fire.
+    const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', key, '-m', 'fast', '-w', 'stop'], {
+      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
+      env: { ...process.env, LC_ALL: 'C' },
+    });
+    const code = await stopping.exited;
     // The socket files go only once the server stopped: a stop that failed leaves a server that still answers, and taking
     // its socket away would make it look gone.
-    if (stopped.code === 0) removeSocketFiles(socketDir);
+    if (code === 0) removeSocketFiles(socketDir);
   } finally {
     releaseLock(users);
   }
