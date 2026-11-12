@@ -604,6 +604,9 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
   if (['serve', 'daemon-serve', 'demo', 'fill', 'fill-stages'].includes(args[0] ?? '') && !args.includes('--help') && !args.includes('-h') && !args.includes('--probe-acp') && !args.includes('--role') && process.env.MADARCH_ROLE !== 'api' && process.env.MADARCH_ROLE !== 'fill' && process.env.MADARCH_STORE_OWNER_URL === undefined) {
+    // Reject unsupported flags before validation or owner activation can touch a product.
+    const parsedOwnerCommand = parse(COMMANDS[args[0]!]!, args.slice(1));
+    if (typeof parsedOwnerCommand === 'number') return parsedOwnerCommand;
     const homeAt = args.indexOf('--home');
     const fillHome = productHomeOf(homeAt === -1 ? args.find((arg) => arg.startsWith('--home='))?.slice('--home='.length) : args[homeAt + 1]);
     if ((args[0] === 'fill' || args[0] === 'fill-stages') && daemonIsRunning({ home: fillHome })) {
