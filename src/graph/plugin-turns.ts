@@ -6,7 +6,6 @@
  * plugin asks for them by name and never builds a statement itself.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { GIT_KINDS, GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { generatedTableName } from './contract.js';
 import { journalFor, writeJournal, type JournalRead } from './write.js';
@@ -24,16 +23,16 @@ export interface GraphFileRow {
  * table, and the answer is empty — never an error.
  */
 export async function graphFiles(owner: DatabaseOwner, contract: GraphContract): Promise<GraphFileRow[]> {
-  if (!contract.vertex.some((kind) => kind.name === GIT_KINDS.file)) return [];
+  if (!contract.vertex.some((kind) => kind.name === 'code.file')) return [];
   return await owner.transaction('snapshot', async (tx) => {
     const found = await tx.query<{ repository: string; path: string }>(
-      `SELECT (f.key->'repository'->'key'->>'name') AS repository, (f.key->>'path') AS path
+      `SELECT (f.key->>'repository') AS repository, (f.key->>'path') AS path
        FROM node f
        JOIN entity fe ON fe.id = f.entity_id AND fe.name = $1
        JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = $2)
        WHERE NOT f.removed
        ORDER BY repository, path`,
-      [GIT_KINDS.file, GIT_KINDS.contains],
+      ['code.file', 'code.contains'],
     );
     return found.rows.map((row) => ({ repository: row.repository, path: row.path }));
   });
@@ -76,12 +75,6 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
 }
 
 
-/** The wiki's name of a graph kind: a git kind is presented as `code.file` and the like, a declared kind as it stands. */
-export function wikiKindOf(graphKind: string): string {
-  for (const [graph, wiki] of Object.entries(GIT_WIKI)) if (graph === graphKind) return wiki;
-  return graphKind;
-}
-
 /** One edge a producer published before: its identity as the edge row holds it, ends named by kind and key. */
 export interface ProducerEdge {
   readonly kind: string;
@@ -112,11 +105,11 @@ export async function producerEdges(owner: DatabaseOwner, contract: GraphContrac
        ORDER BY e.id`,
       [producer],
     );
-    const keyOf = (value: Record<string, unknown>): Record<string, string> => Object.fromEntries(Object.entries(value).map(([field, one]) => [field, String(one)]));
+    const keyOf = (value: Record<string, unknown>): Record<string, string | number> => value as Record<string, string | number>;
     return found.rows.map((row) => ({
       kind,
-      from: { kind: wikiKindOf(row.from_kind), key: keyOf(row.from_key) },
-      to: { kind: wikiKindOf(row.to_kind), key: keyOf(row.to_key) },
+      from: { kind: row.from_kind, key: keyOf(row.from_key) },
+      to: { kind: row.to_kind, key: keyOf(row.to_key) },
       discriminator: row.discriminator,
     }));
   });

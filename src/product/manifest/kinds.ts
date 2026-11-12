@@ -150,8 +150,8 @@ export interface PluginOutputKind {
 /** One edge kind a plugin's own contract declares, with the kinds of its ends and its fields. */
 export interface PluginOutputEdge {
   readonly kind: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from: string | readonly string[];
+  readonly to: string | readonly string[];
   readonly fields: readonly PluginFieldDecl[];
 }
 
