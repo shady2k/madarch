@@ -75,6 +75,11 @@ async function open() {
     const result = await runFill({ product: f.product, database: owner, home: f.home, runId: id, releaseHashes: f.releaseHashes,
       targets: { kinds: [target] }, steps: ['plugin-turns'], prepareContract: async contract => { await prepareStore(owner, { contract }); } });
     if (!result.ok) throw new Error(JSON.stringify(result));
+    if (result.state !== 'succeeded') {
+      const generations = await owner.transaction('snapshot', async tx => await tx.query(
+        'SELECT * FROM fill_unit_generation WHERE run_id=$1 ORDER BY unit_id,generation', [id]));
+      console.error('partition fill diagnostic', JSON.stringify({ id, product: f.product, result, generations: generations.rows }));
+    }
     return result;
   };
   const rows = async (kind = 'Items') => (await owner.transaction('snapshot', async tx => await tx.query<{ id: string; text: string }>(
