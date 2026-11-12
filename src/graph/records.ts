@@ -33,7 +33,7 @@ import { raise } from '../model/raise.js';
 import { createOneGraphSchema, FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { EvidenceDraft, EvidenceEntry, GraphContract } from './contract.js';
-import { ensureEdge, ensureEdges, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishFileEntries, publishOpinion, removeEdgeById, writeJournal } from './write.js';
+import { ensureEdge, ensureEdges, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishFileEntries, publishOpinion, publishOpinions, removeEdgeById, writeJournal } from './write.js';
 
 /** The producers of this store's opinions, and the version each states with them. */
 const TREE_PRODUCER = 'git-tree';
@@ -436,20 +436,31 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
 
       // A new file gets its vertex; a file whose blob moved keeps the one it had. Each producer states its opinion; the
       // blob is the mechanism row the entries above interned.
+      const opinions: Parameters<typeof publishOpinion>[2][] = [];
+      const newFiles: boolean[] = [];
       for (const file of toWrite) {
         const known = held.get(file.path);
         const node = known?.nodeId ?? (await fileNodeOf(tx, repository, file.path)).node;
         fileNodes.set(file.path, node);
         if (known === undefined) counts = { ...counts, inserted: counts.inserted + 1 };
         const evidence = evidenceOf(file.path);
-        const treeWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, values: { mode: file.mode, blob_id: blobIds.get(file.blob) ?? null }, evidence: [evidence] });
+        opinions.push( { kind: GIT_KINDS.file, nodeId: node, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, values: { mode: file.mode, blob_id: blobIds.get(file.blob) ?? null }, evidence: [evidence] });
+        newFiles.push(known === undefined);
         const read = languageOfFile(file);
         // A file's programming language is an ordinary field of the file, stated by the dataset as its own opinion: the
         // opinion's `lang` column is the natural language of a text value and stands null for a language name.
-        const languageWritten = await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node, producer: LINGUIST_PRODUCER, producerVersion: LINGUIST_VERSION, values: { language: read.language, languages: [...read.candidates] }, evidence: [evidence] });
-        counts = { ...counts, inserted: counts.inserted + (known === undefined ? (treeWritten ? 1 : 0) + (languageWritten ? 1 : 0) : 0), updated: counts.updated + (known === undefined ? 0 : (treeWritten ? 1 : 0) + (languageWritten ? 1 : 0)) };
-        await flushJournalIfFull(tx, journal);
+        opinions.push({ kind: GIT_KINDS.file, nodeId: node, producer: LINGUIST_PRODUCER, producerVersion: LINGUIST_VERSION, values: { language: read.language, languages: [...read.candidates] }, evidence: [evidence] });
+        newFiles.push(known === undefined);
       }
+      let offset = 0;
+      await inBatches(opinions, async (chunk) => {
+        const written = await publishOpinions(tx, GIT_CONTRACT, chunk);
+        for (const [at, changed] of written.entries()) {
+          if (!changed) continue;
+          counts = newFiles[offset + at] ? { ...counts, inserted: counts.inserted + 1 } : { ...counts, updated: counts.updated + 1 };
+        }
+        offset += chunk.length;
+      });
     }
 
     // The gitlinks: a submodule is a vertex of its own, with its repository and the commit the tree holds.
@@ -674,15 +685,17 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     }
     if (wantFile) {
       const allPaths = [...firstSeen.keys()].sort();
+      const opinions: Parameters<typeof publishOpinion>[2][] = [];
       for (const path of allPaths) {
         const one = await fileNodeOf(tx, repository, path);
         fileNodes.set(path, one.node);
         if (one.created) {
-          await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: one.node, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidence: [{ type: 'file', repository, commit_or_digest: firstSeen.get(path) ?? '', path }] });
+          opinions.push( { kind: GIT_KINDS.file, nodeId: one.node, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidence: [{ type: 'file', repository, commit_or_digest: firstSeen.get(path) ?? '', path }] });
           counts = { ...counts, inserted: counts.inserted + 2 };
           await flushJournalIfFull(tx, journal);
         }
       }
+      await inBatches(opinions, async (chunk) => { await publishOpinions(tx, GIT_CONTRACT, chunk); });
     }
     // The touched edges: commit -> file, its opinion, and the `renamed-from` edge a rename states.
     if (wants('touched', 'edge') && wantCommit && wantFile) {

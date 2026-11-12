@@ -13,7 +13,7 @@ import { describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
-import { canonicalJson, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishOpinion, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
+import { canonicalJson, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishOpinion, publishOpinions, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -152,11 +152,13 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
   await owner.transaction('write', async (tx) => {
     const journal = journalFor('pass@1');
     journalOn(tx, journal);
+    const drafts: Parameters<typeof publishOpinion>[2][] = [];
     for (const path of ['src/d.ts', 'src/e.ts']) {
       const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: keyOf(path) });
-      await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...opinion(path, 'linguist', 'TypeScript', 2) });
+      drafts.push({ kind: GIT_KINDS.file, nodeId: made.nodeId, ...opinion(path, 'linguist', 'TypeScript', 2) });
       await flushJournalIfFull(tx, journal, 2);
     }
+    await publishOpinions(tx, GIT_CONTRACT, drafts);
     await writeJournal(tx, journal);
   });
 }
