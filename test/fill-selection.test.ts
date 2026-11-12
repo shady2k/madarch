@@ -1,5 +1,5 @@
 /** The fill page's press uses the same target resolution and engine as the CLI, without saving a draft selection. */
-import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -135,8 +135,6 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       expect((await reopened.runView())?.runId).toBe(latest.body.run.runId);
       expect(await reopened.runView()).toMatchObject({ state: 'succeeded', selection: latest.body.run.selection });
       expect((await reopened.status()).fill.run?.runId).toBe(latest.body.run.runId);
-      const open = spyOn(reopened as unknown as { open(): Promise<never> }, 'open').mockRejectedValue(new Error('fixture.ts:1: store unavailable'));
-      try { await expect(reopened.status()).rejects.toThrow('fixture.ts:1: store unavailable'); } finally { open.mockRestore(); }
     } finally { await reopened.close(); }
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
     try {
@@ -185,6 +183,14 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       expect(unrecorded.body.run).toMatchObject({ runId: 'failed-before-configuration', state: 'failed' });
       expect(unrecorded.body.run.selection).toBeUndefined();
 
+      // A warmed status must still read durable runs and refuse a real store fault, not reuse its last answer.
+      const reader = new (await import('../src/knowledge/product.js')).KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
+      try {
+        expect((await reader.status()).fill.run?.runId).toBe('failed-before-configuration');
+        await newerOwner.run(async (tx) => { await tx.query('DROP TABLE fill_run CASCADE'); });
+        await expect(reader.status()).rejects.toThrow('fill_run');
+        await expect(reader.runView()).rejects.toThrow('fill_run');
+      } finally { await reader.close(); }
     } finally { await newerOwner.close(); }
 
   }, 600_000);
