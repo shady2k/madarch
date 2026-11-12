@@ -788,7 +788,7 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
   // An edge kind stands when a kind its ends name is one the template chose: an end the catalogue does not hold (a
   // gitlink) is the match's own and never refused here. A tracker declares no code edge at all.
   const edges = [
-    { ends: ['code.repository', 'code.directory', 'code.file', 'code.gitlink'], line: "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }" },
+    { ends: ['code.repository', 'code.directory', 'code.file', 'code.gitlink'], line: "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: disk }" },
     { ends: ['code.repository', 'code.commit'], line: "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }" },
     { ends: ['code.repository', 'code.commit'], line: "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }" },
     { ends: ['code.commit'], line: "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }" },

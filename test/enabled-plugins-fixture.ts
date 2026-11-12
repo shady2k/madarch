@@ -53,6 +53,14 @@ export function useRepositoryPlugins(folder: string): void {
     if (!plugins.some((plugin: { id: string }) => plugin.id === id)) plugins.push(starter.plugins.find((plugin: { id: string }) => plugin.id === id));
   }
   manifest.set('plugins', plugins);
+  const edges = body.edges ?? [];
+  for (const edge of starter.edges ?? []) {
+    if (!edge.name.startsWith('code.') || !['disk', 'git'].includes(edge.capability)) continue;
+    const existing = edges.findIndex((candidate: { name: string }) => candidate.name === edge.name);
+    if (existing < 0) edges.push(edge);
+    else edges[existing] = { ...edges[existing], ...edge };
+  }
+  manifest.set('edges', edges);
   writeFileSync(file, manifest.toString());
   const lockFile = join(folder, 'madarch', 'plugins.lock');
   const lock = parseDocument(readFileSync(lockFile, 'utf8'));

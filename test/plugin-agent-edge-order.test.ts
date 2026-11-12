@@ -128,6 +128,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     writeFileSync(file, manifest.toString());
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
     writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:\n  - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }\n`);
+    useRepositoryPlugins(f.product);
     const declarations = readKinds(f.product);
     if (!declarations.present) throw new Error('Missing manifest');
     expect(declarations.manifest.findings).toEqual([]);

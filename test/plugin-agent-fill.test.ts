@@ -151,6 +151,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
   - { id: probe-summary, version: 1.0.0, closure: ${probeClosure}, path: plugins/probe-summary }
   - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }
 `);
+    useRepositoryPlugins(f.product);
     const declarations = readKinds(f.product);
     expect(declarations.present).toBe(true);
     if (!declarations.present) throw new Error('the fixture manifest is absent');
@@ -184,6 +185,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:
   - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }
 `);
+    useRepositoryPlugins(f.product);
     const declarations = readKinds(f.product);
     expect(declarations.present).toBe(true);
     if (!declarations.present) throw new Error('the fixture manifest is absent');

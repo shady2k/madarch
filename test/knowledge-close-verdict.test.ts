@@ -17,7 +17,6 @@ import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -48,7 +47,7 @@ describe('closing a product while its graph verdicts read the store', () => {
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
-      await prepareStore(owner, { contract: GIT_CONTRACT });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(draft.folder) });
 
       let releaseLock!: () => void;
       let holdsTheGraph!: () => void;
@@ -102,7 +101,7 @@ test('a standalone fill does not start validation, while an explicit request sti
     if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
     useFixturePlugins(draft.folder, ['disk', 'git']);
     execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
-    execFileSync('git', ['commit', '--quiet', '-m', 'Declare native-only fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
+    execFileSync('git', ['commit', '--quiet', '-m', 'Declare repository fact fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
     const storeRoot = join(work, 'store');
     let judgeCalls = 0;
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot, graphJev: {
