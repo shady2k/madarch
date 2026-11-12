@@ -1,6 +1,5 @@
-import { definePlugin, type ExtractContext, type Unit, type UnitResult, type VertexResult, type EdgeResult } from 'madarch-plugin-sdk';
+import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 'madarch-plugin-sdk';
 import { quarantinedTests } from './parser.js';
-import declaration from './contract.json';
 
 /** Source bytes come only from host graph reads; this plugin opens no repository or tracker. */
 export async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult> {
@@ -49,9 +48,3 @@ export async function extract(_unit: Unit, context: ExtractContext): Promise<Uni
   }
   return { vertices, edges, end: problems.length ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' } };
 }
-
-if (import.meta.main) await definePlugin({
-  name: 'test-quarantine', version: '1.0.0', graph: true,
-  contract: declaration.outputs as Parameters<typeof definePlugin>[0]['contract'],
-  extract,
-});
