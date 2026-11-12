@@ -74,7 +74,8 @@ No accepted run may silently have zero work for a selected kind.
 
 ## Ordering, facts and selection
 
-Expand kind wildcards against the pinned catalogue. A plugin reading a kind
+Expand kind wildcards against the kinds declared by the product in the pinned
+manifest. Catalogue-only kinds are not declared outputs. A plugin reading a kind
 runs after every producer of that kind, except its own production and producers
 explicitly downstream of that reader in the direct or transitive refinement
 chain. Reads consume the prerequisite/base opinion, not that reader's own later
