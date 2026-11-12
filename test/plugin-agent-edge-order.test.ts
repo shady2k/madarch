@@ -14,6 +14,7 @@ import { closureOf } from '../src/plugin/closure.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
@@ -132,7 +133,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     const owner = await createTestDatabaseOwner({ btreeGist: true });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (report) => sessions.push(report),

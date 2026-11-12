@@ -19,7 +19,7 @@ test('agent natural-key references survive validation and real graph publication
     adapter: { id: 'fixture', command: 'unused' },
     connect: async () => ({ initialize: async () => ({}), close: async () => {}, newSession: async () => ({ sessionId: 'fixture', model: null, models: null, configOptions: [], usage: () => ({ reported: false, turns: 1, reports: 0 }), prompt: async () => ({ text: JSON.stringify(answer), stopReason: 'end_turn', updates: [] }) } as unknown as AcpSession) } as unknown as AcpConnection),
   }, { files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'a.md' } }], value: async () => 'Source' }, outputs);
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
     await createOneGraphSchema(owner, contract);
     const result = await bridge.run('unit', {});
