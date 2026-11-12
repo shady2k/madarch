@@ -123,6 +123,8 @@ try {
     table: [details, source, block('children', { kind: 'code.column', relation: 'code.has-column', title: 'Columns', 'title-ru': 'Столбцы', limit: '200' }), block('children', { kind: 'code.index', relation: 'code.has-index', title: 'Indexes', 'title-ru': 'Индексы' }), block('er'), relations],
     term: [block('term', { title: 'Definition', 'title-ru': 'Определение', field: 'definition', synonyms: 'synonyms', code: 'code' })],
     'test-quarantine': [details, source],
+    'item-plain': [details, relations],
+    item: [details, source, relations],
   };
   try {
     for (const [name, parts] of Object.entries(layouts)) await publishFixtureTemplate(owner, shop, `templates/${name}.liquid`, parts);
