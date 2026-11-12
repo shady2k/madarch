@@ -19,7 +19,8 @@ import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { runGit } from '../src/product/git.js';
 import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { prepareTestProduct } from './prepared-server.js';
 
@@ -41,6 +42,8 @@ beforeAll(() => {
   mkdirSync(PRODUCTS_HOME, { recursive: true });
   const repository = generateTrainingRepository(join(ROOT, 'repository'));
   product = makeProduct(PRODUCTS_HOME, 'training-shop', repository);
+  useExtractedGlossary(product);
+  commitProduct(product, 'Declare the extracted glossary used by this fill');
   const read = readProduct(product);
   if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);
   name = read.product.name;
