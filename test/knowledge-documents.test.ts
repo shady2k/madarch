@@ -3,7 +3,6 @@
  * review): a repository of more files than the listing's bound still answers every document, and a truncation names
  * the total it cut. The fixture puts one file more than the bound before every document in code point order.
  */
-import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,7 +51,6 @@ describe('the documents of a repository larger than the listing bound', () => {
       - { name: anchors, type: json, producers: [fixture] }
       - { name: links, type: json, producers: [fixture] }
 `);
-    useFixturePlugins(folder, []);
     writeFileSync(join(folder, 'templates', 'document.liquid'), '{{ title }}');
     // One file more than the bound, all of them sorting before every document: a listing that reads the first files
     // of the repository answers none of the documents.
