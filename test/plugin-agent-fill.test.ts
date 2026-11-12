@@ -137,7 +137,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     writeFileSync(f.fake, FAKE.replace('/repo/private.md', '/repo/absent.md'));
     const file = join(f.product, 'madarch/kinds.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
-    manifest.setIn(['plugins'], [...manifest.getIn(['plugins']).toJSON(), { id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
+    manifest.setIn(['plugins'], [...(manifest.getIn(['plugins']) as import('yaml').YAMLSeq).toJSON(), { id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
     const probe = JSON.parse(readFileSync(join(f.product, 'plugins/probe-summary/plugin.json'), 'utf8'));
     delete probe.agent;
     writeFileSync(join(f.product, 'plugins/probe-summary/plugin.json'), JSON.stringify(probe));
