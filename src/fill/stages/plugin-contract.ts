@@ -16,7 +16,6 @@ import { generatedTableName, type EdgeContract, type FieldContract, type GraphCo
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { canonicalGitKind, gitContractOf } from './git-contract.js';
-export { canonicalGitKind as canonicalDeclaredKind, canonicalGitEntityRef as canonicalDeclaredEntityRef } from './git-contract.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
