@@ -1877,7 +1877,9 @@ export class GraphReader {
            SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
                   e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, NULL AS position, NULL AS walk
            FROM edge e JOIN entity rk ON rk.id = e.entity_id
-           LEFT JOIN LATERAL (SELECT o.change, o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON rk.name = '${GIT_KINDS.touched}'
+           LEFT JOIN (SELECT DISTINCT ON (o.edge_id) o.edge_id, o.change, o.added, o.removed
+             FROM ${GIT_TABLES.touched} o WHERE o.state = 'open' AND o.edge_id IN (SELECT id FROM touched)
+             ORDER BY o.edge_id, o.id DESC) t ON t.edge_id = e.id AND rk.name = '${GIT_KINDS.touched}'
            WHERE (rk.name = '${GIT_KINDS.authored}' AND e.from_node = ANY($1::bigint[]))
               OR (rk.name = '${GIT_KINDS.touched}' AND e.id IN (SELECT id FROM touched))`,
           [ids],
