@@ -190,7 +190,7 @@ function edgeIdentity(kind: string, from: { readonly kind: string; readonly key:
  * files producer stored it. The plugin never sees a folder (decision 0035, item 9). The host records each request it
  * answers — and each it refuses — in the unit's `RequestLog`, so the answerer states no sizes of its own.
  */
-function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
+export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>): GraphAnswerer {
   return {
     files: async (pattern) => {
       const files = (await graphFiles(wiring.owner, wiring.contract))
@@ -216,6 +216,32 @@ function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
   };
 }
 
+/** Replay the same plugin read during execution, publication, and cache validation. */
+export async function answerPluginGraphQuery(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>, text: string): Promise<readonly unknown[]> {
+  const request = JSON.parse(text) as { read: string; method: keyof GraphAnswerer; args: unknown[] };
+  if (request.read !== 'plugin') throw new Error('src/fill/plugin-turns.ts:1: expected a plugin graph read');
+  const answerer = pluginGraphAnswerer(wiring);
+  switch (request.method) {
+    case 'files': return [await answerer.files(...request.args as Parameters<GraphAnswerer['files']>)];
+    case 'value': return [await answerer.value(...request.args as Parameters<GraphAnswerer['value']>)];
+    case 'unresolved': return [await answerer.unresolved!(...request.args as Parameters<NonNullable<GraphAnswerer['unresolved']>>)];
+    case 'removedEnds': return [await answerer.removedEnds!(...request.args as Parameters<NonNullable<GraphAnswerer['removedEnds']>>)];
+    case 'unevidenced': return [await answerer.unevidenced!(...request.args as Parameters<NonNullable<GraphAnswerer['unevidenced']>>)];
+    default: throw new Error('src/fill/plugin-turns.ts:1: unknown plugin graph read');
+  }
+}
+
+function trackedPluginAnswerer(graph: { query(text: string): Promise<readonly unknown[]> }): GraphAnswerer {
+  const read = async <T>(method: keyof GraphAnswerer, args: readonly unknown[]): Promise<T> => (await graph.query(JSON.stringify({ read: 'plugin', method, args })))[0] as T;
+  return {
+    files: (...args) => read('files', args),
+    value: (...args) => read('value', args),
+    unresolved: (...args) => read('unresolved', args),
+    removedEnds: (...args) => read('removedEnds', args),
+    unevidenced: (...args) => read('unevidenced', args),
+  };
+}
+
 /** The meter of one plugin turn: the unit's own spend, in the kind it fills and one row per field and model. */
 function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentMeter | undefined {
   const usage = wiring.agentUsage;
@@ -232,7 +258,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
   });
 }
 
-export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal): Promise<void> {
+export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer): Promise<void> {
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
@@ -260,7 +286,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     pluginFolder,
     closure,
     repository: wiring.productFolder,
-    graph: answererOf(wiring),
+    graph: graph ?? pluginGraphAnswerer(wiring),
     workRoot,
     trust: 'production',
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
@@ -383,7 +409,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
   return {
     id: PLUGIN_TURN_STAGE_ID,
-    version: 5,
+    version: 6,
     unitScheduling(id) {
       const unit = unitOf(wiring, id);
       const plan = declarationPlan;
@@ -402,7 +428,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind.name })), coverage: 'planned' };
     },
     async execute(unit, context) {
-      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal);
+      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph));
       return { outcome: 'draft' };
     },
     validate: () => ({ ok: true }),

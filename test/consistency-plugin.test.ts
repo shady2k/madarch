@@ -211,7 +211,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(alone.ok).toBe(true);
     if (!alone.ok) return;
     expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:probe.finding')]);
-    expect((await findings()).map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
+    expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion').map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
     // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
@@ -228,6 +228,9 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(fixed.ok).toBe(true);
     if (!fixed.ok) return;
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);
+    const unchanged = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns'], runId: 'unchanged', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    expect(unchanged.ok).toBe(true);
+    if (unchanged.ok) expect(unchanged.units).toEqual([]);
   }, 300_000);
   test('a reference leaves the read when its target stands, and the read pages by a cursor', async () => {
     if (owner === undefined) throw new Error('the store was not opened');

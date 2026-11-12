@@ -13,5 +13,5 @@
       "fields": "*"
     }
   ],
-  "reads": []
+  "reads": ["code.file", "code.repository", "code.directory", "probe.opinion", "probe.keyed"]
 }
