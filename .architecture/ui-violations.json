@@ -646,11 +646,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "FilesTableView#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "FillPage#1"
   },
@@ -1068,81 +1063,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/diagrams/views.tsx",
     "subject": "a17a35e72211b90daa8b#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "1a039deae1a2887122a2#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "271b2b6bd5ef0a5edbf6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "550f4d482835a8ca3e96#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "614d5881674f9f5e3ec3#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "75b48262300762d48dda#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "75b48262300762d48dda#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "894d87a7ce4b29a541b6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "cc5b565cd4aa76991571#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e1bae2b4695bc1b63acf#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e1bae2b4695bc1b63acf#2"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e1bae2b4695bc1b63acf#3"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e1bae2b4695bc1b63acf#4"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e1bae2b4695bc1b63acf#5"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "e1bae2b4695bc1b63acf#6"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/files-table.tsx",
-    "subject": "f3d85b47021752970039#1"
   },
   {
     "rule": "raw-ui-element",
