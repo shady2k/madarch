@@ -25,7 +25,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -233,6 +233,7 @@ export interface PluginSession {
   /** The most units this plugin takes at once: the smaller of the setting and its declared count. */
   readonly unitsAtOnce: number;
   readonly workFolder: string;
+  planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan>;
   runUnit(unit: PluginUnitRequest): Promise<UnitOutcome>;
   agentReports(): ReadonlyMap<string, PluginAgentReport>;
   pause(): Promise<void>;
@@ -394,6 +395,7 @@ ${text === '' ? '(empty)' : text}` };
       limits,
       unitsAtOnce,
       workFolder,
+      planOutput: async (unit, cursor) => await this.planOutput(unit, cursor),
       runUnit: async (unit) => await this.runUnit(unit),
       agentReports: () => new Map(this.reports),
       pause: async () => await this.pause(),
@@ -817,26 +819,54 @@ ${text === '' ? '(empty)' : text}` };
   }
 
   /** Holds one unit's answer to the declaration, and records a refusal as the unit's cause. */
+  private decodeResult(unitId: string, value: unknown): unknown {
+    const answer = value as { unitId?: unknown; chunkCount?: unknown } | null;
+    if (answer === null || typeof answer !== 'object' || answer.unitId !== unitId) throw { code: 'malformed-result', message: `${WHERE}:1: answer must name its unit` };
+    const chunks = this.resultChunks.get(unitId);
+    this.resultChunks.delete(unitId);
+    if (chunks === undefined && answer.chunkCount === undefined) return answer;
+    if (chunks === undefined || answer.chunkCount !== chunks.count || Object.keys(answer).some((field) => field !== 'unitId' && field !== 'chunkCount')) throw { code: 'malformed-result', message: `${WHERE}:1: final chunk count must match the complete result fragments` };
+    try {
+      const decoded: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.bytes)));
+      if (decoded === null || typeof decoded !== 'object' || (decoded as { unitId?: unknown }).unitId !== unitId) throw new Error('fragmented result names the wrong unit');
+      return decoded;
+    } catch (error) { throw { code: 'malformed-result', message: `${WHERE}:1: fragmented result is invalid: ${(error as Error).message}` }; }
+  }
+
+  private async planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan> {
+    if (this.declared?.planOutput !== true) throw { code: 'plan-unsupported', message: `${WHERE}:1: plugin does not declare planOutput` };
+    if (this.failure !== undefined) throw this.failure.cause;
+    if (this.inFlight.has(unit.unitId)) throw { code: 'plan-busy', message: `${WHERE}:1: a unit with this id is already active` };
+    const id = `plan-${String(this.nextId++)}`;
+    const now = Date.now();
+    let failed!: (cause: UnitCause) => void;
+    const failure = new Promise<never>((_resolve, reject) => { failed = reject; });
+    const held: InFlight = { unitId: unit.unitId, startedAt: now, lastSign: now, bytes: 0, progress: [], error: undefined, settle: (outcome) => { if (outcome.state === 'not-extracted') failed(outcome.cause); } };
+    this.inFlight.set(unit.unitId, held);
+    this.unitByRequest.set(id, unit.unitId);
+    const response = new Promise<unknown>((resolve, reject) => { this.pending.set(id, { resolve, reject }); });
+    this.write(requestText(id, 'planOutput', { unit, ...(cursor === undefined ? {} : { cursor }) }));
+    try {
+      const value = this.decodeResult(unit.unitId, await Promise.race([response, failure])) as { unitId: string; partitions?: unknown; next?: unknown };
+      const { unitId: _unitId, ...page } = value;
+      if (!Value.Check(PluginOutputPlan, page)) throw { code: 'malformed-plan', message: `${WHERE}:1: planOutput must return bounded partitions and an optional next cursor` };
+      return page;
+    } finally {
+      this.inFlight.delete(unit.unitId);
+      this.resultChunks.delete(unit.unitId);
+      this.pending.delete(id);
+      this.unitByRequest.delete(id);
+    }
+  }
+
   private acceptAnswer(unit: PluginUnitRequest, held: InFlight, id: string, result: unknown): UnitOutcome {
     const declared = this.declared!;
     let answer = result as { unitId?: unknown; chunkCount?: unknown; vertices?: unknown; edges?: unknown; removals?: unknown } | undefined;
     if (answer === null || typeof answer !== 'object' || answer.unitId !== unit.unitId) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: unit ${unit.unitId} was answered with ${answer === undefined ? 'no result' : `a result for ${String((answer as { unitId?: unknown }).unitId)}`}: an answer names the unit it answers` });
     }
-    const chunks = this.resultChunks.get(unit.unitId);
-    this.resultChunks.delete(unit.unitId);
-    if (chunks !== undefined || answer.chunkCount !== undefined) {
-      if (chunks === undefined || answer.chunkCount !== chunks.count || Object.keys(answer).some((field) => field !== 'unitId' && field !== 'chunkCount')) {
-        return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: final chunked answer must match its complete chunk count and contain no inline entries` });
-      }
-      try {
-        const decoded: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.bytes)));
-        if (decoded === null || typeof decoded !== 'object' || (decoded as { unitId?: unknown }).unitId !== unit.unitId) throw new Error('fragmented result names the wrong unit');
-        answer = decoded as typeof answer;
-      } catch (error) {
-        return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: fragmented result is invalid: ${(error as Error).message}` });
-      }
-    }
+    try { answer = this.decodeResult(unit.unitId, answer) as typeof answer; }
+    catch (cause) { return this.notExtracted(held, cause as UnitCause); }
     const shape = [...Value.Errors(PluginUnitResult, answer)][0];
     if (shape !== undefined) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: the answer to unit ${unit.unitId} is not a unit result: ${shape.instancePath === '' ? 'the result' : shape.instancePath.slice(1)} ${shape.message}` });

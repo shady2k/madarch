@@ -360,6 +360,9 @@
               "additionalProperties": false,
               "description": "The outputs a plugin declares: every kind, field and edge kind a result may name."
             },
+            "planOutput": {
+              "type": "boolean"
+            },
             "reads": {
               "anyOf": [
                 {
@@ -488,6 +491,117 @@
       },
       "additionalProperties": false,
       "description": "The host hands the plugin one unit."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "planOutput"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "unit"
+          ],
+          "properties": {
+            "unit": {
+              "type": "object",
+              "required": [
+                "unitId",
+                "kind",
+                "key"
+              ],
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The kind of the vertex the unit is about."
+                },
+                "key": {
+                  "$defs": {
+                    "Key": {
+                      "type": "object",
+                      "patternProperties": {
+                        "^.*$": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "$ref": "Entity"
+                            }
+                          ]
+                        }
+                      },
+                      "$id": "Key"
+                    },
+                    "Entity": {
+                      "type": "object",
+                      "required": [
+                        "kind",
+                        "key"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "key": {
+                          "$ref": "Key"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "$id": "Entity"
+                    }
+                  },
+                  "$ref": "Key",
+                  "description": "Natural key values, including referenced entities by kind and key."
+                },
+                "inputs": {
+                  "description": "What the host hands with the unit, a shape the plugin's contract names."
+                }
+              },
+              "additionalProperties": false,
+              "description": "One unit of work: the entity by kind and key, and what the host hands with it."
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     {
       "type": "object",

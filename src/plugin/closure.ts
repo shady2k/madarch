@@ -58,6 +58,7 @@ export const PluginManifest = Type.Object(
       ]))),
       refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
       coverage: Type.Optional(Type.Literal('gaps')),
+      partition: Type.Optional(Type.Literal('key')),
     }, { additionalProperties: false }), { minItems: 1 }),
     tools: Type.Optional(Type.Array(Type.Object({
       name: Type.String({ pattern: '^[a-z][a-z0-9-]*$' }),

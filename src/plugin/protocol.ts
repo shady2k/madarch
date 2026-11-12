@@ -242,6 +242,7 @@ export const PluginIntroduce = Type.Object(
     rights: PluginRights,
     limits: Type.Optional(PluginLimits),
     outputs: PluginContractDeclaration,
+    planOutput: Type.Optional(Type.Boolean()),
     reads: Type.Optional(Type.Union([Type.Literal('unit'), Type.Literal('whole-graph')], { description: 'What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn ("whole-graph"). A whole-graph plugin is planned once, last, and planned again when anything it read moved.' })),
   },
   { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights, limits and what it reads.' },
@@ -379,6 +380,11 @@ export const PluginRpcError = Type.Object(
 /** One request either side makes, with its own params: the shapes above, one message each. */
 const IntroduceRequest = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('introduce'), params: PluginIntroduce }, { additionalProperties: false, description: 'The plugin introduces itself: protocol, name, version, rights, limits and outputs.' });
 const UnitRequestMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('unit'), params: Type.Object({ unit: PluginUnitRequest }, { additionalProperties: false }) }, { additionalProperties: false, description: 'The host hands the plugin one unit.' });
+export const PluginOutputPlan = Type.Object({
+  partitions: Type.Array(Type.Object({ keys: Type.Array(PluginKeyValues, { minItems: 1 }) }, { additionalProperties: false })),
+  next: Type.Optional(Type.String({ minLength: 1 })),
+}, { additionalProperties: false });
+const PlanOutputMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('planOutput'), params: Type.Object({ unit: PluginUnitRequest, cursor: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }) }, { additionalProperties: false });
 const ControlRequest = (method: 'pause' | 'resume' | 'stop') => Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal(method), params: Type.Optional(Type.Unknown()) }, { additionalProperties: false, description: `The host asks the plugin to ${method}.` });
 export const PluginAgentRunRequest = Type.Object({ unitId: Type.String({ minLength: 1 }), task: Type.Optional(Type.Unknown()) }, { additionalProperties: false });
 const AgentRunMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('agent.run'), params: PluginAgentRunRequest }, { additionalProperties: false });
@@ -424,6 +430,7 @@ export const PluginProtocolMessage = Type.Union(
   [
     IntroduceRequest,
     UnitRequestMessage,
+    PlanOutputMessage,
     AgentRunMessage,
     GraphFilesMessage,
     GraphValueMessage,
@@ -453,6 +460,7 @@ export const PluginProtocolMessage = Type.Union(
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;
 export type PluginUnitResult = Static<typeof PluginUnitResult>;
+export type PluginOutputPlan = Static<typeof PluginOutputPlan>;
 export type PluginUnitEnd = Static<typeof PluginUnitEnd>;
 export type PluginVertexResult = Static<typeof PluginVertexResult>;
 export type PluginEdgeResult = Static<typeof PluginEdgeResult>;
