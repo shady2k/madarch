@@ -135,7 +135,7 @@ test('file-only facts need no repository entity or history, and a missing file i
       const node = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'files-only', path: 'src/one.ts' } }, 1, journal);
       await publishOpinion(tx, GIT_CONTRACT, {
         kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '1',
-        values: { mode: '100644', blob, bytes: 20, form: 'text', lines: 1, content: 'export const n = 1;\n', language: 'TypeScript', candidates: ['TypeScript'] },
+        values: { mode: '100644', blob, bytes: 20, form: 'text', lines: 1, content: 'export const n = 1;\n', language: 'TypeScript', languages: ['TypeScript'] },
       }, 1, journal);
       await writeJournal(tx, journal);
     });
