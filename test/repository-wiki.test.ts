@@ -27,6 +27,8 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { publishRepositoryTemplates } from './structured-template-fixture.js';
+import { parseDocument } from 'yaml';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -83,7 +85,10 @@ async function press(server: StartedServer, name: string): Promise<Record<string
     const status = await json(server, name, '/api/status');
     const fill = status.body['fill'] as Record<string, unknown> | undefined;
     if (fill === undefined) throw new Error(`/api/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
-    if (fill['state'] !== 'running') return status.body;
+    if (fill['state'] !== 'running') {
+      await publishRepositoryTemplates(join(home, name), home);
+      return status.body;
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error('the fill never ended');
@@ -295,6 +300,13 @@ git(folder,'commit','-qm','the nested file moves');
     git(committed, 'commit', '-qm', 'the committed repository');
     const folder = makeProduct(home, 'half', committed, 'committed-code');
     nativeWorkflow(folder);
+    // This case compares the unread-checkout finding before and after the fill. Other rule predicates are outside
+    // its scope: the product's bundled plugin files are not the source files this fixture measures.
+    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    const kinds = parseDocument(readFileSync(kindsFile, 'utf8'));
+    const unreadableRule = kinds.getIn(['problems', 'rules', 'wiki.unreadable-file']);
+    kinds.setIn(['problems', 'rules'], { 'wiki.unreadable-file': unreadableRule });
+    writeFileSync(kindsFile, kinds.toString());
     // The manifest declares the empty checkout beside the committed one.
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, `${readFileSync(manifest, 'utf8').replace(/(\n\s+- name: committed-code[\s\S]*)$/u, '$1  - name: empty-code\n    url: file:///empty-code\n')}`);
@@ -379,6 +391,7 @@ git(folder,'commit','-qm','the nested file moves');
     } finally {
       await owner.close();
     }
+    await publishRepositoryTemplates(folder, home);
     const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const status = await json(server, 'treeonly', '/api/status');
