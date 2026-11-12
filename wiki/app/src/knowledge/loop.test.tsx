@@ -10,7 +10,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { PlanList, ProblemsPage } from './loop.js';
-import { addressOfEntity, wikiRouteOf, WIKI_QUESTIONS, WIKI_TASKS } from './routes.js';
+import { addressOfEntity, addressOfKind, wikiRouteOf, WIKI_QUESTIONS } from './routes.js';
 import type { Problem, ProblemCategories, ProblemCategory, ProblemItems, ProblemSources, RefreshPlan } from './types.js';
 
 type ProblemNote = { message: string; textKey?: string; textArgs?: Record<string, string | number> };
@@ -305,7 +305,7 @@ describe('the refresh plan', () => {
 describe('questions and tasks use ordinary graph routes', () => {
   test('entry links open the declared kind lists', () => {
     expect(wikiRouteOf(WIKI_QUESTIONS)).toEqual({ name: 'kind', kind: 'question' });
-    expect(wikiRouteOf(WIKI_TASKS)).toEqual({ name: 'kind', kind: 'task' });
+    expect(wikiRouteOf(addressOfKind('task'))).toEqual({ name: 'kind', kind: 'task' });
   });
   test('question, correction and task references keep the ordinary entity detail', () => {
     for (const id of ['question:discount', 'correction:discount', 'task:discount']) {

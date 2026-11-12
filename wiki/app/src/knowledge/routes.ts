@@ -33,7 +33,6 @@ export function addressOfJournal(id: string, run?: string): string {
 }
 /** Where the fill stands, page by page, while it writes and after it ends (madarch-m38l.23). */
 export const WIKI_FILL = '/fill';
-export const WIKI_TASKS = '/kind/task';
 /** The newest run's trace, step by step: its wall clock, its memory and its slowest names (madarch-8bdc.2.5, item 4). */
 export const WIKI_RUN = '/run';
 

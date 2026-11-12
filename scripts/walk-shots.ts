@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, basename } from 'node:path';
 import puppeteer, { type Page, type HTTPRequest } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { addressOfEntity, addressOfKind, WIKI_HOME, WIKI_CATALOGUE, WIKI_DOCS, WIKI_GLOSSARY, WIKI_QUESTIONS, WIKI_TASKS, WIKI_PROBLEMS, WIKI_FILL, WIKI_SETTINGS } from '../wiki/app/src/knowledge/routes.js';
+import { addressOfEntity, addressOfKind, WIKI_HOME, WIKI_CATALOGUE, WIKI_DOCS, WIKI_GLOSSARY, WIKI_QUESTIONS, WIKI_PROBLEMS, WIKI_FILL, WIKI_SETTINGS } from '../wiki/app/src/knowledge/routes.js';
 
 function argument(name: string, fallback?: string): string {
   const at = process.argv.indexOf(`--${name}`);
@@ -46,7 +46,7 @@ function add(name: string, path: string, view?: Visit['view']): void {
   const url = urlOf(path);
   if (!visits.some((visit) => visit.url === url && visit.view === view)) visits.push({ name, url, view });
 }
-for (const [name, path] of [['home', WIKI_HOME], ['catalogue', WIKI_CATALOGUE], ['docs', WIKI_DOCS], ['glossary', WIKI_GLOSSARY], ['questions', WIKI_QUESTIONS], ['tasks', WIKI_TASKS], ['problems', WIKI_PROBLEMS], ['fill', WIKI_FILL], ['settings', WIKI_SETTINGS]]) add(name!, path!);
+for (const [name, path] of [['home', WIKI_HOME], ['catalogue', WIKI_CATALOGUE], ['docs', WIKI_DOCS], ['glossary', WIKI_GLOSSARY], ['questions', WIKI_QUESTIONS], ['tasks'], ['problems', WIKI_PROBLEMS], ['fill', WIKI_FILL], ['settings', WIKI_SETTINGS]]) add(name!, path!);
 // Status includes non-page declarations; only the catalog defines routable kinds.
 const kinds = [...new Set(catalog.kinds.filter((kind) => kind.page).map((kind) => kind.kind))].sort();
 for (const kind of kinds) add(`kind ${kind}`, addressOfKind(kind));
