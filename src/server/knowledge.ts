@@ -362,7 +362,7 @@ export function createKnowledgePart(
       const query = new URL(request.url).searchParams;
       const runId = query.get('run');
       const run = await product.runView(runId === null || runId === '' ? undefined : runId);
-      if (run === null) return refused(404, { message: 'the store holds no trace: a fill writes one, and the run page reads it' });
+      if (run === null) return refused(404, { message: 'src/server/knowledge.ts:356: the store holds no such fill run' });
       return { response: json(200, { run }) };
     }),
     fill: guarded('start the fill', async (request) => {

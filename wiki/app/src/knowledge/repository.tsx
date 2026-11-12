@@ -113,10 +113,10 @@ function AsIsLine({ repository, commit, href }: { repository: string; commit: st
 }
 
 /** The repository's facts as a block of its entity page: its URL, counts, as-is commit, gaps and what the graph holds. */
-export function RepositoryFactsBlock({ data, run, unread }: { data: RepositoryBlockData; run?: { finishedAt: string; wallMs: number }; unread?: { repository: string; path: string; reason: string }[] }): React.ReactElement {
+export function RepositoryFactsBlock({ data, run, unread }: { data: RepositoryBlockData; run?: { finishedAt?: string; wallMs: number }; unread?: { repository: string; path: string; reason: string }[] }): React.ReactElement {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
-  const finished = run === undefined ? undefined : new Date(run.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
+  const finished = run?.finishedAt === undefined ? undefined : new Date(run.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
   return (
     <PageSection data-testid="repository-block" data-repository={data.name}>
       <Paragraph className="mb-1 break-all text-small text-muted" data-testid="repository-url">{data.url}</Paragraph>
@@ -349,7 +349,7 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
             wall: msText(run.wallMs),
             spans: run.spans,
             from: new Date(run.startedAt).toLocaleString(language, { timeStyle: 'medium' }),
-            to: new Date(run.finishedAt).toLocaleString(language, { timeStyle: 'medium' }),
+            to: run.finishedAt === undefined ? t(`knowledge.fillPage.runStates.${run.state}`) : new Date(run.finishedAt).toLocaleString(language, { timeStyle: 'medium' }),
           })}
         </Paragraph>
       </PageHeader>

@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -132,6 +132,53 @@ test('filesystem watcher publishes a valid edit and refuses invalid edits withou
     expect(publications).toBeGreaterThan(1);
   } finally { watcher.stop(); await owner.close(); }
 }, 30_000);
+
+test('a home watcher discovers the current folder when the startup folder has already moved', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: startup-fixture\nname: fixture\n');
+  const moved = join(root, 'startup-renamed');
+  renameSync(folder, moved);
+  const publications: string[] = [];
+  const watcher = createManifestWatch([folder], async (value) => { publications.push(value.folder); }, () => {}, root);
+  try {
+    for (let tries = 0; tries < 200 && !publications.includes(moved); tries++) await Bun.sleep(25);
+    expect(publications, `${moved}:1: the startup rename was not published`).toContain(moved);
+    writeFileSync(join(moved, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
+    const before = publications.length;
+    for (let tries = 0; tries < 200 && publications.length === before; tries++) await Bun.sleep(25);
+    expect(publications.length, `${moved}:1: the startup rename was not watched`).toBeGreaterThan(before);
+  } finally { watcher.stop(); }
+}, 15_000);
+
+test('a home watcher follows a renamed product and keeps its watch while its identity needs repair', async () => {
+  const folder = fixture();
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: fixture\nname: fixture\n');
+  const moved = join(root, 'renamed');
+  const publications: string[] = [];
+  const reports: string[] = [];
+  const watcher = createManifestWatch([folder], async (value) => { publications.push(value.folder); }, (line) => reports.push(line), root);
+  const until = async (ready: () => boolean): Promise<void> => {
+    for (let tries = 0; tries < 200; tries++) {
+      if (ready()) return;
+      await Bun.sleep(25);
+    }
+    throw new Error(`${moved}:1: watcher did not settle: ${reports.join('; ')}`);
+  };
+  try {
+    renameSync(folder, moved);
+    await until(() => publications.includes(moved));
+    writeFileSync(join(moved, 'workspace.yaml'), 'schemaVersion: 1\nid: [invalid\n');
+    // A change to the home asks discovery to read the broken identity.
+    const signal = join(root, 'signal'); mkdirSync(signal);
+    await until(() => reports.some((line) => line.includes(`${moved}/workspace.yaml:2:`)));
+    const before = publications.length;
+    writeFileSync(join(moved, 'workspace.yaml'), 'schemaVersion: 1\nid: fixture\nname: repaired\n');
+    writeFileSync(join(moved, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
+    await until(() => publications.length > before);
+    expect(publications.slice(before)).toContain(moved);
+    expect(reports.some((line) => line.includes(`${moved}/workspace.yaml:2:`))).toBe(true);
+  } finally { watcher.stop(); }
+}, 15_000);
 
 test('malformed kinds still reports workflow and lock diagnostics, and no commit is refused', () => {
   const folder = fixture();

@@ -16,6 +16,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readProduct } from '../src/product/manifest.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { generatedTableName } from '../src/graph/contract.js';
 import { addCodeRepository, bootstrapProduct, createDirectoryLink } from '../src/product/lifecycle.js';
 import { main, repoModeFromAnswer, COMMANDS } from '../src/product/cli.js';
 import { createDraft } from '../src/product/draft.js';
@@ -214,6 +218,68 @@ function todayName(): string {
 }
 
 describe('the single start command', () => {
+  test('a live rename republishes every catalogue kind and keeps watching the moved templates', async () => {
+    const base = scratchFolder('madarch-live-rename-');
+    const home = join(base, 'products');
+    const run = runCommand(['init', '--template', 'everything', '--home', home, '--port', '0', '--json', '--no-open'], { MADARCH_APP: builtApp(base) }, base);
+    startedHomes.push(home);
+    expect(run.status, run.stderr).toBe(0);
+    const facts = JSON.parse(run.stdout) as { folder: string; url: string };
+    const record = join(home, '.madarch-daemon.json');
+    const pid = (JSON.parse(readFileSync(record, 'utf8')) as { pid: number }).pid;
+    const read = readKinds(facts.folder);
+    if (!read.present || read.manifest.catalog === undefined) throw new Error(`${facts.folder}/madarch/kinds.yaml:1: fixture catalogue missing`);
+    const expected = [...read.manifest.catalog.kinds.keys()].sort();
+    type RenameStatus = { publication?: string; kinds: { kind: string }[]; filled: boolean; chosenAgent: string | null };
+    const statusAt = async (url: string): Promise<RenameStatus> => (await fetch(`${url}api/status`)).json() as Promise<RenameStatus>;
+    const publishedAt = async (url: string): Promise<RenameStatus> => {
+      let status: RenameStatus | undefined;
+      for (let tries = 0; tries < 600; tries++) {
+        status = await statusAt(url);
+        if (status.publication !== 'pending') return status;
+        await Bun.sleep(50);
+      }
+      throw new Error(`${url}api/status:1: publication did not settle: ${JSON.stringify(status)}`);
+    };
+    expect((await publishedAt(facts.url)).kinds.map((one) => one.kind).sort()).toEqual(expected);
+    const renamed = runCommand(['rename', 'madarch-product', '--product', facts.folder], {}, base);
+    expect(renamed.status, renamed.stderr).toBe(0);
+    const folder = join(home, 'madarch-product');
+    const url = facts.url.replace(/products\/[^/]+\/$/, 'products/madarch-product/');
+    // A rename is asynchronous publication, not a reason to restart or run a fill.
+    let status = await publishedAt(url);
+    for (let tries = 0; tries < 100; tries++) {
+      status = await publishedAt(url);
+      if (status.kinds?.length === expected.length) break;
+      await Bun.sleep(50);
+    }
+    expect(status.kinds.map((one) => one.kind).sort(), JSON.stringify(status)).toEqual(expected);
+    const template = join(folder, 'templates', 'file.liquid');
+    const original = readFileSync(template, 'utf8');
+    writeFileSync(template, original.replace('{% file-page %}', 'Live renamed goal\n{% file-page %}'));
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
+    try {
+      let rows: unknown;
+      for (let tries = 0; tries < 100; tries++) {
+        rows = (await owner.run((tx) => tx.query(`SELECT template_parts FROM "${generatedTableName('template', 'vertex')}" WHERE state = 'open'`))).rows;
+        if (JSON.stringify(rows).includes('Live renamed goal')) break;
+        await Bun.sleep(50);
+      }
+      expect(JSON.stringify(rows).includes('Live renamed goal'), `${template}:1: the renamed template was not published`).toBe(true);
+    } finally { await owner.close(); }
+    for (let start = 0; start < expected.length; start += 8) {
+      await Promise.all(expected.slice(start, start + 8).map(async (kind) => {
+        const response = await fetch(`${url}api/catalog?kind=${encodeURIComponent(kind)}`);
+        expect(response.status, await response.clone().text()).toBe(200);
+        expect((await response.json() as { kind: string }).kind).toBe(kind);
+      }));
+    }
+    expect((await fetch(`${facts.url}api/product`)).status).toBe(404);
+    expect((JSON.parse(readFileSync(record, 'utf8')) as { pid: number }).pid).toBe(pid);
+    expect(status).toMatchObject({ filled: false, chosenAgent: null });
+  }, 180_000);
+
+
   for (const checkout of [false, true]) {
     for (const template of [undefined, 'everything']) {
       test(`nonterminal init in ${checkout ? 'a checkout' : 'an empty folder'} ${template === undefined ? 'without a template' : 'with an explicit template'}`, async () => {

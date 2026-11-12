@@ -155,7 +155,7 @@ describe('a folder and a file', () => {
 describe('the run page', () => {
   test('names each step with its wall clock, its peak memory and its slowest names, read from the trace', async () => {
     const run: FillRunView = {
-      runId: 'fill-1', startedAt: '2026-11-07T10:00:00.000Z', finishedAt: '2026-11-07T10:00:01.000Z', wallMs: 1000, spans: 42,
+      runId: 'fill-1', state: 'succeeded', selection: null, startedAt: '2026-11-07T10:00:00.000Z', finishedAt: '2026-11-07T10:00:01.000Z', wallMs: 1000, spans: 42,
       slowest: [{ name: 'db.transaction', count: 3, selfMs: 200 }, { name: 'process.git', count: 2, selfMs: 150 }],
       agentUsage: { lines: [], inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: [], turns: 0, stops: [] },
       steps: [
