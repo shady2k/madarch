@@ -714,7 +714,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
         catch (error) { console.error(`${value.folder}:1: the manifest catalogue could not be published: ${String(error)}`); }
       }
       if (!stopping) {
-        manifests = createManifestWatch(folders, publish, (line) => console.error(line));
+        manifests = createManifestWatch(folders, publish, (line) => console.error(line), home);
         // Re-read after the watches exist: an edit or own-wiki update during startup must not be lost.
         for (const folder of folders) {
           if (stopping) break;
