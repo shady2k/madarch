@@ -20,7 +20,7 @@ test('the full starter catalogue stays bounded while single-kind details retain 
   const ctx = { manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext;
   const kinds = await catalogKinds(ctx);
   const catalog = { product: { name: 'bare', id: 'tiny' }, language: 'en', groups: groupViews(manifest), kinds, findings: [] };
-  const product = { catalog: async () => catalog } as unknown as KnowledgeProduct;
+  const product = { folder, catalog: async () => catalog } as unknown as KnowledgeProduct;
   const part = createKnowledgePart({
     json: (status, body) => new Response(JSON.stringify(body), { status }),
     refused: (status, body) => ({ response: new Response(JSON.stringify(body), { status }) }),
