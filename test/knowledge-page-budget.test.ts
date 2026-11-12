@@ -17,6 +17,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { makeProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { publishRepositoryTemplates } from './structured-template-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -90,6 +91,7 @@ beforeAll(async () => {
     } finally {
       await owner.close();
     }
+    await publishRepositoryTemplates(product, home);
   }
   server = await startPreparedServer({ productHome: home, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
   // The two fills read this checkout's own history into the graph (stage C), and a shared or slow machine takes
