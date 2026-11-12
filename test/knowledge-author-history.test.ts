@@ -9,7 +9,7 @@ test('author evidence keeps every commit and distinct non-merge file count befor
   const owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
   try {
     const commit = (hash: string, parents: string[], paths: string[], name = 'Ada'): HistoryCommit => ({
-      hash, parents, authorName: name, authorEmail: `${name.toLowerCase()}@example.test`,
+      hash: hash.repeat(40), parents: parents.map((one) => one.repeat(40)), authorName: name, authorEmail: `${name.toLowerCase()}@example.test`,
       authorDate: '2026-01-01T00:00:00+00:00', commitDate: '2026-01-01T00:00:00+00:00', subject: hash,
       touched: paths.map((path) => ({ path, change: 'modified', added: 3, removed: 2 })),
     });
@@ -23,7 +23,7 @@ test('author evidence keeps every commit and distinct non-merge file count befor
     const [author] = await graph.find('code.author:ada@example.test');
     if (author === undefined) throw new Error('fixture author missing');
     const evidence = await graph.historyEvidenceFor(author, 'author', 1);
-    expect(evidence.entities.filter((one) => one.kind === 'code.commit').map((one) => one.properties['hash']).sort()).toEqual(['a', 'b', 'd']);
+    expect(evidence.entities.filter((one) => one.kind === 'code.commit').map((one) => one.properties['hash']).sort()).toEqual(['a', 'b', 'd'].map((one) => one.repeat(40)));
     const touches = evidence.edges.filter((one) => one.relation === 'code.touched');
     expect(touches.map((one) => one.to).sort()).toEqual(['code.file:fixture/a.ts', 'code.file:fixture/a.ts', 'code.file:fixture/b.ts']);
     expect(touches.every((one) => one.properties['added'] === 3 && one.properties['removed'] === 2)).toBe(true);
