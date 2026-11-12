@@ -43,12 +43,13 @@ kinds:
     description: A grounded document summary.
     derives-from: [document.source, policy]
     agent:                         # optional explicit overlapping output
+      plugin: general-agent
       fields: [description]
       refines: [summary-plugin]
 ```
 
-The optional kind `agent` configuration expands into ordinary general-agent
-output entries. `fields` is `"*" or a nonempty declared field list; `refines`
+The optional kind `agent` configuration requires `plugin`, identifying the
+enabled ordinary plugin explicitly, and expands into its ordinary output entries. `fields` is `"*" or a nonempty declared field list; `refines`
 names enabled producers of overlapping fields. Configuration replaces gap
 coverage for those fields only, leaving other gap fields available. It is
 inspectable before execution and never changes kind selection.
