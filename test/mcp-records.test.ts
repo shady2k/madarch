@@ -1,7 +1,8 @@
 import { requestStorePreparation } from '../src/product/store-preparation.js';
 import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { storeDatabasePath } from '../src/product/store.js';
-import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { withStorePreparationOwner } from '../src/adapters/store-preparation-owner.js';
 
 let releasePreparationOwner!: () => void;
@@ -55,12 +56,15 @@ function put(relativePath: string, text: string | Uint8Array): void {
 let first = '';
 let second = '';
 let third = '';
+let committedPaths: string[] = [];
+let committedFolders: string[] = [];
 
 let session: RepositorySession;
 
 beforeAll(async () => {
   await openPreparationOwner();
   git(REPOSITORY, 'init', '-q', '-b', 'main');
+  useRepositoryPlugins(REPOSITORY);
   put('README.md', '# Sample kit\n\nA fixture.\n');
   put('src/a.ts', 'export const a = 1;\n');
   put('src/nested/b.ts', 'export const b = 2;\n');
@@ -78,13 +82,15 @@ beforeAll(async () => {
   git(REPOSITORY, 'add', '-A');
   git(REPOSITORY, 'commit', '-qm', 'the nested file and one export grow');
   third = git(REPOSITORY, 'rev-parse', 'HEAD');
-  await requestStorePreparation(storeDatabasePath(repositoryStoreFolder(REPOSITORY, { MADARCH_HOME: HOME })), GIT_CONTRACT);
+  committedPaths = git(REPOSITORY, 'ls-tree', '-r', '--name-only', 'HEAD').split('\n');
+  committedFolders = git(REPOSITORY, 'ls-tree', '-r', '-d', '--name-only', 'HEAD').split('\n');
+  await requestStorePreparation(storeDatabasePath(repositoryStoreFolder(REPOSITORY, { MADARCH_HOME: HOME })), await readPinnedGraphContract(REPOSITORY));
   session = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
 
   // A shallow clone of the same commits: its history pass records the gap a reader must see stated.
   const clone = path.join(SHALLOW, 'kit');
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${REPOSITORY}`, clone], { env: COMMIT_ENV });
-  await requestStorePreparation(storeDatabasePath(repositoryStoreFolder(clone, { MADARCH_HOME: SHALLOW_HOME })), GIT_CONTRACT);
+  await requestStorePreparation(storeDatabasePath(repositoryStoreFolder(clone, { MADARCH_HOME: SHALLOW_HOME })), await readPinnedGraphContract(clone));
   shallow = await RepositorySession.open({ repository: clone, env: { ...process.env, MADARCH_HOME: SHALLOW_HOME } });
 }, 120_000);
 
@@ -119,7 +125,7 @@ describe('the tools this step serves', () => {
       url: `file://${REPOSITORY}`,
       defaultBranch: 'main',
       asIsCommit: third,
-      counts: { files: 4, commits: 3, folders: 3 },
+      counts: { files: committedPaths.length, commits: 3, folders: committedFolders.length },
       steps: { 'plugin-turns': true },
       // The history pass states it: this clone is not shallow.
       historyShallow: false,
@@ -130,10 +136,10 @@ describe('the tools this step serves', () => {
     const firstPage = await call('list_files', { limit: 2 });
     expect(firstPage.isError).toBe(false);
     const files = firstPage.answer['files'] as { path: string }[];
-    expect(files.map((file) => file.path)).toEqual(['README.md', 'assets/picture.bin']);
-    expect(firstPage.answer['next']).toBe('assets/picture.bin');
+    expect(files.map((file) => file.path)).toEqual(committedPaths.slice(0, 2));
+    expect(firstPage.answer['next']).toBe(committedPaths[1]);
     const nextPage = await call('list_files', { limit: 2, after: firstPage.answer['next'] as string });
-    expect((nextPage.answer['files'] as { path: string }[]).map((file) => file.path)).toEqual(['src/a.ts', 'src/nested/c.ts']);
+    expect((nextPage.answer['files'] as { path: string }[]).map((file) => file.path)).toEqual(committedPaths.slice(2, 4));
     // A prefix is a path prefix and nothing else: "src/nested" keeps that folder and no sibling.
     const nested = await call('list_files', { prefix: 'src/nested' });
     expect((nested.answer['files'] as { path: string }[]).map((file) => file.path)).toEqual(['src/nested/c.ts']);

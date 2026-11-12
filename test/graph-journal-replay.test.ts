@@ -11,7 +11,8 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
  */
 import { describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { repositoryContract, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
 import { canonicalJson, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishOpinion, publishOpinions, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
@@ -30,7 +31,7 @@ function rng(seed: number): () => number {
 }
 
 const PATHS = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts'] as const;
-const keyOf = (path: string): Readonly<Record<string, KeyValueDraft>> => ({ repository: { kind: 'repository', key: { name: 'fixture' } }, path });
+const keyOf = (path: string): Readonly<Record<string, KeyValueDraft>> => ({ repository: 'fixture', path });
 
 /** A file opinion as a producer states it. */
 function opinion(path: string, producer: string, language: string | null, line: number) {
@@ -84,7 +85,7 @@ function sequence(seed: number): Step[] {
 
 /** One file node's local id, by its path. */
 async function nodeOf(tx: { query(text: string, params?: unknown[]): Promise<{ rows: object[] }> }, path: string): Promise<string | undefined> {
-  const found = await tx.query(`SELECT id::text AS id FROM node WHERE (key->>'path') = $1 AND (key->'repository'->'key'->>'name') = 'fixture'`, [path]);
+  const found = await tx.query(`SELECT id::text AS id FROM node WHERE (key->>'path') = $1 AND (key->>'repository') = 'fixture'`, [path]);
   return (found.rows[0] as { id?: string } | undefined)?.id;
 }
 
@@ -94,14 +95,14 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('linguist@9.5.0');
       journalOn(tx, journal);
-      const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: keyOf(step.path) });
+      const made = await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(step.path) });
       const stated = opinion(step.path, step.producer, step.language, step.line);
       if (step.kind === 'translation') {
         // A translation states the opinion it came from and its source's digest: the columns a replay must carry whole.
         const source = await tx.query<{ id: string }>(`SELECT id::text AS id FROM ${GIT_TABLES.file} WHERE node_id = $1::bigint AND state = 'open' AND split_part(said_by, '@', 1) = 'linguist' ORDER BY id DESC LIMIT 1`, [made.nodeId]);
-        await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated, producer: 'translator', producerVersion: '2', lang: 'ru', values: { mode: '100644', language: step.language }, translatedFrom: source.rows[0]?.id ?? '1', sourceDigest: 'sha256:9f2c' });
+        await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated, producer: 'translator', producerVersion: '2', lang: 'ru', values: { mode: '100644', language: step.language }, translatedFrom: source.rows[0]?.id ?? '1', sourceDigest: 'sha256:9f2c' });
       } else {
-        await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated });
+        await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated });
       }
       await writeJournal(tx, journal);
     });
@@ -112,7 +113,7 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
       // The writer's own withdrawal: it closes the producer's opinions and journals the removal only where it happens.
       const journal = journalFor('linguist@9.5.0');
       journalOn(tx, journal);
-      await removeEntity(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: keyOf(step.path), producer: step.producer }, 1, journal);
+      await removeEntity(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(step.path), producer: step.producer }, 1, journal);
       await writeJournal(tx, journal);
     });
     return;
@@ -143,7 +144,7 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
       const journal = journalFor('pass@1');
       journalOn(tx, journal);
       const held = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge ORDER BY id LIMIT 1');
-      if (held.rows[0] !== undefined) await removeEdgeById(tx, GIT_CONTRACT, GIT_KINDS.renamedFrom, held.rows[0].id);
+      if (held.rows[0] !== undefined) await removeEdgeById(tx, repositoryContract, GIT_KINDS.renamedFrom, held.rows[0].id);
       await writeJournal(tx, journal);
     });
     return;
@@ -154,11 +155,11 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
     journalOn(tx, journal);
     const drafts: Parameters<typeof publishOpinion>[2][] = [];
     for (const path of ['src/d.ts', 'src/e.ts']) {
-      const made = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: keyOf(path) });
+      const made = await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(path) });
       drafts.push({ kind: GIT_KINDS.file, nodeId: made.nodeId, ...opinion(path, 'linguist', 'TypeScript', 2) });
       await flushJournalIfFull(tx, journal, 2);
     }
-    await publishOpinions(tx, GIT_CONTRACT, drafts);
+    await publishOpinions(tx, repositoryContract, drafts);
     await writeJournal(tx, journal);
   });
 }
@@ -166,8 +167,8 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
 /** Every entity table the contract declares, with the owner column and the field columns a row carries. */
 function tablesOf(): { entity: string; table: string; owner: 'node_id' | 'edge_id'; fields: readonly string[] }[] {
   return [
-    ...GIT_CONTRACT.vertex.map((kind) => ({ entity: kind.name, table: kind.table, owner: 'node_id' as const, fields: kind.fields.filter((field) => !kind.key.includes(field.name)).map((field) => field.name) })),
-    ...GIT_CONTRACT.edge.filter((kind) => kind.table !== undefined).map((kind) => ({ entity: kind.name, table: kind.table!, owner: 'edge_id' as const, fields: kind.fields.map((field) => field.name) })),
+    ...repositoryContract.vertex.map((kind) => ({ entity: kind.name, table: kind.table, owner: 'node_id' as const, fields: kind.fields.filter((field) => !kind.key.includes(field.name)).map((field) => field.name) })),
+    ...repositoryContract.edge.filter((kind) => kind.table !== undefined).map((kind) => ({ entity: kind.name, table: kind.table!, owner: 'edge_id' as const, fields: kind.fields.map((field) => field.name) })),
   ];
 }
 
@@ -199,7 +200,7 @@ async function snapshot(owner: DatabaseOwner): Promise<Record<string, unknown>> 
 
 /** The answers the wiki's reader gives of one store: the file listing and every file's entity with its sources. */
 async function readerView(owner: DatabaseOwner): Promise<unknown> {
-  const reader = new GraphReader(owner, () => '2026-11-11T00:00:00Z');
+  const reader = new GraphReader(owner, () => '2026-11-11T00:00:00Z', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
   const listed = await reader.byPrefix('code.file', 'code.file:', 500);
   const files = [];
   for (const entity of listed.rows) {
@@ -291,8 +292,8 @@ describe('a replay over the journal answers the store', () => {
       const source = await createTestDatabaseOwner();
       const target = await createTestDatabaseOwner();
       try {
-        await prepareStore(source, { contract: GIT_CONTRACT });
-        await prepareStore(target, { contract: GIT_CONTRACT });
+        await prepareStore(source, { contract: repositoryContract });
+        await prepareStore(target, { contract: repositoryContract });
         const steps = sequence(seed);
         // The state after every step, and how many journal rows existed then: the cut points the replay is held to.
         const states: Record<string, unknown>[] = [];

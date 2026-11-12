@@ -1,52 +1,40 @@
 import { describe, expect, test } from 'bun:test';
-import type { KindDecl, KindsManifest } from '../src/product/manifest/kinds.js';
-import { canonicalGitEntityRef, canonicalGitKind, GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { generatedTableName } from '../src/graph/contract.js';
 import { declaredKindReads, graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { keyUid } from '../src/graph/uid.js';
+import { repositoryManifest, repositoryContract } from './repository-contract-fixture.js';
 
-function manifest(): KindsManifest {
-  const repository: KindDecl = { name: 'code.repository', title: 'label', relations: [], line: 1, template: 'repository.liquid', source: 'graph', capability: 'git', key: ['name'], derivesFrom: [], fields: [{ name: 'name', type: 'text' }] };
-  const file: KindDecl = { name: 'code.file', title: 'label', relations: [], line: 2, template: 'file.liquid', source: 'graph', capability: 'git', key: ['repository', 'path'], derivesFrom: ['code.repository'], fields: [
-    { name: 'repository', type: 'text', reference: 'code.repository' },
-    { name: 'path', type: 'text' },
-    { name: 'state_machines', type: 'json', nullable: true },
-    { name: 'content', type: 'text', nullable: true },
-  ] };
-  return { file: 'madarch/kinds.yaml', kinds: new Map([[repository.name, repository], [file.name, file]]), roles: new Map(), properties: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
-}
-
-describe('git-backed declarations share one storage identity', () => {
-  test('native fields and additional declared opinions use one table and key', () => {
-    const held = manifest();
-    const contract = graphContractOf(held);
-    expect(contract.vertex.map((vertex) => vertex.name)).toEqual(['repository', 'file']);
-    const file = contract.vertex.find((vertex) => vertex.name === 'file')!;
-    expect(file.table).toBe(GIT_TABLES.file);
+describe('ordinary repository declarations retain canonical storage identities', () => {
+  test('declared fields and additional opinions use one table and key', () => {
+    const kind = repositoryManifest.kinds.get('code.file')!;
+    const kinds = new Map(repositoryManifest.kinds);
+    kinds.set(kind.name, { ...kind, fields: [...kind.fields!, { name: 'state_machines', type: 'json', nullable: true }] });
+    const manifest = { ...repositoryManifest, kinds };
+    const contract = graphContractOf(manifest);
+    const file = contract.vertex.find(vertex => vertex.name === 'code.file')!;
+    expect(file.table).toBe(generatedTableName('code.file', 'vertex'));
     expect(file.key).toEqual(['repository', 'path']);
-    expect(file.fields.map((field) => field.name)).toEqual([
-      ...GIT_CONTRACT.vertex.find((vertex) => vertex.name === 'file')!.fields.map((field) => field.name),
-      'state_machines', 'content',
+    expect(file.fields.map(field => field.name)).toEqual([
+      ...repositoryContract.vertex.find(vertex => vertex.name === 'code.file')!.fields.map(field => field.name), 'state_machines',
     ]);
-    expect(declaredKindReads(held).get('code.file')).toMatchObject({ table: file.table, key: file.key, columns: file.fields.filter((field) => !file.key.includes(field.name)).map((field) => field.name) });
+    expect(declaredKindReads(manifest).get('code.file')).toMatchObject({ table: file.table, key: file.key, columns: file.fields.filter(field => !file.key.includes(field.name)).map(field => field.name) });
   });
 
-  test('draft identity and nested references match the native producer declaration', () => {
-    const held = manifest();
-    const expected = { kind: GIT_KINDS.file, key: { repository: { kind: GIT_KINDS.repository, key: { name: 'app' } }, path: 'src/schema.ts' } };
-    expect(canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: 'app', path: 'src/schema.ts' } })).toEqual(expected);
-    expect(canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: { kind: 'code.repository', key: { name: 'app' } }, path: 'src/schema.ts' } })).toEqual(expected);
-    expect(canonicalGitEntityRef(held, expected)).toEqual(expected);
-    const draft = canonicalGitEntityRef(held, { kind: 'code.file', key: { repository: 'app', path: 'src/schema.ts' } });
-    expect(keyUid(draft.kind, [JSON.stringify(draft.key)])).toBe(keyUid(expected.kind, [JSON.stringify(expected.key)]));
+  test('plugin drafts use the declared canonical name and scalar repository key', () => {
+    const file = repositoryContract.vertex.find(vertex => vertex.name === 'code.file')!;
+    const key = { repository: 'app', path: 'src/schema.ts' };
+    expect(file.name).toBe('code.file');
+    expect(file.key.map(field => key[field as keyof typeof key])).toEqual(['app', 'src/schema.ts']);
+    expect(keyUid(file.name, [JSON.stringify(key)])).toBe(keyUid('code.file', [JSON.stringify({ repository: 'app', path: 'src/schema.ts' })]));
+    expect(repositoryContract.vertex.some(vertex => vertex.name === 'file')).toBe(false);
   });
 
-  test('a similarly named kind without the capability binding remains independent', () => {
-    const held = manifest();
-    const kinds = new Map(held.kinds);
-    kinds.set('code.file', { ...kinds.get('code.file')!, capability: undefined });
-    const independent = { ...held, kinds };
-    expect(canonicalGitKind(independent, 'code.file')).toBe('code.file');
-    expect(canonicalGitEntityRef(independent, { kind: 'code.file', key: { repository: 'app', path: 'x' } })).toEqual({ kind: 'code.file', key: { repository: 'app', path: 'x' } });
-    expect(graphContractOf(independent).vertex.some((vertex) => vertex.name === 'code.file')).toBe(true);
+  test('a similarly named declaration remains independent without a native alias', () => {
+    const kind = repositoryManifest.kinds.get('code.file')!;
+    const kinds = new Map(repositoryManifest.kinds);
+    kinds.set('file', { ...kind, name: 'file', capability: undefined });
+    const contract = graphContractOf({ ...repositoryManifest, kinds });
+    expect(contract.vertex.find(vertex => vertex.name === 'file')?.table).toBe(generatedTableName('file', 'vertex'));
+    expect(contract.vertex.find(vertex => vertex.name === 'code.file')?.table).not.toBe(generatedTableName('file', 'vertex'));
   });
 });

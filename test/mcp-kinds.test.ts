@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createTestDatabaseOwner } from './test-database.js';
-import { createRecordSchema } from '../src/graph/index.js';
+import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
@@ -16,7 +16,7 @@ import { RepositorySession } from '../src/mcp/session.js';
 test('MCP kinds reads published declarations without a repository fill or checkout', async () => {
   const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
-    await createRecordSchema(owner, EMPTY_CONTRACT);
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
     const manifest = fixtureManifest({ zebra: { derivesFrom: ['alpha'] }, alpha: {} });
     // The publication payload uses the same explicit Map encoding as the validated publisher.
     const encode = (value: unknown): unknown => value instanceof Map

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createTestDatabaseOwner } from './test-database.js';
-import { createRecordSchema } from '../src/graph/records.js';
+import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
@@ -33,7 +33,7 @@ test('publishes complete metadata and declaration evidence without repository co
   const folder = fixture();
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
-    await createRecordSchema(owner, EMPTY_CONTRACT);
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
     const read = validateProductManifests(folder);
     expect(read.ok).toBe(true);
     if (!read.ok) throw new Error(JSON.stringify(read.findings));
@@ -64,9 +64,9 @@ test('publishes complete metadata and declaration evidence without repository co
     // An older matching opinion is closed history, not proof that the latest declaration is unchanged.
     expect(await publishValidatedManifests(owner, regrounded)).toBeGreaterThan(0);
     expect(await publishValidatedManifests(owner, regrounded)).toBe(0);
-    await createRecordSchema(owner, EMPTY_CONTRACT);
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
     expect((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.size).toBe(1);
-    const contents = await owner.run((tx) => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM file_entry'));
+    const contents = await owner.run((tx) => tx.query<{ count: string }>("SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name LIKE 'code.%'"));
     expect(contents.rows[0]!.count).toBe('0');
   } finally { await owner.close(); }
 }, 30_000);
@@ -77,7 +77,7 @@ test('reports all invalid declarations with full paths and retains the last vali
   const reports: string[] = [];
   const watch = createManifestWatch([], async (value) => { await publishValidatedManifests(owner, value); }, (line) => reports.push(line));
   try {
-    await createRecordSchema(owner, EMPTY_CONTRACT);
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
     await watch.refresh(folder);
     writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds:\n  bad: { source: unknown, template: missing.md }\n');
     writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  broken: { status: wrong, stages: [unknown] }\n');
@@ -112,7 +112,7 @@ test('filesystem watcher publishes a valid edit and refuses invalid edits withou
     resolvePublished?.();
   }, (line) => { reports.push(line); resolveRefused?.(); });
   try {
-    await createRecordSchema(owner, EMPTY_CONTRACT);
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
     await watcher.refresh(folder);
     const published = new Promise<void>((done) => { resolvePublished = done; });
     writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  later: { status: planned, stages: [] }\n');
