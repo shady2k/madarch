@@ -29,7 +29,7 @@ export interface MarkdownEntity {
 }
 
 /** Only generated contracts that can project a body can contribute ordinary knowledge pages. */
-function pageOpinionKinds(manifest: KindsManifest, generated: ReadonlyMap<string, GeneratedKindRead>): KindsManifest {
+export function pageOpinionKinds(manifest: KindsManifest, generated: ReadonlyMap<string, GeneratedKindRead>): KindsManifest {
   return { ...manifest, kinds: new Map([...manifest.kinds].filter(([kind]) => {
     const declared = generated.get(kind);
     return !Object.hasOwn(GUIDE_OUTPUTS, kind) && declared !== undefined && (declared.columns.includes('body') || declared.key.includes('body'));
