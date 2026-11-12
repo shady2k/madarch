@@ -54,7 +54,7 @@ test('catalogue:true does not let a scripted agent read undeclared files', async
 
 test('explicit earlier read freezes producer generation and never reads later replacement', async () => {
   const saved = [{ kind: 'Source', key: { id: 'x' }, values: { text: 'original' } }];
-  const savedValue = (kind: string, key: { readonly id?: string }, field: string): unknown => {
+  const savedValue = (kind: string, key: Readonly<Record<string, unknown>>, field: string): unknown => {
     const vertex = saved.find(vertex => vertex.kind === kind && vertex.key.id === key.id);
     return (vertex?.values as Readonly<Record<string, unknown>> | undefined)?.[field] ?? null;
   };
