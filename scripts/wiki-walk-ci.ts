@@ -18,7 +18,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { startServer } from '../src/server/http.js';
+import { ensureDaemon, stopDaemon } from '../src/product/daemon.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
 import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 import { FINDING_CLASSES, compareToBaseline, formatBaseline, formatReport, parseBaseline, walkWiki } from './wiki-walk.js';
@@ -69,22 +69,16 @@ const shop = makeProduct(home, PRODUCT, repository);
 // come back with the stage whose step publishes what they resolve against.
 const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
 if (firstFill !== undefined && firstFill.stages.includes('syntax')) writeSamplePages(shop);
-// The API answers without the app's built files; the server only needs a
-// folder it can call the app's home.
+// The walk reads JSON, not the app. Supply a minimal built dist so the normal
+// daemon lifecycle can serve without building the browser app.
 const app = join(work, 'app');
-mkdirSync(app, { recursive: true });
-writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki-walk</title>\n');
-const store = join(work, 'store');
-
-const server = await startServer({
-  productHome: home,
-  appFolder: app,
-  port: 0,
-  knowledgeRoot: store,
-  log: () => {},
-  errorLog: (line) => console.error(line),
-});
-const endpoint = `${server.url}/products/${PRODUCT}`;
+mkdirSync(join(app, 'dist'), { recursive: true });
+writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html><title>wiki-walk</title>\n');
+// Start through the same lifecycle as `madarch start`: the daemon owns schema
+// preparation and gives the API and fill processes its authenticated service.
+const daemon = await ensureDaemon({ home, appFolder: app, port: 0 });
+if (!daemon.ok) throw new Error(`wiki-walk-ci: ${daemon.message}`);
+const endpoint = `${daemon.url}/products/${PRODUCT}`;
 
 const status = async (): Promise<{ fill: { state: string; message?: string }; filled?: boolean }> => {
   const response = await fetch(`${endpoint}/api/status`);
@@ -137,5 +131,5 @@ try {
     process.exitCode = check.regressions.length === 0 ? 0 : 1;
   }
 } finally {
-  await server.stop();
+  if (stopDaemon({ home }) !== 0) throw new Error(`wiki-walk-ci: the daemon for ${home} could not be stopped`);
 }
