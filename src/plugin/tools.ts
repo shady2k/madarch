@@ -23,7 +23,7 @@ export function snapshotTools(declarations: PluginManifest['tools'], trusted: Re
     if (names.has(declaration.name)) refuse(`duplicate tool ${declaration.name}`);
     names.add(declaration.name);
     const tool = trusted[declaration.name];
-    if (tool === undefined || tool.sha256 !== declaration.sha256) refuse(`tool ${declaration.name} has no approved executable pin matching its declaration`);
+    if (tool === undefined || tool.sha256 !== declaration.sha256) return refuse(`tool ${declaration.name} has no approved executable pin matching its declaration`);
     let bytes: Buffer;
     try {
       const stat = lstatSync(tool.executable);

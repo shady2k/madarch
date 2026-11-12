@@ -6,6 +6,6 @@ const LINUX_GIT: TrustedTool = {
   sha256: 'eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201',
 };
 
-export function releaseTools(platform = process.platform): Readonly<Record<string, TrustedTool>> {
+export function releaseTools(platform: string = process.platform): Readonly<Record<string, TrustedTool>> {
   return platform.startsWith('linux') ? { git: LINUX_GIT } : {};
 }
