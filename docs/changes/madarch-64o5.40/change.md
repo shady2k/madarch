@@ -9,8 +9,8 @@ Kind: behavior
 
 Replace native repository-tree and history graph producers with ordinary disk
 and git plugins. A fresh starter product ships both. Plugin declarations alone
-select and order repository fact work: Files runs disk; Commits runs disk then
-git. The engine hosts plugins and publishes their opinions but does not walk a
+select and order repository fact work. Files and Commits both require the
+declared disk/git closure when current file keys include git history refinement. The engine hosts plugins and publishes their opinions but does not walk a
 repository tree or interpret Git history to feed the graph.
 
 ## Out of scope
@@ -118,10 +118,36 @@ increased. No pending or skipped check is claimed as passed.
 
 ## DONE WHEN
 
-A fresh starter ships ordinary disk and git producers. Files runs disk only;
-Commits runs disk then git through declarations, without an agent requirement
+A fresh starter ships ordinary disk and git producers. Files and Commits run
+their declared disk/git prerequisite closure without an agent requirement
 introduced by either deterministic producer. Their published data is readable
 through the generic opinion readers. Native tree/history graph producers and
 engine interpretation feeding the graph are absent. Fixture regressions and
 the unchanged training workload provide actual evidence, with any remaining
 blockers reported explicitly.
+
+
+## Owner integration clarification: historical file identity
+
+Historical file identity must be retained without an `ensureVertex` exception.
+Git's ordinary `code.file` key output explicitly refines disk's key output.
+Consequently Files requesting latest keys requires git as well as disk; the
+previous disk-only Files expectation is superseded. The .28 rule retaining all
+required current producers applies: no automatic downstream-refiner exemption,
+unselected write permission or native historical-file identity path is added.
+This is declaration-driven deterministic work and still requires no agent.
+Source 6e7984f3 declares the refinement; this note records its contract consequence.
+
+The shared schema revision changes from 5 to 6 for this storage migration.
+The release-platform trusted Git pin digest is
+`eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
+These are declared migration/tool constants, not relaxed performance bounds.
+
+## Coordinator-reported baseline evidence
+
+The parent reports a completed internal-native before run of 10.444655832 seconds,
+114 files, 583054 bytes, 72 commits and 55 directories at pinned revision
+`0657ebc0eb2b0fcf4f5364976f8e3eae0a41d42e`.
+Actual evidence: `/tmp/m28-before-valid/before.json`.
+The after measurement and comparable before/after analysis remain pending.
+This baseline is not a whole-suite-green, migration-completion or approval claim.

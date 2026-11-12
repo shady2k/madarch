@@ -38,16 +38,17 @@ permission to publish every output. Each entry owns fields, reads and refines.
 ## Requirement: selection — Declarations select and order deterministic producers
 
 The selected producer closure shall follow the product's kind prerequisites and
-plugins' declared reads and outputs. Files shall select disk only; Commits
-shall select disk then git. No numeric stage order, producer category or native
+plugins' declared reads and outputs. Git's `code.file` key output refines disk's
+key output so historical files retain ordinary identity. Files requesting latest
+keys shall therefore select the required disk/git closure, as shall Commits. No numeric stage order, producer category or native
 kind exception shall supply this relation. Missing enabled producers shall be
 refused before acceptance, not replaced with native work. The existing rules
 for a genuinely selected plugin that requests an agent remain in force.
 
-### Scenario: files-only
+### Scenario: files-latest-keys
 - Given: a starter product with disk and git enabled
 - When: Files is selected
-- Then: the repository producer plan runs disk only and does not request an agent for disk
+- Then: the plan includes required disk/git units because git refines current file keys, preserves historical file identities and requires no agent
 
 ### Scenario: commits-after-disk
 - Given: a starter product whose git declaration reads disk's output
@@ -122,5 +123,15 @@ All twelve rules in `../../madarch-64o5.28/contract.md` remain normative,
 including per-output prerequisite validation, immutable explicit earlier reads,
 success-gated dependencies, scoped replacement/retraction, authored-input plugins
 and explicit per-kind outcomes. No native exemption satisfies any rule.
-Whole-suite green and comparable before/after training evidence remain pending;
+A coordinator-reported actual internal-native baseline is recorded in change.md;
+whole-suite green, after timing and comparable before/after analysis remain pending;
 only the parent coordinator runs checks and PostgreSQL commands.
+
+
+### Scenario: historical-file-identity
+- Given: a historical changed path absent from the pinned tree and git declaring a `code.file` key refinement of disk
+- When: history and latest file keys are filled
+- Then: ordinary declared publication preserves that file identity without an `ensureVertex` exception, native writer or hidden prerequisite exemption
+
+Schema migration revision is 5 → 6. The release-platform trusted Git digest is
+`eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.

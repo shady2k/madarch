@@ -252,3 +252,18 @@ failures above and in change.md remain recorded. Whole-suite green and actual
 comparable before/after training measurements are pending parent coordination.
 No test/check/PostgreSQL command, real model, assertion weakening or bound
 increase was used to author this note. No approval receipt is fabricated.
+
+
+### Owner clarification: latest file keys include git refinement
+
+Historical file identity must remain ordinary declared identity, with no
+`ensureVertex` exception. Git declares a `code.file` key refinement of disk.
+Files requesting latest keys therefore requires the successful declared disk/git
+closure, not disk alone. This consequence preserves rules 5, 9 and 10: it adds
+neither a downstream-refiner exemption nor permission to write unselected output.
+Both producers are deterministic ordinary plugins and require no agent. The
+older .40 disk-only Files expectation is superseded by this integration decision.
+Shared schema revision changes 5 → 6. The trusted Git release-platform digest is
+`eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
+Actual parent-reported before timing and its input are recorded in .40 change.md;
+after measurement and whole-suite evidence remain pending, not claimed green.
