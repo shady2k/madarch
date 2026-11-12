@@ -185,6 +185,7 @@ async function answering(socketDir: string, database: string = CLUSTER_ADMIN_DAT
   let client: Client | undefined;
   try {
     client = new Client({ ...clusterEndpoint(socketDir), user: CLUSTER_USER, database, connectionTimeoutMillis: 2_000 });
+    client.on('error', (error: Error) => console.error(`PostgreSQL readiness client "${socketDir}/${database}": ${error.message}`));
     await client.connect();
     await client.query('SELECT 1');
     return true;
@@ -198,10 +199,14 @@ async function answering(socketDir: string, database: string = CLUSTER_ADMIN_DAT
 /** Runs one statement on a cluster in a connection of its own, for the work that is not a store's. */
 export async function clusterQuery<Row extends Record<string, unknown>>(cluster: RunningCluster, database: string, sql: string, values: readonly unknown[] = []): Promise<Row[]> {
   const client = new Client({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), user: cluster.user, database, connectionTimeoutMillis: 5_000 });
-  await client.connect();
+  client.on('error', (error: Error) => console.error(`PostgreSQL cluster client "${cluster.dataDir}/${database}": ${error.message}`));
   try {
+    await client.connect();
     const answer = await client.query(sql, [...values]);
     return answer.rows as Row[];
+  } catch (error) {
+    if (error instanceof Error) { error.message = `PostgreSQL cluster "${cluster.dataDir}/${database}": ${error.message}`; throw error; }
+    throw new Error(`PostgreSQL cluster "${cluster.dataDir}/${database}": ${String(error)}`);
   } finally {
     await client.end().catch(() => undefined);
   }
