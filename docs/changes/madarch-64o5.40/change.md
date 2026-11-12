@@ -171,3 +171,24 @@ producer-scoped atomic replacement/retraction and retained run/version evidence.
 A transport partition is not independent successful completion of a partial
 invocation. Runtime partition implementation and its validation are pending;
 this record does not claim the oversized workload is repaired.
+
+
+## Further partial validation reported by coordinator
+
+Root check six exited 0 across all six checks in 84.2 seconds:
+`/tmp/m28-check-sixth.log`. It ran before the latest test and reader commits;
+the existing 18 architecture baseline findings remain unchanged. This result
+must not be attributed to source committed after that run.
+
+Partition regressions reported 0 passes / 5 failures. In focused execution all
+three bounded 3 MiB child drafts passed, but the aggregate barrier failed:
+post-publication store retention pruned opaque `plugin-partition` data through
+`retainedProducerOutcomes` draft update and part deletion. The engine worker is
+repairing retention of immutable partition and aggregate snapshots. The focused
+child results do not establish complete-barrier success. No bound was changed.
+
+Graph batch two reported 18 passes / 15 failures, followed by canonical-import
+and midflight-declaration repairs. Batch three reported 34 passes / 3 failures.
+Reader N+1 repair is source `3d9ddc9e`; historical replay test expectation repair
+is `b0b8725d`. These source changes are not passing rerun evidence: reruns remain
+pending. Whole-suite green and after-training timing remain unestablished.
