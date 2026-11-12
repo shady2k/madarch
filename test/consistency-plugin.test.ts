@@ -184,9 +184,21 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
+    // Normal withdrawal removes incident edges. Keep one damaged historical edge explicitly for the consistency probe.
+    const damaged = await owner.transaction('snapshot', async (tx) => await tx.query<{
+      entity_id: string; from_node: string; to_node: string; discriminator: string; context_id: string;
+    }>(`SELECT e.entity_id::text, e.from_node::text, e.to_node::text, e.discriminator, e.context_id::text
+        FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node
+        WHERE k.name = 'contains' AND n.key->>'path' = 'src/a.ts'`));
+    expect(damaged.rows).toHaveLength(1);
     for (const producer of ['git-tree', 'linguist']) {
       expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src/a.ts' }, producer }, 1))).toBe(true);
     }
+    await owner.transaction('write', async (tx) => {
+      const edge = damaged.rows[0]!;
+      await tx.query('INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)',
+        [edge.entity_id, edge.from_node, edge.to_node, edge.discriminator, edge.context_id]);
+    });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
       removals: [],
