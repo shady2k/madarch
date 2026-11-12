@@ -39,7 +39,7 @@ export async function loadGraphSnapshot(owner: DatabaseOwner): Promise<GraphSnap
     }
   }
   const edges: GraphEdgeItem[] = [];
-  for (const relation of ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-to']) {
+  for (const relation of ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-from']) {
     const page = await reader.relationEdges(relation, Number.MAX_SAFE_INTEGER);
     for (const edge of page.rows) {
       edges.push({

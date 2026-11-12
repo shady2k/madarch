@@ -26,7 +26,7 @@ export const GIT_WIKI = {
   touched: 'code.touched',
   authored: 'code.authored',
   parent: 'code.parent',
-  renamedTo: 'code.renamed-to',
+  renamedFrom: 'code.renamed-from',
   contains: 'code.contains',
 } as const;
 

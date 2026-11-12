@@ -82,7 +82,9 @@ test('path history keeps rename and import membership evidence without loading u
     expect(evidence.edges.filter((one) => one.relation === 'code.imports')).toEqual([
       { from: src.key, to: lib.key, relation: 'code.imports', properties: {} },
     ]);
-    expect(evidence.edges.some((one) => one.relation === 'code.renamed-to')).toBe(true);
+    expect(evidence.edges.filter((one) => one.relation === 'code.renamed-from')).toEqual([
+      { from: 'code.file:fixture/src/new.txt', to: 'code.file:fixture/src/old.txt', relation: 'code.renamed-from', properties: { discriminator: last } },
+    ]);
     expect(evidence.edges.filter((one) => one.relation === 'code.contains').map((one) => one.to).sort()).toEqual([
       'code.file:fixture/lib/peer.txt', 'code.file:fixture/src/new.txt',
     ]);

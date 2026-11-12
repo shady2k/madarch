@@ -122,7 +122,7 @@ const SPANLESS_EDGE_KINDS: readonly string[] = [
   'code.flows-into',
   'code.held',
   'code.parent',
-  'code.renamed-to',
+  'code.renamed-from',
   'code.resolves',
   'code.tasks',
   'code.tests',
