@@ -16,16 +16,10 @@ source: graph
 fields:
 - name: path
   type: text
-  binding:
-    agent: 'Read each templates/**/*.liquid source file: repository-relative path including templates/; identify the entity
-      as template:<path>.'
+  producers: [manifest]
 - name: template_parts
   type: json
-  binding:
-    agent: 'Read each templates/**/*.liquid source file: expand layouts, inheritance and partials into ordered nodes {type:
-      text, text, line}, {type: attribute, name, line}, {type: block, name, params, line} or {type: problem, message, line}.
-      Every line is a positive integer and params maps names to strings. Preserve block order and complete content; unresolved
-      template logic is a problem, never silently omitted.'
+  producers: [manifest]
 key:
 - path
 labels:
