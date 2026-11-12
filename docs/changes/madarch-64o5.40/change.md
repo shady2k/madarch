@@ -432,7 +432,7 @@ ten settled at two passes, four failures and one error, 13 assertions in
 987.44 seconds, with a third-case timeout and cascading busy-run failures.
 The generic read/event repair preserves trace/read membership and locks while
 reducing the path from six SQL statements in two write transactions to four
-statements in one transaction. This is a source-level SQL/transaction reduction,
+statements in the same two transactions. This is a source-level SQL reduction,
 not a measured wall-time speedup or changed constant. No assertion, timeout or
 performance bound was weakened.
 
