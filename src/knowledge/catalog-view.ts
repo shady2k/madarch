@@ -19,7 +19,7 @@ import type { CatalogKindView, CatalogSummaryView, CatalogView, WikiStatus } fro
 
 /** The list carries navigation and fill metadata; declaration details are read only when a kind is opened. */
 export function catalogSummary(view: CatalogView): CatalogSummaryView {
-  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, pluginFolders, declaration, ...kind }) => ({
+  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, pluginFolders, declaration, filled, ...kind }) => ({
     ...kind,
     ...(sources === undefined || sources.length === 0 ? {} : { sourcesAvailable: true }),
   })) };

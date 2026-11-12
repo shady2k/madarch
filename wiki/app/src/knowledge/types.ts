@@ -258,7 +258,7 @@ export type CatalogKindView = {
 export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
 
 /** List metadata; declaration details are acquired only for a selected kind. */
-export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources' | 'pluginFolders' | 'declaration' | 'filled'>[] };
 
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {

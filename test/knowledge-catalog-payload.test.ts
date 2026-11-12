@@ -42,8 +42,10 @@ test('the full starter catalogue stays bounded while single-kind details retain 
   expect(summary.groups).toEqual(catalog.groups);
   for (const kind of kinds) {
     const row = summary.kinds.find((entry: { kind: string }) => entry.kind === kind.kind);
-    const { fields, relations, sources, pluginFolders, declaration, ...metadata } = kind;
+    const { fields, relations, sources, pluginFolders, declaration, filled, ...metadata } = kind;
     expect(row).toEqual({ ...metadata, ...(sources?.length ? { sourcesAvailable: true } : {}) });
+    expect(row).not.toHaveProperty('filled');
+    expect(row.count > 0).toBe(kind.filled);
     const detail = await part.catalog(new Request(`http://localhost/api/catalog?kind=${encodeURIComponent(kind.kind)}`));
     expect(detail.response.status).toBe(200);
     expect(await detail.response.json()).toEqual(kind);
