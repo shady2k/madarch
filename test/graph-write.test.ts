@@ -617,6 +617,61 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(cleared.rows[0]?.n).toBe('0');
   });
 
+  test('edge batches preserve unresolved reference input order across shared endpoints', async () => {
+    const graph: GraphContract = {
+      vertex: [{ name: 'ordered.page', table: generatedTableName('ordered.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'fixture' }],
+      edge: [{ name: 'ordered.links', table: generatedTableName('ordered.links', 'edge'), from: ['ordered.page'], to: ['ordered.page'], repeats: false, fields: [], capability: 'fixture' }],
+      dictionary: [],
+    };
+    const durable = await createTestDatabaseOwner({ graphContract: graph });
+    try {
+      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, {
+        vertices: ['A', 'B'].map(title => ({ kind: 'ordered.page', key: { title }, values: {}, producer: 'source', producerVersion: '1' })), removals: [],
+      }));
+      const link = (title: string) => ({ kind: 'ordered.links', from: { kind: 'ordered.page', key: { title: 'A' } }, to: { kind: 'ordered.page', key: { title } }, producer: 'source', producerVersion: '1' });
+      const unresolved = async () => (await durable.transaction('snapshot', tx => tx.query<{ field: string; target_key: unknown; producer: string }>(
+        'SELECT field, target_key, producer FROM unresolved_reference ORDER BY field, producer',
+      ))).rows;
+      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: [link('B'), link('Missing')], removals: [] }));
+      expect(await unresolved()).toEqual([{ field: 'to', target_key: { title: 'Missing' }, producer: 'source@1' }]);
+      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: [link('Missing'), link('B')], removals: [] }));
+      expect(await unresolved()).toEqual([]);
+    } finally { await durable.close(); }
+  });
+
+  test('canonical endpoint aliases keep each intermediate edge opinion and journal it once', async () => {
+    const edgeTable = generatedTableName('alias.links', 'edge');
+    const graph: GraphContract = {
+      vertex: [{ name: 'alias.page', table: generatedTableName('alias.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'fixture' }],
+      edge: [{ name: 'alias.links', table: edgeTable, from: ['alias.page'], to: ['alias.page'], repeats: false, fields: [{ name: 'text', type: 'text' }], capability: 'fixture' }],
+      dictionary: [],
+    };
+    const durable = await createTestDatabaseOwner({ graphContract: graph });
+    try {
+      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, {
+        vertices: ['1', 'B'].map(title => ({ kind: 'alias.page', key: { title }, values: {}, producer: 'source', producerVersion: '1' })), removals: [],
+      }));
+      const link = (title: string | number, text: string) => ({ kind: 'alias.links', from: { kind: 'alias.page', key: { title } }, to: { kind: 'alias.page', key: { title: 'B' } }, values: { text }, producer: 'source', producerVersion: '1' });
+      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: [link(1, 'first'), link('1', 'second')], removals: [] }));
+      const opinions = await durable.transaction('snapshot', tx => tx.query<{ id: string; text: string | null; state: string; edge: string }>(
+        `SELECT id::text AS id, text, state, edge_id::text AS edge FROM ${edgeTable} ORDER BY id`,
+      ));
+      expect(opinions.rows.map(row => [row.text, row.state])).toEqual([[null, 'closed'], ['first', 'closed'], ['second', 'open']]);
+      expect(new Set(opinions.rows.map(row => row.edge)).size).toBe(1);
+      const entry = await durable.transaction('snapshot', tx => tx.query<{ change: { edges: { edge: string; state: string }[]; opinions: { id: string; edge: string; state: string; values?: { text: string | null } }[] } }>(
+        'SELECT change FROM operation ORDER BY seq DESC LIMIT 1',
+      ));
+      expect(entry.rows[0]!.change.edges.map(edge => [edge.edge, edge.state])).toEqual([[opinions.rows[0]!.edge, 'declared']]);
+      expect(entry.rows[0]!.change.opinions.map(opinion => [opinion.id, opinion.edge, opinion.state, opinion.values?.text])).toEqual([
+        [opinions.rows[0]!.id, opinions.rows[0]!.edge, 'opened', null],
+        [opinions.rows[0]!.id, opinions.rows[0]!.edge, 'closed', undefined],
+        [opinions.rows[1]!.id, opinions.rows[1]!.edge, 'opened', 'first'],
+        [opinions.rows[1]!.id, opinions.rows[1]!.edge, 'closed', undefined],
+        [opinions.rows[2]!.id, opinions.rows[2]!.edge, 'opened', 'second'],
+      ]);
+    } finally { await durable.close(); }
+  });
+
   test('one publication writes one journal entry, authored by the producer, naming the vertices and opinions by id', async () => {
     const before = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'));
     await owner.transaction('write', async (tx) => await publishGraphWrites(tx, contract, [
