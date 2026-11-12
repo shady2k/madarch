@@ -36,7 +36,7 @@
 import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { LineCounter, parseDocument, stringify, type Document } from 'yaml';
+import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
 
 /** Decode repository-owned catalogue YAML in the manifest layer. */
 export function parseCatalogYaml(text: string): unknown { return Bun.YAML.parse(text); }
@@ -900,68 +900,56 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
   const documents = folderManifestDocuments(productFolder, [file, ...paths.map((path) => join(productFolder, path))]);
   const findings: Finding[] = [];
   const locations: { file: string; line: number }[] = [];
-  const composite: string[] = [];
   const kindFiles = new Map<string, string>();
-  const append = (text: string, path: string, indent = ''): void => {
-    for (const [index, line] of text.replace(/\n$/, '').split('\n').entries()) {
-      composite.push(indent + line);
-      locations.push({ file: join(productFolder, path), line: index + 1 });
-    }
-  };
-  const documentText = (path: string): string | undefined => {
+  const locators = new Map<string, (path: (string | number)[]) => number>();
+  const readDocument = (path: string): Record<string, unknown> | undefined => {
     const full = join(productFolder, path);
     const text = files.has(path) ? files.text(path) : undefined;
     if (text === undefined) {
       findings.push({ file: full, source: full, line: 1, message: 'the file cannot be read: the source holds no text of it' });
       return undefined;
     }
-    const { doc } = parsedFolderManifest(documents, text, full);
+    const { doc, lines } = parsedFolderManifest(documents, text, full);
     if (doc.errors.length > 0) {
       for (const error of doc.errors) findings.push({ file: full, source: full, line: error.linePos?.[0].line ?? 1, message: error.message.split('\n')[0] ?? error.message });
       return undefined;
     }
-    const value: unknown = doc.toJS();
+    let aliasError = false;
+    visit(doc, (_key, node) => {
+      if (isAlias(node) && !node.resolve(doc)) {
+        aliasError = true;
+        findings.push({ file: full, source: full, line: lines.linePos(node.range?.[0] ?? 0).line, message: `Unresolved alias (the anchor must be set before the alias): ${node.source}` });
+      }
+    });
+    if (aliasError) return undefined;
+    let value: unknown;
+    try { value = doc.toJS(); } catch (error) {
+      findings.push({ file: full, source: full, line: 1, message: error instanceof Error ? error.message : String(error) });
+      return undefined;
+    }
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       findings.push({ file: full, source: full, line: 1, message: 'the declaration is a YAML mapping' });
       return undefined;
     }
     for (const key of ['kinds', ...(path === metadataPath ? [] : ['name', 'group'])]) {
       if (Object.hasOwn(value, key)) {
-        const { lines } = parsedFolderManifest(documents, text, full);
         findings.push({ file: full, source: full, line: lineForPath(doc, lines, [key]), message: `"${key}" is not declared here: kind names and groups come from the folder layout` });
         return undefined;
       }
     }
-    // Document markers cannot be indented into the enclosing kind mapping.
-    return text.replace(/^(?:---|\.\.\.)(?:[ \t]*(?:#.*)?)?$/gm, '');
+    const offset = locations.length;
+    for (let line = 1; line <= text.split('\n').length; line++) locations.push({ file: full, line });
+    const locate = lineLocator(doc, lines);
+    locators.set(path, (parts) => offset + locate(parts));
+    return value as Record<string, unknown>;
   };
-  const metadata = documentText(metadataPath);
-  if (metadata !== undefined) {
-    const { doc, lines } = parsedFolderManifest(documents, metadata, file);
-    if ((doc.contents as { flow?: boolean } | null)?.flow === true) {
-      const value = doc.toJS() as Record<string, unknown>;
-      const written = stringify(value, { lineWidth: 0 });
-      const normalizedLines = new LineCounter();
-      const normalized = parseDocument(written, { lineCounter: normalizedLines });
-      const before = locations.length;
-      if (Object.keys(value).length > 0) append(written, metadataPath);
-      const mapPaths = (held: unknown, path: (string | number)[]): void => {
-        const generatedLine = lineForPath(normalized, normalizedLines, path);
-        const originalLine = lineForPath(doc, lines, path);
-        if (locations[before + generatedLine - 1] !== undefined) locations[before + generatedLine - 1]!.line = originalLine;
-        if (Array.isArray(held)) held.forEach((entry, index) => mapPaths(entry, [...path, index]));
-        else if (held !== null && typeof held === 'object') for (const [key, entry] of Object.entries(held)) mapPaths(entry, [...path, key]);
-      };
-      mapPaths(value, []);
-    } else append(metadata, metadataPath);
-  }
-  const rawGroups: unknown = metadata === undefined ? undefined : parsedFolderManifest(documents, metadata, file).doc.toJS()?.groups;
+  const metadata = readDocument(metadataPath) ?? {};
+  const rawGroups = metadata['groups'];
   const groups = rawGroups !== null && typeof rawGroups === 'object' && !Array.isArray(rawGroups) ? rawGroups as Record<string, { parent?: unknown }> : {};
-  composite.push('kinds:'); locations.push({ file, line: 1 });
+  const kinds: Record<string, unknown> = {};
   for (const path of paths) {
     const full = join(productFolder, path);
-    const suffix = path.slice(kindsFolder.length + 1);
-    const segments = suffix.split('/');
+    const segments = path.slice(kindsFolder.length + 1).split('/');
     const leaf = segments.at(-1)!;
     if (segments.length !== 3 || !leaf.endsWith('.yaml') || leaf === '.yaml' || segments.some((segment) => segment === '')) {
       findings.push({ file: full, source: full, line: 1, message: 'a kind declaration lives at <group>/<subgroup>/<kind>.yaml' });
@@ -972,24 +960,21 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
       findings.push({ file: full, source: full, line: 1, message: `kind "${name}" is already declared in ${join(productFolder, kindFiles.get(name)!)}` });
       continue;
     }
-    const text = documentText(path);
-    if (text === undefined) continue;
+    const value = readDocument(path);
+    if (value === undefined) continue;
     kindFiles.set(name, path);
-    composite.push(`  ${JSON.stringify(name)}:`); locations.push({ file: full, line: 1 });
-    const joinedGroup = segments.slice(0, -1).join('.');
     const subgroup = segments[1]!;
-    const group = JSON.stringify(groups[subgroup]?.parent === segments[0] ? subgroup : joinedGroup);
-    const { doc } = parsedFolderManifest(documents, text, full);
-    if ((doc.contents as { flow?: boolean } | null)?.flow === true) {
-      const offset = doc.contents!.range![0];
-      append(text.slice(0, offset + 1) + `group: ${group}, ` + text.slice(offset + 1), path, '    ');
-    } else {
-      composite.push(`    group: ${group}`); locations.push({ file: full, line: 1 });
-      append(text, path, '    ');
-    }
+    const group = groups[subgroup]?.parent === segments[0] ? subgroup : segments.slice(0, -1).join('.');
+    kinds[name] = { group, ...value };
   }
-  if (kindFiles.size === 0) { composite[composite.indexOf('kinds:')] = 'kinds: {}'; }
-  const manifest = parseKinds(composite.join('\n') + '\n', file, productFolder, files);
+  const at = (path: (string | number)[]): number => {
+    if (path[0] === 'kinds' && typeof path[1] === 'string') {
+      const kindPath = kindFiles.get(path[1]);
+      if (kindPath !== undefined) return locators.get(kindPath)!(path.slice(2));
+    }
+    return locators.get(metadataPath)?.(path) ?? 1;
+  };
+  const manifest = validateKinds({ ...metadata, kinds }, at, file, productFolder, files);
   const location = (line: number) => locations[line - 1] ?? { file, line: 1 };
   const remap = (finding: Finding): Finding => finding.file === file
     ? { ...finding, ...location(finding.line), source: location(finding.line).file }
@@ -1191,6 +1176,11 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
   for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
   if (doc.errors.length > 0) return nothing(file, findings);
   const root: unknown = doc.toJS();
+  return validateKinds(root, at, file, productFolder, files);
+}
+
+function validateKinds(root: unknown, at: (path: (string | number)[]) => number, file: string, productFolder: string, files: ProductFileRead): KindsManifest {
+  const findings: Finding[] = [];
   if (root === null || typeof root !== 'object' || Array.isArray(root)) {
     return nothing(file, [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }]);
   }

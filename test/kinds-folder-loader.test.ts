@@ -110,7 +110,7 @@ test('multiline flow metadata retains nested field diagnostic lines', () => {
   expect(finding?.file).toBe('/product/madarch/catalog.yaml');
 });
 
-test('unchanged folder reads reuse raw and composite parses, while edits and removals remain visible', () => {
+test('folder reads parse each changed file once and keep edits and removals visible', () => {
   const declaration = 'source: graph\ntemplate: templates/fixture.liquid\n';
   const entries: Record<string, string> = { 'madarch/catalog.yaml': metadata, 'templates/fixture.liquid': '# Fixture' };
   for (let index = 0; index < 12; index++) entries[`madarch/kinds/code/structure/fixture.${index}.yaml`] = declaration;
@@ -133,7 +133,7 @@ test('unchanged folder reads reuse raw and composite parses, while edits and rem
     entries[edited] = 'source: wrong\n';
     const invalid = read();
     expect(invalid.findings.find((finding) => finding.message.includes('source'))).toMatchObject({ file: `/cache-product/${edited}`, source: `/cache-product/${edited}`, line: 1 });
-    expect(parser.mock.calls.length).toBe(parsed + 2);
+    expect(parser.mock.calls.length).toBe(parsed + 1);
     entries[edited] = declaration;
     expect(read().findings).toEqual(initial.findings);
     delete entries[edited];
@@ -141,4 +141,15 @@ test('unchanged folder reads reuse raw and composite parses, while edits and rem
     entries['madarch/catalog.yaml'] = metadata.replace('en: Code', 'en: Updated');
     expect(read().groups.get('code')?.labels['en']).toBe('Updated');
   } finally { parser.mockRestore(); }
+});
+
+test('aliases resolve only inside their own file and report the alias line', () => {
+  const read = readKindsFrom(source({
+    'madarch/catalog.yaml': 'language: &shared en\n',
+    'madarch/kinds/code/structure/a.yaml': '# independent\nsource: *shared\n',
+    'madarch/kinds/code/structure/b.yaml': 'source: wrong\n',
+  }), '/aliases');
+  if (!read.present) throw new Error('manifest must be read');
+  expect(read.manifest.findings.find((one) => one.message.includes('Unresolved alias'))).toMatchObject({ file: '/aliases/madarch/kinds/code/structure/a.yaml', line: 2 });
+  expect(read.manifest.findings.some((one) => one.file.endsWith('/b.yaml') && one.message.includes('source'))).toBe(true);
 });
