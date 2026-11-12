@@ -49,8 +49,7 @@
 
   body {
     margin: 0;
-    /* The page scrolls as one document: the sidebar and the toolbar stand still beside it, and a window of any
-     * height, or a picture of the whole page, shows all of it. */
+    /* The app shell bounds its own scroll areas to the viewport. */
     min-height: 100%;
     font-family: var(--font-sans);
     font-size: var(--fs-body);
@@ -126,7 +125,8 @@
   line-height: var(--leading);
 }
 
-.shell-document > main {
+.shell-document > main,
+.ui-kit-page {
   max-inline-size: var(--measure);
   margin-inline: auto;
 }
@@ -439,10 +439,12 @@ main tbody tr:nth-child(odd) {
 
 /* The window-height shell: the work area scrolls as one continuous surface;
    the home and document share the same capped, fluid text measure. */
+/* Bars are flex siblings of the content region, never overlays on its scrollbar. */
 .shell-scroll {
   min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: var(--surface-page);
-  padding-block-end: 2.5em;
 }
 
 .document-bar {
@@ -2100,15 +2102,9 @@ a.graph-diagram-element-label:hover {
   }
 }
 
-/* A section a link opened: it stands out for a moment, below the toolbar that sticks to the top. */
+/* Anchor targets need only a reading gap: the bars are outside the scroll area. */
 [data-line] {
-  scroll-margin-top: 120px;
-}
-
-/* The top bar and the tab bar stand over the page: a link to a section, a focused field and a scrolled-to
-   element land below them (58 px + 38 px, and the phone's taller bar). */
-html {
-  scroll-padding-top: 120px;
+  scroll-margin-top: 1rem;
 }
 
 .anchor-hit {

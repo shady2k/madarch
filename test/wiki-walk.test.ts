@@ -103,7 +103,7 @@ function cleanBlocks(language: string): Block[] {
       members: [{ anchor: 'op-list', label: 'listOrders', href: null }], membersTotal: 1, membersShown: 1, memberCuts: [],
       spec: { text: 'openapi: 3.0.0', lines: 1 },
     },
-    { type: 'term', title: word(language, 'Term', 'Термин'), definition: 'An order is a request to buy something from the shop.', synonyms: ['purchase'], code: [], usedIn: null, ambiguous: null },
+    { type: 'term', title: word(language, 'Term', 'Термин'), definition: 'An order is a request to buy something from the shop.', synonyms: ['purchase'], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null },
   ];
 }
 
@@ -153,7 +153,7 @@ function startStub(options: { pages: Pages; fail?: string; documents?: unknown }
       if (!url.pathname.startsWith(base)) return new Response('not found', { status: 404 });
       const route = url.pathname.slice(base.length);
       if (route === '/api/status') return Response.json(STATUS);
-      if (route === '/api/questions') return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
+      if (route === '/api/questions') return new Response('retired', { status: 410 });
       if (route === '/api/documents') return Response.json(stub.documents ?? { documents: [], truncated: [] });
       if (route === '/api/entities') {
         const kind = url.searchParams.get('kind') ?? '';
@@ -294,7 +294,6 @@ describe('the walk fails instead of reporting fewer pages', () => {
       fetch(request): Response {
         const url = new URL(request.url);
         if (url.pathname.endsWith('/api/status')) return Response.json(STATUS);
-        if (url.pathname.endsWith('/api/questions')) return Response.json({ rows: [], open: 0, answered: 0, closed: 0, problems: [] });
         if (url.pathname.endsWith('/api/entities')) return Response.json({ kind: KIND_SERVICE, total: 3, rows: ROWS[KIND_SERVICE], next: null });
         return new Response('no', { status: 404 });
       },
@@ -450,7 +449,7 @@ describe('the shapes a reader meets are read, not skipped', () => {
   test('a synonym is a name, not a sentence in another language', () => {
     const findings = inspectPage({
       id: 'term:order', kind: 'term', title: 'Заказ', trail: [],
-      blocks: [{ type: 'term', title: 'Термин', definition: 'Заказ — это просьба купить что-нибудь в магазине.', synonyms: ['Kubernetes'], code: [], usedIn: null, ambiguous: null }],
+      blocks: [{ type: 'term', title: 'Термин', definition: 'Заказ — это просьба купить что-нибудь в магазине.', synonyms: ['Kubernetes'], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null }],
       resolutions: {}, findings: [], notes: [],
     }, inspectOptions('ru'));
     expect(findings).toEqual([]);

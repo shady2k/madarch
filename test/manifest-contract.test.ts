@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-contract-'));
 mkdirSync(join(root, 'templates'), { recursive: true });

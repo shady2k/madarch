@@ -18,6 +18,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readRepositoryHistory, readRepositoryTree, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 import { log } from '../src/obs/log.js';
+import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
+import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { closeTrace, openTrace, runInTrace, withSpan, withSpanSync } from '../src/obs/trace.js';
 
 const engine = join(import.meta.dir, '..');
@@ -48,9 +50,11 @@ const store = resolve(argument('store'));
 const out = resolve(argument('out'));
 const runId = process.argv.includes('--run') ? argument('run') : `step1-${String(Date.now())}`;
 
+await withStorePreparationOwner(async () => {
 const pin: RepositoryAt = { repository: 'madarch', root: repository, commit, url: `file://${repository}` };
 mkdirSync(store, { recursive: true });
-const owner = await createDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
+await requestStorePreparation(join(store, 'graph'), GIT_CONTRACT);
+const owner = await createDatabaseOwner({ store: join(store, 'graph'), connectOnly: true });
 await graph.createRecordSchema(owner);
 
 const peak = { tree: 0, history: 0 };
@@ -180,3 +184,4 @@ log.info('step 1 fill ended', {
 closeTrace(traced);
 writeFileSync(out, `${JSON.stringify(answer, null, 2)}\n`);
 await owner.close();
+});

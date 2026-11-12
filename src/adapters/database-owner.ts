@@ -36,7 +36,7 @@ import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
 import type { SqlTransactionKind } from '../sql-driver.js';
-import { clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
+import { clusterEndpoint, clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
 
@@ -365,6 +365,8 @@ export interface DatabaseOwnerOptions {
   readonly cluster?: DatabaseClusterRef;
   /** Loads `btree_gist`, which the temporal graph's no-overlap constraints need (decision 0028). */
   readonly btreeGist?: boolean;
+  /** Attach to a prepared database without creating it or extensions. */
+  readonly connectOnly?: boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly log?: (line: string) => void;
 }
@@ -383,8 +385,9 @@ class ServerStoreOwner implements DatabaseOwner {
   constructor(
     private readonly inner: DatabaseOwner,
     private readonly release: () => Promise<void>,
+    store?: string,
   ) {
-    this.location = inner.location;
+    this.location = store === undefined ? inner.location : `${store} (${inner.location})`;
     this.ready = inner.ready;
   }
 
@@ -481,6 +484,9 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
     const legacy = legacyStoreProblem(options.store);
     if (legacy !== undefined) throw new Error(legacy);
     const paths = clusterPaths(options.store);
+    if (options.connectOnly === true && !existsSync(join(paths.dataDir, 'PG_VERSION'))) {
+      throw new Error(`src/adapters/database-owner.ts: store "${options.store}" has no prepared PostgreSQL cluster; run madarch start for this store before connecting`);
+    }
     cluster = await openCluster({ ...paths, ...(log === undefined ? {} : { log }), env });
     const opened = cluster;
     // The server is given up with the last owner of it: another process of the binary may still read it.
@@ -505,21 +511,13 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
     };
   }
   try {
-    await ensureDatabase(cluster, database);
-    if (options.btreeGist === true) {
-      try {
-        await clusterQuery(cluster, database, 'CREATE EXTENSION IF NOT EXISTS btree_gist');
-      } catch (error) {
-        // `CREATE EXTENSION IF NOT EXISTS` is not race-free: two processes opening one store at the same instant can
-        // both create it, and one of them reads the other's row as a duplicate key. The extension standing is what was
-        // asked for, so that answer is the success it is.
-        const held = await clusterQuery(cluster, database, "SELECT 1 AS held FROM pg_extension WHERE extname = 'btree_gist'");
-        if (held.length === 0) throw error;
-      }
-    }
-    const inner = await createPostgresDatabaseOwner({ host: cluster.socketDir, port: cluster.port, database, user: cluster.user, max: 8 });
+    if (options.connectOnly === true) {
+      const held = await clusterQuery(cluster, CLUSTER_ADMIN_DATABASE, 'SELECT 1 AS held FROM pg_database WHERE datname = $1', [database]);
+      if (held.length !== 1) throw new Error(`src/adapters/database-owner.ts:1: store "${options.store ?? cluster.socketDir}" has no prepared database "${database}"; run madarch start for this store before connecting`);
+    } else await ensureDatabase(cluster, database);
+    const inner = await createPostgresDatabaseOwner({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), database, user: cluster.user, max: 8 });
     await inner.ready;
-    return new ServerStoreOwner(inner, release);
+    return new ServerStoreOwner(inner, release, options.store);
   } catch (error) {
     await release().catch(() => undefined);
     throw error;

@@ -5,7 +5,7 @@
 import { mkdirSync, openSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { dlopen, FFIType } from 'bun:ffi';
-import { clusterPaths, openCluster } from '../src/adapters/postgres-cluster.js';
+import { clusterEndpoint, clusterPaths, openCluster } from '../src/adapters/postgres-cluster.js';
 import { ensurePostgresInstalled } from '../src/adapters/postgres-install.js';
 
 const [mode, store, extra, marker] = process.argv.slice(2);
@@ -15,6 +15,12 @@ if (mode === 'open-and-leave') {
   const cluster = await openCluster({ ...clusterPaths(store) });
   console.log('opened');
   await cluster.stop();
+} else if (mode === 'windows-endpoint') {
+  mkdirSync(join(store, 'pgdata'), { recursive: true });
+  writeFileSync(join(store, 'pgdata', 'postmaster.pid'), '123\nignored\n0\n15432\n');
+  writeFileSync(join(store, 'postgres.password'), 'private-test-password\n');
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  console.log(JSON.stringify(clusterEndpoint(clusterPaths(store).socketDir)));
 } else if (mode === 'hold-start') {
   const { dataDir } = clusterPaths(store);
   const lock = join(dirname(dataDir), 'pgdata.lock');

@@ -18,7 +18,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { startServer } from '../src/server/http.js';
+import { ensureDaemon, stopDaemon } from '../src/product/daemon.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
 import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 import { FINDING_CLASSES, compareToBaseline, formatBaseline, formatReport, parseBaseline, walkWiki } from './wiki-walk.js';
@@ -59,6 +60,8 @@ if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).incl
   execFileSync('git', ['remote', 'add', 'origin', ['https://github.com', 'example', 'shop.git'].join('/')], { cwd: repository });
 }
 const home = join(work, 'home');
+// This walk owns only the generated product, not the installed documentation wiki or its network refresh.
+process.env.MADARCH_OWN_WIKI = 'off';
 mkdirSync(home, { recursive: true });
 const shop = makeProduct(home, PRODUCT, repository);
 // The two pages an agent writes, so the walk reads a product a person does, with
@@ -69,22 +72,16 @@ const shop = makeProduct(home, PRODUCT, repository);
 // come back with the stage whose step publishes what they resolve against.
 const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
 if (firstFill !== undefined && firstFill.stages.includes('syntax')) writeSamplePages(shop);
-// The API answers without the app's built files; the server only needs a
-// folder it can call the app's home.
+// The walk reads JSON, not the app. Supply a minimal built dist so the normal
+// daemon lifecycle can serve without building the browser app.
 const app = join(work, 'app');
-mkdirSync(app, { recursive: true });
-writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki-walk</title>\n');
-const store = join(work, 'store');
-
-const server = await startServer({
-  productHome: home,
-  appFolder: app,
-  port: 0,
-  knowledgeRoot: store,
-  log: () => {},
-  errorLog: (line) => console.error(line),
-});
-const endpoint = `${server.url}/products/${PRODUCT}`;
+mkdirSync(join(app, 'dist'), { recursive: true });
+writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html><title>wiki-walk</title>\n');
+// Start through the same lifecycle as `madarch start`: the daemon owns schema
+// preparation and gives the API and fill processes its authenticated service.
+const daemon = await ensureDaemon({ home, appFolder: app, port: 0 });
+if (!daemon.ok) throw new Error(`wiki-walk-ci: ${daemon.message}`);
+const endpoint = `${daemon.url}/products/${PRODUCT}`;
 
 const status = async (): Promise<{ fill: { state: string; message?: string }; filled?: boolean }> => {
   const response = await fetch(`${endpoint}/api/status`);
@@ -105,6 +102,11 @@ try {
     if (Date.now() > fillDeadline) throw new Error(`${endpoint}/api/status: the fill did not finish in ${FILL_MS / 1000} s (state ${state.fill.state})`);
     await Bun.sleep(500);
   }
+  // The separate fixture author connects to the daemon-prepared graph and
+  // publishes explicit layouts; the walk itself holds no database connection.
+  const authored = Bun.spawn([process.execPath, resolve('test/ci-template-fixture.ts'), shop,
+    storeDatabasePath(productStoreFolder(shop, knowledgeRootOf(home)))], { stdout: 'inherit', stderr: 'inherit' });
+  if (await authored.exited !== 0) throw new Error('wiki-walk-ci: the native layout fixture author failed');
   console.log(`wiki-walk-ci: filled in ${((Date.now() - fillBegan) / 1000).toFixed(1)} s; walking ${languages?.join(', ') ?? 'the manifest languages'}`);
   const result = await walkWiki({
     endpoint,
@@ -137,5 +139,5 @@ try {
     process.exitCode = check.regressions.length === 0 ? 0 : 1;
   }
 } finally {
-  await server.stop();
+  if (stopDaemon({ home }) !== 0) throw new Error(`wiki-walk-ci: the daemon for ${home} could not be stopped`);
 }

@@ -5,11 +5,13 @@
  * the fill is the same fixture the fill tests use.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
-import { readTraceReport, readTraceRun, readTraceSpans, stepReportsOf, traceReportOf, type StepReport } from '../src/obs/trace-report.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { readTraceReport, readTraceRunSummary, readTraceSpans, stepReportsOf, traceReportOf, type StepReport, type TraceSpan } from '../src/obs/trace-report.js';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../src/obs/trace.js';
 import { main } from '../src/product/cli.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
@@ -63,9 +65,10 @@ describe('madarch trace', () => {
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');
-      const result = await runFill({ product, database: owner, runId: 'steps', store, workers: 2, maxPasses: 100_000 });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const result = await runFill({ product, database: owner, runId: 'steps', store, workers: 2, maxPasses: 100_000, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(result.ok).toBe(true);
-      const run = readTraceRun({ store, runId: 'steps' });
+      const run = readTraceRunSummary({ store, runId: 'steps' });
       expect(run.runId).toBe('steps');
       expect(run.report.spanCount).toBeGreaterThan(10);
       expect(run.endedAtMs - run.startedAtMs).toBeCloseTo(run.report.wallMs, 0);
@@ -134,7 +137,8 @@ describe('madarch trace', () => {
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');
-      const result = await runFill({ product, database: owner, runId: 'uncovered', store, workers: 2, maxPasses: 100_000 });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const result = await runFill({ product, database: owner, runId: 'uncovered', store, workers: 2, maxPasses: 100_000, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(result.ok).toBe(true);
       const report = readTraceReport({ store, runId: 'uncovered' });
       expect(report.spanCount).toBeGreaterThan(10);
@@ -146,4 +150,66 @@ describe('madarch trace', () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 900_000);
+});
+
+test('root coverage excludes a containing root but not separate roots', () => {
+  const span = (spanId: string, start: number, end: number) => ({ traceId: 'trace', spanId, parentSpanId: undefined, name: spanId, start, end, attributes: {}, failed: false });
+  const a = span('a', 2, 4);
+  const b = span('b', 6, 8);
+  const run = span('run', 0, 10);
+  const contained = traceReportOf([a, b, run], 'fixture.jsonl');
+  expect(contained.uncoveredMs).toBe(6);
+  expect(contained.gaps).toEqual([{ atMs: 0, ms: 2 }, { atMs: 4, ms: 2 }, { atMs: 8, ms: 2 }]);
+  const separate = traceReportOf([a, b], 'fixture.jsonl');
+  expect(separate.uncoveredMs).toBe(2);
+  expect(separate.gaps).toEqual([{ atMs: 2, ms: 2 }]);
+  expect(traceReportOf([], 'fixture.jsonl').wallMs).toBe(0);
+});
+
+
+test('one trace read gives the same report and steps as the public builders', () => {
+  const root = mkdtempSync(join(tmpdir(), 'madarch-trace-shared-'));
+  try {
+    mkdirSync(join(root, 'traces'));
+    const file = join(root, 'traces', 'shared.jsonl');
+    const span = (spanId: string, parentSpanId: string | undefined, start: number, end: number, step?: string) => ({
+      traceId: 'trace', spanId, parentSpanId, name: spanId,
+      startTimeUnixNano: start * 1_000_000, endTimeUnixNano: end * 1_000_000,
+      attributes: step === undefined ? [] : [{ key: 'madarch.step', value: { stringValue: step } }],
+    });
+    writeFileSync(file, [
+      span('run', undefined, 0, 30), span('plan', 'run', 2, 25, 'tree'),
+      span('child-a', 'plan', 3, 15), span('child-b', 'plan', 10, 20),
+      span('other', undefined, 27, 30, 'other'), span('missing-parent', 'absent', 26, 28),
+    ].map((one) => JSON.stringify(one)).join('\n'));
+    const spans = readTraceSpans(file);
+    const read = readTraceRunSummary({ store: root });
+    const { spanCount, wallMs, names, agentUsage } = traceReportOf(spans, file);
+    expect(read.report).toEqual({ spanCount, wallMs, names, agentUsage });
+    expect(read.steps).toEqual(stepReportsOf(spans));
+    expect(read.steps.find((step) => step.step === 'tree')?.slowest.find((name) => name.name === 'plan')?.selfMs).toBe(6);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test('bounded span rankings keep stable ties, missing RSS and negative growth', () => {
+  const spans: TraceSpan[] = Array.from({ length: 40 }, (_, i) => ({
+    traceId: 'trace', spanId: `${i}`, parentSpanId: undefined, name: `span-${i}`,
+    start: i, end: i + (i % 4), failed: i % 2 === 0,
+    attributes: i % 5 === 0 ? {} : { 'process.rss.start': i % 3 === 0 ? 200 : 100, 'process.rss.end': 100 + (i % 3) * 10 },
+  }));
+  const expectedMemory = spans.map((span) => {
+    const start = typeof span.attributes['process.rss.start'] === 'number' ? span.attributes['process.rss.start'] : 0;
+    const end = typeof span.attributes['process.rss.end'] === 'number' ? span.attributes['process.rss.end'] : 0;
+    return { name: span.name, spanId: span.spanId, rssStart: start, rssEnd: end, growth: end - start };
+  }).sort((left, right) => right.growth - left.growth || right.rssEnd - left.rssEnd).slice(0, 10);
+  const expectedSlowest = spans.map((span) => ({ name: span.name, spanId: span.spanId, ms: span.end - span.start }))
+    .sort((left, right) => right.ms - left.ms).slice(0, 10);
+  const report = traceReportOf(spans, 'rankings.jsonl');
+  expect(report.memory).toEqual(expectedMemory);
+  expect(report.slowest).toEqual(expectedSlowest);
+  expect(traceReportOf([], 'empty.jsonl').memory).toEqual([]);
+  expect(traceReportOf(spans.slice(0, 3), 'small.jsonl').slowest).toHaveLength(3);
 });

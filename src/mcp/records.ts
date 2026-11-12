@@ -16,6 +16,8 @@ import type { McpToolDefinition } from './types.js';
 import { GraphReader } from '../knowledge/graph-read.js';
 import { RecordGap } from '../graph/index.js';
 import { withSpan } from '../obs/trace.js';
+import { readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
+import { byCodePoint } from '../model/order.js';
 
 /** The store the tools read: the graph store's own owner, read through the graph's one read API. */
 type RecordOwner = ConstructorParameters<typeof GraphReader>[0];
@@ -70,6 +72,11 @@ const object = (properties: Record<string, unknown>, required: string[] = []): R
 
 /** The tools of this step, in the order a reader asks them. */
 export const RECORD_TOOLS: readonly McpToolDefinition[] = [
+  {
+    name: 'kinds',
+    description: 'The product entity kinds published from its validated manifest, including kinds that have never been filled, with their fields, relations and workflow dependencies. Reads only the graph.',
+    inputSchema: object({}),
+  },
   {
     name: 'list_files',
     description: `One page of the repository's files at the as-is commit, ${RECORD_FILE_LIMIT} at most, in code point order of their paths. "prefix" is a path prefix (a folder's own path and below), "language" keeps one language's files, and the previous answer's "next" goes on to the next page. Each row states the file's path, mode, blob hash, bytes, lines, text or binary form, and the language with every candidate the dataset gives it.`,
@@ -339,6 +346,24 @@ export async function callRecordTool(tool: string, argumentsValue: unknown, cont
 
 async function dispatch(tool: string, args: Record<string, unknown>, context: RecordContext): Promise<RecordToolAnswer> {
   switch (tool) {
+    case 'kinds': {
+      const { manifest, dependencies } = await context.owner.run(async (tx) => ({ manifest: await readPublishedManifest(tx), dependencies: await readPublishedDependencies(tx) }));
+      if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/kinds.yaml:1: the graph holds no published manifest`);
+      return {
+        answer: {
+          ...envelope(context, null),
+          kinds: [...manifest.kinds.values()].sort((a, b) => byCodePoint(a.name, b.name)).map((kind) => ({
+            kind: kind.name,
+            ...(kind.labels === undefined ? {} : { labels: kind.labels }),
+            fields: kind.fields ?? [],
+            dependsOn: dependencies.filter((edge) => edge.workflow === undefined && edge.to === kind.name).map((edge) => edge.from).sort(byCodePoint),
+          })),
+          relations: [...(manifest.edges?.values() ?? [])].sort((a, b) => byCodePoint(a.name, b.name)),
+          workflowDependencies: dependencies.filter((edge) => edge.workflow !== undefined),
+        },
+        isError: false,
+      };
+    }
     case 'list_files': return await listFilesAnswer(context, args);
     case 'get_file': return await getFileAnswer(context, args);
     case 'get_file_history': return await getFileHistoryAnswer(context, args);

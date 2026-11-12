@@ -195,6 +195,42 @@ jobs:
           node .shady2k/run-scratch-check.mjs snapshot "$RUNNER_TEMP/after-run.txt"
           node .shady2k/run-scratch-check.mjs compare "$RUNNER_TEMP/before-run.txt" "$RUNNER_TEMP/after-run.txt"
 
+  # Repair feedback only: this job is deliberately absent from test.needs.
+  quarantine:
+    name: quarantine
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Cache the installed PostgreSQL server
+        uses: actions/cache@v5
+        with:
+          path: ~/madarch/tools/postgresql
+          key: postgres-18.6.1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/adapters/postgres-builds.ts') }}
+      - name: Delegate a cgroup to the plugin sandbox, and allow user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          sudo mkdir -p /sys/fs/cgroup/madarch-test
+          echo '+memory +cpu +pids' | sudo tee /sys/fs/cgroup/madarch-test/cgroup.subtree_control
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/madarch-test
+      - name: Run only quarantined cases and summarize each result
+        env:
+          MADARCH_QUARANTINE: "1"
+          MADARCH_QUARANTINE_REPORT: ${{ runner.temp }}/quarantine-results.json
+        run: scripts/plugin-sandbox-cgroup.sh bun run test:quarantine
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: quarantine-results
+          path: ${{ runner.temp }}/quarantine-results.json
+          if-no-files-found: error
+
   # Keep the stable "test" status required by branch protection. always() makes
   # this run after a failed, skipped, or cancelled dependency; none can go green.
   test:

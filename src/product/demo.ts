@@ -2,7 +2,7 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readProduct } from './manifest.js';
-import { productsHome, type DraftEnv } from './draft.js';
+import { productsHome, type DraftEnv } from './home.js';
 import { ownRepository, runGit } from './git.js';
 
 /** The product repository shown by `madarch demo`; no product content ships in madarch. */

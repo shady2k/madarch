@@ -4,7 +4,7 @@
  * `nav` — because the engine and the app choose nothing by a kind's name; a kind a check does not declare has none of
  * them, and the page says so.
  */
-import type { KindDecl, KindsManifest } from '../src/knowledge/kinds.js';
+import type { KindDecl, KindsManifest } from '../src/product/manifest/kinds.js';
 
 export function fixtureManifest(declarations: Readonly<Record<string, Partial<KindDecl>>> = {}): KindsManifest {
   const kinds = new Map(Object.entries(declarations).map(([name, decl]): [string, KindDecl] => [name, {

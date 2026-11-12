@@ -5,6 +5,13 @@
  * an id only has to be unique and stable. Existing files keep their names and
  * are found by the id stored in them or by their file name.
  */
+
+/**
+ * A question id as the wiki reads it back: an old lower-case name from a file
+ * written before content hashes, or a content hash and its collision suffix.
+ */
+export const QUESTION_SLUG = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)*|[0-9a-f]{12}(?:-[0-9]+)?)$/;
+
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 
@@ -13,14 +20,7 @@ export function questionFootnoteId(claim: string, grounds: readonly string[]): s
   return shortDigest({ claim: normalize(claim), grounds: keys(grounds) });
 }
 
-export function correctionId(statement: string, reason: string, statementKey: string): string {
-  return shortDigest({ statement: normalize(statement), reason: normalize(reason), statementKey: normalize(statementKey) });
-}
 
-/** A task names its title and the keys of its scopes, in code-point order. */
-export function taskId(title: string, scopeKeys: readonly string[]): string {
-  return shortDigest({ title: normalize(title), scopes: keys(scopeKeys) });
-}
 
 /** The first 12 hex characters of the canonical content's SHA-256. */
 function shortDigest(value: unknown): string {
@@ -47,10 +47,3 @@ function normalize(text: string): string {
 function keys(values: readonly string[]): string[] {
   return [...new Set(values.map(normalize))].sort(byCodePoint);
 }
-
-
-/**
- * A question id as the wiki reads it back: an old lower-case name from a file
- * written before content hashes, or a content hash and its collision suffix.
- */
-export const QUESTION_SLUG = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)*|[0-9a-f]{12}(?:-[0-9]+)?)$/;

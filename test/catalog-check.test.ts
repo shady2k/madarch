@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-catalog.ts');
@@ -91,7 +91,7 @@ describe('the catalog check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 515 kinds (69 with a page of their own or a member\'s row)');
+    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 519 kinds (74 with a page of their own or a member\'s row)');
     expect(done.out).toContain(join('madarch', 'kinds.yaml'));
   }, 30_000);
 

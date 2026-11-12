@@ -130,7 +130,6 @@ export interface WalkResult extends WalkCounts {
   durationMs: number;
   findings: WalkFinding[];
   byClass: Record<FindingClass, number>;
-  questionsRead: number;
 }
 
 /** The committed counts the walk is held to: a class may not grow, and a class the file does not name may not appear. */
@@ -904,15 +903,9 @@ export async function walkWiki(options: WalkOptions): Promise<WalkResult> {
   for (const language of languages) {
     if (language !== 'en' && language !== 'ru') throw new Error(`${endpoint}: the interface language ${JSON.stringify(language)} is not one this walk judges; the wiki speaks en and ru`);
   }
-  const questions = await getJson<{ rows: { id: string }[] }>(fetcher, `${endpoint}/api/questions`);
   const ids = new Set<string>();
   const namespaces = new Set<string>(['madarch']);
   for (const kind of status.kinds) namespaces.add(kind.kind);
-  for (const question of questions.rows) {
-    ids.add(question.id);
-    const colon = question.id.indexOf(':');
-    if (colon > 0) namespaces.add(question.id.slice(0, colon));
-  }
 
   const catalogues: { kind: string; rows: EntityRef[] }[] = [];
   for (const summary of status.kinds) {
@@ -985,7 +978,6 @@ export async function walkWiki(options: WalkOptions): Promise<WalkResult> {
     kindLists: catalogues.length,
     rowsRead,
     durationMs: performance.now() - started,
-    questionsRead: questions.rows.length,
     findings,
     byClass,
   };
@@ -1070,7 +1062,7 @@ export function formatReport(result: WalkResult, maxFindings: number): string {
   const seconds = (result.durationMs / 1000).toFixed(1);
   const lines: string[] = [];
   lines.push(`wiki-walk: ${result.product} — the wiki is ${result.language}; read in ${result.languages.join(', ')}`);
-  lines.push(`read ${result.pages} entity pages (${result.pagesRead} renders), ${result.documentsRead} documents, ${result.kindLists} kind catalogues and ${result.rowsRead} catalogue rows, and ${result.questionsRead} questions, in ${seconds} s`);
+  lines.push(`read ${result.pages} entity pages (${result.pagesRead} renders), ${result.documentsRead} documents, ${result.kindLists} kind catalogues and ${result.rowsRead} catalogue rows, in ${seconds} s`);
   const total = result.findings.length;
   lines.push(`findings: ${total}`);
   for (const name of FINDING_CLASSES) {

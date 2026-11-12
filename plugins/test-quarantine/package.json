@@ -1,0 +1,7 @@
+{
+  "name": "madarch-plugin-test-quarantine",
+  "private": true,
+  "dependencies": {
+    "@babel/parser": "7.29.13"
+  }
+}

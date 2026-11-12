@@ -11,7 +11,7 @@
  */
 import type { EdgeContract, GraphContract, VertexContract } from '../../graph/contract.js';
 import { contractOf, generatedTableName } from '../../graph/contract.js';
-import type { KindsManifest } from '../../knowledge/kinds.js';
+import type { KindsManifest } from '../../product/manifest/kinds.js';
 
 const text = (name: string): { name: string; type: 'text' } => ({ name, type: 'text' });
 const bigint = (name: string, nullable = false): { name: string; type: 'bigint'; nullable?: boolean } => ({ name, type: 'bigint', ...(nullable ? { nullable: true } : {}) });

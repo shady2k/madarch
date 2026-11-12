@@ -19,7 +19,7 @@ import { byCodePoint } from '../model/order.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { RenderContext, Subject } from './blocks.js';
 import { idOf, locationOf, refOfGraph, refOfMarkdown, declaredNeighbors, relatesGroups } from './blocks.js';
-import { DIAGRAM_RENDERER_NAMES, kindDraws, sequenceFormOf, systemKindOf, systemKindsOf, systemPartOf, type SystemPart } from './kinds.js';
+import { DIAGRAM_RENDERER_NAMES, kindDraws, sequenceFormOf, systemKindOf, systemKindsOf, systemPartOf, type SystemPart } from '../product/manifest/kinds.js';
 import type { Block, Chain, ChainLane, ChainStep, DiagramEdge, DiagramMore, DiagramNode, EntityRef, ModuleEdge, ModuleNode, Neighborhood, StepKind, SystemEdge, SystemNode } from './model.js';
 import { FILES_MAP_AREAS, FILES_MAP_COLOURS, FILES_MAP_ENGINES, FILES_MAP_WINDOWS, readFilesMap, scopeOf, type FilesMap, type FilesMapArea, type FilesMapColour, type FilesMapEngine, type FilesMapWindow } from './files-map.js';
 import { mermaidTreemap } from './files-treemap.js';

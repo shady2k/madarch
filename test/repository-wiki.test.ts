@@ -1,3 +1,7 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { byCodePoint } from '../src/model/order.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The repository pages of the wiki (madarch-8bdc.2.5, items 2, 3 and 4): an
  * empty product, the press, the progress, the end state, and then the
@@ -18,10 +22,13 @@ import { symlinkSync } from 'node:fs';
 import { runFill } from '../src/fill/run.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
 import type { FillStepView } from '../src/knowledge/model.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { publishRepositoryTemplates } from './structured-template-fixture.js';
+import { parseDocument } from 'yaml';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -37,9 +44,19 @@ function product(name: string, write: (repository: string) => void): { folder: s
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
+  nativeWorkflow(folder);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
   return { folder, repository };
+}
+
+/** Repository views need the native tree and history, not external plugin sandboxes. */
+function nativeWorkflow(folder: string): void {
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
 }
 
 /** One page of a product, as the app reads it. */
@@ -68,7 +85,10 @@ async function press(server: StartedServer, name: string): Promise<Record<string
     const status = await json(server, name, '/api/status');
     const fill = status.body['fill'] as Record<string, unknown> | undefined;
     if (fill === undefined) throw new Error(`/api/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
-    if (fill['state'] !== 'running') return status.body;
+    if (fill['state'] !== 'running') {
+      await publishRepositoryTemplates(join(home, name), home);
+      return status.body;
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error('the fill never ended');
@@ -100,7 +120,7 @@ git(folder,'commit','-qm','the tree is written');
 git(folder,'mv','src/nested/b.ts','src/nested/c.ts');
 git(folder,'commit','-qm','the nested file moves');
 });
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty state: the manifest reads, the store holds no repository and no trace.
       const empty = await json(server, 'walk', '/api/status');
@@ -112,7 +132,7 @@ git(folder,'commit','-qm','the nested file moves');
       expect(String(noRepository.body['message'])).toContain('no such path');
 
       const ended = await press(server, 'walk');
-      expect((ended['fill'] as Record<string, unknown>)['state']).toBe('done');
+      expect((ended['fill'] as Record<string, unknown>)['state'], JSON.stringify(ended)).toBe('done');
       expect(ended['filled']).toBe(true);
       expect(ended['incomplete']).toBe(false);
       // The counts and the time: the store's own numbers, and the run's own wall clock.
@@ -125,9 +145,8 @@ git(folder,'commit','-qm','the nested file moves');
       expect(typeof run['wallMs']).toBe('number');
       expect((run['wallMs'] as number)).toBeGreaterThan(0);
       const runSteps = run['steps'] as FillStepView[];
-      // The tree, the history, and the plugin turn, which plans one unit per kind whose documents the tree
-      // published (decision 0035, items 6 and 15).
-      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns', 'repository-history', 'repository-tree', 'whole-graph-turns']);
+      // Every stage the fixture workflow enables reports its own measured work.
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['repository-history', 'repository-tree']);
       for (const step of runSteps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);
@@ -136,7 +155,7 @@ git(folder,'commit','-qm','the nested file moves');
 
       // The repository's entity page, its root listing, one folder, one file, one commit and the run.
       const repositoryPage = await pageOf(server, 'walk', 'code.repository:walk-code');
-      expect(repositoryPage.status).toBe(200);
+      expect(repositoryPage.status, JSON.stringify(repositoryPage.body)).toBe(200);
       const facts = blockOf(repositoryPage, 'repository').data as Record<string, unknown>;
       expect(facts['name']).toBe('walk-code');
       const rootModel = blockOf(repositoryPage, 'folder').data as Record<string, unknown>;
@@ -187,7 +206,7 @@ git(folder,'commit','-qm','the nested file moves');
       git(folder, 'commit', '-qm', 'two thousand files');
     });
     expect(git(repository, 'rev-list', '--count', 'HEAD')).toBe('1');
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const ended = await press(server, 'many');
       const facts = ended['repository'] as Record<string, unknown>;
@@ -218,7 +237,7 @@ git(folder,'commit','-qm','the nested file moves');
     }
   }, 300_000);
 
-  test('the product\'s documents are never read at request time: the empty store answers no layer, and a fill leaves the document kinds empty', async () => {
+  test('the product\'s documents are never read at request time: the empty store lists declarations without entities, and a fill leaves the document kinds empty', async () => {
     const { folder } = product('docs', (repository) => {
       mkdirSync(join(repository, 'src'), { recursive: true });
       writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
@@ -233,20 +252,25 @@ git(folder,'commit','-qm','the nested file moves');
       '- **Payment token** - The proof a provider returns when it captured money.', '',
     ].join('\n'));
     writeFileSync(join(folder, 'docs', 'use-cases.md'), ['# Use cases', '', '- **UC-1 Place order.** A shopper submits a cart.', ''].join('\n'));
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const empty = await json(server, 'docs', '/api/status');
       expect(empty.status).toBe(200);
       // The status carries the count, never the list (madarch-8bdc.2.5): nothing is read from the documents, so no finding is one.
       expect(empty.body['findingCount']).toBe(0);
-      // The manifest is the graph's: before the fill the graph holds none, so the wiki names no kind at all.
-      expect(empty.body['kinds']).toEqual([]);
+      // Startup publishes the declared catalogue, not document entities inferred from working-tree files.
+      const declared = readKinds(folder);
+      if (!declared.present) throw new Error(`${folder}/madarch/kinds.yaml:1: fixture kinds are absent`);
+      const expectedKinds = [...(declared.manifest.catalog?.kinds.keys() ?? declared.manifest.kinds.keys())].sort(byCodePoint);
+      const emptyKinds = empty.body['kinds'] as { kind: string; count: number }[];
+      expect(emptyKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
+      expect(emptyKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
       const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
-      // No manifest in the graph is no kind at all: the listing refuses by name rather than answering an empty list.
+      // The kind is declared, but file text alone produces no document entity.
       const useCases = await json(server, 'docs', '/api/entities?kind=doc.use-case');
-      expect(useCases.status).toBe(404);
-      expect(String(useCases.body['message'])).toContain('declares no kind "doc.use-case"');
+      expect(useCases.status).toBe(200);
+      expect(useCases.body).toMatchObject({ total: 0, rows: [] });
       // After a fill the repository's own pages stand, and no document layer is filled: no stage writes one yet.
       const ended = await press(server, 'docs');
       const fill = ended['fill'] as Record<string, unknown>;
@@ -275,22 +299,45 @@ git(folder,'commit','-qm','the nested file moves');
     git(committed, 'add', '-A');
     git(committed, 'commit', '-qm', 'the committed repository');
     const folder = makeProduct(home, 'half', committed, 'committed-code');
+    nativeWorkflow(folder);
+    // This case compares the unread-checkout finding before and after the fill. Other rule predicates are outside
+    // its scope: the product's bundled plugin files are not the source files this fixture measures.
+    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    const kinds = parseDocument(readFileSync(kindsFile, 'utf8'));
+    const unreadableRule = kinds.getIn(['problems', 'rules', 'wiki.unreadable-file']);
+    kinds.setIn(['problems', 'rules'], { 'wiki.unreadable-file': unreadableRule });
+    writeFileSync(kindsFile, kinds.toString());
     // The manifest declares the empty checkout beside the committed one.
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, `${readFileSync(manifest, 'utf8').replace(/(\n\s+- name: committed-code[\s\S]*)$/u, '$1  - name: empty-code\n    url: file:///empty-code\n')}`);
     symlinkSync(empty, join(folder, 'repos', 'empty-code'), 'dir');
     git(folder, 'add', '-A');
     git(folder, 'commit', '-qm', 'a product with one repository that holds no commit');
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       // The empty wiki answers: no 500, the repository listed, and a finding that names its path.
       const emptyStatus = await json(server, 'half', '/api/status');
       expect(emptyStatus.status).toBe(200);
       expect(JSON.stringify(emptyStatus.body['repositories'])).toContain('empty-code');
-      // Before the fill the graph holds no manifest and no listing: the unanswered pages say so, and nothing is a finding.
+      // Validated metadata makes the unread checkout visible before any fill, without reading documents.
       const before = await json(server, 'half', '/api/problems');
       expect(before.status).toBe(200);
-      expect(before.body['categories']).toEqual([]);
+      expect(before.body['categories']).toMatchObject([{ rule: 'wiki.unreadable-file', count: 1, open: 1, closed: 0 }]);
+      expect((before.body['categories'] as unknown[]).length).toBe(1);
+      const emptyPath = join(folder, 'repos', 'empty-code');
+      const problemRoute = `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptyPath)}`;
+      const beforeSources = await json(server, 'half', '/api/problems?rule=wiki.unreadable-file');
+      expect(beforeSources.status).toBe(200);
+      expect((beforeSources.body['sources'] as { key: string }[]).map((source) => source.key)).toEqual([emptyPath]);
+      const beforeItems = await json(server, 'half', problemRoute);
+      expect(beforeItems.status).toBe(200);
+      const initialProblems = beforeItems.body['problems'] as { id: string; reason: string; source?: string }[];
+      expect(initialProblems).toMatchObject([{
+        source: emptyPath,
+        reason: 'the repository "empty-code" holds no commit yet: nothing is read from it until it does',
+      }]);
+      expect(initialProblems.length).toBe(1);
+      expect(typeof initialProblems[0]!.id).toBe('string');
       // The fill reads the committed repository and says what it did for the empty one.
       const ended = await press(server, 'half');
       const fill = ended['fill'] as Record<string, unknown>;
@@ -299,14 +346,15 @@ git(folder,'commit','-qm','the nested file moves');
       // then the item itself, with the engine's words and the checkout's full path (madarch-8bdc.2.5).
       const categories = await json(server, 'half', '/api/problems');
       expect(categories.status).toBe(200);
-      const unreadable = (categories.body['categories'] as { rule: string }[]).find((category) => category.rule === 'wiki.unreadable-file');
-      expect(unreadable).toBeDefined();
+      expect((categories.body['categories'] as { rule: string }[]).filter((category) => category.rule === 'wiki.unreadable-file')).toEqual(before.body['categories'] as { rule: string }[]);
       const sources = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}`);
       expect(sources.status).toBe(200);
       const emptySource = (sources.body['sources'] as { key: string }[]).find((source) => source.key === join(folder, 'repos', 'empty-code'));
       expect(emptySource).toBeDefined();
+      expect((sources.body['sources'] as { key: string }[]).map((source) => source.key)).toEqual([emptyPath]);
       const items = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
       expect(items.status).toBe(200);
+      expect((items.body['problems'] as { id: string }[]).map((problem) => problem.id)).toEqual([initialProblems[0]!.id]);
       const item = (items.body['problems'] as { reason: string; source?: string }[]).find((problem) => problem.reason.includes('holds no commit yet'));
       expect(item).toBeDefined();
       expect(item!.reason).toContain('holds no commit yet');
@@ -337,12 +385,14 @@ git(folder,'commit','-qm','the nested file moves');
     mkdirSync(join(store, 'graph'), { recursive: true });
     const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
     try {
-      const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
+      const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
     } finally {
       await owner.close();
     }
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    await publishRepositoryTemplates(folder, home);
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const status = await json(server, 'treeonly', '/api/status');
       const repository = status.body['repository'] as Record<string, unknown>;
@@ -367,7 +417,7 @@ git(folder,'commit','-qm','the nested file moves');
       git(folder, 'commit', '-qm', 'one file');
     });
     const errors: string[] = [];
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
     try {
       await press(server, 'validated');
       await new Promise((resolve) => setTimeout(resolve, 1_000));

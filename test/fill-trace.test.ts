@@ -1,3 +1,5 @@
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * A fill that says what it is doing (madarch-8bdc.2.5, item 1): its trace is
  * written beside the store as it happens, one OTLP span per JSON line, and the
@@ -22,7 +24,8 @@ describe('a fill writes its trace beside the store', () => {
     try {
       const { product } = writeProduct(root);
       const store = join(root, 'store');
-      const result = await runFill({ product, database: owner, runId: 'run-fill-trace', store, workers: 2, maxPasses: 100_000 });
+      await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+      const result = await runFill({ product, database: owner, runId: 'run-fill-trace', store, workers: 2, maxPasses: 100_000, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.state).toBe('succeeded');

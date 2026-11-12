@@ -10,42 +10,28 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
+import { assertFillGitVersion } from '../fill/git-version.js';
+import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
+import { selfCommand } from './self-command.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { createDraft } from './draft.js';
 import { STARTER_TEMPLATES, starterTemplateIds, starterTemplateOf, templateMenuLines } from '../knowledge/starter-templates.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
-import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl, daemonIsRunning } from './daemon.js';
 import { API } from '../knowledge/addresses.js';
-import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
+import type { ResetPlan } from '../knowledge/reset.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
-import {
-  cloneLife,
-  initLife,
-  bootstrapLife,
-  remoteLife,
-  renameLife,
-  repoAddLife,
-  repoAddSource,
-  whereAmI,
-  type LifecycleOutcome,
-  type RepoConnectMode,
-} from './lifecycle.js';
+import type { LifecycleOutcome, RepoConnectMode } from './lifecycle.js';
 import { readProduct } from './manifest.js';
 import { runGit } from './git.js';
-import { runFill } from '../fill/run.js';
-import { productsHome, type DraftEnv } from './draft.js';
-import { finishKnowledgeStore, startKnowledgeFill, type FinishedKnowledgeStore } from '../knowledge/fill-run.js';
-import { readKinds } from '../knowledge/kinds.js';
-import { readFillTargets } from '../knowledge/fill-targets.js';
-import { createDatabaseOwner } from '../adapters/database-owner.js';
-import { graphKindCounts } from '../graph/index.js';
+import { productsHome, type DraftEnv } from './home.js';
+import type { FinishedKnowledgeStore } from '../knowledge/fill-run.js';
 import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
 import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
@@ -67,6 +53,7 @@ const SHORT_HELP = [
   '  clone     Clone a product',
   "  bootstrap Clone a product's code repositories",
   '  demo      Open the Madarch demo wiki',
+  '  entity    Create, show, update, delete or list authored entities',
   '  fill      Fill this product wiki from its connected code repositories',
   '  fill-stages  Run the eight deterministic stages over this product',
   '',
@@ -136,7 +123,8 @@ function commandHelp(command: string): string {
   return [`usage: ${usage}`, '', ...(flags.length ? ['Options:', ...flags] : []), '', `Example: ${usage.split(' [')[0]}`].join('\n');
 }
 
-function whereHelp(): string {
+async function whereHelp(): Promise<string> {
+  const { whereAmI } = await import('./lifecycle.js');
   const context = whereAmI({ folder: process.cwd() });
   const home = process.env.MADARCH_HOME?.trim() || '~/madarch/products';
   if (context.outcome === 'product') {
@@ -166,7 +154,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   'daemon-serve': { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
-  'knowledge-render-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
@@ -516,7 +503,8 @@ function repoVerb(words: readonly string[]): { ok: true } | { ok: false; exit: n
 }
 
 /** The clone of one line: its url word and home, or its refusal. */
-function runClone(parsed: Parsed): number {
+async function runClone(parsed: Parsed): Promise<number> {
+  const { cloneLife } = await import('./lifecycle.js');
   return report(cloneLife({ url: parsed.words[0], home: parsed.home, env: process.env }), parsed.json);
 }
 
@@ -612,9 +600,56 @@ async function askRepoMode(): Promise<RepoConnectMode> {
 }
 
 export async function main(args: readonly string[], deps: CliDeps = {}): Promise<number> {
+  if (['serve', 'daemon-serve', 'demo', 'fill', 'fill-stages'].includes(args[0] ?? '') && !args.includes('--help') && !args.includes('-h') && !args.includes('--probe-acp') && !args.includes('--role') && process.env.MADARCH_ROLE !== 'api' && process.env.MADARCH_ROLE !== 'fill' && process.env.MADARCH_STORE_OWNER_URL === undefined) {
+    // Reject unsupported flags before validation or owner activation can touch a product.
+    const parsedOwnerCommand = parse(COMMANDS[args[0]!]!, args.slice(1));
+    if (typeof parsedOwnerCommand === 'number') return parsedOwnerCommand;
+    const homeAt = args.indexOf('--home');
+    const fillHome = productHomeOf(homeAt === -1 ? args.find((arg) => arg.startsWith('--home='))?.slice('--home='.length) : args[homeAt + 1]);
+    if ((args[0] === 'fill' || args[0] === 'fill-stages') && daemonIsRunning({ home: fillHome })) {
+      return await withDaemonStorePreparation(fillHome, async () => await main(args, deps));
+    }
+    return await withStorePreparationOwner(async () => {
+      if (args[0] === 'serve' || args[0] === 'daemon-serve' || args[0] === 'demo') {
+        const named = (flag: string): string | undefined => { const at = args.indexOf(flag); return at === -1 ? args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1) : args[at + 1]; };
+        const home = productHomeOf(named('--home'));
+        const demo = args[0] === 'demo' ? prepareDemo({ ...(deps.demo ?? {}), home, env: deps.demo?.env ?? process.env }) : undefined;
+        if (demo !== undefined && !demo.ok) { console.error(demo.message); return 1; }
+        const servingArgs = demo?.ok ? ['serve', '--product', demo.folder, ...args.slice(1)] : args;
+        // The daemon API validates every product before binding. Do not repeat its expensive
+        // validation and own-wiki installation in the preparation service process.
+        if (args[0] !== 'daemon-serve') {
+          const folder = demo?.ok ? demo.folder : resolve(named('--product') ?? process.cwd());
+          const read = readProduct(folder);
+          // A manifestless folder has no graph-backed product to activate.
+          if (read.ok) {
+            const { readPinnedGraphContract } = await import('./preparation-contract.js');
+            const { validateProductManifests } = await import('../graph/manifest-publication.js');
+            const manifests = validateProductManifests(folder);
+            if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+            // Standalone serve has no daemon publisher: activate before its connect-only API role.
+            await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(dirname(folder)))), await readPinnedGraphContract(folder));
+          }
+        }
+        const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
+        const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
+        const child = Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } });
+        const stop = (): void => { child.kill('SIGTERM'); };
+        process.once('SIGTERM', stop); process.once('SIGINT', stop);
+        try { return await child.exited; }
+        finally { process.off('SIGTERM', stop); process.off('SIGINT', stop); unpublish?.(); }
+      }
+      return await main(args, deps);
+    });
+  }
+
   // The MCP server is a program of its own that happens to be reached through this command: it reads its own flags
   // (`--repo`, `--store`, `--journal`) and must start even in a folder that is no product, so it is dispatched before
   // the command table is consulted.
+  if (args[0] === 'entity') {
+    const { entityCommand } = await import('./entity-cli.js');
+    return await entityCommand(args.slice(1));
+  }
   if (args[0] === 'mcp') {
     const { mcpCommand } = await import('../mcp/cli.js');
     return await mcpCommand(args.slice(1));
@@ -631,19 +666,34 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (roleAt !== -1) {
     const role = args[roleAt + 1];
     const rest = args.filter((_, index) => index !== roleAt && index !== roleAt + 1);
-    if (role === 'fill') return await fillRoleCommand(rest);
+    if (role === 'fill') { process.env.MADARCH_ROLE = 'fill'; return await fillRoleCommand(rest); }
     if (role === 'api') {
       // The api role is every command as it stands, with this process's own role named in the environment: the server
       // reads it and starts no fill process of its own.
       process.env.MADARCH_ROLE = 'api';
-      return await main(rest, deps);
+      const parent = Number(process.env.MADARCH_API_PARENT ?? '0');
+      const watching = parent > 1 ? setInterval(() => {
+        // Reparenting detects a dead launcher even while its unreaped PID still answers signal 0.
+        if (process.ppid !== parent) { process.kill(process.pid, 'SIGTERM'); return; }
+        try { process.kill(parent, 0); } catch { process.kill(process.pid, 'SIGTERM'); }
+      }, 50) : undefined;
+      watching?.unref();
+      try {
+        const code = await main(rest, deps);
+        // A successful serve returns while its HTTP server still runs: its parent watch lives with the process.
+        if (code !== 0 && watching !== undefined) clearInterval(watching);
+        return code;
+      } catch (error) {
+        if (watching !== undefined) clearInterval(watching);
+        throw error;
+      }
     }
     console.error(`unknown role "${role ?? ''}": the roles are "api" (serves the pages and the press) and "fill" (runs the fills the press asks for)`);
     return 2;
   }
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) return versionCommand();
   if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
-    console.log(args.length === 0 ? `${whereHelp()}\n\n${SHORT_HELP}` : SHORT_HELP);
+    console.log(args.length === 0 ? `${await whereHelp()}\n\n${SHORT_HELP}` : SHORT_HELP);
     return 0;
   }
   const command = args[0]!;
@@ -683,6 +733,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command === 'daemon-serve') return await serveDaemon({ home, port: port ?? 4180 });
 /** The fill role: this process takes the fills pressed for the products of the home and runs them (madarch-8bdc.9). */
 async function fillRoleCommand(rest: readonly string[]): Promise<number> {
+  const { createDatabaseOwner } = await import('../adapters/database-owner.js');
   // Only `--home`: the fill role reads no product, serves no port and opens no page — it takes the jobs a server asked for.
   const parsed = parse({ positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } }, rest);
   if (typeof parsed === 'number') return parsed;
@@ -697,7 +748,7 @@ async function fillRoleCommand(rest: readonly string[]): Promise<number> {
     knowledgeRoot: root === undefined || root === '' ? knowledgeRootOf(home) : root,
     ...(Number.isInteger(parent) && parent > 1 ? { parentPid: parent } : {}),
     // The process that owns the binary opens the stores it works: the role itself holds no connection (decision 0033, 3).
-    openStore: async (databaseFolder) => await createDatabaseOwner({ store: databaseFolder, btreeGist: true }),
+    openStore: async (databaseFolder) => await createDatabaseOwner({ store: databaseFolder, connectOnly: true }),
   });
 }
 
@@ -706,19 +757,11 @@ function productHomeOf(named: string | undefined): string {
   return named !== undefined && named !== '' ? resolve(named) : productsHome(process.env);
 }
 
-  if (command === 'knowledge-render-worker') {
-    // The knowledge wiki's Liquid templates, rendered in a process of its own (madarch-u3vw.1): messages are lines on standard input and output.
-    const { runRenderWorker } = await import('../knowledge/render-worker.js');
-    const { standardInputLines } = await import('../knowledge/lines.js');
-    const code = await runRenderWorker({ lines: standardInputLines(), send: (message) => { process.stdout.write(`${message}\n`); } });
-    // The pipe from the server is still open for reading; the worker is over.
-    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
-    process.exit(code);
-  }
   if (command === 'fill') return await fillCommand(parsed, home);
   if (command === 'trace') return traceCommand(parsed, home);
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
+    const { initLife } = await import('./lifecycle.js');
     const choice = await templateChoice(parsed);
     const template = choice.id;
     const result = initLife({ cwd: process.cwd(), home, template });
@@ -746,13 +789,14 @@ function productHomeOf(named: string | undefined): string {
   if (command === 'repo') {
     const verb = repoVerb(parsed.words);
     if (!verb.ok) return verb.exit;
+    const { repoAddSource } = await import('./lifecycle.js');
     const source = repoAddSource({ source: parsed.source, folder: parsed.product, cwd: process.cwd() });
     let mode = parsed.mode;
     if (source !== undefined && mode === undefined) {
       if (deps.chooseRepoMode !== undefined) mode = await deps.chooseRepoMode(source);
       else if (process.stdin.isTTY && process.stdout.isTTY) mode = await askRepoMode();
     }
-    return report(lifecycleRepo(parsed, mode, source), parsed.json);
+    return report(await lifecycleRepo(parsed, mode, source), parsed.json);
   }
   if (command === 'serve') {
     return await serve(serveOptions(parsed, deps), product);
@@ -766,12 +810,15 @@ function productHomeOf(named: string | undefined): string {
   if (command === 'clone') return runClone(parsed);
 
   // The lifecycle subcommands do not serve: their own outcomes decide.
-  if (command !== 'new') return report(runWrapper(command, parsed), parsed.json);
+  if (command !== 'new') return report(await runWrapper(command, parsed), parsed.json);
 
   // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
   const choice = await templateChoice(parsed);
   const template = choice.id;
+  const { createDraft } = await import('./draft.js');
+  const draftStarted = performance.now();
   const draft = createDraft({ ...(home === undefined ? {} : { home }), template });
+  if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup draft ${(performance.now() - draftStarted).toFixed(1)} ms`);
   if (draft.outcome !== 'created') {
     console.error(draft.message);
     return draft.outcome === 'refused' ? 2 : 1;
@@ -798,6 +845,11 @@ function productHomeOf(named: string | undefined): string {
  * the database it opened before it returns, whether the run succeeded or not.
  */
 async function fillStagesCommand(parsed: Parsed, home: string | undefined): Promise<number> {
+  assertFillGitVersion();
+  const { runFill } = await import('../fill/run.js');
+  const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
+  const { createDatabaseOwner } = await import('../adapters/database-owner.js');
+  const { graphKindCounts } = await import('../graph/index.js');
   const folder = resolve(parsed.product ?? process.cwd());
   const resolvedHome = resolve(productsHome(process.env as DraftEnv, home));
   // The one store of this product, resolved by the function the button, `madarch fill`, the daemon and
@@ -816,8 +868,10 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
   await mkdir(dirname(databasePath), { recursive: true });
+  const { readPinnedGraphContract } = await import('./preparation-contract.js');
   const workers = parsed.workers ?? 16;
-  const owner = await createDatabaseOwner({ store: databasePath, btreeGist: true });
+  await requestStorePreparation(databasePath, await readPinnedGraphContract(folder));
+  const owner = await createDatabaseOwner({ store: databasePath, connectOnly: true });
   let service: FillOrchestratorService | undefined;
   let exit = 0;
   try {
@@ -833,6 +887,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
     // the whole one list in the order the stages' declarations derive.
     const result = await runFill({
       product: folder, database: owner, runId, home: storeFolder, store: storeFolder,
+      prepareContract: async (contract) => await requestStorePreparation(databasePath, contract),
       limits: { maxInFlight: workers }, workers, maxPasses: 100_000,
       ...(parsed.steps === undefined ? {} : { steps: parsed.steps }),
       onService: (started) => { service = started; },
@@ -928,6 +983,8 @@ function reportFillStages(product: { readonly name: string; readonly folder: str
  * later stage's. `--probe-acp` reports the agents this machine speaks to, and fills nothing.
  */
 async function fillCommand(parsed: Parsed, home: string | undefined): Promise<number> {
+  const { startKnowledgeFill } = await import('../knowledge/fill-run.js');
+  const { createDatabaseOwner } = await import('../adapters/database-owner.js');
   const probe = parsed.probe;
   const json = parsed.json === true;
   // A probe reports what this machine can connect and fills nothing: an agent named beside it has nothing to drive.
@@ -957,6 +1014,9 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   // A selective fill (madarch-stm0.6, decision 0035 items 11 and 31): the entities the person named, the kinds they need
   // and the kinds that need them, in the dependency order the manifest declares. The command names what the request
   // added before the run starts, so a press that fills more than it was asked for says so.
+  const { readKinds } = await import('./manifest/kinds.js');
+  const { readFillTargets } = await import('../knowledge/fill-targets.js');
+  const { readPinnedGraphContract } = await import('./preparation-contract.js');
   let targets: { kinds: readonly string[]; vertex?: string } | undefined;
   if (parsed.entities !== undefined || parsed.vertex !== undefined) {
     const kinds = readKinds(folder);
@@ -974,7 +1034,9 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   }
   let run;
   try {
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    assertFillGitVersion();
+    await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder));
+    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;
@@ -1030,7 +1092,9 @@ function nextSteps(folder: string, init: boolean): void {
  * JSON line is printed.
  */
 async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>): Promise<number> {
+  const daemonStarted = performance.now();
   const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
+  if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup ensureDaemon ${(performance.now() - daemonStarted).toFixed(1)} ms`);
   if (!started.ok) { console.error(started.message); return 1; }
   const name = encodeURIComponent(basename(folder));
   const url = `${started.url}/products/${name}/`;
@@ -1089,7 +1153,8 @@ function serveOptions(parsed: Parsed, deps: CliDeps = {}): ServeOptions {
 }
 
 /** The wrapper work of the lifecycle subcommands (rename, remote, repo, bootstrap), chose by the word. */
-function runWrapper(command: string, parsed: Parsed): LifecycleOutcome {
+async function runWrapper(command: string, parsed: Parsed): Promise<LifecycleOutcome> {
+  const { renameLife, remoteLife, bootstrapLife } = await import('./lifecycle.js');
   if (command === 'rename') return renameLife({ name: parsed.words[0], folder: parsed.product, cwd: process.cwd() });
   if (command === 'remote') {
     return remoteLife({ url: parsed.words[0], folder: parsed.product, cwd: process.cwd() });
@@ -1099,7 +1164,8 @@ function runWrapper(command: string, parsed: Parsed): LifecycleOutcome {
 }
 
 /** The repo subcommand's work: the verb is decided first, whole and named. */
-function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined = parsed.mode, source?: string): LifecycleOutcome {
+async function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined = parsed.mode, source?: string): Promise<LifecycleOutcome> {
+  const { repoAddLife } = await import('./lifecycle.js');
   const outcome = repoAddLife({
     name: parsed.words[1],
     url: parsed.words[2],
@@ -1149,8 +1215,13 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
       plan = (await answer.json()) as ResetPlan;
     } else {
-      const knowledge = knowledgeRootOf(root);
-      plan = planReset(folder, productStoreFolder(folder, knowledge), knowledge);
+      const { KnowledgeProduct } = await import('../knowledge/product.js');
+      const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(root) });
+      try {
+        plan = await product.resetPlan();
+      } finally {
+        await product.close();
+      }
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -1171,6 +1242,7 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
       if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
     } else {
+      const { applyReset } = await import('../knowledge/reset.js');
       applyReset(folder, plan);
     }
   } catch (error) {

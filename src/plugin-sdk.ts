@@ -28,10 +28,12 @@ export const PROTOCOL_VERSION = 'madarch.plugins/2';
 /** One graph read a plugin may declare. */
 export type GraphReadName = 'files' | 'value' | 'unresolved' | 'removedEnds' | 'unevidenced';
 
+export type KeyValues = Readonly<Record<string, string | number | EntityRef>>;
+
 /** One entity named by its kind and key values. */
 export interface EntityRef {
   readonly kind: string;
-  readonly key: Readonly<Record<string, string | number>>;
+  readonly key: KeyValues;
 }
 
 /** Where one value was read. */
@@ -46,7 +48,7 @@ export interface Evidence {
 /** One vertex a unit produced: its key, and the field values of one opinion with the evidence it stands on. */
 export interface VertexResult {
   readonly kind: string;
-  readonly key: Readonly<Record<string, string | number>>;
+  readonly key: KeyValues;
   readonly values?: Readonly<Record<string, unknown>>;
   readonly evidence?: Evidence;
 }
@@ -76,20 +78,20 @@ export interface UnitResult {
 export interface Unit {
   readonly unitId: string;
   readonly kind: string;
-  readonly key: Readonly<Record<string, string | number>>;
+  readonly key: KeyValues;
   readonly inputs?: unknown;
 }
 
 /** One vertex the host answers a graph query with: its kind and key values. */
 export interface GraphVertex {
   readonly kind: string;
-  readonly key: Readonly<Record<string, string | number>>;
+  readonly key: KeyValues;
 }
 
 /** One entity a host answer names: its kind, its key and a label a person reads. */
 export interface GraphAddress {
   readonly kind: string;
-  readonly key: Readonly<Record<string, string | number>>;
+  readonly key: KeyValues;
   readonly label: string;
 }
 
@@ -145,7 +147,7 @@ export interface GraphReads {
   /** The file vertices whose path matches the pattern (a glossary document in any folder, say), in code point order. */
   files(pattern: string): Promise<GraphVertex[]>;
   /** One field of one vertex: a file's content, as the files producer stored it, never a folder of the product. */
-  value<T = unknown>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T>;
+  value<T = unknown>(kind: string, key: KeyValues, field: string): Promise<T>;
   /** One page of the references the writer recorded and no vertex holds. */
   unresolved(query?: GraphPageQuery): Promise<GraphPage<GraphUnresolvedReference>>;
   /** One page of the edges one of whose ends is removed. */
@@ -164,6 +166,8 @@ export interface ExtractContext {
   progress(done: number, total?: number, note?: string): void;
   /** The graph the plugin asked the host for; a query of a plugin that declared no `graph` right is refused. */
   readonly graph: GraphReads;
+  /** Runs the manifest's agent part through the host; adapters and credentials stay with the host. */
+  agent(task?: unknown): Promise<UnitResult>;
 }
 
 /** One field of a declared kind (decision 0035, item 18): its type, meaning, an example and whether it is required. */
@@ -330,6 +334,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       try {
         const result = await definition.extract(unit, {
           signal: controller.signal,
+          agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
           graph: {

@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-repo-'));
 const HOME = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-start-home-'));
@@ -45,7 +46,7 @@ afterAll(() => {
 });
 
 describe('a served checkout', () => {
-  test('opens and answers the store the one fill published, naming the step of a tool it does not reach', async () => {
+  test('opens and answers the store the one fill published, naming the step of a tool it does not reach', async () => await withStorePreparationOwner(async () => {
     const session = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
     try {
       // The five tools of this step answer from the record store: the fill's own tree at the checkout's HEAD.
@@ -61,6 +62,6 @@ describe('a served checkout', () => {
     } finally {
       await session.close();
     }
-  }, 300_000);
+  }), 300_000);
 
   });

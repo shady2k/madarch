@@ -21,6 +21,7 @@ import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { prepareTestProduct } from './prepared-server.js';
 
 const PROJECT = join(import.meta.dir, '..');
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-one-store-'));
@@ -88,6 +89,7 @@ describe('the one store of one product', () => {
   }, 60_000);
 
   test('the wiki reads the store the command filled, and its pins are the run\'s', async () => {
+    const closePreparation = await prepareTestProduct(product, PRODUCTS_HOME);
     const wiki = new KnowledgeProduct({ productFolder: product, storeRoot: knowledgeRootOf(PRODUCTS_HOME) });
     try {
       expect((await wiki.settingsView()).store).toBe(store);
@@ -102,6 +104,7 @@ describe('the one store of one product', () => {
       }
     } finally {
       await wiki.close();
+      await closePreparation();
     }
   }, 300_000);
 });

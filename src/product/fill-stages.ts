@@ -65,35 +65,37 @@
  * anywhere yet.
  */
 import { execFileSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
-import type { FillStageConfigurationRead } from '../fill/config.js';
-import { parseFillStageConfiguration } from '../fill/config.js';
+import type { FillStageConfigurationRead } from './manifest/fill-config.js';
+import { readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
 import { createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
 import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
 import type { DeclaredKinds } from '../graph/records.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
-import { PLUGINS_LOCK_FILE, parsePluginLock } from '../plugin/lock.js';
+import type { PluginAgentOptions } from '../plugin/agent.js';
 import { publishGraphWrites } from '../graph/claims.js';
-import { KINDS_FILE, readKindsFrom } from '../knowledge/kinds.js';
-import { snapshotFiles } from '../knowledge/product-files.js';
 import type { FillProduct, ProductFillWiring } from '../fill/orchestrator-host.js';
 import type { UnitRef } from '../fill/orchestrator.js';
 import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
-import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
+import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../plugin/repository-snapshot.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { stageSettled } from '../fill/state-store.js';
 import { PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
-import { MANIFEST_FILE, type ProductIdentity } from './manifest.js';
+import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
+import type { AgentRunBudget } from '../fill/agent-meter.js';
+import type { ProductIdentity } from './manifest.js';
 import { fillFolderIdentity, productRepositoryId } from './identity.js';
 import { headCommitOf } from './fill-updates.js';
 import { raise } from '../model/raise.js';
-import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type FirstFillRead } from '../knowledge/workflows.js';
+import { validateProductManifests, publishValidatedManifests } from '../graph/manifest-publication.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
+import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type FirstFillRead } from './manifest/workflows.js';
 
 /**
  * The process's one connection as this wiring names it: the type the graph store
@@ -106,6 +108,8 @@ type FillDatabase = Parameters<typeof createRecordSchema>[0];
 
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
+  /** The owning process prepares the exact pinned contract before any fill client attaches. */
+  readonly prepareContract?: (contract: import('../graph/contract.js').GraphContract) => Promise<void>;
   /** The product's folder: its manifest, the product repository, and its `repos/`. */
   readonly product: string;
   /**
@@ -124,6 +128,15 @@ export interface StagesFillOptions {
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
   /** The plugin closures this fill trusts beside the release's. */
   readonly releaseHashes?: readonly string[];
+  /** The supervised ACP adapter available to this run's agent plugin turns. */
+  readonly pluginAgent?: PluginAgentOptions;
+  /**
+   * The run's id, which a run's trace and its metered agent spend are named by (madarch-stm0.4). Left out, the run has
+   * no id yet and no spend of its own to record: a caller that drives the stages without `runFill` names none.
+   */
+  readonly runId?: string;
+  /** The budget explicitly supplied for this run, never a saved catalogue selection. */
+  readonly budget?: AgentRunBudget;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -160,6 +173,17 @@ function declaredStagesDigest(registry: StageRegistry): string {
  * manifest does not read is refused before a database is touched; the pins
  * themselves are read when a run plans (`snapshot`, see the module doc).
  */
+/** Resolve the graph contract from the same pinned Git tree a fill reads, before clients start. */
+export async function readPinnedGraphContract(product: string): Promise<import('../graph/contract.js').GraphContract> {
+  const folder = resolve(product);
+  const read = fillFolderIdentity(folder);
+  const pins = pinsOf(read.identity, read.product).pins;
+  const snapshots = createGitSnapshotSource(() => pins);
+  const own = await snapshots.open(productRepositoryId(read.identity));
+  const { kindsRead: kinds } = await readFillManifests(own, folder);
+  return kinds.present ? graphContractOf(kinds.manifest) : GIT_CONTRACT;
+}
+
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
   const folder = resolve(options.product);
   const read = await withSpan('fill.identity', { 'madarch.product': folder }, async () => fillFolderIdentity(folder));
@@ -186,23 +210,37 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // the working tree beside it, so the graph and the run agree byte for byte (madarch-hsqs stage C).
   const { files, kindsRead, lockRead } = await withSpan('fill.product-files', { 'madarch.product': identity.name }, async () => {
     const own = await snapshots.open(productRepositoryId(identity));
-    const files = await snapshotFiles(own);
-    await files.ensure([MANIFEST_FILE, KINDS_FILE, WORKFLOWS_FILE, PLUGINS_LOCK_FILE, ...files.paths().filter((path) => path.endsWith('/contract.json'))]);
-    return {
-      files,
-      kindsRead: readKindsFrom(files, folder),
-      // The plugin lock (decision 0035, item 20): what a fill runs, by exact version and closure hash.
-      lockRead: parsePluginLock(files.has(PLUGINS_LOCK_FILE) ? files.text(PLUGINS_LOCK_FILE) : undefined),
-    };
+    return readFillManifests(own, folder);
   });
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
+  // Each plugin declares its own bounds; a caller may supply a budget for this run.
+  const budget = options.budget;
+  const declaredBounds = [...(kindsRead.present ? kindsRead.manifest.plugins?.values() ?? [] : [])].filter((plugin) => plugin.bounds !== undefined).sort((left, right) => byCodePoint(left.id, right.id));
+  if (options.runId !== undefined) {
+    await withSpan('agent.bounds', {
+      'agent.run': options.runId,
+      ...Object.fromEntries(declaredBounds.flatMap((plugin) => [
+        ...(plugin.bounds?.tokens === undefined ? [] : [[`agent.plugin.${plugin.id}.tokens`, plugin.bounds.tokens] as const]),
+        ...(plugin.bounds?.cost === undefined ? [] : [[`agent.plugin.${plugin.id}.cost`, plugin.bounds.cost.amount] as const, [`agent.plugin.${plugin.id}.currency`, plugin.bounds.cost.currency] as const]),
+      ])),
+    }, async () => undefined);
+  }
+  const agentUsage = options.runId === undefined ? undefined : {
+    run: options.runId,
+    ...(budget === undefined ? {} : { budget }),
+    save: async (rows: readonly AgentUsageRecord[]) => await recordAgentUsage(options.database, rows),
+  };
   // A folder that is no product — a bare checkout `madarch mcp` serves — reads the code kinds the engine's own
   // starter set binds; a product with a manifest takes only the capabilities its kinds bind (decision 0034, item 14).
   const contract = kindsRead.present ? graphContractOf(kindsRead.manifest) : GIT_CONTRACT;
   // The code entities this run may publish, by graph kind: only the manifest's own, whatever the git reader can fill.
   // The tree stores the product repository's files as mechanism state even when the run publishes no entity.
   const kinds = contract.vertex.length === 0 && contract.edge.length === 0 ? false : { vertex: contract.vertex.map((kind) => kind.name), edge: contract.edge.map((kind) => kind.name) };
+  const metadata = read.product ? validateProductManifests(folder, files, pins().find((one) => one.id === productRepositoryId(identity))?.commit) : undefined;
+  if (metadata !== undefined && !metadata.ok) throw new Error(metadata.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
+  if (options.prepareContract !== undefined) await options.prepareContract(withManifestContract(contract));
   await createRecordSchema(options.database, contract);
+  if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value);
   const records = options.records ?? {
     publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
     publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
@@ -217,7 +255,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), wholeGraphReady: async () => await stageSettled(options.database, identity.name, PLUGIN_TURN_STAGE_ID), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
@@ -229,7 +267,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const workflow = files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages();
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
-    configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, parseFillStageConfiguration(files.has(MANIFEST_FILE) ? files.text(MANIFEST_FILE) : undefined, join(folder, MANIFEST_FILE)), registry),
+    configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, fillStageConfigurationFrom(files, folder), registry),
     // This step's two record passes read git and publish through the record store; they ask no graph.
     // The reader is handed to every stage's plan, and a read through it is refused by name.
     graph: () => ({

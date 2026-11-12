@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES, GROUPS } from '../src/knowledge/seed.js';
 import { starterKinds, starterManifestText } from './knowledge-fixture.js';
 import { CATALOG_KINDS } from '../src/knowledge/starter-catalog.js';

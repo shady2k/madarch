@@ -1,3 +1,10 @@
+import { Breadcrumb } from '@/components/ui/breadcrumb.js';
+import { DrawingSurface } from '@/components/ui/drawing.js';
+import { ColourSwatch } from '@/components/ui/drawing.js';
+import { SegmentedChoice } from '@/components/ui/segmented-choice.js';
+import { Figure, FigureCaption } from '@/components/ui/figure.js';
+import { Button } from '@/components/ui/button.js';
+import { Paragraph, PlainList, Stack, Text } from '@/components/ui/typography.js';
 /**
  * The repository map and the file table of a repository's or a folder's page
  * (madarch-j9ao.1): a drillable treemap whose area follows the lines or the bytes
@@ -70,37 +77,6 @@ function dateText(value: string | null, language: string): string {
   const at = Date.parse(value);
   if (!Number.isFinite(at)) return value.slice(0, 10);
   return new Date(at).toLocaleDateString(language, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-/** One group of the map's controls: its label and a segmented choice, never breaking inside the group. */
-function Segmented({ label, testId, value, options, onChange }: {
-  label: string;
-  testId: string;
-  value: string;
-  options: readonly { value: string; label: string; testId: string }[];
-  onChange: (value: string) => void;
-}): ReactElement {
-  return (
-    <div className="dg-seg" data-testid={testId}>
-      <span className="dg-seg-label">{label}</span>
-      <div className="dg-seg-options" role="radiogroup" aria-label={label}>
-        {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={value === option.value}
-            className="dg-seg-option"
-            data-state={value === option.value ? 'on' : 'off'}
-            onClick={() => onChange(option.value)}
-            data-testid={option.testId}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /** The folders a reader climbed from the page's own root: the breadcrumb's segments, never the root itself. */
@@ -230,33 +206,33 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
     const segments = crumbSegments(root, folder);
     const climb = (count: number): void => setFolder(count === 0 ? root : `${root}/${segments.slice(0, count).join('/')}`);
     return (
-      <nav className="dg-crumbs" aria-label={t('knowledge.files.breadcrumb')} data-testid="files-breadcrumb">
-        <button type="button" className="dg-crumb" data-current={segments.length === 0 ? 'true' : 'false'} onClick={() => climb(0)} data-testid="files-crumb-root">
+      <Breadcrumb className="dg-crumbs" aria-label={t('knowledge.files.breadcrumb')} data-testid="files-breadcrumb">
+        <Button variant="ghost" size="content" type="button" className="dg-crumb" data-current={segments.length === 0 ? 'true' : 'false'} onClick={() => climb(0)} data-testid="files-crumb-root">
           {root === '' ? block.data.repository : root.slice(root.lastIndexOf('/') + 1)}
-        </button>
+        </Button>
         {segments.map((segment, index) => (
-          <span key={`${segment}-${String(index)}`} className="dg-crumb-part">
-            <span aria-hidden="true" className="dg-crumb-sep">/</span>
-            <button type="button" className="dg-crumb" data-current={index === segments.length - 1 ? 'true' : 'false'} onClick={() => climb(index + 1)} data-testid="files-crumb">
+          <Text key={`${segment}-${String(index)}`} className="dg-crumb-part">
+            <Text aria-hidden="true" className="dg-crumb-sep">/</Text>
+            <Button variant="ghost" size="content" type="button" className="dg-crumb" data-current={index === segments.length - 1 ? 'true' : 'false'} onClick={() => climb(index + 1)} data-testid="files-crumb">
               {segment}
-            </button>
-          </span>
+            </Button>
+          </Text>
         ))}
-      </nav>
+      </Breadcrumb>
     );
   };
 
   const legend = (): ReactElement => {
     if (colour === 'language') {
       return (
-        <ul className="dg-legend-list" data-testid="files-legend" data-measure="language">
+        <PlainList className="dg-legend-list" data-testid="files-legend" data-measure="language">
           {colours.map((entry) => (
             <li key={entry.name} data-testid="files-legend-entry">
-              <span className="dg-swatch" style={{ background: entry.color }} aria-hidden="true" />
+              <ColourSwatch className="dg-swatch" background={entry.color} aria-hidden="true" />
               {entry.name}
             </li>
           ))}
-        </ul>
+        </PlainList>
       );
     }
     // The legend follows the measure the reader chose: the ends of the ramp are that measure's own numbers, and the
@@ -267,12 +243,12 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
     const from = colour === 'heat' ? t('knowledge.files.commitsN', { count: 0 }) : colour === 'age' ? t('knowledge.files.today') : t('knowledge.files.authorsN', { count: 1 });
     const to = colour === 'heat' ? t('knowledge.files.commitsN', { count: rawMax }) : colour === 'age' ? t('knowledge.files.daysN', { count: rawMax }) : t('knowledge.files.authorsN', { count: Math.max(1, maxAuthors) });
     return (
-      <div className="dg-legend-ramp" data-testid="files-legend" data-measure={colour}>
-        <span className="dg-legend-caption">{caption}</span>
-        <span>{from}</span>
-        <span className="dg-ramp-wide" style={{ background: rampStyle(ramp) }} aria-hidden="true" />
-        <span>{to}</span>
-      </div>
+      <Stack className="dg-legend-ramp" data-testid="files-legend" data-measure={colour}>
+        <Text className="dg-legend-caption">{caption}</Text>
+        <Text>{from}</Text>
+        <ColourSwatch className="dg-ramp-wide" background={rampStyle(ramp)} aria-hidden="true" />
+        <Text>{to}</Text>
+      </Stack>
     );
   };
 
@@ -286,11 +262,11 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
   return (
     <section data-block="files-map" data-diagram="treemap" aria-label={block.title}>
       <h2>{block.title}</h2>
-      <p className="dg-totals" data-testid="files-totals">
+      <Paragraph className="dg-totals" data-testid="files-totals">
         {t('knowledge.files.totals', { count: block.data.totals.languages.length, files: countText(block.data.totals.files), lines: linesText(block.data.totals.lines) })}
-      </p>
-      <div className="dg-files-controls" data-testid="files-switches">
-        <Segmented
+      </Paragraph>
+      <Stack className="dg-files-controls" data-testid="files-switches">
+        <SegmentedChoice
           label={t('knowledge.files.area')}
           testId="files-area"
           value={area}
@@ -300,7 +276,7 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
             { value: 'bytes', label: t('knowledge.files.bytes'), testId: 'files-area-bytes' },
           ]}
         />
-        <Segmented
+        <SegmentedChoice
           label={t('knowledge.files.colour')}
           testId="files-colour"
           value={colour}
@@ -308,7 +284,7 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
           options={COLOURS.map((one) => ({ value: one, label: t(`knowledge.files.colour_${one}`), testId: `files-colour-${one}` }))}
         />
         {colour === 'heat' && (
-          <Segmented
+          <SegmentedChoice
             label={t('knowledge.files.windowLabel')}
             testId="files-window"
             value={window}
@@ -316,7 +292,7 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
             options={WINDOWS.map((one) => ({ value: one, label: t(`knowledge.files.window.${one}`), testId: `files-window-${one}` }))}
           />
         )}
-        <Segmented
+        <SegmentedChoice
           label={t('knowledge.files.engine')}
           testId="files-engine"
           value={engine}
@@ -326,16 +302,16 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
             { value: 'mermaid', label: 'Mermaid', testId: 'files-engine-mermaid' },
           ]}
         />
-      </div>
+      </Stack>
       {breadcrumb()}
-      <figure className="m-0">
-        <div ref={holder} className="dg-treemap" data-testid="files-map">
+      <Figure className="m-0">
+        <DrawingSurface ref={holder} className="dg-treemap" data-testid="files-map">
           {engine === 'mermaid'
-            ? <div className="dg-static"><MermaidDiagram source={picture.source} title={block.title} place={block.title} />
-                {picture.omitted > 0 && <p className="text-small text-muted" data-testid="files-static-cut">{t('knowledge.files.staticCut', { count: picture.omitted, drawn: picture.drawn, omitted: picture.omitted })}</p>}
-              </div>
+            ? <Stack className="dg-static"><MermaidDiagram source={picture.source} title={block.title} place={block.title} />
+                {picture.omitted > 0 && <Paragraph className="text-small text-muted" data-testid="files-static-cut">{t('knowledge.files.staticCut', { count: picture.omitted, drawn: picture.drawn, omitted: picture.omitted })}</Paragraph>}
+              </Stack>
             : width > 0 && (
-              <Suspense fallback={<p role="status" className="p-3">{t('knowledge.diagram.drawing')}</p>}>
+              <Suspense fallback={<Paragraph role="status" className="p-3">{t('knowledge.diagram.drawing')}</Paragraph>}>
                 <EChartsTreemap
                   cells={cells}
                   dark={dark}
@@ -345,15 +321,15 @@ function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
                   onDrill={setFolder}
                   onOpen={open}
                 />
-                {cells.length === 0 && <p className="p-3 text-small text-muted" data-testid="files-map-empty">{t('knowledge.files.emptyMap')}</p>}
+                {cells.length === 0 && <Paragraph className="p-3 text-small text-muted" data-testid="files-map-empty">{t('knowledge.files.emptyMap')}</Paragraph>}
               </Suspense>
             )}
-        </div>
-        <figcaption className="dg-legend" data-testid="files-legend-caption">
+        </DrawingSurface>
+        <FigureCaption className="dg-legend" data-testid="files-legend-caption">
           {legend()}
-          {block.notes.map((note) => <span key={note} className="dg-note">{note}</span>)}
-        </figcaption>
-      </figure>
+          {block.notes.map((note) => <Text key={note} className="dg-note">{note}</Text>)}
+        </FigureCaption>
+      </Figure>
     </section>
   );
 }

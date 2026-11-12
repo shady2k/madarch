@@ -16,7 +16,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { PAY, SAMPLE_IDENTITY, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
@@ -55,6 +56,7 @@ async function refresh(product: string): Promise<any> {
 }
 
 beforeAll(async () => {
+  if (skippedSuite !== undefined) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-knowledge-sync-'));
   const repository = generateTrainingRepository(join(work, 'training'));
   const home = join(work, 'home');
@@ -81,11 +83,12 @@ Checkout asks the payment service to take the card's amount.[^1]
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   await fetch(`${server.url}/products/shop/api/status`);
 }, 120_000);
 
 afterAll(async () => {
+  if (skippedSuite !== undefined) return;
   await server.stop();
   rmSync(work, { recursive: true, force: true });
 }, 60_000);

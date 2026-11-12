@@ -12,7 +12,7 @@
  */
 import { kindAddress } from './addresses.js';
 import type { GraphEntity } from './graph-read.js';
-import { HISTORY_SHAPES, type HistoryShape } from './kinds.js';
+import { HISTORY_SHAPES, type HistoryShape } from '../product/manifest/kinds.js';
 import { GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';

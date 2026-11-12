@@ -1,3 +1,18 @@
+import { requestStorePreparation } from '../src/product/store-preparation.js';
+import { repositoryStoreFolder } from '../src/mcp/graph.js';
+import { storeDatabasePath } from '../src/product/store.js';
+import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
+import { withStorePreparationOwner } from '../src/adapters/store-preparation-owner.js';
+
+let releasePreparationOwner!: () => void;
+let preparationOwner: Promise<void>;
+async function openPreparationOwner(): Promise<void> {
+  let opened!: () => void;
+  const ready = new Promise<void>((resolve) => { opened = resolve; });
+  const closed = new Promise<void>((resolve) => { releasePreparationOwner = resolve; });
+  preparationOwner = withStorePreparationOwner(async () => { opened(); await closed; });
+  await ready;
+}
 /**
  * The five tools of this step (madarch-8bdc.2.5, item 1), served over the
  * normal form: a checkout filled by the one fill, read only from the record
@@ -44,6 +59,7 @@ let third = '';
 let session: RepositorySession;
 
 beforeAll(async () => {
+  await openPreparationOwner();
   git(REPOSITORY, 'init', '-q', '-b', 'main');
   put('README.md', '# Sample kit\n\nA fixture.\n');
   put('src/a.ts', 'export const a = 1;\n');
@@ -62,11 +78,13 @@ beforeAll(async () => {
   git(REPOSITORY, 'add', '-A');
   git(REPOSITORY, 'commit', '-qm', 'the nested file and one export grow');
   third = git(REPOSITORY, 'rev-parse', 'HEAD');
+  await requestStorePreparation(storeDatabasePath(repositoryStoreFolder(REPOSITORY, { MADARCH_HOME: HOME })), GIT_CONTRACT);
   session = await RepositorySession.open({ repository: REPOSITORY, env: { ...process.env, MADARCH_HOME: HOME } });
 
   // A shallow clone of the same commits: its history pass records the gap a reader must see stated.
   const clone = path.join(SHALLOW, 'kit');
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${REPOSITORY}`, clone], { env: COMMIT_ENV });
+  await requestStorePreparation(storeDatabasePath(repositoryStoreFolder(clone, { MADARCH_HOME: SHALLOW_HOME })), GIT_CONTRACT);
   shallow = await RepositorySession.open({ repository: clone, env: { ...process.env, MADARCH_HOME: SHALLOW_HOME } });
 }, 120_000);
 
@@ -75,6 +93,8 @@ let shallow: RepositorySession;
 afterAll(async () => {
   await session?.close();
   await shallow?.close();
+  releasePreparationOwner();
+  await preparationOwner;
   for (const folder of [REPOSITORY, HOME, SHALLOW_HOME, SHALLOW]) rmSync(folder, { recursive: true, force: true });
 });
 
@@ -126,10 +146,14 @@ describe('the tools this step serves', () => {
     const { isError, answer } = await call('get_file', { path: 'src/a.ts' });
     expect(isError).toBe(false);
     expect(answer).toMatchObject({
-      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'TypeScript',
+      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: null,
       commitCount: 2, authors: ['Ada Example'],
     });
-    expect(answer['candidates']).toEqual(['TypeScript']);
+    // Step 1 states the dataset's ambiguity; a later producer may publish a resolved language opinion.
+    expect(answer['candidates']).toEqual(['TypeScript', 'XML']);
+    expect(answer['blob']).toBe(git(REPOSITORY, 'rev-parse', `${third}:src/a.ts`));
+    expect(answer['historyShallow']).toBe(false);
+    expect(sourceOf(answer)).toMatchObject({ repository: REPOSITORY, commit: third, branch: 'main', changed: [], dirty: [] });
     expect((answer['created'] as Record<string, unknown>)['commit']).toBe(first);
     expect((answer['modified'] as Record<string, unknown>)['commit']).toBe(third);
     expect((answer['created'] as Record<string, unknown>)['author']).toBe('Ada Example');

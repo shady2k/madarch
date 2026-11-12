@@ -8,16 +8,14 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphReader } from '../knowledge/graph-read.js';
-import type { Finding } from '../knowledge/kinds.js';
+import type { Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from '../knowledge/resolve.js';
-import { readQuestionsIn } from '../loop/entities.js';
-import type { ProductFileSource } from '../knowledge/product-files.js';
-import type { KindsManifest } from '../knowledge/kinds.js';
+import type { ProductFileSource } from '../plugin/product-files.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 import type { Problem, ProblemInput } from '../loop/views.js';
 import { listProblems } from '../loop/views.js';
 import type { Unplaced } from '../loop/plan.js';
 import { readCodeSnapshot, evaluateCode } from './code.js';
-import { evaluateDocuments } from './documents.js';
 import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } from './types.js';
 import { unimplementedRuleNotes } from './rules.js';
 import { entityAddress } from '../knowledge/addresses.js';
@@ -25,7 +23,7 @@ import { entityAddress } from '../knowledge/addresses.js';
 export interface CollectInput {
   readonly productFolder: string;
   readonly owner: DatabaseOwner;
-  /** The product repository's own files as the graph holds them, and the manifest they declare: the questions are read here. */
+  /** The product repository's own files as the graph holds them, and the manifest they declare. */
   readonly files: ProductFileSource;
   readonly manifest: KindsManifest;
   readonly graph: GraphReader;
@@ -42,7 +40,7 @@ export interface CollectInput {
 /** One draft as the page's row, with its stable id. */
 function problemOf(draft: ProblemDraft): Problem {
   return {
-    id: problemId(draft.rule, draft.identity),
+    id: problemId(draft.rule, draft.identity), identity: draft.identity,
     section: draft.section, rule: draft.rule, kind: draft.kind, sonar: draft.sonar, severity: draft.severity,
     fixer: draft.fixer, closed: draft.closed,
     page: draft.page, pageTitle: draft.pageTitle, statement: draft.statement, sentence: draft.sentence,
@@ -59,7 +57,7 @@ export function openProblemsOf(problems: readonly Pick<Problem, 'entity' | 'clos
   return problems.filter((problem) => problem.entity?.key === key && !problem.closed).length;
 }
 
-/** Collects the three sections: code rules over the graph, document rules over the questions, the wiki's own findings. */
+/** Collects the three sections: code rules over the graph, an explicit note for retired Markdown question rules, the wiki's own findings. */
 export async function collectProblems(input: CollectInput): Promise<Awaited<ReturnType<typeof listProblems>>> {
   const notes: ProblemNote[] = [];
   const drafts: ProblemDraft[] = [];
@@ -71,13 +69,8 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   } catch (error) {
     notes.push({ message: `the code section could not be judged: ${(error as Error).message}` });
   }
-  try {
-    const judged = await evaluateDocuments({ questions: (await readQuestionsIn(input.files)).items, resolve: input.resolve, settings: input.settings });
-    drafts.push(...judged.problems);
-    notes.push(...judged.notes);
-  } catch (error) {
-    notes.push({ message: `the documents section could not be judged: ${(error as Error).message}` });
-  }
+  // Document predicates still have a fixture evaluator, but production must not read retired Markdown entities.
+  notes.push({ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates' });
   // What a producer stated about the graph's own consistency: the product's findings kinds hold one entity a finding
   // (madarch-stm0.7.1). The engine reads the kind's declared fields, and a kind that declares nothing is no findings kind.
   try {
@@ -105,7 +98,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
   // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
   notes.push(...unimplementedRuleNotes(input.settings));
   const listing = await listProblems({
-    productFolder: input.productFolder, owner: input.owner, files: input.files, manifest: input.manifest, resolve: input.resolve, findings: input.findings,
+    productFolder: input.productFolder, owner: input.owner, files: input.files, graph: input.graph, manifest: input.manifest, resolve: input.resolve, findings: input.findings,
     settings: input.settings,
     ...(input.repository === undefined ? {} : { repository: input.repository }),
     ...(input.unplaced === undefined ? {} : { unplaced: input.unplaced }),

@@ -10,7 +10,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
 
 const skip = process.env['MADARCH_SKIP_PERF'] === '1';
@@ -31,7 +32,7 @@ beforeAll(async () => {
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: (line) => console.error(line) });
 }, 60_000);
 
 afterAll(async () => {

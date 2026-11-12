@@ -13,10 +13,10 @@
  * records, which is a defect of the instrumentation, not a fact about the
  * work.
  */
-import { readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { raise } from '../model/raise.js';
-import { traceFiles } from './trace.js';
+import { traceFiles, withSpanSync } from './trace.js';
 
 /** One span as a trace line states it: OTLP's names, times in milliseconds. */
 export interface TraceSpan {
@@ -53,6 +53,36 @@ interface UncoveredGap {
   readonly ms: number;
 }
 
+/** One kind, field and model as the run's `agent.usage` spans state it, summed over the turns that spent on it. */
+export interface AgentUsageLine {
+  readonly kind: string;
+  readonly field: string;
+  /** The model the adapter named; `''` when it named none. */
+  readonly model: string;
+  readonly plugin: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /** The tokens the agent reported for the line: the largest of its total and the sum of its parts. */
+  readonly totalTokens: number;
+  readonly cost: readonly { readonly currency: string; readonly amount: number }[];
+  /** How many prompt turns the line took. */
+  readonly turns: number;
+  /** The bound that ended this line's run, and which declaration it was. */
+  readonly stopped: { readonly bound: 'tokens' | 'cost'; readonly scope: 'plugin' | 'run' } | null;
+}
+
+/** What the run's model calls cost, as its `agent.usage` spans state it (madarch-stm0.4, decision 0035, item 22). */
+export interface AgentUsageReport {
+  readonly lines: readonly AgentUsageLine[];
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly cost: readonly { readonly currency: string; readonly amount: number }[];
+  readonly turns: number;
+  /** The bounds the run crossed, in the order the spans were written. */
+  readonly stops: readonly { readonly kind: string; readonly field: string; readonly model: string; readonly bound: 'tokens' | 'cost'; readonly scope: 'plugin' | 'run' }[];
+}
+
 /** The whole answer. */
 export interface TraceReport {
   readonly file: string;
@@ -67,6 +97,73 @@ export interface TraceReport {
   readonly uncoveredPercent: number;
   readonly gaps: readonly UncoveredGap[];
   readonly slowest: readonly { readonly name: string; readonly spanId: string; readonly ms: number }[];
+  /** What the run's model calls cost, per kind, field and model; empty for a run that made none (madarch-stm0.4). */
+  readonly agentUsage: AgentUsageReport;
+}
+
+/** One number a span states, or 0 when it states none. */
+function spanNumber(attributes: Readonly<Record<string, unknown>>, name: string): number {
+  const held = attributes[name];
+  return typeof held === 'number' && Number.isFinite(held) ? held : 0;
+}
+
+/**
+ * The run's model calls as its `agent.usage` spans state them (madarch-stm0.4): each span carries one turn's increment,
+ * never a cumulative total, so the report adds the spans and never a store. A line is one kind, field and model; the
+ * tokens are the largest of the span's total and the sum of its parts, the same reading the meter bounds by.
+ */
+export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
+  interface Held { kind: string; field: string; model: string; plugin: string; input: number; output: number; total: number; cost: Map<string, number>; turns: number; stopped: AgentUsageLine['stopped'] }
+  const lines = new Map<string, Held>();
+  const stops: { kind: string; field: string; model: string; bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' }[] = [];
+  for (const span of spans) {
+    if (span.name !== 'agent.usage') continue;
+    const kind = typeof span.attributes['agent.kind'] === 'string' ? span.attributes['agent.kind'] : '';
+    const field = typeof span.attributes['agent.field'] === 'string' ? span.attributes['agent.field'] : '';
+    const model = typeof span.attributes['agent.model'] === 'string' ? span.attributes['agent.model'] : '';
+    const plugin = typeof span.attributes['agent.plugin'] === 'string' ? span.attributes['agent.plugin'] : '';
+    const key = `${kind}\u0000${field}\u0000${model}`;
+    const held = lines.get(key) ?? { kind, field, model, plugin, input: 0, output: 0, total: 0, cost: new Map<string, number>(), turns: 0, stopped: null };
+    const input = spanNumber(span.attributes, 'agent.tokens.input');
+    const output = spanNumber(span.attributes, 'agent.tokens.output');
+    held.input += input;
+    held.output += output;
+    held.total += Math.max(spanNumber(span.attributes, 'agent.tokens.total'), input + output);
+    held.turns += 1;
+    for (const [name, value] of Object.entries(span.attributes)) {
+      if (!name.startsWith('agent.cost.') || typeof value !== 'number') continue;
+      const currency = name.slice('agent.cost.'.length);
+      held.cost.set(currency, (held.cost.get(currency) ?? 0) + value);
+    }
+    const bound = span.attributes['agent.bound.stop'];
+    const scope = span.attributes['agent.bound.scope'];
+    if ((bound === 'tokens' || bound === 'cost') && (scope === 'plugin' || scope === 'run')) {
+      held.stopped = { bound, scope };
+      stops.push({ kind, field, model, bound, scope });
+    }
+    lines.set(key, held);
+  }
+  const ordered = [...lines.values()].sort((left, right) => (left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0)
+    || (left.field < right.field ? -1 : left.field > right.field ? 1 : 0)
+    || (left.model < right.model ? -1 : left.model > right.model ? 1 : 0));
+  const money = (held: readonly Held[]): { currency: string; amount: number }[] => {
+    const byCurrency = new Map<string, number>();
+    for (const line of held) for (const [currency, amount] of line.cost) byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + amount);
+    return [...byCurrency.entries()].map(([currency, amount]) => ({ currency, amount: Number(amount.toFixed(6)) })).sort((left, right) => (left.currency < right.currency ? -1 : left.currency > right.currency ? 1 : 0));
+  };
+  return {
+    lines: ordered.map((line) => ({
+      kind: line.kind, field: line.field, model: line.model, plugin: line.plugin,
+      inputTokens: line.input, outputTokens: line.output, totalTokens: line.total,
+      cost: money([line]), turns: line.turns, stopped: line.stopped,
+    })),
+    inputTokens: ordered.reduce((sum, line) => sum + line.input, 0),
+    outputTokens: ordered.reduce((sum, line) => sum + line.output, 0),
+    totalTokens: ordered.reduce((sum, line) => sum + line.total, 0),
+    cost: money(ordered),
+    turns: ordered.reduce((sum, line) => sum + line.turns, 0),
+    stops,
+  };
 }
 
 function valueOf(attribute: { readonly value?: Record<string, unknown> }): unknown {
@@ -81,9 +178,12 @@ function valueOf(attribute: { readonly value?: Record<string, unknown> }): unkno
 
 /** The spans one trace file holds, in the order it wrote them. A line that is not a span is refused by its file and line. */
 export function readTraceSpans(file: string): TraceSpan[] {
-  const text = readFileSync(file, 'utf8');
+  return parseTraceSpans(readFileSync(file, 'utf8'), file);
+}
+
+function parseTraceSpans(text: string, file: string, line = 0): TraceSpan[] {
   const spans: TraceSpan[] = [];
-  let at = 0;
+  let at = line;
   for (const line of text.split('\n')) {
     at += 1;
     if (line.trim() === '') continue;
@@ -110,6 +210,47 @@ export function readTraceSpans(file: string): TraceSpan[] {
   return spans;
 }
 
+/** A live trace is append-only. Keep its parsed prefix, not another record of the run's counters. */
+export class TraceSpanReader {
+  private held: { file: string; dev: number; ino: number; size: number; mtime: number; offset: number; lines: number; spans: TraceSpan[] } | undefined;
+
+  read(file: string): TraceSpan[] {
+    const fd = openSync(file, 'r');
+    try {
+      const stat = fstatSync(fd);
+      const previous = this.held;
+      const held = previous !== undefined && previous.file === file && previous.dev === stat.dev && previous.ino === stat.ino
+        && stat.size >= previous.size && (stat.size !== previous.size || stat.mtimeMs === previous.mtime)
+        ? previous : { file, dev: stat.dev, ino: stat.ino, size: 0, mtime: 0, offset: 0, lines: 0, spans: [] };
+      const bytes = Buffer.alloc(stat.size - held.offset);
+      let read = 0;
+      while (read < bytes.length) {
+        const count = readSync(fd, bytes, read, bytes.length - read, held.offset + read);
+        if (count === 0) break;
+        read += count;
+      }
+      const content = bytes.subarray(0, read);
+      const end = content.lastIndexOf(10) + 1;
+      const text = content.subarray(0, end).toString('utf8');
+      const added = parseTraceSpans(text, file, held.lines);
+      // Leave the unterminated suffix unread until its writer completes the line.
+      held.spans.push(...added);
+      held.offset += end;
+      held.lines += text.split('\n').length - 1;
+      held.size = stat.size;
+      held.mtime = stat.mtimeMs;
+      this.held = held;
+      const tail = content.subarray(end).toString('utf8');
+      if (tail.trim() === '') return held.spans;
+      // A complete record need not have its newline yet. An incomplete append is retried next time.
+      try { JSON.parse(tail); } catch { return held.spans; }
+      return [...held.spans, ...parseTraceSpans(tail, file, held.lines)];
+    } finally {
+      closeSync(fd);
+    }
+  }
+}
+
 interface Interval { readonly start: number; readonly end: number }
 
 /** The union of intervals, as the stretches it leaves covered. */
@@ -128,24 +269,57 @@ function coveredMs(intervals: readonly Interval[]): number {
   return union(intervals).reduce((sum, one) => sum + (one.end - one.start), 0);
 }
 
-/** What the spans say: the one function the command and the wiki's page both call. */
-export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
-  const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
-  const byId = new Map(spans.map((span) => [span.spanId, span]));
+/** The first ten under the same stable order as a full sort, without retaining a result per span. */
+function topSpans(spans: readonly TraceSpan[], compare: (left: TraceSpan, right: TraceSpan) => number): TraceSpan[] {
+  const top: TraceSpan[] = [];
+  for (const span of spans) {
+    let at = top.length;
+    while (at > 0 && compare(span, top[at - 1]!) < 0) at -= 1;
+    if (at >= 10) continue;
+    top.splice(at, 0, span);
+    if (top.length > 10) top.pop();
+  }
+  return top;
+}
+
+function rssOf(span: TraceSpan, boundary: 'start' | 'end'): number {
+  const value = span.attributes[boundary === 'start' ? 'process.rss.start' : 'process.rss.end'];
+  return typeof value === 'number' ? value : 0;
+}
+
+interface SpanIndex {
+  readonly byId: ReadonlyMap<string, TraceSpan>;
+  readonly childMs: ReadonlyMap<string, number>;
+}
+
+function indexSpans(spans: readonly TraceSpan[]): SpanIndex {
+  const byId = new Map<string, TraceSpan>();
+  for (const span of spans) byId.set(span.spanId, span);
   const children = new Map<string, TraceSpan[]>();
   for (const span of spans) {
     if (span.parentSpanId === undefined || !byId.has(span.parentSpanId)) continue;
-    const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
+    const held = children.get(span.parentSpanId) ?? [];
+    held.push(span);
+    children.set(span.parentSpanId, held);
   }
+  const childMs = new Map<string, number>();
+  for (const [spanId, spans] of children) childMs.set(spanId, coveredMs(spans));
+  return { byId, childMs };
+}
+
+export type TraceSummary = Pick<TraceReport, 'spanCount' | 'wallMs' | 'names' | 'agentUsage'>;
+
+/** The live run's projection shares the detailed report's self-time calculation without its diagnostics. */
+export function traceSummaryOf(spans: readonly TraceSpan[], index = indexSpans(spans)): TraceSummary {
+  const { childMs } = index;
   // The wall clock runs from the earliest span of the run to the last: the trace of one run is one window.
-  const from = spans.length === 0 ? 0 : Math.min(...spans.map((span) => span.start));
-  const to = spans.length === 0 ? 0 : Math.max(...spans.map((span) => span.end));
+  const from = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const to = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   const wallMs = Math.max(0, to - from);
 
   const selfBy = new Map<string, { count: number; selfMs: number }>();
   for (const span of spans) {
-    const childMs = coveredMs((children.get(span.spanId) ?? []).map((child) => ({ start: child.start, end: child.end })));
-    const selfMs = Math.max(0, span.end - span.start - childMs);
+    const selfMs = Math.max(0, span.end - span.start - (childMs.get(span.spanId) ?? 0));
     const held = selfBy.get(span.name) ?? { count: 0, selfMs: 0 };
     selfBy.set(span.name, { count: held.count + 1, selfMs: held.selfMs + selfMs });
   }
@@ -154,21 +328,37 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
     .sort((left, right) => right.selfMs - left.selfMs || (left.name < right.name ? -1 : 1))
     .slice(0, 20);
 
-  const memory = spans
+  return { spanCount: spans.length, wallMs, names, agentUsage: agentUsageOf(spans) };
+}
+
+/** What the spans say: the one function the command and the wiki's page both call. */
+export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
+  return traceReportFrom(spans, file, indexSpans(spans));
+}
+
+function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanIndex): TraceReport {
+  const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
+  const { byId } = index;
+  const summary = traceSummaryOf(spans, index);
+  const { wallMs, names } = summary;
+  const from = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const to = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
+
+  const memory = topSpans(spans, (left, right) =>
+    (rssOf(right, 'end') - rssOf(right, 'start')) - (rssOf(left, 'end') - rssOf(left, 'start')) || rssOf(right, 'end') - rssOf(left, 'end'))
     .map((span) => {
-      const start = typeof span.attributes['process.rss.start'] === 'number' ? span.attributes['process.rss.start'] : 0;
-      const end = typeof span.attributes['process.rss.end'] === 'number' ? span.attributes['process.rss.end'] : 0;
+      const start = rssOf(span, 'start');
+      const end = rssOf(span, 'end');
       return { name: span.name, spanId: span.spanId, rssStart: start, rssEnd: end, growth: end - start };
-    })
-    .sort((left, right) => right.growth - left.growth || right.rssEnd - left.rssEnd)
-    .slice(0, 10);
+    });
 
   // The run's own span covers everything by construction, so it is the one span that does not count as
   // coverage: it is the interval whose inside must be accounted for. Every other span — a phase, a
   // statement, a child process, a library's own operation — covers the time it was open.
-  const ids = new Set(spans.map((span) => span.spanId));
-  const roots = spans.filter((span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId));
-  const runSpan = roots.find((span) => roots.every((other) => other === span || (other.start >= span.start && other.end <= span.end)));
+  const roots = spans.filter((span) => span.parentSpanId === undefined || !byId.has(span.parentSpanId));
+  const rootStart = roots.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const rootEnd = roots.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
+  const runSpan = roots.find((span) => span.start === rootStart && span.end === rootEnd);
   const covering = runSpan === undefined ? spans : spans.filter((span) => span !== runSpan);
   const covered = union(covering.map((span) => ({ start: span.start, end: span.end })));
   const gaps: UncoveredGap[] = [];
@@ -185,10 +375,8 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
   }
   gaps.sort((left, right) => right.ms - left.ms);
 
-  const slowest = [...spans]
-    .map((span) => ({ name: span.name, spanId: span.spanId, ms: span.end - span.start }))
-    .sort((left, right) => right.ms - left.ms)
-    .slice(0, 10);
+  const slowest = topSpans(spans, (left, right) => (right.end - right.start) - (left.end - left.start))
+    .map((span) => ({ name: span.name, spanId: span.spanId, ms: span.end - span.start }));
 
   return {
     file, runId, spanCount: spans.length, wallMs,
@@ -196,6 +384,7 @@ export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceR
     uncoveredMs, uncoveredPercent: wallMs === 0 ? 0 : (uncoveredMs / wallMs) * 100,
     gaps: gaps.slice(0, 10),
     slowest,
+    agentUsage: summary.agentUsage,
   };
 }
 
@@ -225,13 +414,8 @@ const STEP_NAMES = 5;
  * ran, and its slowest names are ranked by the time each took of its own. The
  * numbers are the spans' own: nothing here reads a store or a second record.
  */
-export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
-  const byId = new Map(spans.map((span) => [span.spanId, span]));
-  const children = new Map<string, TraceSpan[]>();
-  for (const span of spans) {
-    if (span.parentSpanId === undefined || !byId.has(span.parentSpanId)) continue;
-    const held = children.get(span.parentSpanId) ?? []; held.push(span); children.set(span.parentSpanId, held);
-  }
+export function stepReportsOf(spans: readonly TraceSpan[], index: SpanIndex = indexSpans(spans)): StepReport[] {
+  const { byId, childMs } = index;
   const namedStep = (span: TraceSpan): string | undefined => {
     const named = span.attributes['madarch.step'] ?? span.attributes['madarch.stage'];
     return typeof named === 'string' && named !== '' ? named : undefined;
@@ -262,8 +446,7 @@ export function stepReportsOf(spans: readonly TraceSpan[]): StepReport[] {
   for (const [step, held] of steps) {
     const selfBy = new Map<string, { count: number; selfMs: number }>();
     for (const one of held.spans) {
-      const childMs = coveredMs((children.get(one.spanId) ?? []).map((child) => ({ start: child.start, end: child.end })));
-      const selfMs = Math.max(0, one.end - one.start - childMs);
+      const selfMs = Math.max(0, one.end - one.start - (childMs.get(one.spanId) ?? 0));
       const known = selfBy.get(one.name) ?? { count: 0, selfMs: 0 };
       selfBy.set(one.name, { count: known.count + 1, selfMs: known.selfMs + selfMs });
     }
@@ -313,20 +496,21 @@ export interface TraceRunReport {
   readonly endedAtMs: number;
 }
 
-/** One run of a store's trace: the named run, or the newest. The file is read once for both reports. */
-export function readTraceRun(options: { readonly store: string; readonly runId?: string }): TraceRunReport {
+/** The exact report fields the live run page consumes; the detailed CLI diagnostics are not collected. */
+export function readTraceRunSummary(options: { readonly store: string; readonly runId?: string }, reader?: TraceSpanReader): Omit<TraceRunReport, 'report'> & { report: TraceSummary } {
   const files = traceFiles(options.store);
   if (files.length === 0) raise(`the store holds no trace: its traces are one JSON lines file per run in ${join(options.store, 'traces')}, and a fill writes one`);
   const chosen = options.runId === undefined ? files[0]! : files.find((one) => one.runId === options.runId || one.file.endsWith(`/${traceFileNameOf(options.runId!)}`));
   if (chosen === undefined) raise(`the store holds no trace of run ${JSON.stringify(options.runId)}; its runs are ${files.map((one) => JSON.stringify(one.runId)).join(', ')}`);
-  const spans = readTraceSpans(chosen.file);
-  const startedAt = spans.length === 0 ? 0 : Math.min(...spans.map((span) => span.start));
-  const endedAt = spans.length === 0 ? 0 : Math.max(...spans.map((span) => span.end));
+  const spans = withSpanSync('trace.read', {}, () => reader === undefined ? readTraceSpans(chosen.file) : reader.read(chosen.file));
+  const index = withSpanSync('trace.index', {}, () => indexSpans(spans));
+  const startedAt = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const endedAt = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   return {
     file: chosen.file,
     runId: chosen.runId,
-    report: traceReportOf(spans, chosen.file),
-    steps: stepReportsOf(spans),
+    report: withSpanSync('trace.report', {}, () => traceSummaryOf(spans, index)),
+    steps: withSpanSync('trace.steps', {}, () => stepReportsOf(spans, index)),
     startedAtMs: startedAt,
     endedAtMs: endedAt,
   };
@@ -366,5 +550,15 @@ export function renderTraceReport(report: TraceReport): string {
   lines.push('');
   lines.push('The slowest single spans:');
   for (const held of report.slowest) lines.push(`  ${ms(held.ms).padStart(11)}  ${held.name}  (${held.spanId})`);
+  if (report.agentUsage.lines.length > 0) {
+    const usage = report.agentUsage;
+    lines.push('');
+    lines.push(`Agent usage: ${String(usage.turns)} prompt turns, ${String(usage.inputTokens)} tokens in, ${String(usage.outputTokens)} out, ${String(usage.totalTokens)} total${usage.cost.length === 0 ? '' : `, cost ${usage.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}`);
+    for (const line of usage.lines) {
+      const where = `${line.plugin} ${line.kind}${line.field === '' ? '' : `/${line.field}`}${line.model === '' ? '' : ` on ${line.model}`}`;
+      lines.push(`  ${String(line.inputTokens).padStart(9)} in  ${String(line.outputTokens).padStart(9)} out  ${String(line.totalTokens).padStart(9)} total${line.cost.length === 0 ? '' : `  ${line.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}  ${where}${line.stopped === null ? '' : `  [stopped: ${line.stopped.bound}, ${line.stopped.scope} bound]`}`);
+    }
+    for (const stop of usage.stops) lines.push(`  stopped: the ${stop.scope} ${stop.bound} bound ended the ${stop.kind}${stop.field === '' ? '' : `/${stop.field}`} turn${stop.model === '' ? '' : ` of ${stop.model}`}`);
+  }
   return `${lines.join('\n')}\n`;
 }

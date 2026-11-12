@@ -1,3 +1,5 @@
+import { Button } from '@/components/ui/button.js';
+import { Stack } from '@/components/ui/typography.js';
 /**
  * The full-screen button every diagram carries (madarch-m38l.15, the owner's walk of 2026-10-23): the diagram's frame
  * takes the whole window, its pan and zoom keep working, and a click on an element closes the frame and opens the
@@ -40,13 +42,13 @@ export function Fullscreenable({ children }: { children: ReactNode }): ReactElem
   }, [outer]);
   const label = t(full ? 'knowledge.views.exitFullscreen' : 'knowledge.views.fullscreen');
   return (
-    <div className={full ? 'dg-fullable dg-full' : 'dg-fullable'} data-fullscreen={full ? 'true' : 'false'} data-testid="fullscreenable">
-      <button type="button" className="dg-fs-button" onClick={() => setFull(!full)} aria-label={label} title={label} aria-pressed={full} data-testid="fullscreen-button">
+    <Stack className={full ? 'dg-fullable dg-full' : 'dg-fullable'} data-fullscreen={full ? 'true' : 'false'} data-testid="fullscreenable">
+      <Button variant="ghost" size="content" type="button" className="dg-fs-button" onClick={() => setFull(!full)} aria-label={label} title={label} aria-pressed={full} data-testid="fullscreen-button">
         {full ? <Minimize2Icon aria-hidden="true" className="size-4" /> : <Maximize2Icon aria-hidden="true" className="size-4" />}
-      </button>
+      </Button>
       <FullscreenContext.Provider value={full}>
         <DiagramOpenProvider onOpen={open}>{children}</DiagramOpenProvider>
       </FullscreenContext.Provider>
-    </div>
+    </Stack>
   );
 }

@@ -150,7 +150,7 @@ export type OverviewBlock = {
 type BlockShape =
   | { type: 'guide'; data: { guide: { id: string; kind: 'administrator-guide' | 'user-guide'; title: string; locale: 'en' | 'ru'; context: { valid: string; known: string; state: string; repositories: { name: string; commit: string }[] }; unitVersion: string; inputDigest: string; prerequisites: string[]; gaps: string[]; procedures: { id: string; title: string; goal: string; role: string; prerequisites: string[]; steps: { id: string; title: string; cwd: string; environment: string; inputs: { name: string; description: string; secret: boolean }[]; instruction: { kind: 'command' | 'http'; content: string }; expected: { status: number; observation: string }; grounds: { repository: string; commit: string; path: string; line: number; endLine: number }[] }[] }[] }; walk: { status: 'passed' | 'failed' | 'not-walked'; diagnostics: { file: string; line: number; path: string; code: string; message: string }[] }; markdown: string; diagnostics: { file: string; line: number; path: string; code: string; message: string }[]; coverage: 'procedures' | 'gap-only'; sourceViewWarning?: string; grounds: { procedure: string; step: string; repository: string; commit: string; path: string; line: number; endLine: number; href: string }[] } }
   | { type: 'markdown'; markdown: string }
-  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; definedIn: string | null; usages: { location: string; count: number }[]; usageCount: number; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
@@ -224,6 +224,12 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
+  sources?: readonly string[];
+  /** The summary has standards available from the single-kind detail request. */
+  sourcesAvailable?: boolean;
+  fields?: readonly { name: string; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
+  relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
+  pluginFolders?: readonly string[];
   kind: string;
   /** Derived by the app from the catalogue groups when the answer leaves it out. */
   area?: string;
@@ -252,8 +258,8 @@ export type CatalogKindView = {
 /** One kind's estimate (madarch-stm0.6): a measured volume times a per-unit figure, or unknown. */
 export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
 
-/** The catalogue's fill selection as the store keeps it (madarch-stm0.6). */
-export type FillSelectionView = { selected: string[]; agent: string | null; tokenCap: number | null; savedAt: string };
+/** List metadata; declaration details are acquired only for a selected kind. */
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
 
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {
@@ -277,6 +283,8 @@ export type KindSummary = {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** Whether this kind has a page; false for members and catalogue-only kinds. */
+  page?: boolean;
   statements?: number;
   single: boolean;
   group?: string;
@@ -292,7 +300,7 @@ export type KindSummary = {
 export type GroupSummary = { group: string; labels: Record<string, string>; /** The navigation's one-or-two-word label per language; the full name when it is absent. */ short?: Record<string, string>; /** The group this is a sub-area of; absent for a top-level group. */ parent?: string; /** The group the menu opens by itself; absent when it stays closed until opened. */ open?: boolean };
 
 export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string; directions?: ('publish' | 'subscribe')[]; directionStatus?: 'known' | 'unavailable'; producedBy?: EntityRef[]; consumedBy?: EntityRef[]}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
-export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
+export type EntityListing = { agentFill?: 'unconfigured' | 'ready'; agentUsage?: { model: string | null; tokens?: number; inputTokens?: number; outputTokens?: number }; kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
 /** One page a refresh changed, as the top bar lists it: the page's id and the title its page shows. */
 type ChangedPage = { id: string; title: string };
@@ -308,7 +316,7 @@ export type RepositoryFactsView = {
   defaultBranch: string | null;
   asIsCommit: string | null;
   counts: RepositoryCounts;
-  gaps: { what: string; reason: string }[];
+  historyShallow: boolean | null;
   steps: { tree: boolean; history: boolean };
 };
 
@@ -322,6 +330,70 @@ export type FillStepView = {
 };
 
 /** The newest run's trace: its wall clock, its spans and its steps. */
+/** One kind, field and model of a run's spend: the agent's own report, summed over its turns (madarch-stm0.4). */
+export type AgentUsageLine = {
+  kind: string;
+  field: string;
+  /** The model the adapter named; `''` when it named none. */
+  model: string;
+  plugin: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { currency: string; amount: number }[];
+  turns: number;
+  stopped: { bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' } | null;
+};
+
+/** What the run's model calls cost, read from the run's trace (madarch-stm0.4, decision 0035, item 22). */
+export type AgentUsageReport = {
+  lines: AgentUsageLine[];
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { currency: string; amount: number }[];
+  turns: number;
+  stops: { kind: string; field: string; model: string; bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' }[];
+};
+
+/** One plugin run's spend in one kind, field and model, as the store holds it. */
+export type KindUsageLine = {
+  run: string;
+  unit: string;
+  plugin: string;
+  pluginVersion: string;
+  kind: string;
+  field: string;
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { amount: number; currency: string } | null;
+  turns: number;
+  reported: boolean;
+  stopped: 'tokens' | 'cost' | null;
+};
+
+/** One run's spend on a kind: its rows and the numbers they make together. */
+export type KindUsageRun = {
+  run: string;
+  at: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: { amount: number; currency: string }[];
+  stopped: 'tokens' | 'cost' | null;
+  rows: KindUsageLine[];
+};
+
+/** What a kind's page says about the agent's spend on it (madarch-stm0.4, decision 0035, item 22). */
+export type KindUsageView = {
+  kind: string;
+  runs: KindUsageRun[];
+  moreRuns: boolean;
+  total: { inputTokens: number; outputTokens: number; totalTokens: number; cost: { amount: number; currency: string }[]; runs: number };
+};
+
 export type FillRunView = {
   runId: string;
   startedAt: string;
@@ -330,6 +402,7 @@ export type FillRunView = {
   spans: number;
   slowest: { name: string; count: number; selfMs: number }[];
   steps: FillStepView[];
+  agentUsage: AgentUsageReport;
 };
 
 /** What a running fill has done so far, read from its trace. */
@@ -428,6 +501,8 @@ export type AgentOffer = {
 };
 
 export type WikiStatus = {
+  publication?: 'pending' | 'failed' | 'done';
+  publicationMessage?: string;
   product: { name: string; id: string };
   manifest: 'ok' | 'not-filled' | 'no-manifest';
   manifestFile: string;
@@ -462,7 +537,7 @@ export type RepositoryBlockData = {
   asIsCommit: string | null;
   asIsHref: string | null;
   counts: RepositoryCounts;
-  gaps: { what: string; reason: string }[];
+  historyShallow: boolean | null;
   steps: { tree: boolean; history: boolean };
 };
 
@@ -520,7 +595,7 @@ export type SourceFile = { history?: HistoryContext; repo: string | null; path: 
 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 
-export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; single: boolean; href: string };
+export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; definedIn: string | null; usages: { location: string; count: number }[]; usageCount: number; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; single: boolean; href: string };
 export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findingCount: number };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
@@ -562,38 +637,6 @@ export type StatementModel = {
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
 
 export type Author = { name: string; email: string; verified: string };
-
-type QuestionType = 'contradiction' | 'ambiguous-term' | 'undocumented' | 'gap';
-export type QuestionState = 'open' | 'answered' | 'closed';
-
-export type QuestionRow = {
-  slug: string;
-  id: string;
-  title: string;
-  type: QuestionType;
-  state: QuestionState;
-  askedIn: string | null;
-  askedAt: string | null;
-  about: string[];
-  answeredBy: Author | null;
-  answeredAt: string | null;
-  closedBy: string[];
-};
-
-export type QuestionListing = { rows: QuestionRow[]; open: number; answered: number; closed: number; problems: string[] };
-
-export type QuestionDetail = QuestionRow & {
-  file: string;
-  question: string;
-  why: string;
-  sides: { claim: string; grounds: string[] }[];
-  answer: { text: string; by: Author; at: string } | null;
-  resolutions: Record<string, Resolution>;
-  resolvedAt: string | null;
-};
-
-export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
-export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
 type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest' | string;
 export type ProblemSection = 'code' | 'documents' | 'wiki';
@@ -805,79 +848,6 @@ export type JournalRecord = {
 };
 
 export type PageJournal = { run: string | null; runs: string[]; records: JournalRecord[]; problems: string[] };
-// ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
-
-/** What a task changes: a document section, a line range, a symbol, a statement, or a whole path. */
-export type TaskScope =
-  | { type: 'section'; path: string; anchor: string }
-  | { type: 'lines'; path: string; start: number; end: number }
-  | { type: 'symbol'; key: string }
-  | { type: 'statement'; key: string }
-  | { type: 'file'; path: string };
-
-/** A task as the wiki lists it, with what its change reaches through the graph counted. */
-export type TaskRow = {
-  id: string;
-  slug: string;
-  title: string;
-  status: 'open' | 'closed';
-  file: string;
-  question: string;
-  answer: string;
-  at: string;
-  by: Author;
-  grounds: string[];
-  scope: { scope: TaskScope; words: string; place: PlaceView }[];
-  closedBy: { repository: string; commit: string; at: string; subject: string } | { person: true; at: string | null } | null;
-  impact: { pages: number; statements: number } | null;
-  problem?: string;
-  /** The problem this task was opened from (madarch-m38l.19). */
-  problemId?: string;
-};
-
-export type TaskListing = { tasks: TaskRow[]; open: number; closed: number; problems: string[]; notes: string[] };
-
-/** What a change reaches, computed through the graph. */
-export type TaskImpact = {
-  grounds: string[];
-  /** The grounds the graph answers nothing for: the index may not have been published for them yet. */
-  unindexed: string[];
-  pages: { id: string; title: string; file: string; kind: string; because: 'statement' | 'link' }[];
-  writable: string[];
-  entities: string[];
-  statements: { page: string; pageTitle: string; pageKind: string; file: string; line: number; statement: string; text: string; ground: string; grounds: string[]; how: 'grounds' | 'mentions' }[];
-  counts: { pages: number; statements: number };
-};
-
-export type TaskDetail = Omit<TaskRow, 'impact'> & {
-  impact: TaskImpact | null;
-  writable: string[];
-  marks: { sections: number; statements: number; entities: number };
-};
-
-/** A place a task changes as a reader says it: a section's heading and its document's title, each a link (madarch-m38l.14). */
-export type PlaceView = {
-  kind: 'section' | 'file' | 'lines' | 'symbol' | 'statement';
-  label: string;
-  where: string | null;
-  href: string | null;
-  path: string | null;
-  words: string;
-};
-
-/** The task an answer proposes: the scope its grounds name, and what it reaches. */
-export type TaskProposal = {
-  choice: 'code' | 'docs';
-  title: string;
-  grounds: string[];
-  scope: TaskScope[];
-  places?: PlaceView[];
-  impact: TaskImpact;
-  question: { slug: string; title: string; file: string };
-  answer: { text: string; by: string; at: string };
-};
-
-export type CreatedTask = { task: { slug: string; id: string; file: string; title: string; status: 'open' | 'closed' }; state: 'created'; committed: boolean; note?: string; commit?: string };
 export type ContractReason =
   | {code: 'definitionMissing'}
   | {code: 'contractReadBudget'; params: {maxFiles: number; maxBytes: number}}

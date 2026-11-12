@@ -12,12 +12,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { productsHome } from '../src/product/home.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { openFillRunQueue, askFillRun } from '../src/fill/run-jobs.js';
 
 /** How long the child and the store's server are given after the server is killed: the rule the walk asked for. */
 const GONE_WITHIN_MS = 2_000;
@@ -108,9 +109,17 @@ function processes(): Row[] {
   });
 }
 
-/** The fill role `serve` started: the child of that process whose command line says `--role fill`. */
+/** The fill role below `serve`, including the api role between the preparation owner and its fill child. */
 function fillRoleOf(server: number): Row | undefined {
-  return processes().find((row) => row.ppid === server && row.command.includes('--role fill'));
+  const rows = processes();
+  const parents = new Set([server]);
+  for (;;) {
+    const children = rows.filter((row) => parents.has(row.ppid) && !parents.has(row.pid));
+    if (children.length === 0) return undefined;
+    const fill = children.find((row) => row.command.includes('--role fill'));
+    if (fill !== undefined) return fill;
+    for (const child of children) parents.add(child.pid);
+  }
 }
 
 /** The store folders under this home's knowledge root, as the server made them. */
@@ -124,8 +133,8 @@ function storeFolders(): string[] {
 }
 
 /** The pid of every PostgreSQL server of this home's stores, from the `postmaster.pid` each keeps. */
-function postmasters(): number[] {
-  return storeFolders().flatMap((store) => {
+function postmasters(stores = storeFolders()): number[] {
+  return stores.flatMap((store) => {
     try {
       const pid = Number(readFileSync(join(store, 'graph', 'pgdata', 'postmaster.pid'), 'utf8').split('\n')[0]?.trim());
       return Number.isInteger(pid) && pid > 1 ? [pid] : [];
@@ -142,12 +151,33 @@ interface Gone {
   readonly waitedMs: number;
 }
 
-async function awaitGone(child: number, within: number): Promise<Gone> {
+async function awaitGone(child: number, postmasterPids: readonly number[], within: number): Promise<Gone> {
   const started = Date.now();
   for (;;) {
-    const postgres = postmasters().filter((pid) => alive(pid));
+    const postgres = postmasterPids.filter((pid) => alive(pid));
     const gone: Gone = { child: !alive(child), postgres: postgres.length === 0, waitedMs: Date.now() - started };
-    if ((gone.child && gone.postgres) || gone.waitedMs >= within) return gone;
+    if ((gone.child && gone.postgres) || gone.waitedMs >= within) {
+      if (!gone.child || !gone.postgres) {
+        const rows = processes();
+        const pids = new Set([child, ...postmasterPids, ...rows.filter((row) => row.command.includes(work)).map((row) => row.pid)]);
+        // Include descendants, not PID 1 and all its unrelated children when the killed server's roles are reparented.
+        for (;;) {
+          const children = rows.filter((row) => pids.has(row.ppid) && !pids.has(row.pid));
+          if (children.length === 0) break;
+          for (const row of children) pids.add(row.pid);
+        }
+        const tree = spawnSync('ps', ['-p', [...pids].join(','), '-o', 'pid=,ppid=,stat=,wchan=,command='], { encoding: 'utf8' });
+        console.log(`shutdown process states after ${String(gone.waitedMs)} ms:
+${tree.stdout ?? tree.stderr}`);
+        for (const store of storeFolders()) {
+          const log = join(store, 'graph', 'postgres.log');
+          try { console.log(`${log}:
+${readFileSync(log, 'utf8').split('\n').slice(-30).join('\n')}`); }
+          catch (error) { console.log(`${log}: ${String(error)}`); }
+        }
+      }
+      return gone;
+    }
     await Bun.sleep(50);
   }
 }
@@ -190,6 +220,10 @@ async function serve(product: string): Promise<{ pid: number; url: string; child
 
 test('a killed server takes its idle fill role and the store\'s PostgreSQL server with it within two seconds', async () => {
   const product = productOf(products, 'walk-idle');
+  const store = productStoreFolder(product, knowledgeRootOf(products));
+  // An unfilled product's status intentionally opens no store. Give this idle role a prepared store to watch.
+  const owner = await createDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
+  try { await prepareStore(owner); } finally { await owner.close(); }
   const running = await serve(product);
   const deadline = Date.now() + 30_000;
   let child = running.child();
@@ -198,26 +232,26 @@ test('a killed server takes its idle fill role and the store\'s PostgreSQL serve
   // The role a server starts watches the server's own home, not the default one (madarch-8bdc.12).
   expect(child!.command).toContain(`--home ${home}`);
   // The store's server stands, opened by the server (and by the role, which watches it).
-  while (postmasters().length === 0 && Date.now() < deadline) await Bun.sleep(50);
-  expect(postmasters().length).toBeGreaterThan(0);
+  while (postmasters([store]).length === 0 && Date.now() < deadline) await Bun.sleep(50);
+  const postgres = postmasters([store]);
+  expect(postgres.length).toBeGreaterThan(0);
   running.kill();
-  const gone = await awaitGone(child!.pid, GONE_WITHIN_MS);
-  console.log(`running fill role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
+  const gone = await awaitGone(child!.pid, postgres, GONE_WITHIN_MS);
+  console.log(`idle fill role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
   expect(gone.child, `the fill role ${String(child!.pid)} still ran ${String(gone.waitedMs)} ms after its server was killed`).toBe(true);
   expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the server was killed`).toBe(true);
 }, 180_000);
 
-test('a fill role asked to stop with SIGTERM gives its stores up, and their PostgreSQL servers stop with it', async () => {
-  // `madarch serve` stops its role with SIGTERM, and the role is the only process using the store here, so what stops the
-  // store's PostgreSQL server is the role's own leaving (what `test/knowledge-server.test.ts` left behind before it: three
-  // servers a run).
+test('a server asked to stop with SIGTERM gives its fill role and stores up, and their PostgreSQL servers stop with it', async () => {
   const product = productOf(products, 'walk-term');
   const root = knowledgeRootOf(products);
-  const owner = await createDatabaseOwner({ store: join(productStoreFolder(product, root), 'graph'), btreeGist: true });
+  const store = productStoreFolder(product, root);
+  const owner = await createDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
   let pressed: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     // A pressed fill waits in the store's queue: the role claims it as soon as it opens the store, and its own owner is
     // the one that keeps the store up.
+    await prepareStore(owner);
     pressed = await openFillRunQueue(owner);
     await askFillRun(pressed, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
   } finally {
@@ -234,10 +268,11 @@ test('a fill role asked to stop with SIGTERM gives its stores up, and their Post
   servers.push({ kill: () => { try { role.kill('SIGKILL'); } catch { /* gone */ } } });
   roles.add(role.pid);
   const deadline = Date.now() + 60_000;
-  while (postmasters().length === 0 && Date.now() < deadline) await Bun.sleep(20);
-  expect(postmasters().length).toBeGreaterThan(0);
+  while (postmasters([store]).length === 0 && Date.now() < deadline) await Bun.sleep(20);
+  const postgres = postmasters([store]);
+  expect(postgres.length).toBeGreaterThan(0);
   try { process.kill(role.pid, 'SIGTERM'); } catch { /* gone */ }
-  const gone = await awaitGone(role.pid, GONE_WITHIN_MS);
+  const gone = await awaitGone(role.pid, postgres, GONE_WITHIN_MS);
   console.log(`role signalled with SIGTERM ${String(role.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
   expect(gone.child, `the fill role ${String(role.pid)} still ran ${String(gone.waitedMs)} ms after SIGTERM`).toBe(true);
   expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the role was stopped`).toBe(true);
@@ -260,9 +295,11 @@ test('a killed server takes a fill role running a fill, and the store\'s Postgre
     if (state !== 'running') await Bun.sleep(20);
   }
   expect(state).toBe('running');
+  const postgres = postmasters([productStoreFolder(product, knowledgeRootOf(products))]);
+  expect(postgres.length).toBeGreaterThan(0);
   running.kill();
-  const gone = await awaitGone(child!.pid, GONE_WITHIN_MS);
-  console.log(`idle role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
+  const gone = await awaitGone(child!.pid, postgres, GONE_WITHIN_MS);
+  console.log(`running fill role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
   expect(gone.child, `the fill role ${String(child!.pid)} still ran ${String(gone.waitedMs)} ms after its server was killed`).toBe(true);
   expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the server was killed`).toBe(true);
 }, 180_000);

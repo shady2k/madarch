@@ -1,3 +1,4 @@
+import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * Closing a product while its graph verdicts read the store (madarch-8bdc.2.9). `graphVerdicts` owns a connection of
  * its own for the snapshot, so a product that closes while that run is in flight used to return with the connection
@@ -8,17 +9,19 @@
  * `close()` returns while the verdict's own `DatabaseOwner` is still open. It must not: `close()` waits for the run.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
+import { withStorePreparationOwner, requestStorePreparation } from '../src/product/store-preparation.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { graphVerdictFile } from '../src/knowledge/graph-verdict-store.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -42,7 +45,7 @@ describe('closing a product while its graph verdicts read the store', () => {
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
-      await createOneGraphSchema(owner, GIT_CONTRACT);
+      await prepareStore(owner, { contract: GIT_CONTRACT });
 
       let releaseLock!: () => void;
       let holdsTheGraph!: () => void;
@@ -87,3 +90,37 @@ describe('closing a product while its graph verdicts read the store', () => {
     }
   }, 120_000);
 });
+
+test('a standalone fill does not start validation, while an explicit request still computes verdicts', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'madarch-inline-verdict-'));
+  let product: KnowledgeProduct | undefined;
+  try {
+    const draft = createDraft({ home: join(work, 'home'), name: 'inline-shop', gitEnv: gitEnv(IDENTITY) });
+    if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
+    const storeRoot = join(work, 'store');
+    let judgeCalls = 0;
+    product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot, graphJev: {
+      async judge(items) { judgeCalls += 1; return items.map((item) => ({ id: item.id, verdict: 'unsure', reason: 'fixture' })); },
+    } });
+    await withStorePreparationOwner(async () => {
+      await requestStorePreparation(storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), await readPinnedGraphContract(draft.folder));
+      expect(await product!.startFill({ targets: { kinds: ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author'] } })).toMatchObject({ started: true });
+      await product!.settled();
+    });
+    expect(product.fillState()).toMatchObject({ state: 'done' });
+    const file = graphVerdictFile(productStoreFolder(draft.folder, storeRoot));
+    expect(judgeCalls).toBe(0);
+    expect(existsSync(file)).toBe(false);
+    // Close is the ownership boundary: no unsolicited task may remain to write a cache after the fill caller leaves.
+    await product.close();
+    expect(judgeCalls).toBe(0);
+    expect(existsSync(file)).toBe(false);
+    product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
+    const verdict = await product.graphVerdicts();
+    expect(verdict.rows.length).toBeGreaterThan(0);
+    expect(existsSync(file)).toBe(true);
+  } finally {
+    await product?.close();
+    rmSync(work, { recursive: true, force: true });
+  }
+}, 120_000);

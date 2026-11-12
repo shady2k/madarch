@@ -219,7 +219,7 @@ async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
     }
   };
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => {
-    child.on('exit', (code, signal) => done({ code, signal }));
+    child.on('close', (code, signal) => done({ code, signal }));
   });
   return {
     pid: child.pid!,
@@ -307,7 +307,7 @@ export async function startSandbox(spec: SandboxSpec): Promise<SandboxProcess> {
   });
   let finalCounters: CgroupCounters | undefined;
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => {
-    child.on('exit', (code, signal) => {
+    child.on('close', (code, signal) => {
       finalCounters = group.counters();
       done({ code, signal });
     });

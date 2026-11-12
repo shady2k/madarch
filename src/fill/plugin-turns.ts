@@ -1,3 +1,4 @@
+import { storedFileValueAnswerer } from '../plugin/stored-text.js';
 /**
  * The plugin turn (decision 0035, items 1, 6, 9, 15 and 16): one fill step that runs each plugin
  * the product holds for a kind, once for the kind. A unit is not a path: the plugin asks its host
@@ -11,29 +12,34 @@
  * process.
  */
 import { createHash } from 'node:crypto';
+import type { AgentUsageRecord } from '../adapters/agent-usage.js';
+import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
-import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../knowledge/kinds.js';
+import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { fileContent, graphFiles, producerEdges, producerEntities, writeRequestEntry } from '../graph/plugin-turns.js';
+import { graphFiles, producerEdges, producerEntities, writeRequestEntry } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf } from '../plugin/closure.js';
-import { PluginHost, RequestLog, type GraphAnswerer } from '../plugin/host.js';
-import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
+import type { GraphAnswerer, RequestLog } from '../plugin/host.js';
+import { canonicalKey } from '../plugin/results.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
-import type { SnapshotSource } from './snapshot.js';
+import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
 import { GIT_WIKI } from './stages/git-contract.js';
+import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
 
 /** The store one turn reads and writes, as the graph's own reads name it: the process's one owner, never a second. */
 export type GraphOwner = Parameters<typeof producerEntities>[0];
 
 /** What the plugin turn reads: the product's manifest, its lock, its checkouts and the graph the fill writes. */
 export interface PluginTurnWiring {
+  /** Host-owned adapter configuration, present only for a pressed agent fill. */
+  readonly agent?: PluginAgentOptions;
   readonly productFolder: string;
   readonly manifest: KindsManifest;
   /** The plugins the lock records, by id; a declared plugin the lock does not hold does not run. */
@@ -56,6 +62,18 @@ export interface PluginTurnWiring {
   readonly cgroupParent?: string;
   /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
   readonly debug?: boolean;
+  /**
+   * The run's agent metering (madarch-stm0.4, decision 0035, item 22): the fill run's id, the counter the run's plugin
+   * meters share and where a unit's spend is written. A unit whose plugin has an agent part hands each of its ACP
+   * session updates to the meter; a unit without one metered nothing and writes nothing.
+   */
+  readonly agentUsage?: {
+    readonly run: string;
+    /** The counter the whole fill run is held to, when the catalogue's cap declares one. */
+    readonly budget?: AgentRunBudget;
+    /** Where a unit's rows go: `recordAgentUsage` over the store's mechanism tables. */
+    readonly save: (rows: readonly AgentUsageRecord[]) => Promise<void>;
+  };
 }
 
 /** One unit of a plugin's turn: the plugin and the kind whose documents it reads, or the whole graph. */
@@ -73,13 +91,16 @@ export interface PluginTurnUnit {
 
 /** Whether a plugin fills a kind the manifest binds fields of, and reads the kind's documents. */
 function fills(plugin: PluginDecl, kind: KindDecl): boolean {
-  return plugin.contract?.vertices.some((vertex) => vertex.kind === kind.name) === true;
+  return plugin.contract?.vertices.some((vertex) => vertex.kind === kind.name) === true
+    && kind.fields?.some((field) => plugin.contract?.agent?.catalogue === true
+      ? field.binding?.kind === 'agent'
+      : field.binding?.kind === 'plugin' && field.binding.plugin === plugin.id) === true;
 }
 
 /** The manifest kinds a plugin fills: their fields name a plugin field. */
 export function pluginKindsOf(manifest: KindsManifest): KindDecl[] {
   return [...manifest.kinds.values()]
-    .filter((kind) => (kind.fields ?? []).some((field) => field.binding?.kind === 'plugin'))
+    .filter((kind) => (kind.fields ?? []).some((field) => field.binding?.kind === 'plugin') || [...(manifest.plugins?.values() ?? [])].some((plugin) => plugin.contract?.agent !== undefined && fills(plugin, kind)))
     .sort((left, right) => byCodePoint(left.name, right.name));
 }
 
@@ -109,7 +130,7 @@ export function pluginTurnUnitId(plugin: string, kind: string, vertex?: string):
  */
 /** The order the manifest's own declarations give the units' kinds, for a fill asked for a set of them. */
 function targetOrder(wiring: PluginTurnWiring): ReadonlyMap<string, number> {
-  return new Map((wiring.targets?.kinds ?? []).map((kind, at) => [kind, at] as const));
+  return new Map((wiring.targets?.kinds ?? kindsInDependencyOrder(wiring.manifest)).map((kind, at) => [kind, at] as const));
 }
 
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
@@ -131,6 +152,11 @@ export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginT
     const selected = wiring.targets === undefined ? pluginKinds : pluginKinds.filter((kind) => wiring.targets!.kinds.includes(kind.name));
     const earliest = selected[0];
     if (earliest === undefined) continue;
+    if (plugin.contract?.agent !== undefined && wiring.agent === undefined) continue;
+    if (plugin.contract?.agent?.catalogue === true) {
+      for (const kind of selected) units.push({ id: pluginTurnUnitId(plugin.id, kind.name, wiring.targets?.vertex), plugin, kind, lock, patterns: [], wholeGraph: false });
+      continue;
+    }
     // A kind may name the document patterns its plugin reads; a plugin that reads the graph's own files names none, and
     // is asked what to read by its own contract's patterns (the glossary reads `**/glossary*.md`, db-schema `**/*.ts`).
     const patterns = [...new Set(pluginKinds.flatMap((kind) => kind.terms ?? []))];
@@ -263,20 +289,15 @@ function draftEvidence(evidence: { readonly repository?: string; readonly commit
 }
 
 /** One drafted vertex as the graph names the entity: `<kind>:<its key values in the contract's order, joined by /">`. */
-function entityIdOf(wiring: PluginTurnWiring, kind: string, key: Readonly<Record<string, string | number>>): string | undefined {
+function entityIdOf(wiring: PluginTurnWiring, kind: string, key: import('../plugin/protocol.js').PluginKeyValues): string | undefined {
   const vertex = wiring.contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) return undefined;
   const values = vertex.key.map((field) => String(key[field] ?? ''));
   return `${kind}:${values.join('/')}`;
 }
 
-/** The one key of a vertex, rendered one way everywhere: its key fields in code point order with their values. */
-function canonicalKey(key: Readonly<Record<string, string | number>>): string {
-  return JSON.stringify(Object.fromEntries(Object.keys(key).sort(byCodePoint).map((field) => [field, key[field]])));
-}
-
 /** One edge's identity inside one answer: its kind, both ends by kind and key, and its discriminator. */
-function edgeIdentity(kind: string, from: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }, to: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }, discriminator: string): string {
+function edgeIdentity(kind: string, from: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, to: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, discriminator: string): string {
   return JSON.stringify([kind, from.kind, canonicalKey(from.key), to.kind, canonicalKey(to.key), discriminator]);
 }
 
@@ -293,13 +314,7 @@ function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
         .map((file) => ({ kind: GIT_WIKI.file, key: { repository: file.repository, path: file.path } }));
       return files;
     },
-    value: async (kind, key, field) => {
-      if (kind !== GIT_WIKI.file) throw new Error(`the graph read of a ${JSON.stringify(kind)} is not one the host answers: a plugin reads the files producer's vertices (${GIT_WIKI.file})`);
-      const repository = String(key['repository'] ?? '');
-      const path = String(key['path'] ?? '');
-      if (field !== 'content') throw new Error(`the field ${JSON.stringify(field)} is not one a plugin reads of a file: the files producer stores its content`);
-      return await fileContent(wiring.owner, repository, path);
-    },
+    value: storedFileValueAnswerer(wiring.owner),
     // The writer's consistency records (madarch-stm0.7.1, pieces 2 and 4), one bounded page at a time: the plugin asks
     // by name, and the store is read here, in the fill's own layer, never by the plugin.
     unresolved: async (query) => {
@@ -317,16 +332,48 @@ function answererOf(wiring: PluginTurnWiring): GraphAnswerer {
   };
 }
 
-export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void): Promise<void> {
+/** The meter of one plugin turn: the unit's own spend, in the kind it fills and one row per field and model. */
+function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentMeter | undefined {
+  const usage = wiring.agentUsage;
+  if (usage === undefined) return undefined;
+  return new AgentMeter({
+    run: usage.run,
+    unit: unit.id,
+    plugin: unit.plugin.id,
+    pluginVersion: unit.lock.version,
+    kind: unit.kind?.name ?? 'whole-graph',
+    ...(unit.plugin.bounds === undefined ? {} : { bounds: unit.plugin.bounds }),
+    ...(usage.budget === undefined ? {} : { budget: usage.budget }),
+    save: usage.save,
+  });
+}
+
+export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal): Promise<void> {
+  const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
+  const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
+  // The unit's meter (madarch-stm0.4): the agent part of this plugin hands it each ACP session update, and what it holds
+  // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
+  const meter = pluginUnitMeter(wiring, unit);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
   const closure = closureOf(pluginFolder);
   if (closure.hash !== unit.lock.closure) {
     throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
   const workRoot = mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-'));
-  const requests: RequestLog | undefined = wiring.debug === true ? new RequestLog() : undefined;
+  const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
+  let agentReport: PluginAgentReport | undefined;
+  const catalogue = unit.plugin.contract?.agent?.catalogue === true;
+  const outputs = {
+    vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => !catalogue || vertex.kind === unit.kind?.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.map((field) => {
+      const reference = wiring.manifest.kinds.get(vertex.kind)?.fields?.find((held) => held.name === field.name)?.reference;
+      return { ...field, ...(reference === undefined ? {} : { reference }) };
+    }) })),
+    // Both ends must exist at publication: the later producer turn owns the edge, or the sole agent end does.
+    edges: (unit.plugin.contract?.edges ?? []).filter((edge) => !catalogue || outputKindsOf(wiring.manifest, unit.plugin).filter((kind) => kind.name === edge.from || kind.name === edge.to).at(-1)?.name === unit.kind?.name).map((edge) => ({ ...edge, fields: edge.fields.map((field) => ({ ...field })) })),
+  };
   const host = new PluginHost({
+    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
     repository: wiring.productFolder,
@@ -342,13 +389,22 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   let journaled = false;
   try {
     const session = await host.open();
+    const cancel = (): void => { void session.cancel(); };
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted === true) cancel();
     try {
-      const vertexKinds = new Set((unit.plugin.contract?.vertices ?? []).map((vertex) => vertex.kind));
-      const edgeKinds = new Set((unit.plugin.contract?.edges ?? []).map((edge) => edge.kind));
+      const vertexKinds = new Set(outputs.vertices.map((vertex) => vertex.kind));
+      const edgeKinds = new Set(outputs.edges.map((edge) => edge.kind));
+      const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : {
+        contract: outputs,
+        kinds: [unit.kind], kind: unit.kind,
+        files: (await graphFiles(wiring.owner, wiring.contract)).map((file) => ({ path: `${file.repository}/${file.path}`, repository: file.repository, filePath: file.path })),
+      };
       const outcome = await session.runUnit(unit.wholeGraph
         ? { unitId: id, kind: 'whole-graph', key: {}, inputs: { wholeGraph: true } }
-        : { unitId: id, kind: unit.kind!.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { pattern: unit.patterns[0] ?? '', patterns: [...unit.patterns] } });
+        : { unitId: id, kind: unit.kind!.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: agentInputs ?? { pattern: unit.patterns[0] ?? '', patterns: [...unit.patterns] } });
       if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
+      const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
       const only = wiring.targets?.vertex;
       // A whole-graph plugin answers every kind its contract declares in one turn, so its whole answer is drafted and
       // compared; a unit turn drafts the kinds the fill asked for (madarch-stm0.7.1; madarch-47vw.3 item 3).
@@ -369,7 +425,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           ...(vertex.values === undefined ? {} : { values: vertex.values }),
           ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
           producer: unit.plugin.id,
-          producerVersion: unit.lock.version,
+          producerVersion,
         } });
       }
       const answeredEdges = new Set<string>();
@@ -384,7 +440,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           ...(edge.values === undefined ? {} : { values: edge.values }),
           ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
           producer: unit.plugin.id,
-          producerVersion: unit.lock.version,
+          producerVersion,
         } });
       }
       // The unit's entry names its author and, under the debug setting, every request it made — its refusals, its
@@ -417,9 +473,17 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         progress?.(`the plugin ${unit.plugin.id} answered a partial unit: ${outcome.result.end.cause}`);
       }
     } finally {
+      signal?.removeEventListener('abort', cancel);
       await session.close();
     }
+    // The unit's spend goes to the store whatever the unit published: a bound that crossed is the unit's end, and the
+    // rows say what it spent before it stopped.
+    await meter?.flush();
+    const stop: AgentUsageStop | undefined = meter?.stop();
+    if (stop !== undefined) throw new Error(stop.message);
   } catch (error) {
+    // What the unit spent is evidence whatever it published: a unit that failed still writes its rows.
+    await meter?.flush().catch(() => undefined);
     // A unit that crashed or timed out publishes nothing, and its requests are evidence all the same: they go to the
     // journal in one transaction of their own, so the record survives the unit's failure (codex, stage 2 review, 5).
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
@@ -433,8 +497,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
 export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
   return {
     id: PLUGIN_TURN_STAGE_ID,
-    // Version 2: one unit per plugin in its earliest kind's turn, and the answer's edges publish beside its vertices.
-    version: 2,
+    // Agent units carry their effective per-kind contract and run in dependency order.
+    version: 4,
+    maxConcurrency: 1,
     consumes: { required: [], optional: [] },
     produces: [{ kind: 'plugin-claim', schemaVersion: 1, scope: 'product' }],
     after: ['repository-tree'],
@@ -447,7 +512,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind?.name ?? 'whole-graph' })), coverage: 'planned' };
     },
     async execute(unit, context) {
-      await runPluginTurn(wiring, unit.id, context.draft);
+      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal);
       return { outcome: 'draft' };
     },
     validate: () => ({ ok: true }),
@@ -475,7 +540,7 @@ export function createWholeGraphTurnStage(wiring: PluginTurnWiring): FillStage {
       return { units: units.map((unit) => ({ id: unit.id, scope: 'whole-graph' })), coverage: 'planned' };
     },
     async execute(unit, context) {
-      await runPluginTurn(wiring, unit.id, context.draft, context.progress);
+      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal);
       return { outcome: 'draft' };
     },
     validate: () => ({ ok: true }),

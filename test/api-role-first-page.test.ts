@@ -9,9 +9,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer as startServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { fillInProcess } from './fill-inline.js';
+import { SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 let root = '';
@@ -27,6 +29,8 @@ beforeAll(async () => {
   const draft = createDraft({ home, name: 'api-role', gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   product = draft.folder;
+  withoutPluginTurns(product);
+  await fillInProcess(product, home);
   const store = productStoreFolder(product, knowledgeRootOf(home));
   mkdirSync(join(store, 'traces'), { recursive: true });
   const start = 1_700_000_000_000_000_000;
@@ -52,6 +56,10 @@ test('the first status answer on a 150 000-span store answers within 5 seconds',
   const answer = await fetch(`${server!.url}/api/status`, { headers: { accept: 'application/json' } });
   const elapsed = Date.now() - at;
   expect(answer.status).toBe(200);
+  const body = await answer.json();
+  expect(body.manifest).toBe('ok');
+  expect(body.fill.run.spans).toBe(150_000);
+  expect(body.fill.run.steps.map((step: { step: string }) => step.step)).toEqual(['repository-tree']);
   // A fill now writes about 300 spans; 150 000 is a store left by a fill before the trace was bounded. The
   // quadratic reading this guards against took 303 s here; measured after the fix: 1.0 s on the worker VM,
   // 2.1 s on the CI runner (run 42722618397), so 5 s keeps the guard without timing the runner.

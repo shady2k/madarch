@@ -1,3 +1,5 @@
+import { Button } from '@/components/ui/button.js';
+import { PageSection, Preformatted, Stack, Text } from '@/components/ui/typography.js';
 /**
  * A ```mermaid fence in a document (madarch-u3vw.18): the fence the Markdown
  * parser marked as Mermaid is drawn by the wiki's own Mermaid renderer
@@ -13,7 +15,7 @@ import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MermaidDiagram } from '../diagram.js';
 
-/** The part of the Markdown parser's node that says what a `<pre>` holds. */
+/** The part of the Markdown parser's node that says what a `<Preformatted>` holds. */
 export interface FenceNode {
   tagName?: string;
   properties?: Record<string, unknown>;
@@ -23,7 +25,7 @@ export interface FenceNode {
   position?: { start: { line: number } };
 }
 
-/** The language the parser gave the code fence inside a `<pre>`, or null when it holds no fenced code. */
+/** The language the parser gave the code fence inside a `<Preformatted>`, or null when it holds no fenced code. */
 export function fenceLanguage(block: FenceNode | undefined): string | null {
   const code = block?.tagName === 'pre' ? block.children?.[0] : undefined;
   if (code?.tagName !== 'code') return null;
@@ -41,7 +43,7 @@ function fenceText(block: FenceNode | undefined): string {
   return (code?.children ?? []).map((child) => (child.type === 'text' ? child.value ?? '' : '')).join('');
 }
 
-/** The Mermaid source of the fence this `<pre>` holds and the line its opening stands on, or null when it is no Mermaid fence. */
+/** The Mermaid source of the fence this `<Preformatted>` holds and the line its opening stands on, or null when it is no Mermaid fence. */
 export function mermaidFence(block: FenceNode | undefined): { source: string; line: number | null } | null {
   if (fenceLanguage(block) !== 'mermaid') return null;
   return { source: fenceText(block), line: block?.position?.start.line ?? null };
@@ -63,21 +65,21 @@ export function MermaidFence({ source, line, path }: { source: string; line: num
   const [view, setView] = useState<'diagram' | 'source'>('diagram');
   const place = placeOf(path, line, t);
   return (
-    <section className="fence-diagram" data-fence="mermaid" data-fence-line={line ?? undefined} data-testid="mermaid-fence">
-      <div className="fence-bar">
-        <span className="dg-spacer" />
-        <div role="tablist" aria-label={t('knowledge.documentDiagram.switch')} className="dg-group">
-          <button type="button" role="tab" aria-selected={view === 'diagram'} className="dg-chip" data-state={view === 'diagram' ? 'on' : 'off'} data-testid="fence-diagram-tab" onClick={() => setView('diagram')}>
+    <PageSection className="fence-diagram" data-fence="mermaid" data-fence-line={line ?? undefined} data-testid="mermaid-fence">
+      <Stack className="fence-bar">
+        <Text className="dg-spacer" />
+        <Stack role="tablist" aria-label={t('knowledge.documentDiagram.switch')} className="dg-group">
+          <Button variant="ghost" size="content" type="button" role="tab" aria-selected={view === 'diagram'} className="dg-chip" data-state={view === 'diagram' ? 'on' : 'off'} data-testid="fence-diagram-tab" onClick={() => setView('diagram')}>
             {t('knowledge.documentDiagram.diagram')}
-          </button>
-          <button type="button" role="tab" aria-selected={view === 'source'} className="dg-chip" data-state={view === 'source' ? 'on' : 'off'} data-testid="fence-source-tab" onClick={() => setView('source')}>
+          </Button>
+          <Button variant="ghost" size="content" type="button" role="tab" aria-selected={view === 'source'} className="dg-chip" data-state={view === 'source' ? 'on' : 'off'} data-testid="fence-source-tab" onClick={() => setView('source')}>
             {t('knowledge.documentDiagram.source')}
-          </button>
-        </div>
-      </div>
+          </Button>
+        </Stack>
+      </Stack>
       {view === 'diagram'
         ? <MermaidDiagram source={source} {...(place === undefined ? {} : { place })} />
-        : <pre className="fence-source" data-testid="fence-source"><code>{source}</code></pre>}
-    </section>
+        : <Preformatted className="fence-source" data-testid="fence-source"><code>{source}</code></Preformatted>}
+    </PageSection>
   );
 }

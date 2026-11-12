@@ -11,8 +11,8 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphEntity, GraphReader } from '../src/knowledge/graph-read.js';
 import { collectProblems } from '../src/problems/index.js';
 import { defaultSettings } from '../src/problems/types.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
-import type { KindsManifest } from '../src/knowledge/kinds.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
+import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const unusedOwner: DatabaseOwner = {
   location: 'unused findings fixture', ready: Promise.resolve(), allowConcurrentSnapshots: false, hasVector: false,
@@ -48,11 +48,12 @@ describe('a findings kind of the manifest is read as problems, and no other kind
         finding('dangling-reference', 'code.file:shop/src/a.ts', 'the edge names a key no vertex holds'),
         finding('removed-end', 'code.commit:aaaa', 'the edge ends at a removed vertex'),
       ]) as unknown as GraphReader;
-      const read = async (findingKinds?: readonly string[]) => await collectProblems({
+      const read = async (findingKinds?: readonly string[], dismissed?: ReadonlySet<string>) => await collectProblems({
         productFolder: product, owner: unusedOwner, graph,
         files: workingTreeFiles(product),
         manifest: { file: '', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as KindsManifest,
         ...(findingKinds === undefined ? {} : { findingKinds }),
+        ...(dismissed === undefined ? {} : { dismissed }),
         // A rule the manifest does not declare is a note, never a row (views.ts): the fixture declares the two.
         settings: { ...defaultSettings(), rules: {
           'dangling-reference': { predicate: 'findings', kind: 'bug', sonar: 'bug', severity: 'major', section: 'code', action: 'fix', label: 'unresolved reference' },
@@ -67,6 +68,13 @@ describe('a findings kind of the manifest is read as problems, and no other kind
         ['removed-end', 'code.commit:aaaa', 'major'],
       ]);
       expect(shown.map((problem) => problem.reason).sort()).toEqual(['the edge ends at a removed vertex', 'the edge names a key no vertex holds']);
+      // Retirement leaves the generic findings and their stable dismissals usable, not a failed Markdown read.
+      expect(listing.notes.some((note) => note.message.includes('Markdown questions are retired'))).toBe(true);
+      expect(listing.notes.some((note) => note.message.includes('documents section could not be judged'))).toBe(false);
+      const dismissed = await read(['probe.finding'], new Set([shown[0]!.id]));
+      expect(dismissed.dismissed).toBe(1);
+      expect(dismissed.open).toBe(1);
+      expect(dismissed.problems.some((problem) => problem.id === shown[0]!.id)).toBe(false);
       // The engine names no findings kind: a product that declares none shows none of these.
       expect((await read()).problems.filter((problem) => problem.rule === 'dangling-reference')).toEqual([]);
     } finally {

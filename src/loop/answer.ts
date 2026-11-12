@@ -10,17 +10,8 @@
  */
 import { whoIsTheUser } from '../identity/identity.js';
 import { execFile } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { correctionId, QUESTION_SLUG } from './ids.js';
-import { readKnowledgePages } from '../knowledge/index/index.js';
-import {
-  CORRECTIONS_FOLDER, CORRECTION_KIND, LoopFileError, MAX_ANSWER, MAX_REASON,
-  correctionPath, parseCorrection, parseQuestion, parseStatementRef, questionPath, renderCorrection, renderQuestion,
-  type Author, type Correction, type Question,
-} from './entities.js';
+import type { Author, Question, Correction } from './entities.js';
 
 const run = promisify(execFile);
 
@@ -30,6 +21,9 @@ export class LoopRefusal extends Error {
     super(message);
   }
 }
+
+export interface Answered extends Committed { readonly question: Question; }
+export interface Corrected extends Committed { readonly correction: Correction; }
 
 export interface Committed {
   readonly committed: boolean;
@@ -75,138 +69,4 @@ export async function commitFiles(productFolder: string, files: readonly string[
     const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim();
     return { committed: false, note: `the file was written but git could not commit it in ${productFolder}: ${stderr.split('\n')[0] || (error as Error).message}` };
   }
-}
-
-/** The file and its folder stand inside the product: a folder or file that is a link out of it is not the wiki's to write. */
-function assertInside(productFolder: string, path: string): void {
-  const root = realpathSync(productFolder);
-  let probe = path;
-  while (!existsSync(probe)) probe = dirname(probe);
-  const real = realpathSync(probe);
-  if (real !== root && !real.startsWith(`${root}/`)) throw new LoopRefusal(422, `${probe} is a link to ${real}, outside the product ${productFolder}, so nothing is written there`);
-  if (existsSync(path)) {
-    const file = realpathSync(path);
-    if (!file.startsWith(`${root}/`)) throw new LoopRefusal(422, `${path} is a link to ${file}, outside the product ${productFolder}, so nothing is written there`);
-  }
-}
-
-async function writeWhole(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.writing`;
-  await writeFile(temporary, content, 'utf8');
-  await rename(temporary, path);
-}
-
-/** One write per file at a time: two answers to one question never both pass the "still open" check. */
-const writing = new Map<string, Promise<unknown>>();
-async function alone<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const before = writing.get(key) ?? Promise.resolve();
-  const turn = before.then(work, work);
-  writing.set(key, turn.catch(() => undefined));
-  return await turn;
-}
-
-export interface AnswerInput {
-  readonly productFolder: string;
-  readonly slug: string;
-  readonly text: string;
-  readonly now?: () => Date;
-  readonly env?: NodeJS.ProcessEnv;
-}
-
-export interface Answered extends Committed {
-  readonly question: Question;
-}
-
-export async function answerQuestion(input: AnswerInput): Promise<Answered> {
-  const env = input.env ?? process.env;
-  if (!QUESTION_SLUG.test(input.slug)) throw new LoopRefusal(400, `"${input.slug}" is no question id: a question's id is lower-case words joined by hyphens or the 12-character content hash a new file is named by`);
-  const text = input.text.replace(/\r\n/g, '\n').trim();
-  if (text === '') throw new LoopRefusal(400, 'the answer is empty: write what is true, in your own words');
-  if (text.length > MAX_ANSWER) throw new LoopRefusal(413, `the answer is ${text.length} characters, past the ${MAX_ANSWER} a question's file keeps`);
-  const file = questionPath(input.slug);
-  const path = join(input.productFolder, file);
-  return await alone(path, async () => {
-    let source: string;
-    try {
-      source = await readFile(path, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new LoopRefusal(404, `there is no question ${input.slug}: ${file} is not in the product repository`);
-      throw new LoopRefusal(500, `${file} cannot be read: ${(error as Error).message}`);
-    }
-    let question: Question;
-    try {
-      question = parseQuestion(file, source);
-    } catch (error) {
-      if (error instanceof LoopFileError) throw new LoopRefusal(422, error.message);
-      throw error;
-    }
-    if (question.status === 'answered') throw new LoopRefusal(409, `the question ${input.slug} is already answered (by ${question.answer!.by.name} at ${question.answer!.at}); to change what the wiki says, record a correction on the page that used the answer`);
-    assertInside(input.productFolder, path);
-    const by = await localIdentity(input.productFolder, env);
-    const at = (input.now?.() ?? new Date()).toISOString();
-    const answered: Question = { ...question, status: 'answered', answer: { text, by, at } };
-    await writeWhole(path, renderQuestion(answered));
-    const committed = await commitFiles(input.productFolder, [file], `Answer the question ${input.slug}\n\nAnswered in the wiki by ${by.name} <${by.email}> (${by.verified}).`, by, env);
-    return { question: answered, ...committed };
-  });
-}
-
-export interface CorrectionInput {
-  readonly productFolder: string;
-  /** `<page id>#<statement name>`: the statement the correction is about. */
-  readonly statement: string;
-  readonly reason: string;
-  readonly now?: () => Date;
-  readonly env?: NodeJS.ProcessEnv;
-}
-
-export interface Corrected extends Committed {
-  readonly correction: Correction;
-}
-
-/** Finds a statement of the product's pages: its page, its sentence and its file. */
-function findStatement(productFolder: string, ref: string): { page: string; file: string; text: string } | undefined {
-  const parsed = parseStatementRef(ref);
-  if (parsed === undefined) return undefined;
-  const { pages } = readKnowledgePages(productFolder);
-  const page = pages.find((candidate) => candidate.id === parsed.page);
-  const statement = page?.statements.find((candidate) => candidate.id === parsed.statement);
-  return page === undefined || statement === undefined ? undefined : { page: page.id, file: page.file, text: statement.text };
-}
-
-export async function recordCorrection(input: CorrectionInput): Promise<Corrected> {
-  const env = input.env ?? process.env;
-  const parsed = parseStatementRef(input.statement);
-  if (parsed === undefined) throw new LoopRefusal(400, `"statement" is a page id, a hash and the statement's name, such as domain:payments#refund-check; got ${JSON.stringify(input.statement)}`);
-  const reason = input.reason.replace(/\r\n/g, '\n').trim();
-  if (reason === '') throw new LoopRefusal(400, 'the correction has no reason: say why the statement is wrong ("wrong, because ...")');
-  if (reason.length > MAX_REASON) throw new LoopRefusal(413, `the reason is ${reason.length} characters, past the ${MAX_REASON} a correction keeps`);
-  const found = findStatement(input.productFolder, input.statement);
-  if (found === undefined) throw new LoopRefusal(404, `the product has no statement ${input.statement}: it may have been rewritten since the page was opened; open the page again and choose the sentence`);
-  const by = await localIdentity(input.productFolder, env);
-  const at = (input.now?.() ?? new Date()).toISOString();
-  const first = reason.replace(/\s+/g, ' ');
-  const title = first.length > 80 ? `${first.slice(0, 79)}…` : first;
-  // The id is chosen inside the turn: the same correction is one file, and two different ones never pick the same file.
-  return await alone(join(input.productFolder, CORRECTIONS_FOLDER), async () => {
-    const wanted = correctionId(found.text, reason, input.statement);
-    let slug = wanted;
-    for (let n = 2; ; n += 1) {
-      const candidate = correctionPath(slug);
-      const path = join(input.productFolder, candidate);
-      if (!existsSync(path)) break;
-      const existing = parseCorrection(candidate, await readFile(path, 'utf8'));
-      if (correctionId(existing.statement, existing.reason, existing.about) === wanted) {
-        return { correction: existing, committed: false, note: `${candidate} already records this correction; nothing was written` };
-      }
-      slug = `${wanted}-${n}`;
-    }
-    const file = correctionPath(slug);
-    const correction: Correction = { slug, id: `${CORRECTION_KIND}:${slug}`, file, title, status: 'open', about: input.statement, statement: found.text, reason, by, at, resolvedBy: [], resolvedAt: null };
-    assertInside(input.productFolder, join(input.productFolder, file));
-    await writeWhole(join(input.productFolder, file), renderCorrection(correction));
-    const committed = await commitFiles(input.productFolder, [file], `Record the correction ${slug}\n\nCorrected in the wiki by ${by.name} <${by.email}> (${by.verified}): ${input.statement}.`, by, env);
-    return { correction, ...committed };
-  });
 }

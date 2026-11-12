@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import type { RenderContext } from '../src/knowledge/blocks.js';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import type { MarkdownEntity } from '../src/knowledge/markdown.js';
 import type { GraphEntity } from '../src/knowledge/graph-read.js';
@@ -66,7 +66,7 @@ const MANIFEST = [
 ].join('\n');
 
 function page(id: string, kind: string, title: string, body: string): MarkdownEntity {
-  return { id, kind, title, relates: [], producer: 'agent', sources: [], body, bodyLine: 1, file: kind === 'product' ? 'docs/product.md' : 'docs/glossary.md', source: body, front: {} };
+  return { id, kind, title, relates: [], producer: 'agent', sources: [], body, bodyLine: 1, file: kind === 'product' ? 'docs/product.md' : 'docs/glossary.md', front: {}, reading: { links: [], findings: [], ungrounded: [], statements: 0 }, statementReading: { statements: [], definitions: new Map() }, indexedStatements: [], mentions: [], digest: '' };
 }
 
 const milestone: GraphEntity = {
@@ -106,16 +106,15 @@ function context(): RenderContext {
 const product = (ctx: RenderContext) => ({ source: 'markdown' as const, entity: ctx.markdown.get('product:shop')! });
 
 describe('the overview blocks (madarch-47vw.5)', () => {
-  test('about reads the vision and README with the source each stands on', async () => {
+  test('about reads vision opinions with their source, never a raw README fallback', async () => {
     const ctx = context();
     const block = await overviewAbout(ctx, product(ctx), { readme: 'README.md' }, 'en');
     expect(block.type).toBe('overview');
     if (block.type !== 'overview') return;
     expect(block.section).toBe('about');
-    expect(block.paragraphs).toHaveLength(2);
+    expect(block.paragraphs).toHaveLength(1);
     expect(block.paragraphs![0]!.text).toContain('bills customers');
     expect(block.paragraphs![0]!.source!.href).toContain('/src?');
-    expect(block.paragraphs![1]!.text).toContain('small shop');
   });
 
   test('how says which fill brings the system view when there is none', async () => {

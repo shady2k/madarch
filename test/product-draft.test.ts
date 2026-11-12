@@ -1,10 +1,13 @@
 import { spawnSync } from 'node:child_process';
+import * as childProcess from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { CONSTITUTION, createDraft, productsHome, whyNotADay } from '../src/product/draft.js';
+import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
+import { byCodePoint } from '../src/model/order.js';
 
 /**
  * The machine's real git, resolved once: a stub placed on PATH in a test
@@ -102,6 +105,46 @@ describe('productsHome', () => {
 });
 
 describe('createDraft', () => {
+  test('global ignores cannot omit the generated starter files from its first commit', () => {
+    const config = tempFolder('madarch-products-ignore-config-');
+    const excludes = join(config, 'ignore');
+    const globalConfig = join(config, 'gitconfig');
+    writeFileSync(excludes, '*.json\nnode_modules/\n');
+    writeFileSync(globalConfig, `[core]\nexcludesFile = ${JSON.stringify(excludes.replaceAll('\\', '/'))}\n`);
+    const home = tempFolder('madarch-products-global-ignore-');
+    const draft = createDraft({ home, today: EXAMPLE_DAY, gitEnv: { ...gitEnv(GIT_ENV), GIT_CONFIG_GLOBAL: globalConfig } });
+    expect(draft).toMatchObject({ outcome: 'created' });
+    if (draft.outcome !== 'created') return;
+    const files = tracked(draft.folder);
+    for (const plugin of BUNDLED_PLUGINS) {
+      for (const file of plugin.files) expect(files).toContain(`${plugin.folder}/${file.path}`);
+    }
+    expect(files.some((file) => file.startsWith('repos/'))).toBe(false);
+    expect(git(['status', '--porcelain'], draft.folder).stdout).toBe('');
+  });
+
+  test('the complete starter is staged without exceeding the Windows command-line limit', () => {
+    const spawn = spyOn(childProcess, 'spawnSync');
+    try {
+      const home = tempFolder('madarch-products-add-limit-');
+      const draft = draftIn(home);
+      expect(draft).toMatchObject({ outcome: 'created' });
+      const adds = spawn.mock.calls.filter(([command, args]) => command === 'git' && args?.[0] === 'add');
+      expect(adds).toHaveLength(1);
+      const [, args] = adds[0]!;
+      // Windows limits a process command line to 32,767 characters; even its unquoted arguments must fit.
+      expect(['git', ...args!].join(' ').length).toBeLessThan(32_767);
+      if (draft.outcome !== 'created') return;
+      const files = tracked(draft.folder);
+      for (const plugin of BUNDLED_PLUGINS) {
+        for (const file of plugin.files) expect(files).toContain(`${plugin.folder}/${file.path}`);
+      }
+      expect(git(['status', '--porcelain'], draft.folder).stdout).toBe('');
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
   test('one draft a day sits at idea-YYYY-MM-DD of the local date, a git repository with one skeleton commit', () => {
     const home = tempFolder('madarch-products-');
     const draft = draftIn(home);
@@ -120,26 +163,7 @@ describe('createDraft', () => {
       'madarch/plugins.lock',
       'madarch/workflows.yaml',
       'model/.gitkeep',
-      'plugins/db-schema/ambient.d.ts',
-      'plugins/db-schema/contract.json',
-      'plugins/db-schema/main.ts',
-      'plugins/db-schema/node_modules/@babel/parser/LICENSE',
-      'plugins/db-schema/node_modules/@babel/parser/lib/index.js',
-      'plugins/db-schema/node_modules/@babel/parser/package.json',
-      'plugins/db-schema/node_modules/@pgsql/types/LICENSE',
-      'plugins/db-schema/node_modules/@pgsql/types/enums.js',
-      'plugins/db-schema/node_modules/@pgsql/types/index.js',
-      'plugins/db-schema/node_modules/@pgsql/types/package.json',
-      'plugins/db-schema/node_modules/@pgsql/types/types.js',
-      'plugins/db-schema/node_modules/libpg-query/LICENSE',
-      'plugins/db-schema/node_modules/libpg-query/package.json',
-      'plugins/db-schema/node_modules/libpg-query/wasm/index.js',
-      'plugins/db-schema/node_modules/libpg-query/wasm/libpg-query.js',
-      'plugins/db-schema/node_modules/libpg-query/wasm/libpg-query.wasm',
-      'plugins/db-schema/plugin.json',
-      'plugins/glossary/contract.json',
-      'plugins/glossary/main.ts',
-      'plugins/glossary/plugin.json',
+      ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`)),
       'prototypes/.gitkeep',
       'skills/.gitkeep',
       'templates/author.liquid',
@@ -148,6 +172,7 @@ describe('createDraft', () => {
       'templates/correction.liquid',
       'templates/database.liquid',
       'templates/directory.liquid',
+      'templates/dismissal.liquid',
       'templates/domain.liquid',
       'templates/enrichment.liquid',
       'templates/entity-text.liquid',
@@ -174,8 +199,9 @@ describe('createDraft', () => {
       'templates/table.liquid',
       'templates/task.liquid',
       'templates/term.liquid',
+      'templates/test-quarantine.liquid',
       'workspace.yaml',
-    ]);
+    ].sort(byCodePoint));
     for (const file of listed) expect(readFileSync(join(folder, file), 'utf8')).toBeDefined();
     for (const file of ['docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep']) {
       expect(readFileSync(join(folder, file), 'utf8')).toBe('');

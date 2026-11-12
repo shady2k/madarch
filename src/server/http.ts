@@ -23,6 +23,7 @@
  * default (128 MB) are never reached by honest clients; a client that
  * lies by omission costs one read, then is refused.
  */
+import { requestHistoryPreparation, requestHistoryRename } from '../product/store-preparation.js';
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { traceKeepOf } from '../knowledge/settings.js';
@@ -43,8 +44,8 @@ import { createSourceStores, sourceNameProblem } from './sources.js';
 import { API, KIND_FILE_BASE, PAGE_FILE_BASE } from '../knowledge/addresses.js';
 import { kindFileAt, pageFileAt } from '../knowledge/page-files.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
-import { MANIFEST_FILE } from '../product/manifest.js';
-import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
+import { MANIFEST_FILE, readProduct } from '../product/manifest.js';
+import { isExistingDirectoryWithoutManifest } from '../product-wiki/manifestless.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import { selfCommand } from '../product/self-command.js';
@@ -52,6 +53,7 @@ import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../mcp/t
 import { productsHome } from '../product/home.js';
 import { KnowledgeHost, type AgentFactory, type KnowledgeProductOptions } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
+import { manifestPublicationReady } from '../product/manifest-publication-state.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -158,6 +160,7 @@ export interface Refusal {
   message: string;
   field?: string;
   accepted?: string;
+  conflict?: { field: string; current: unknown; author: string };
   /**
    * The refusal's own machine-readable name, when the route has one (`graph-pages/no-such-node`),
    * so a client can branch on what went wrong instead of reading the words. It rides in the
@@ -266,12 +269,15 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     await queryDatabase?.close().catch(() => {});
     throw new Error('a shared graph-query database owner is only used with the model routes: give dataFolder with queryDatabase');
   }
-  let wiki: ReturnType<typeof openProductWiki> | undefined;
+  let product: { name: string; folder: string } | undefined;
   let appFolder = options.appFolder;
   try {
     if (options.productFolder !== undefined) {
-      wiki = openProductWiki(options.productFolder, { allowNoManifest: options.allowNoManifest });
-      if (wiki !== undefined && !wiki.ok) throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: ${wiki.message}`);
+      const read = readProduct(options.productFolder);
+      if (read.ok) product = read.product;
+      else if (options.allowNoManifest === true && isExistingDirectoryWithoutManifest(options.productFolder)) {
+        product = { name: basename(options.productFolder), folder: options.productFolder };
+      } else throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: ${read.message} (${read.file}, line ${read.line})`);
     }
     if ((options.productFolder !== undefined || options.productHome !== undefined) && appFolder === undefined) {
       const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
@@ -297,10 +303,13 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   // the state the server itself holds. A server told of no folder keeps none.
   const obsFolder = options.dataFolder ?? options.knowledgeRoot;
   const obsTrace = obsFolder === undefined ? undefined : openTrace({ store: obsFolder, runId: `server-${String(process.pid)}`, keep: traceKeepOf(process.env) });
-  const productWiki = wiki !== undefined && wiki.ok ? wiki.wiki : undefined;
   let sources: SourceStores | undefined;
   try {
-    sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log });
+    if (options.dataFolder !== undefined) await requestHistoryPreparation(options.dataFolder);
+    sources = options.dataFolder === undefined ? undefined : await createSourceStores({ dataFolder: options.dataFolder, clock, log,
+      prepareHistory: async (database) => await requestHistoryPreparation(options.dataFolder!, database),
+      renameHistory: async (from, to) => await requestHistoryRename(options.dataFolder!, from, to),
+    });
   } catch (error) {
     await queryDatabase?.close().catch(() => {});
     throw error;
@@ -319,7 +328,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
-  let productNames: () => { name: string; folder: string; own?: true }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
+  let productNames: () => { name: string; folder: string; own?: true }[] = () => (product === undefined ? [] : [{ name: product.name, folder: basename(product.folder) }]);
   const knowledgeOf = (productFolder: string, own = false, prefix = ''): KnowledgePart =>
     createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames(), env as Record<string, string | undefined>, own, prefix);
   const handle = createHandler({
@@ -329,11 +338,11 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     log,
     errorLog,
     ...(obsTrace === undefined ? {} : { trace: obsTrace }),
-    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder, { env, outside: knowledgeHost.of(productWiki.product.folder).changes }),
+    wiki: product === undefined ? undefined : createWikiPart(makeJson, wikiRefused, knowledgeHost.of(product.folder).changes, appFolder),
     appFolder,
     unitTool: options.orchestrator?.unitTool,
-    knowledge: productWiki === undefined ? undefined : knowledgeOf(productWiki.product.folder),
-    opened: productWiki === undefined ? undefined : (request) => { if (opensPage(request)) knowledgeHost.of(productWiki.product.folder).warm(); },
+    knowledge: product === undefined ? undefined : knowledgeOf(product.folder),
+    opened: product === undefined ? undefined : (request) => { if (opensPage(request) && manifestPublicationReady(product.folder)) knowledgeHost.of(product.folder).warm(); },
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -344,16 +353,14 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   // a restart, and no request pays for a re-read when nothing changed.
   /**
    * One product's entry: the handler that serves it, and the manifest it was opened from. A product
-   * whose manifest is unchanged keeps its entry across a refresh — its handler holds the answers it
-   * built (the Architecture bundle, the page set's bodies) — while its pages are still read fresh at
-   * every ask (madarch-tzte.23.8).
+   * whose manifest is unchanged keeps its handler across a refresh; pages are read from the graph.
    */
-  interface ProductEntry { wiki: ProductWiki; handler: ServerHandler; manifest: number; own?: boolean }
+  interface ProductEntry { product: { name: string; folder: string }; handler: ServerHandler; manifest: number; own?: boolean }
   const productHome = options.productHome;
   const productEntries = new Map<string, ProductEntry>();
   let homeStamp = -1;
   let lastRefresh = 0;
-  if (productHome !== undefined) productNames = () => { refreshProducts(); return [...productEntries.entries()].map(([folder, entry]) => ({ name: entry.wiki.product.name, folder, ...(entry.own ? { own: true as const } : {}) })).sort((a, b) => byCodePoint(a.folder, b.folder)); };
+  if (productHome !== undefined) productNames = () => { refreshProducts(); return [...productEntries.entries()].map(([folder, entry]) => ({ name: entry.product.name, folder, ...(entry.own ? { own: true as const } : {}) })).sort((a, b) => byCodePoint(a.folder, b.folder)); };
   const refreshProducts = (): void => {
     if (productHome === undefined) return;
     let stamp = -1;
@@ -382,22 +389,22 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       // every product on every refresh drops the answers it holds, and this refresh runs whenever a
       // request arrives more than five seconds after the last one — a reader who pauses between
       // pages would then pay a render on every page (madarch-tzte.23.8). A page is still read fresh
-      // at every ask, so a saved document is served at once; a product created, removed or moved, and
+      // at every ask from graph opinions; a product created, removed or moved, and
       // a rewritten manifest, is a new or absent entry.
       if (keepsProductEntry(held, manifest)) {
         next.set(name, held);
         continue;
       }
-      const opened = openProductWiki(item.folder);
+      const opened = readProduct(item.folder);
       if (!opened.ok) {
         errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: ${opened.message}`);
         continue;
       }
       next.set(name, {
         own: item.own,
-        wiki: opened.wiki,
+        product: opened.product,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, ...(obsTrace === undefined ? {} : { trace: obsTrace }), wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own, `/products/${encodeURIComponent(name)}`) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, ...(obsTrace === undefined ? {} : { trace: obsTrace }), wiki: createWikiPart(makeJson, wikiRefused, knowledgeHost.of(item.folder).changes, appFolder), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own, `/products/${encodeURIComponent(name)}`) }),
       });
     }
     productEntries.clear();
@@ -439,7 +446,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     if (name === undefined) {
       return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch</title></head><body><p>No product is served yet: run <code>madarch init</code> in a code repository, or <code>madarch new</code> for an empty product.</p></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
     }
-    if (opensPage(request)) knowledgeHost.of(productEntries.get(name)!.wiki.product.folder).warm();
+    if (opensPage(request) && manifestPublicationReady(productEntries.get(name)!.product.folder)) knowledgeHost.of(productEntries.get(name)!.product.folder).warm();
     return new Response(null, { status: 302, headers: { location: `/products/${encodeURIComponent(name)}/`, 'cache-control': 'no-store' } });
   };
   /** One built app file at the home's own /assets and /fonts: the stylesheet of a product's wiki names its fonts by absolute path; anything else is a named 404, never an app shell. */
@@ -475,7 +482,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     refreshProducts();
     const entry = productEntries.get(name);
     if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
-    if (opensPage(request)) knowledgeHost.of(entry.wiki.product.folder).warm();
+    if (opensPage(request) && manifestPublicationReady(entry.product.folder)) knowledgeHost.of(entry.product.folder).warm();
     const rest = match[2] === undefined ? '/' : `/${match[2]}`;
     const forwarded = new Request(new URL(rest + url.search, url), request);
     const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
@@ -503,18 +510,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   }
   // The fill role, beside this one (madarch-8bdc.9): a child of the same binary that takes the fills pressed here from
   // each store's queue, at a lower scheduling priority so the process that answers pages never loses a core to it.
-  const fillChild = options.fillProcess === false || process.env['MADARCH_ROLE'] === 'api'
+  const fillChild = options.fillProcess === false
     ? undefined
     : startFillRole({ home: serveHome, root: knowledgeHost.root });
-  // The api role opens each product's reader before the first request: the store's first page must not pay the
-  // product's open, and a page asked straight after start answers within the page budget.
-  if (productHome !== undefined) {
-    refreshProducts();
-    for (const entry of productEntries.values()) await knowledgeHost.of(entry.wiki.product.folder).warmNow();
-  } else if (productWiki !== undefined) {
-    // One product's server warms it before its first answer, the worker included (the same warm-up the home does).
-    await knowledgeHost.of(productWiki.product.folder).warmNow();
-  }
   return {
     hostname: server.url.hostname,
     port: server.url.port === '' ? (options.port ?? 4180) : Number(server.url.port),
@@ -550,7 +548,7 @@ function startFillRole(options: { readonly home: string; readonly root: string }
   try {
     const { command, args } = selfCommand(['--role', 'fill', '--home', options.home]);
     // Its output would mix with the server's own on the same stream: the fill role's log lines are diagnostics of a child.
-    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
+    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: options.root, MADARCH_FILL_PARENT: String(process.pid) } });
     try { setPriority(child.pid, 10); } catch { /* the platform refuses: the child runs at the priority it has */ }
     return {
       stop: async () => {
@@ -658,6 +656,12 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.block, handle: (request: Request) => dependencies.knowledge!.block(request) },
         { method: 'GET', path: API.statement, handle: (request: Request) => dependencies.knowledge!.statement(request) },
         { method: 'GET', path: API.entities, handle: (request: Request) => dependencies.knowledge!.entities(request) },
+        { method: 'GET', path: API.kindUsage, handle: (request: Request) => dependencies.knowledge!.kindUsage(request) },
+        { method: 'GET', path: API.authoredSchema, handle: (request: Request) => dependencies.knowledge!.authoredSchema(request) },
+        { method: 'GET', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
+        { method: 'POST', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
+        { method: 'PATCH', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
+        { method: 'DELETE', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
         { method: 'GET', path: API.neighborhood, handle: (request: Request) => dependencies.knowledge!.neighborhood(request) },
         { method: 'GET', path: API.view, handle: (request: Request) => dependencies.knowledge!.view(request) },
         { method: 'GET', path: API.viewFrame, handle: (request: Request) => dependencies.knowledge!.viewFrame(request) },
@@ -665,8 +669,6 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.run, handle: (request: Request) => dependencies.knowledge!.run(request) },
         { method: 'GET', path: API.products, handle: (request: Request) => dependencies.knowledge!.products(request) },
         { method: 'POST', path: API.fill, handle: (request: Request) => dependencies.knowledge!.fill(request) },
-        { method: 'GET', path: API.fillSelection, handle: (request: Request) => dependencies.knowledge!.fillSelection(request) },
-        { method: 'POST', path: API.fillSelection, handle: (request: Request) => dependencies.knowledge!.fillSelection(request) },
         { method: 'POST', path: API.fillSelected, handle: (request: Request) => dependencies.knowledge!.fillSelected(request) },
         { method: 'POST', path: API.pause, handle: (request: Request) => dependencies.knowledge!.pause(request) },
         { method: 'POST', path: API.stop, handle: (request: Request) => dependencies.knowledge!.stop(request) },

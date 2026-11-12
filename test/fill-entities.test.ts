@@ -18,6 +18,8 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { gitEnv } from './git-env.js';
+import { prepareTestProduct } from './prepared-server.js';
+import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -33,6 +35,7 @@ const GLOSSARY = `# Glossary
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases are skipped with it, never passed. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -43,11 +46,13 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
 let work: string;
 let home: string;
 let folder: string;
+let closePreparation: (() => Promise<void>) | undefined;
 
 /** One `madarch fill` of the product, as it answered: its exit code and both streams. */
-function fillCommand(...args: readonly string[]): { code: number; stdout: string; stderr: string } {
-  const answer = Bun.spawnSync(['bun', CLI, 'fill', '--product', folder, '--home', home, ...args], { env: { ...process.env, HOME: home }, stdout: 'pipe', stderr: 'pipe' });
-  return { code: answer.exitCode ?? 1, stdout: new TextDecoder().decode(answer.stdout), stderr: new TextDecoder().decode(answer.stderr) };
+async function fillCommand(...args: readonly string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const answer = Bun.spawn(['bun', CLI, 'fill', '--product', folder, '--home', home, ...args], { env: { ...process.env, HOME: home }, stdout: 'pipe', stderr: 'pipe' });
+  const [code, stdout, stderr] = await Promise.all([answer.exited, new Response(answer.stdout).text(), new Response(answer.stderr).text()]);
+  return { code, stdout, stderr };
 }
 
 /** The glossary as the wiki reads it from the graph: each term's definition, by title. */
@@ -81,12 +86,13 @@ function commit(message: string): void {
 }
 
 describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person names', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     work = mkdtempSync(join(tmpdir(), 'madarch-fill-entities-'));
     home = join(work, 'home');
     const draft = createDraft({ home, name: 'entities-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
+    useExtractedGlossary(folder);
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, 'README.md'), '# App\n');
@@ -97,12 +103,13 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
     commit('The glossary');
+    closePreparation = await prepareTestProduct(folder, home);
   }, 120_000);
 
-  afterAll(() => { rmSync(work, { recursive: true, force: true }); });
+  afterAll(async () => { await closePreparation?.(); rmSync(work, { recursive: true, force: true }); });
 
   test('the kind a person names is filled with the kinds it declares it needs, and the run says what it added', async () => {
-    const answer = fillCommand('--entity', 'doc.term');
+    const answer = await fillCommand('--entity', 'doc.term');
     expect(answer.code).toBe(0);
     // What the request added, and the order the manifest declares: the term kind needs the files, so code.file runs first.
     expect(answer.stdout).toContain('Also filling code.file, needed by doc.term.');
@@ -114,10 +121,10 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
   }, 600_000);
 
   test('a kind with no plugin of its own plans no plugin turn', async () => {
-    // A commit needs no kind before it and no kind of this product depends on it: the set is the commit alone, and it
-    // has no plugin, so the run plans no plugin turn at all.
-    const answer = fillCommand('--entity', 'code.commit');
+    // Authors need commits and repositories, all host-filled; dependants of those added dependencies stay out.
+    const answer = await fillCommand('--entity', 'code.author');
     expect(answer.code).toBe(0);
+    expect(answer.stdout).toContain('Also filling code.commit, needed by code.author.');
     expect(answer.stdout).toContain('Also filling code.repository, needed by code.commit.');
     expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.commit, code.author.');
     expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual([]);
@@ -126,11 +133,11 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
 
   test('a kind with a plugin and its dependants in the set are filled in one order', async () => {
     // code.file is read by doc.term, so a fill of the files takes the term kind with it, after the files.
-    const answer = fillCommand('--entity', 'code.file');
+    const answer = await fillCommand('--entity', 'code.file');
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Also filling doc.term, which depends on code.file.');
-    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, doc.term.');
-    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/db-schema:code.database']);
+    expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.database, code.table, code.column, code.index, code.test-quarantine, doc.term.');
+    expect((await runUnits(answer.stdout)).filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/db-schema:code.database', 'plugin-turns/test-quarantine:code.test-quarantine']);
   }, 600_000);
 
   test('a vertex fill rewrites exactly the entity it names and nothing else', async () => {
@@ -139,7 +146,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
       .replace('the one run that reads a product\'s repositories and writes its graph.', 'the one run that fills a product\'s graph.')
       .replace('one producer\'s statement about a field, kept beside every other producer\'s.', 'a producer\'s statement the graph keeps beside the others.'));
     commit('Reword both terms');
-    const answer = fillCommand('--vertex', 'doc.term:Fill');
+    const answer = await fillCommand('--vertex', 'doc.term:Fill');
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Rewriting only doc.term:Fill, and nothing else.');
     const read = await terms();
@@ -149,7 +156,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
   }, 600_000);
 
   test('a whole fill takes every kind, as it always did', async () => {
-    const answer = fillCommand();
+    const answer = await fillCommand();
     expect(answer.code).toBe(0);
     expect(answer.stdout).not.toContain('Also filling');
     // The vertex fill published its one entity in a unit of its own, so the kind's whole turn still runs here and the
@@ -161,7 +168,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
   }, 600_000);
 
   test('an entity the manifest does not declare is refused by name, with the kinds it declares', async () => {
-    const answer = fillCommand('--entity', 'doc.term2');
+    const answer = await fillCommand('--entity', 'doc.term2');
     expect(answer.code).not.toBe(0);
     expect(answer.stderr).toContain('the product\'s manifest declares no such kind');
     expect(answer.stderr).toContain('doc.term2');

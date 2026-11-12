@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -15,6 +17,8 @@ import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const skip = process.env['MADARCH_SKIP_PERF'] === '1';
 
+let endOwner!: () => void;
+let ownerDone: Promise<void>;
 let work: string;
 let storeRoot: string;
 let api: StartedServer[] = [];
@@ -26,11 +30,19 @@ beforeAll(async () => {
   const repository = generateTrainingRepository(join(work, 'training'));
   const home = join(work, 'home');
   mkdirSync(home);
-  makeProduct(home, 'shop', repository, 'training');
+  const product = makeProduct(home, 'shop', repository, 'training');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   storeRoot = join(work, 'store');
+  let entered!: () => void;
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const ending = new Promise<void>((resolve) => { endOwner = resolve; });
+  ownerDone = withStorePreparationOwner(async () => {
+    await requestStorePreparation(storeDatabasePath(productStoreFolder(product, storeRoot)), await readPinnedGraphContract(product));
+    entered(); await ending;
+  });
+  await Promise.race([ready, ownerDone]);
   // Two api instances: neither fills in its own process.
   for (let instance = 1; instance <= 2; instance += 1) {
     api.push(await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: storeRoot, fillProcess: false, log: () => undefined, errorLog: () => undefined }));
@@ -40,7 +52,7 @@ beforeAll(async () => {
   for (let instance = 1; instance <= 2; instance += 1) {
     fills.push(Bun.spawn([process.execPath, script, '--role', 'fill', '--home', home], {
       env: { ...process.env, MADARCH_KNOWLEDGE_ROOT: storeRoot },
-      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore',
+      stdin: 'ignore', stdout: 'ignore', stderr: 'inherit',
     }));
   }
 }, 120_000);
@@ -53,6 +65,7 @@ afterAll(async () => {
   // a child left behind is stopped here too, so the file leaves nothing behind when it passes or fails.
   await Promise.all(fills.map(async (child) => await child.exited.catch(() => undefined)));
   for (const instance of api) await instance.stop().catch(() => undefined);
+  endOwner?.(); await ownerDone;
   for (const pid of postmastersUnder(storeRoot)) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
   fills = [];
   api = [];
@@ -97,13 +110,15 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // The other instance answers "idle" until the fill process has written the run: the press answers before the run
     // exists, so every answer but a settled one keeps the poll going.
     let state = 'idle';
+    let lastStatus: unknown;
     while (state !== 'done' && state !== 'failed' && Date.now() - started < 600_000) {
       await new Promise((rest) => setTimeout(rest, 250));
       // The second api instance answers the status: the fill's state is the store's, not the pressing process's.
       const status = await (await fetch(`${base(api[1]!)}/api/status`)).json() as { fill: { state: string } };
+      lastStatus = status;
       state = status.fill.state;
     }
-    expect(state, `the fill did not end within 10 minutes: ${JSON.stringify(state)}`).toBe('done');
+    expect(state, `the fill did not end within 10 minutes: ${JSON.stringify(lastStatus)}`).toBe('done');
     // Every unit of the run published exactly once: no job was lost to the second fill instance and none was taken twice.
     // The store's folder is named by the product's id under the knowledge root, as every other caller resolves it.
     const owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(join(work, 'home', 'shop'), storeRoot)), btreeGist: true });

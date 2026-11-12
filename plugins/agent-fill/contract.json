@@ -1,0 +1,12 @@
+{
+  "id": "agent-fill",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [],
+    "edges": []
+  },
+  "rights": {
+    "network": "none",
+    "graph": true
+  }
+}

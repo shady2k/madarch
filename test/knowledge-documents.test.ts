@@ -10,8 +10,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { DOCUMENT_LIMIT } from '../src/knowledge/doc-sources.js';
+import { withStorePreparationOwner, requestStorePreparation } from '../src/product/store-preparation.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+const DOCUMENT_LIMIT = 2000;
 import { gitEnv } from './git-env.js';
+import { withoutPluginTurns } from './knowledge-fixture.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 /** The documents the fixture writes: the bound, and ten whose paths sort after it. */
@@ -29,6 +37,21 @@ describe('the documents of a repository larger than the listing bound', () => {
     const draft = createDraft({ home: join(work, 'home'), name: 'bulk-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
+    withoutPluginTurns(folder);
+    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `kinds:
+  document:
+    template: templates/document.liquid
+    source: graph
+    origin: person
+    key: [title]
+    fields:
+      - { name: title, type: text, producers: [fixture] }
+      - { name: path, type: text, producers: [fixture] }
+      - { name: markdown, type: text, producers: [fixture] }
+      - { name: anchors, type: json, producers: [fixture] }
+      - { name: links, type: json, producers: [fixture] }
+`);
+    writeFileSync(join(folder, 'templates', 'document.liquid'), '{{ title }}');
     // One file more than the bound, all of them sorting before every document: a listing that reads the first files
     // of the repository answers none of the documents.
     const fillers = join(folder, 'a');
@@ -41,10 +64,29 @@ describe('the documents of a repository larger than the listing bound', () => {
     git('add', '-A');
     git('commit', '--quiet', '-m', `Add ${DOCUMENT_LIMIT + 1} files and ${DOCUMENTS} documents`);
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
-    const started = await product.startFill();
-    expect(started).toMatchObject({ started: true });
-    await product.settled();
+    await withStorePreparationOwner(async () => {
+      await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), await readPinnedGraphContract(folder));
+      const started = await product.startFill();
+      expect(started).toMatchObject({ started: true });
+      await product.settled();
+    });
     expect(product.fillState()).toMatchObject({ state: 'done' });
+    // Document pages are structured opinions; a file-only fill no longer parses Markdown into pages.
+    const read = readKinds(folder);
+    if (!read.present) throw new Error(`${folder}/madarch/kinds.yaml:1: fixture manifest missing`);
+    const manifest = read.manifest;
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+    try {
+      await owner.transaction('write', async (tx) => {
+        await publishGraphDrafts(tx, graphContractOf(manifest), {
+          vertices: Array.from({ length: DOCUMENTS }, (_, at) => ({
+            kind: 'document', key: { title: `Document ${at}` },
+            values: { path: documentPath(at), markdown: `# Document ${at}\n`, anchors: {}, links: [] },
+            producer: 'fixture', producerVersion: '1',
+          })), edges: [], removals: [],
+        }, 1, { author: 'fixture' });
+      });
+    } finally { await owner.close(); }
   }, 900_000);
 
   afterAll(async () => {

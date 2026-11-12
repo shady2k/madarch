@@ -414,7 +414,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const outfile = resolve(options.out, artifact);
     const target = options.os === 'darwin' ? `bun-darwin-${options.arch}` : options.os === 'windows' ? `bun-windows-${options.arch}` : `bun-linux-${options.arch}`;
     const run = spawnSync('bun', [
-      'build', '--compile', join(REPO_ROOT, 'scripts', 'madarch.ts'),
+      'build', '--compile', '--compile-autoload-package-json', join(REPO_ROOT, 'scripts', 'madarch.ts'),
       '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'), '--asset', join(stage, 'own-wiki'),
       '--target', target, '--outfile', outfile,
     ], { encoding: 'utf8' });

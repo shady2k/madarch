@@ -9,7 +9,7 @@ import type { GraphEntity, RelationEdge } from '../src/knowledge/graph-read.js';
 import type { Resolution } from '../src/knowledge/resolve.js';
 import type { Question } from '../src/loop/entities.js';
 import { evaluateCode, type CodeSnapshot } from '../src/problems/code.js';
-import { evaluateDocuments } from '../src/problems/documents.js';
+import { evaluateDocuments } from './problems-documents-fixture.js';
 import { openProblemsOf } from '../src/problems/index.js';
 import { unimplementedRuleNotes } from '../src/problems/rules.js';
 import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';

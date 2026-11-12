@@ -1,3 +1,7 @@
+import { OrderedList } from '@/components/ui/ordered-list.js';
+import { DrawingSurface, EmbeddedFrame } from '@/components/ui/drawing.js';
+import { Button } from '@/components/ui/button.js';
+import { ListItem, Paragraph, PlainList, Stack, Text } from '@/components/ui/typography.js';
 /**
  * The drawn views (decision 0026, "Diagrams"; madarch-m38l.15): C4 context, container and component, sequence, ER,
  * state and deployment, each under a switcher over every renderer that draws its type — LikeC4 for C4 and deployment,
@@ -205,34 +209,34 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
     )
     : null;
   return (
-    <div ref={host} className="dg-frame-box" data-testid={`view-frame-${renderer}`}>
-      <p className="dg-view-hint">{t('knowledge.views.readingHint')}</p>
-      {!readable && <p className="diagram-error" role="alert" data-testid="reading-window-limit">{t('knowledge.views.readingLimit')}</p>}
-      {!loaded && <p className="m-0 p-3 text-small text-muted" data-testid="view-frame-loading">{t(renderer === 'likec4' ? 'knowledge.views.loadingLikec4' : 'knowledge.views.loadingArchify')}</p>}
-      {renderer === 'likec4' && (failure ? <p className="diagram-error" role="alert">{failure}</p> : content)}
-      {renderer === 'archify' && <iframe ref={ref} key={`${view.query}|${renderer}`} title={`${RENDERER_NAME[renderer]}: ${view.title}`} src={`${viewFrameAddress(view.query, renderer, lang)}&fullscreen=${full ? '1' : '0'}`} loading="lazy" className={loaded ? 'dg-iframe' : 'dg-iframe dg-iframe-loading'} onLoad={() => setLoaded(true)} data-renderer={renderer} />}
-    </div>
+    <DrawingSurface ref={host} className="dg-frame-box" data-testid={`view-frame-${renderer}`}>
+      <Paragraph className="dg-view-hint">{t('knowledge.views.readingHint')}</Paragraph>
+      {!readable && <Paragraph className="diagram-error" role="alert" data-testid="reading-window-limit">{t('knowledge.views.readingLimit')}</Paragraph>}
+      {!loaded && <Paragraph className="m-0 p-3 text-small text-muted" data-testid="view-frame-loading">{t(renderer === 'likec4' ? 'knowledge.views.loadingLikec4' : 'knowledge.views.loadingArchify')}</Paragraph>}
+      {renderer === 'likec4' && (failure ? <Paragraph className="diagram-error" role="alert">{failure}</Paragraph> : content)}
+      {renderer === 'archify' && <EmbeddedFrame ref={ref} key={`${view.query}|${renderer}`} title={`${RENDERER_NAME[renderer]}: ${view.title}`} src={`${viewFrameAddress(view.query, renderer, lang)}&fullscreen=${full ? '1' : '0'}`} loading="lazy" className={loaded ? 'dg-iframe' : 'dg-iframe dg-iframe-loading'} onLoad={() => setLoaded(true)} data-renderer={renderer} />}
+    </DrawingSurface>
   );
 }
 
 function ElementRow({ element, onDrill, drilling }: { element: ViewElement; onDrill: (element: ViewElement) => void; drilling: boolean }): ReactElement {
   const { t } = useTranslation();
   return (
-    <li className="dg-element" data-testid="view-element" data-element={element.id} data-dashed={element.dashed ? 'true' : undefined}>
-      <span className="dg-element-name">
-        {element.href === null ? <span>{element.label}</span> : <KLink href={element.href}>{element.label}</KLink>}
+    <ListItem className="dg-element" data-testid="view-element" data-element={element.id} data-dashed={element.dashed ? 'true' : undefined}>
+      <Text className="dg-element-name">
+        {element.href === null ? <Text>{element.label}</Text> : <KLink href={element.href}>{element.label}</KLink>}
         {element.dashed && <Badge className="ml-1.5">{t('knowledge.views.assumption')}</Badge>}
-      </span>
-      {element.detail !== undefined && <span className="dg-element-detail">{element.detail}</span>}
-      {element.parent !== undefined && <span className="dg-element-detail">{t('knowledge.views.owner', { id: element.parent })}</span>}
-      {element.columns !== undefined && <ul className="dg-element-detail" data-testid="view-columns">{element.columns.map((column, index) => <li key={index}>{column.name} {column.type ?? 'text'}{column.key ? ' PK' : ''}{column.fk ? ' FK' : ''}</li>)}</ul>}
-      {element.location !== undefined && <span className="dg-element-place"><CodePlace location={element.location} /></span>}
+      </Text>
+      {element.detail !== undefined && <Text className="dg-element-detail">{element.detail}</Text>}
+      {element.parent !== undefined && <Text className="dg-element-detail">{t('knowledge.views.owner', { id: element.parent })}</Text>}
+      {element.columns !== undefined && <PlainList className="dg-element-detail" data-testid="view-columns">{element.columns.map((column, index) => <ListItem key={index}>{column.name} {column.type ?? 'text'}{column.key ? ' PK' : ''}{column.fk ? ' FK' : ''}</ListItem>)}</PlainList>}
+      {element.location !== undefined && <Text className="dg-element-place"><CodePlace location={element.location} /></Text>}
       {element.drill !== undefined && (
-        <button type="button" className="dg-drill" onClick={() => onDrill(element)} disabled={drilling} data-testid="view-drill" aria-label={t('knowledge.views.drillLabel', { name: element.label, view: element.drill.title })}>
+        <Button variant="ghost" size="content" type="button" className="dg-drill" onClick={() => onDrill(element)} disabled={drilling} data-testid="view-drill" aria-label={t('knowledge.views.drillLabel', { name: element.label, view: element.drill.title })}>
           <ChevronsDownIcon aria-hidden="true" className="size-3.5" />{element.drill.title}
-        </button>
+        </Button>
       )}
-    </li>
+    </ListItem>
   );
 }
 
@@ -305,17 +309,17 @@ function ZoomBox({ children, titleFloor }: { children: ReactElement; titleFloor?
   }, [full, scale]);
   const set = (next: number): void => setScale(Math.min(4, Math.max(0.4, Math.round(next * 100) / 100)));
   return (
-    <div ref={holder} className={full ? 'dg-zoombox dg-zoombox-full' : 'dg-zoombox'} data-testid="zoom-box" data-scale={scale}
+    <DrawingSurface ref={holder} className={full ? 'dg-zoombox dg-zoombox-full' : 'dg-zoombox'} data-testid="zoom-box" data-scale={scale}
       onWheel={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); set(scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12)); } }}>
-      <p className="dg-view-hint">{t('knowledge.views.readingHint')}</p>
-      {!readable && <p className="diagram-error" role="alert" data-testid="reading-window-limit">{t('knowledge.views.readingLimit')}</p>}
-      <div className="dg-zoom-buttons">
-        <button type="button" className="dg-chip" onClick={() => set(scale / 1.25)} aria-label={t('knowledge.views.zoomOut')} data-testid="zoom-out"><MinusIcon aria-hidden="true" className="size-3.5" /></button>
-        <button type="button" className="dg-chip" onClick={() => set(scale * 1.25)} aria-label={t('knowledge.views.zoomIn')} data-testid="zoom-in"><PlusIcon aria-hidden="true" className="size-3.5" /></button>
-        <button type="button" className="dg-chip" onClick={() => setScale(1)} aria-label={t('knowledge.views.zoomFit')} data-testid="zoom-fit"><ScanIcon aria-hidden="true" className="size-3.5" /></button>
-      </div>
-      <div className="dg-zoom-content">{children}</div>
-    </div>
+      <Paragraph className="dg-view-hint">{t('knowledge.views.readingHint')}</Paragraph>
+      {!readable && <Paragraph className="diagram-error" role="alert" data-testid="reading-window-limit">{t('knowledge.views.readingLimit')}</Paragraph>}
+      <Stack className="dg-zoom-buttons">
+        <Button variant="ghost" size="content" type="button" className="dg-chip" onClick={() => set(scale / 1.25)} aria-label={t('knowledge.views.zoomOut')} data-testid="zoom-out"><MinusIcon aria-hidden="true" className="size-3.5" /></Button>
+        <Button variant="ghost" size="content" type="button" className="dg-chip" onClick={() => set(scale * 1.25)} aria-label={t('knowledge.views.zoomIn')} data-testid="zoom-in"><PlusIcon aria-hidden="true" className="size-3.5" /></Button>
+        <Button variant="ghost" size="content" type="button" className="dg-chip" onClick={() => setScale(1)} aria-label={t('knowledge.views.zoomFit')} data-testid="zoom-fit"><ScanIcon aria-hidden="true" className="size-3.5" /></Button>
+      </Stack>
+      <Stack className="dg-zoom-content">{children}</Stack>
+    </DrawingSurface>
   );
 }
 
@@ -338,78 +342,78 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
   const listId = useId();
   const dashed = (view.fullEdges ?? view.edges).filter((edge) => edge.dashed);
   return (
-    <div data-testid="view" data-view={view.spec.type} data-view-query={view.query} data-renderer={renderer} data-depth={depth} data-adjacent-list-count={stepped ? view.edges.length : (view.fullElements ?? view.elements).length}>
-      <div className="dg-toolbar" role="group" aria-label={view.title}>
+    <Stack data-testid="view" data-view={view.spec.type} data-view-query={view.query} data-renderer={renderer} data-depth={depth} data-adjacent-list-count={stepped ? view.edges.length : (view.fullElements ?? view.elements).length}>
+      <Stack className="dg-toolbar" role="group" aria-label={view.title}>
         {view.up !== undefined && (
-          <button type="button" className="dg-chip" onClick={onUp} disabled={drilling} data-testid="view-up">
+          <Button variant="ghost" size="content" type="button" className="dg-chip" onClick={onUp} disabled={drilling} data-testid="view-up">
             <ArrowLeftIcon aria-hidden="true" className="mr-1 inline size-3.5" />{view.up.title}
-          </button>
+          </Button>
         )}
-        <span className="dg-caption" data-testid="view-title">{view.title}</span>
-        <span className="dg-spacer" />
-        <div role="tablist" aria-label={t('knowledge.views.renderers')} className="dg-group">
+        <Text className="dg-caption" data-testid="view-title">{view.title}</Text>
+        <Text className="dg-spacer" />
+        <Stack role="tablist" aria-label={t('knowledge.views.renderers')} className="dg-group">
           {view.renderers.map((name) => (
-            <button key={name} type="button" role="tab" aria-selected={renderer === name} className="dg-chip" data-state={renderer === name ? 'on' : 'off'} data-testid={`renderer-${name}`} onClick={() => setChosen(name)}>
+            <Button variant="ghost" size="content" key={name} type="button" role="tab" aria-selected={renderer === name} className="dg-chip" data-state={renderer === name ? 'on' : 'off'} data-testid={`renderer-${name}`} onClick={() => setChosen(name)}>
               {RENDERER_NAME[name]}
-            </button>
+            </Button>
           ))}
-        </div>
-      </div>
-      {view.empty !== null ? <p className="m-0 p-3 text-small text-muted" data-testid="diagram-empty">{view.empty}</p> : (
-        <div className="dg-picture" data-testid="view-picture">
+        </Stack>
+      </Stack>
+      {view.empty !== null ? <Paragraph className="m-0 p-3 text-small text-muted" data-testid="diagram-empty">{view.empty}</Paragraph> : (
+        <Stack className="dg-picture" data-testid="view-picture">
           {renderer === 'mermaid' ? <ZoomBox titleFloor={view.titleFloor}><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : renderer === 'likec4' || renderer === 'archify' ? <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} /> : null}
-          {fellBack !== null && <p className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack.renderer] })} {fellBack.message}</p>}
-        </div>
+          {fellBack !== null && <Paragraph className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack.renderer] })} {fellBack.message}</Paragraph>}
+        </Stack>
       )}
       {view.empty === null && (
-        <div className="dg-legend" data-testid="view-legend">
-          <span className="dg-legend-line"><svg width="34" height="8" aria-hidden="true"><line x1="1" y1="4" x2="33" y2="4" stroke="currentColor" strokeWidth="2" /></svg>{t('knowledge.views.fact')}</span>
-          <span className="dg-legend-line"><svg width="34" height="8" aria-hidden="true"><line x1="1" y1="4" x2="33" y2="4" stroke="currentColor" strokeWidth="2" strokeDasharray="5 4" /></svg>{t('knowledge.views.assumed')}</span>
-        </div>
+        <Stack className="dg-legend" data-testid="view-legend">
+          <Text className="dg-legend-line"><svg width="34" height="8" aria-hidden="true"><line x1="1" y1="4" x2="33" y2="4" stroke="currentColor" strokeWidth="2" /></svg>{t('knowledge.views.fact')}</Text>
+          <Text className="dg-legend-line"><svg width="34" height="8" aria-hidden="true"><line x1="1" y1="4" x2="33" y2="4" stroke="currentColor" strokeWidth="2" strokeDasharray="5 4" /></svg>{t('knowledge.views.assumed')}</Text>
+        </Stack>
       )}
-      {view.marker !== null && <p className="dg-note" data-testid="view-marker">{view.marker} {view.fullElements !== undefined && <a href={`#${listId}`} data-testid="view-full-list-link">{t('knowledge.views.fullList', { count: view.fullElements.length })}</a>}</p>}
+      {view.marker !== null && <Paragraph className="dg-note" data-testid="view-marker">{view.marker} {view.fullElements !== undefined && <a href={`#${listId}`} data-testid="view-full-list-link">{t('knowledge.views.fullList', { count: view.fullElements.length })}</a>}</Paragraph>}
       {dashed.length > 0 && (
-        <ul className="dg-why" data-testid="view-why">
-          {[...new Set(dashed.map((edge) => `${edge.label}: ${edge.why ?? ''}`))].map((line) => <li key={line}>{line}</li>)}
-        </ul>
+        <PlainList className="dg-why" data-testid="view-why">
+          {[...new Set(dashed.map((edge) => `${edge.label}: ${edge.why ?? ''}`))].map((line) => <ListItem key={line}>{line}</ListItem>)}
+        </PlainList>
       )}
-      {view.notes.map((note) => <p key={note} className="dg-note" data-testid="view-note">{note}</p>)}
+      {view.notes.map((note) => <Paragraph key={note} className="dg-note" data-testid="view-note">{note}</Paragraph>)}
       {view.empty === null && (
         stepped ? (
-          <ol className="dg-steps" data-testid="view-steps">
+          <OrderedList className="dg-steps" data-testid="view-steps">
             {view.edges.map((edge) => (
-              <li key={edge.step} data-adjacent-key={JSON.stringify([edge.step ?? null, edge.from, edge.to, edge.label, edge.href ?? null])} data-dashed={edge.dashed ? 'true' : undefined} data-testid="view-step">
-                <span className="dg-step-n">{edge.step}</span>
-                {edge.href === null || edge.href === undefined ? <span>{edge.label}</span> : <KLink href={edge.href}>{edge.label}</KLink>}
-                {edge.location !== undefined && <span className="dg-element-place"><CodePlace location={edge.location} /></span>}
+              <ListItem key={edge.step} data-adjacent-key={JSON.stringify([edge.step ?? null, edge.from, edge.to, edge.label, edge.href ?? null])} data-dashed={edge.dashed ? 'true' : undefined} data-testid="view-step">
+                <Text className="dg-step-n">{edge.step}</Text>
+                {edge.href === null || edge.href === undefined ? <Text>{edge.label}</Text> : <KLink href={edge.href}>{edge.label}</KLink>}
+                {edge.location !== undefined && <Text className="dg-element-place"><CodePlace location={edge.location} /></Text>}
                 {edge.dashed && <Badge className="ml-1.5">{t('knowledge.views.unordered')}</Badge>}
-                {edge.note !== undefined && <span className="dg-element-detail">{edge.note}</span>}
-              </li>
+                {edge.note !== undefined && <Text className="dg-element-detail">{edge.note}</Text>}
+              </ListItem>
             ))}
-          </ol>
+          </OrderedList>
         ) : (
-          <div id={listId} data-testid="view-full-list">
+          <Stack id={listId} data-testid="view-full-list">
             {view.fullElements !== undefined && <h3>{t('knowledge.views.fullList', { count: view.fullElements.length })}</h3>}
             {view.fullElements !== undefined && view.elements.some(element => element.drill && !view.fullElements!.some(raw => raw.id === element.id)) && (
-              <ul className="dg-elements" data-testid="view-folded-groups">
+              <PlainList className="dg-elements" data-testid="view-folded-groups">
                 {view.elements.filter(element => element.drill && !view.fullElements!.some(raw => raw.id === element.id)).map(element => (
                   <ElementRow key={element.id} element={element} onDrill={onDrill} drilling={drilling} />
                 ))}
-              </ul>
+              </PlainList>
             )}
-            <ul className="dg-elements" data-testid="view-elements">
+            <PlainList className="dg-elements" data-testid="view-elements">
               {(view.fullElements ?? view.elements).map((element) => {
                 const folded = view.elements.find(candidate => candidate.id === element.id && candidate.standsFor !== undefined);
                 return <ElementRow key={element.id} element={folded?.drill ? { ...element, drill: folded.drill } : element} onDrill={onDrill} drilling={drilling} />;
               })}
-            </ul>
-            {view.fullEdges !== undefined && <ul className="dg-why" data-testid="view-full-relationships">
-              {view.fullEdges.map((edge, index) => <li key={index}>{(view.fullElements ?? view.elements).find(element => element.id === edge.from)?.label ?? edge.from} → {(view.fullElements ?? view.elements).find(element => element.id === edge.to)?.label ?? edge.to}: {edge.label}{edge.why ? ` (${edge.why})` : ''}</li>)}
-            </ul>}
-          </div>
+            </PlainList>
+            {view.fullEdges !== undefined && <PlainList className="dg-why" data-testid="view-full-relationships">
+              {view.fullEdges.map((edge, index) => <ListItem key={index}>{(view.fullElements ?? view.elements).find(element => element.id === edge.from)?.label ?? edge.from} → {(view.fullElements ?? view.elements).find(element => element.id === edge.to)?.label ?? edge.to}: {edge.label}{edge.why ? ` (${edge.why})` : ''}</ListItem>)}
+            </PlainList>}
+          </Stack>
         )
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -468,20 +472,20 @@ export function DiagramsView({ block }: { block: DiagramsBlock }): ReactElement 
     <section data-block="diagram" data-diagram="views" aria-label={block.title}>
       {block.title !== '' && <h2>{block.title}</h2>}
       {block.views.length > 1 && (
-        <div role="tablist" aria-label={t('knowledge.views.views')} className="dg-switcher" data-testid="view-switcher">
+        <Stack role="tablist" aria-label={t('knowledge.views.views')} className="dg-switcher" data-testid="view-switcher">
           {block.views.map((view, at) => (
-            <button key={`${view.query}`} type="button" role="tab" aria-selected={index === at} className="dg-chip" data-state={index === at ? 'on' : 'off'} onClick={() => { setIndex(at); setTrail({ base: at, views: [] }); }} data-testid="view-tab">
+            <Button variant="ghost" size="content" key={`${view.query}`} type="button" role="tab" aria-selected={index === at} className="dg-chip" data-state={index === at ? 'on' : 'off'} onClick={() => { setIndex(at); setTrail({ base: at, views: [] }); }} data-testid="view-tab">
               {view.label}
-            </button>
+            </Button>
           ))}
-        </div>
+        </Stack>
       )}
       <Fullscreenable>
-       <div className="dg-frame">
+       <Stack className="dg-frame">
         <ViewBody view={shown} initial={block.renderer} onDrill={(element) => { void drill(element); }} onUp={() => { void up(); }} drilling={busy} depth={trail.base === index ? trail.views.length : 0} />
-       </div>
+       </Stack>
       </Fullscreenable>
-      {failure !== null && <p className="ref-broken" data-testid="diagram-failure">{failure}</p>}
+      {failure !== null && <Paragraph className="ref-broken" data-testid="diagram-failure">{failure}</Paragraph>}
     </section>
   );
 }

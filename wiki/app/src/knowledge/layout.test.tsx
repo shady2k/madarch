@@ -40,12 +40,13 @@ async function until(holds: () => boolean | undefined, what: string): Promise<vo
   }
   throw new Error(`never came to ${what}; the tree holds: ${document.body.innerHTML.slice(0, 2500)}`);
 }
-afterEach(() => {
+afterEach(async () => {
   rendered?.unmount();
   rendered = undefined;
   document.body.innerHTML = '';
   delete (globalThis as { fetch?: unknown }).fetch;
   window.history.replaceState({}, '', '/');
+  await setWikiLanguage('en');
 });
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
@@ -68,6 +69,16 @@ const nestedGroups = [
 ];
 
 describe('the groups of the manifest', () => {
+  test('catalogue-only and member kinds count in status without becoming navigation rows', () => {
+    const state = status({ groups: [{ group: 'code', labels: { en: 'Code' } }], kinds: [
+      kind({ kind: 'code.file', group: 'code', count: 2, page: true }),
+      kind({ kind: 'code.member', group: 'code', count: 3, page: false }),
+    ] });
+    const groups = navGroups(state, () => 0);
+    expect(groups[0]!.total).toBe(5);
+    expect(groups[0]!.kinds.map((row) => row.kind)).toEqual(['code.file']);
+  });
+
   test('a sub-area is a group of its own with a parent, and the navigation nests it under that parent with one total', () => {
     const state = {
       groups: nestedGroups,
@@ -167,7 +178,8 @@ describe('the menu', () => {
     expect(askedPage).toBe(false);
   });
 
-  test('the catalogue stands beside Home as a place of the product, «Waiting for you» under it counts questions and problems, hides an empty count, and sources and settings sit at the foot', async () => {
+  for (const language of ['en', 'ru'] as const) test(`the sidebar top block is Home, Catalogue, Glossary in ${language}, then waiting and the footer`, async () => {
+    await setWikiLanguage(language);
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
       if (url.endsWith('/api/status')) return json(status({
         home: 'product:shop', filled: true,
@@ -178,28 +190,32 @@ describe('the menu', () => {
       if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
       if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
       if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.endsWith('/api/catalog')) return json({ product: { name: 'shop', id: 'p1' }, language, groups: [], kinds: [], findings: [] });
       return json({ message: 'not here' }, 404);
     };
-    window.history.replaceState({}, '', '/');
+    window.history.replaceState({}, '', '/catalogue');
     const app = into(createElement(AppRoot));
-    await until(() => app.querySelector('[data-testid=nav-waiting]') !== null, 'the waiting section');
+    await until(() => app.querySelector('[data-testid=catalogue-page] h1') !== null, 'the catalogue title');
     const home = app.querySelector('[data-testid=nav-home]')!;
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     const catalogue = app.querySelector('[data-testid=nav-catalogue]')!;
-    const dependencies = app.querySelector('[data-testid=nav-dependencies]')!;
-    // The catalogue and the dependency graph wait for nobody: they are places of the product beside Home, not rows of
-    // the waiting group.
+    expect(app.querySelector('[data-testid=nav-dependencies]')).toBeNull();
     expect(home.nextElementSibling).toBe(catalogue);
-    expect(catalogue.nextElementSibling).toBe(dependencies);
-    expect(dependencies.nextElementSibling).toBe(waiting);
+    const glossary = app.querySelector('[data-testid=nav-glossary]')!;
+    expect(app.querySelector('[data-testid=catalogue-page] h1')!.textContent).toBe(catalogue.textContent);
+    expect(catalogue.nextElementSibling).toBe(glossary);
+    expect(glossary.nextElementSibling).toBe(waiting);
+    const topLinks = [];
+    for (let node = home; node !== waiting; node = node.nextElementSibling!) topLinks.push(node);
+    expect(topLinks.map((node) => node.textContent)).toEqual(language === 'ru'
+      ? ['Главная', 'Каталог сущностей', 'Глоссарий']
+      : ['Home', 'Entity catalogue', 'Glossary']);
+    expect(topLinks.map((node) => node.getAttribute('href'))).toEqual(['/', '/catalogue', '/glossary']);
+    expect(glossary.querySelector('svg')).not.toBeNull();
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-questions]')!.textContent).toContain('2');
-    // A count drawn from files is absent until it is above zero: nothing of the product is read before the fill runs.
-    expect(waiting.querySelector('[data-testid=nav-tasks]')!.textContent).not.toContain('0');
-    expect(waiting.querySelector('[data-testid=nav-tasks-count]')).toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-tasks]')!.getAttribute('data-empty')).toBe('true');
+    expect(waiting.querySelector('[data-testid=nav-questions]')).toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-tasks]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-problems]')!.textContent).toContain('3');
     expect(waiting.querySelector('[data-testid=nav-problems]')!.getAttribute('data-empty')).toBe('false');
     expect(app.querySelector('[data-testid=nav-scroll] [data-testid=nav-documents]')).toBeNull();
@@ -230,16 +246,16 @@ describe('the menu', () => {
     await until(() => app.querySelector('[data-nav-kind="doc.term"]') !== null, 'the term kind row');
     const waiting = app.querySelector('[data-testid=nav-waiting]')!;
     expect(waiting.querySelector('[data-nav-kind="doc.term"]')).toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-questions]')).not.toBeNull();
-    expect(waiting.querySelector('[data-testid=nav-tasks]')).not.toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-questions]')).toBeNull();
+    expect(waiting.querySelector('[data-testid=nav-tasks]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-problems]')).not.toBeNull();
     const group = app.querySelector('[data-nav-group=requirements]')!;
     const row = group.querySelector('[data-nav-kind="doc.term"]')!;
     expect(row.getAttribute('href')).toBe('/glossary');
     expect(row.textContent).toContain('Terms');
     expect(row.querySelector('[data-testid=nav-count]')!.textContent).toBe('7');
-    // The engine draws no place of its own for the glossary: no hardcoded row remains.
-    expect(app.querySelector('[data-testid=nav-glossary]')).toBeNull();
+    // The top-level glossary shortcut coexists with the manifest's kind listing.
+    expect(app.querySelector('[data-testid=nav-glossary]')!.getAttribute('href')).toBe('/glossary');
   });
 
   test('the group the manifest opens by itself is expanded; a group without the field is closed, whatever its name', async () => {
@@ -267,7 +283,7 @@ describe('the menu', () => {
 
 describe('the glossary table', () => {
   const term = (title: string, over: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
-    id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
+    id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], definedIn: null, usages: [], usageCount: 0, ambiguous: null,
     repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false,
     href: `/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...over,
   });
@@ -328,4 +344,31 @@ describe('the glossary table', () => {
     await until(() => page.querySelector('[data-testid=glossary-table]') !== null, 'the unnamed glossary');
     expect([...page.querySelectorAll('th')].map((head) => head.textContent)).not.toContain('Names');
   });
+});
+
+test('person kinds override glossary and loop navigation and empty lists still offer New', async () => {
+  const kinds = [
+    kind({ kind: 'doc.term', origins: ['person'], count: 0, nav: 'own-page', listing: 'glossary', group: 'authored' }),
+    kind({ kind: 'task', origins: ['person'], count: 0, nav: 'own-page', group: 'authored' }),
+    kind({ kind: 'question', origins: ['person'], count: 0, nav: 'loop', group: 'authored' }),
+  ];
+  (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+    if (url.endsWith('/api/status')) return json(status({ kinds, groups: [{ group: 'authored', labels: { en: 'Authored' }, open: true }] }));
+    if (url.endsWith('/api/products')) return json({ products: [] });
+    if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+    if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+    if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+    if (url.includes('/api/authored?')) return json({ kind: new URL(url, 'http://localhost').searchParams.get('kind'), fields: [], entities: [] });
+    return json({ message: 'not here' }, 404);
+  };
+  const app = into(createElement(AppRoot));
+  await until(() => app.querySelector('[data-nav-kind="question"]') !== null, 'all authored navigation rows');
+  for (const entry of kinds) {
+    const row = app.querySelector(`[data-nav-kind="${entry.kind}"]`)! as HTMLAnchorElement;
+    expect(row.getAttribute('href')).toBe(`/kind/${entry.kind}`);
+    row.click();
+    await until(() => app.querySelector(`[data-testid="authored-kind-page"]`)?.textContent?.includes('New'), `New for ${entry.kind}`);
+  }
+  expect(app.querySelector('[data-testid="nav-questions"]')).toBeNull();
+  expect(app.querySelector('[data-testid="nav-tasks"]')).toBeNull();
 });

@@ -1,3 +1,8 @@
+import { Checkbox } from '@/components/ui/checkbox.js';
+import { OrderedList } from '@/components/ui/ordered-list.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { FieldLabel, ListItem, PageHeader, PageSection, PageTitle, Paragraph, PlainList, Preformatted, SectionTitle, Stack, Text } from '@/components/ui/typography.js';
 /**
  * «Как агент писал эту страницу» (madarch-m38l.13): the core's journal of what
  * the agent did while it wrote one page, read from the machine-local store.
@@ -54,49 +59,49 @@ function RecordRow({ record, index }: { record: JournalRecord; index: number }):
   const { t } = useTranslation();
   const bad = record.outcome !== 'ok';
   return (
-    <li className="border-b border-line py-2 last:border-b-0" data-testid="journal-row" data-tool={record.tool} data-outcome={record.outcome} data-kind={record.kind}>
-      <details>
-        <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="w-6 text-right text-small text-muted" aria-hidden="true">{index + 1}</span>
-          <span className="text-small text-muted">{clock(record.time)}</span>
-          <code className="font-medium">{record.tool}</code>
+    <ListItem className="border-b border-line py-2 last:border-b-0" data-testid="journal-row" data-tool={record.tool} data-outcome={record.outcome} data-kind={record.kind}>
+      <Disclosure>
+        <DisclosureSummary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
+          <Text className="w-6 text-right text-small text-muted" aria-hidden="true">{index + 1}</Text>
+          <Text className="text-small text-muted">{clock(record.time)}</Text>
+          <InlineCode className="font-medium">{record.tool}</InlineCode>
           <Badge variant={bad ? 'solid' : 'outline'} data-testid="journal-outcome">{t(`journal.outcome.${record.outcome}`)}</Badge>
           {record.kind === 'refusal' && <Badge>{t('journal.kind.refusal')}</Badge>}
           {record.kind === 'editorial-finding' && <Badge>{t('journal.kind.editorial-finding')}</Badge>}
           {record.kind === 'revision-request' && <Badge>{t('journal.kind.revision-request')}</Badge>}
           {record.kind === 'editorial-skip' && <Badge>{t('journal.kind.editorial-skip')}</Badge>}
           {record.kind === 'editorial-warning' && <Badge>{t('journal.kind.editorial-warning')}</Badge>}
-          <span className="min-w-0 max-w-full truncate text-small text-muted">{glance(record)}</span>
-          <span className="ml-auto text-small text-muted">{t('journal.ms', { ms: record.durationMs })} · {t('journal.size', { count: record.responseBytes })}</span>
-        </summary>
-        <div className="mt-2 grid gap-3 pl-9">
+          <Text className="min-w-0 max-w-full truncate text-small text-muted">{glance(record)}</Text>
+          <Text className="ml-auto text-small text-muted">{t('journal.ms', { ms: record.durationMs })} · {t('journal.size', { count: record.responseBytes })}</Text>
+        </DisclosureSummary>
+        <Stack className="mt-2 grid gap-3 pl-9">
           {record.reason !== null && (
-            <div data-testid="journal-reason">
-              <div className="text-small font-medium">{t('journal.reason')}</div>
-              <pre className="journal-pre">{record.reason}</pre>
-            </div>
+            <Stack data-testid="journal-reason">
+              <Stack className="text-small font-medium">{t('journal.reason')}</Stack>
+              <Preformatted className="journal-pre">{record.reason}</Preformatted>
+            </Stack>
           )}
-          <div>
-            <div className="text-small font-medium">{t('journal.arguments')}</div>
-            <pre className="journal-pre" data-testid="journal-arguments">{pretty(record.arguments)}</pre>
-          </div>
-          <div>
-            <div className="text-small font-medium">{t('journal.response')}</div>
-            {record.response === null ? <p className="text-small text-muted">{t('journal.noResponse')}</p> : <pre className="journal-pre" data-testid="journal-response">{responseText(record.response)}</pre>}
-            {record.truncated && <p className="text-small text-muted" data-testid="journal-cut">{t('journal.cut', { count: record.responseBytes })}</p>}
-          </div>
-        </div>
-      </details>
-    </li>
+          <Stack>
+            <Stack className="text-small font-medium">{t('journal.arguments')}</Stack>
+            <Preformatted className="journal-pre" data-testid="journal-arguments">{pretty(record.arguments)}</Preformatted>
+          </Stack>
+          <Stack>
+            <Stack className="text-small font-medium">{t('journal.response')}</Stack>
+            {record.response === null ? <Paragraph className="text-small text-muted">{t('journal.noResponse')}</Paragraph> : <Preformatted className="journal-pre" data-testid="journal-response">{responseText(record.response)}</Preformatted>}
+            {record.truncated && <Paragraph className="text-small text-muted" data-testid="journal-cut">{t('journal.cut', { count: record.responseBytes })}</Paragraph>}
+          </Stack>
+        </Stack>
+      </Disclosure>
+    </ListItem>
   );
 }
 
 function Fact({ label, value, testId }: { label: string; value: string; testId?: string }): ReactElement {
   return (
-    <div className="min-w-[8rem]">
-      <div className="text-small text-muted">{label}</div>
-      <div className="font-medium" data-testid={testId}>{value}</div>
-    </div>
+    <Stack className="min-w-32">
+      <Stack className="text-small text-muted">{label}</Stack>
+      <Stack className="font-medium" data-testid={testId}>{value}</Stack>
+    </Stack>
   );
 }
 
@@ -108,7 +113,7 @@ export function JournalPage({ id, run, version }: { id: string; run: string | nu
   useTabTitle(t('journal.title'));
   if (data === null && error === null) return <PageSkeleton testId="journal-loading" rows />;
   if (data === null) {
-    return <Alert variant="problem" data-testid="journal-error"><AlertTitle>{t('journal.failed')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+    return <Alert variant="problem" data-testid="journal-error"><AlertTitle>{t('journal.failed')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   }
   const calls = data.records.filter((record) => record.kind === 'tool-call');
   const refused = data.records.filter((record) => record.outcome !== 'ok');
@@ -116,21 +121,21 @@ export function JournalPage({ id, run, version }: { id: string; run: string | nu
   const first = data.records[0];
   const shown = onlyRefused ? refused : data.records;
   return (
-    <section data-testid="journal-page" data-entity={id}>
-      <header className="mb-6">
-        <p className="mb-2 text-small"><KLink href={addressOfEntity(id)}>{t('journal.back')}</KLink></p>
-        <h1>{t('journal.title')}</h1>
-        <p className="text-muted">{t('journal.intro')}</p>
-      </header>
+    <PageSection data-testid="journal-page" data-entity={id}>
+      <PageHeader className="mb-6">
+        <Paragraph className="mb-2 text-small"><KLink href={addressOfEntity(id)}>{t('journal.back')}</KLink></Paragraph>
+        <PageTitle>{t('journal.title')}</PageTitle>
+        <Paragraph className="text-muted">{t('journal.intro')}</Paragraph>
+      </PageHeader>
       {data.problems.length > 0 && (
         <Alert variant="problem" className="mb-4" data-testid="journal-problems">
           <AlertTitle>{t('journal.unreadable')}</AlertTitle>
-          <AlertDescription><ul>{data.problems.map((problem) => <li key={problem}><code className="text-small">{problem}</code></li>)}</ul></AlertDescription>
+          <AlertDescription><PlainList>{data.problems.map((problem) => <ListItem key={problem}><InlineCode className="text-small">{problem}</InlineCode></ListItem>)}</PlainList></AlertDescription>
         </Alert>
       )}
-      {data.run === null || first === undefined ? <p className="text-muted" data-testid="journal-empty">{t('journal.none')}</p> : (
+      {data.run === null || first === undefined ? <Paragraph className="text-muted" data-testid="journal-empty">{t('journal.none')}</Paragraph> : (
         <>
-          <div className="mb-6 flex flex-wrap gap-x-8 gap-y-3 border-y border-line py-3" data-testid="journal-summary">
+          <Stack className="mb-6 flex flex-wrap gap-x-8 gap-y-3 border-y border-line py-3" data-testid="journal-summary">
             <Fact label={t('journal.run')} value={data.run} />
             <Fact label={t('journal.agent')} value={first.agent} />
             <Fact label={t('journal.model')} value={first.model ?? t('journal.notReported')} />
@@ -138,24 +143,24 @@ export function JournalPage({ id, run, version }: { id: string; run: string | nu
             <Fact label={t('journal.calls')} value={String(calls.length)} testId="journal-calls" />
             <Fact label={t('journal.refusals')} value={String(refused.length)} testId="journal-refusals" />
             <Fact label={t('journal.time')} value={t('journal.ms', { ms: spent })} />
-          </div>
+          </Stack>
           {data.runs.length > 1 && (
-            <p className="mb-4 text-small text-muted" data-testid="journal-runs">
-              {t('journal.otherRuns')}: {data.runs.filter((other) => other !== data.run).map((other, index) => <span key={other}>{index > 0 && ', '}<KLink href={addressOfJournal(id, other)}>{other}</KLink></span>)}
-            </p>
+            <Paragraph className="mb-4 text-small text-muted" data-testid="journal-runs">
+              {t('journal.otherRuns')}: {data.runs.filter((other) => other !== data.run).map((other, index) => <Text key={other}>{index > 0 && ', '}<KLink href={addressOfJournal(id, other)}>{other}</KLink></Text>)}
+            </Paragraph>
           )}
-          <div className="mb-3 flex flex-wrap items-baseline gap-4">
-            <h2 style={{ margin: 0 }}>{t('journal.records')}</h2>
-            <label className="flex items-center gap-2 text-small">
-              <input type="checkbox" checked={onlyRefused} onChange={(event) => setOnlyRefused(event.target.checked)} data-testid="journal-only-refused" />
+          <Stack className="mb-3 flex flex-wrap items-baseline gap-4">
+            <SectionTitle className="m-0">{t('journal.records')}</SectionTitle>
+            <FieldLabel className="flex items-center gap-2 text-small">
+              <Checkbox checked={onlyRefused} onChange={(event) => setOnlyRefused(event.target.checked)} data-testid="journal-only-refused" />
               {t('journal.onlyRefused')}
-            </label>
-          </div>
-          <ol style={{ listStyle: 'none', margin: 0, padding: 0 }} data-testid="journal-list">
+            </FieldLabel>
+          </Stack>
+          <OrderedList className="m-0 list-none p-0" data-testid="journal-list">
             {shown.map((record, index) => <RecordRow key={`${record.time}\0${index}`} record={record} index={data.records.indexOf(record)} />)}
-          </ol>
+          </OrderedList>
         </>
       )}
-    </section>
+    </PageSection>
   );
 }

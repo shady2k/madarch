@@ -12,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import type { FillProgressView } from '../src/knowledge/model.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -31,6 +32,11 @@ function product(name: string, write: (repository: string) => void): string {
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name.trim(), repository, `${name}-code`);
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', `the product ${name}`);
   return folder;
@@ -78,7 +84,7 @@ describe('the fill states', () => {
       git(repository, 'add', '-A');
       git(repository, 'commit', '-qm', 'the tree is written');
     });
-    const server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+    const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const empty = await json(server, 'states', '/api/status');
       expect((empty.body['fill'] as Record<string, unknown>)['state']).toBe('idle');

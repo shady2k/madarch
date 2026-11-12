@@ -3,9 +3,8 @@
  * through the route the button calls, over HTTP, and its pages are then read over HTTP — the repository, its tree and
  * one file, from the store this path published.
  *
- * The product is a fixture this test makes: its manifest, its workflow manifest (the starter set's first fill), one
- * code repository with one source file. No model runs: the fill is the static stages, and the pages that a model would
- * write are absent by design.
+ * The product is a fixture this test makes: its manifest, a native tree/history workflow, and one code repository
+ * with one source file. No plugin or model runs: these pages need only repository inventory and history.
  */
 import { afterAll, beforeAll, expect, test as bunTest } from 'bun:test';
 import { skippedBecauseOutOfWorkflow } from './fill-skip-list.js';
@@ -17,11 +16,16 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
-import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -52,7 +56,7 @@ beforeAll(async () => {
   writeFileSync(join(product, 'docs', 'product.md'), '# Walk\n\nA small product the walk fills.\n');
   // The product holds its own copy of the starter set, as `madarch new` leaves it; the fill workflow is its own.
   seedStarterSet(product);
-  writeFirstFillWorkflow(product);
+  writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
   git(product, 'init', '-q', '-b', 'main');
   git(product, 'add', '-A');
   git(product, 'commit', '-qm', 'the product the walk fills');
@@ -61,7 +65,7 @@ beforeAll(async () => {
   const app = join(root, 'app');
   mkdirSync(app, { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>walk</title>\n');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }, 180_000);
 
 afterAll(async () => {
@@ -94,13 +98,27 @@ test('the button fills the store and the pages read the graph it published', asy
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   expect({ state, message: (filledAt['fill'] as { message?: string } | undefined)?.message }).toEqual({ state: 'done', message: undefined });
+  // Native inventory publishes facts, not agent-authored layouts. Supply the fixture's explicit graph templates.
+  const owner = await createTestDatabaseOwner({
+    store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))),
+    graphContract: withManifestContract(await readPinnedGraphContract(product)),
+  });
+  try {
+    await publishFixtureTemplate(owner, product, 'templates/repository.liquid', [
+      { type: 'block', name: 'repository', params: {}, line: 1 },
+      { type: 'block', name: 'folder', params: {}, line: 2 },
+    ]);
+    await publishFixtureTemplate(owner, product, 'templates/file.liquid', [
+      { type: 'block', name: 'file-page', params: {}, line: 1 },
+    ]);
+  } finally { await owner.close(); }
   // The pages read the store this fill published: the repository's own page, its tree, and the file
   // page with the facts of the fixture's file (madarch-8bdc.2.5, items 2 and 3). The old entity index
   // of the agent stage is not what this step's fill writes, and no page is drawn from it here.
   expect(JSON.stringify(filledAt)).toContain('walk-code');
   expect((filledAt['repository'] as Record<string, unknown>)['steps']).toEqual({ 'tree': true, 'history': true });
   const repository = await json('/products/walk/api/page?id=code.repository%3Awalk-code&full=1');
-  expect(repository.status).toBe(200);
+  expect(repository.status, JSON.stringify(repository.body)).toBe(200);
   expect(JSON.stringify(repository.body)).toContain('walk-code');
   const rootBlock = (repository.body['blocks'] as { type: string; data: Record<string, unknown> }[]).find((block) => block.type === 'folder')!;
   expect((rootBlock.data['folders'] as { path: string }[]).map((folder) => folder.path)).toContain('src');

@@ -1,0 +1,17 @@
+{
+  "name": "agent-fill",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "Fills kinds from their manifest definitions and graph evidence through a host-supervised agent.",
+  "agent": {
+    "prompt": "prompt.md",
+    "roots": [
+      "."
+    ],
+    "catalogue": true
+  }
+}

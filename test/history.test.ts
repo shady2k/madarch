@@ -376,6 +376,8 @@ describe('commits: every commit of one source, in the history\'s own commit orde
     const path = join(folder, 'history');
     try {
       const db = await openRawStore(path);
+      await db.exec('DROP TABLE source_commits');
+      await db.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'history'");
       await db.exec(`CREATE TABLE source_commits (
         source TEXT NOT NULL,
         commit_id TEXT NOT NULL,
@@ -387,9 +389,7 @@ describe('commits: every commit of one source, in the history\'s own commit orde
       await db.query('INSERT INTO source_commits VALUES ($1, $2, $3, $4, $5)', ['shop', 'legacy-c1', DAY(1), 'old-content-digest', DAY(2)]);
       await db.close();
 
-      const history = await newHistory({ store: path, clock: fakeClock(DAY(10)) });
-      await expect(history.sources()).rejects.toThrow(/madarch-legacy-history.*legacy-c1.*shop.*cannot faithfully recover/i);
-      await history.close();
+      await expect(newHistory({ store: path, clock: fakeClock(DAY(10)) })).rejects.toThrow(/madarch-legacy-history.*legacy-c1.*shop.*cannot faithfully recover/i);
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
@@ -419,21 +419,28 @@ describe('lossless: what is stored reads back as compiled', () => {
   test('the union read carries entities and scenarios beside the seven kinds, sorted by id', async () => {
     const clock = fakeClock(DAY(2));
     const h = await history(clock);
-    await h.store({
-      source: 'shop',
-      commit: 'c1',
-      committedAt: DAY(1),
-      model: model(
-        [element('a')],
-        [relation('r1', 'a', 'a')],
-        { entities: [entity('z-entity'), entity('a-entity')], scenarios: [scenario('z-scenario', { steps: [{ id: 's1', relation: 'r1' }] }), scenario('a-scenario')] },
-      ),
-    });
+    const ids = ['z', 'ä', 'a', 'A', '😀'];
+    const stored = model(
+      [element('a')],
+      [relation('r1', 'a', 'a')],
+      {
+        entities: ids.map((id) => entity(`${id}-entity`, { name: `${id} entity` })),
+        scenarios: ids.map((id) => scenario(`${id}-scenario`, { steps: [{ id: 's1', relation: 'r1' }], requirements: [`${id}/requirement`] })),
+      },
+    );
+    const result = await h.store({ source: 'shop', commit: 'c1', committedAt: DAY(1), model: stored });
+    expect(result.errors).toEqual([]);
 
     const union = await readModel(h, { valid: DAY(1), known: DAY(2) });
-    expect(union.entities.map((e) => e.id)).toEqual(['a-entity', 'z-entity']);
-    expect(union.scenarios.map((s) => s.id)).toEqual(['a-scenario', 'z-scenario']);
-    // The compiled model's own key order is fixed (`history-assertions.ts`), so JSON is its canonical bytes.
+    const sortedIds = ['A', 'a', 'z', 'ä', '😀'];
+    expect(union.entities.map((e) => e.id)).toEqual(sortedIds.map((id) => `${id}-entity`));
+    expect(union.scenarios.map((s) => s.id)).toEqual(sortedIds.map((id) => `${id}-scenario`));
+    const expected = model(stored.elements, stored.relations, {
+      entities: sortedIds.map((id) => entity(`${id}-entity`, { name: `${id} entity` })),
+      scenarios: sortedIds.map((id) => scenario(`${id}-scenario`, { steps: [{ id: 's1', relation: 'r1' }], requirements: [`${id}/requirement`] })),
+    });
+    // Compare complete bytes, including nested content, not only the ids or two readers that could lose the same data.
+    expect(JSON.stringify(union)).toBe(JSON.stringify(expected));
     expect(JSON.stringify(union)).toBe(JSON.stringify(await readModel(h, { source: 'shop', valid: DAY(1), known: DAY(2) })));
   });
 

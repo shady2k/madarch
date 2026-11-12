@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseKinds } from '../src/knowledge/kinds.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
 import { declaredKindReads, manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-plugin-contract-'));
@@ -40,6 +40,7 @@ const MANIFEST = [
   '  doc.term:',
   '    template: templates/t.liquid',
   '    source: document',
+  '    origin: person',
   '    terms: ["**/glossary*.md"]',
   '    semantics: term',
   '    fields:',

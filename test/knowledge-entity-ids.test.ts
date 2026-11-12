@@ -8,9 +8,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { makeProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -39,19 +42,27 @@ beforeAll(async () => {
     git(path, 'commit', '-qm', `${name} docs`);
   }
   folder = makeProduct(home, 'shop', first, 'first');
+  writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   const manifest = join(folder, 'workspace.yaml');
   writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'second', linked: true }));
   symlinkSync(second, join(folder, 'repos', 'second'));
+  git(folder, 'add', '-A');
+  git(folder, 'commit', '-qm', 'Connect both fixture repositories');
   const store = productStoreFolder(folder, knowledgeRootOf(home));
   mkdirSync(join(store, 'graph'), { recursive: true });
   const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
   try {
-    const run = await runFill({ product: folder, database: owner, store, home: store, runId: 'two-repositories' });
+    await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
+    const run = await runFill({ product: folder, database: owner, store, home: store, runId: 'two-repositories', prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
     expect(run.ok).toBe(true);
   } finally {
     await owner.close();
   }
-  server = await startServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }, 120_000);
 
 afterAll(async () => {

@@ -1,3 +1,6 @@
+import { SearchContainer, SearchGroupTitle, SearchResultLink, SearchResults } from '@/components/ui/search-results.js';
+import { Input } from '@/components/ui/input.js';
+import { ListItem, Paragraph, PlainList, Stack, Text } from '@/components/ui/typography.js';
 /**
  * The wiki's search in the top bar (madarch-o0d): pages and entities by title and text, grouped by kind, read from the
  * server's own search over the store the pages come from. Ctrl+K (Cmd+K on a Mac) puts the field in hand, the arrows
@@ -8,7 +11,7 @@ import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SearchIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
-import { Input } from '@/components/ui/input.js';
+import { Button } from '@/components/ui/button.js';
 import { navigateTo } from '../hold.js';
 import { getSearch } from './api.js';
 import { useKindName } from './kind-names.js';
@@ -98,18 +101,18 @@ export function SearchBox(): ReactElement {
   };
   let rowAt = 0;
   return (
-    <div ref={box} className="shell-search" data-open={open ? 'true' : 'false'} data-testid="search-box">
-      <button
+    <SearchContainer ref={box} data-open={open ? 'true' : 'false'} data-testid="search-box">
+      <Button
         type="button"
-        className="shell-search-toggle grid size-9 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-control)] text-secondary hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink"
+        className="shell-search-toggle shrink-0"
         aria-label={t('knowledge.searchLabel')}
         aria-expanded={open}
         title={t('knowledge.searchHint')}
         data-testid="search-toggle"
         onClick={() => setOpen(!open)}
       >
-        <SearchIcon aria-hidden="true" className="size-[21px]" />
-      </button>
+        <SearchIcon aria-hidden="true" className="size-5" />
+      </Button>
       <Input
         ref={field}
         type="search"
@@ -135,45 +138,45 @@ export function SearchBox(): ReactElement {
             else { setOpen(false); event.currentTarget.blur(); }
           }
         }}
-        className="shell-search-input max-w-[15rem]"
+        className="shell-search-input "
         data-testid="search-input"
       />
       {shown && (
-        <div role="listbox" id={listId} aria-label={t('knowledge.searchResults')} className="shell-search-results absolute right-0 top-[calc(100%+6px)] z-50 max-h-[70vh] w-[min(28rem,92vw)] overflow-y-auto rounded-[var(--radius-card)] border border-line bg-page p-2 text-left shadow-lg" data-testid="search-results">
-          {error !== null && <p className="m-0 p-2 text-small" role="alert" data-testid="search-error">{t('knowledge.searchFailed', { message: error })}</p>}
-          {error === null && view !== null && view.total === 0 && <p className="m-0 p-2 text-small text-muted" data-testid="search-empty">{t('knowledge.searchEmpty')}</p>}
+        <SearchResults role="listbox" id={listId} aria-label={t('knowledge.searchResults')} data-testid="search-results">
+          {error !== null && <Paragraph className="m-0 p-2 text-small" role="alert" data-testid="search-error">{t('knowledge.searchFailed', { message: error })}</Paragraph>}
+          {error === null && view !== null && view.total === 0 && <Paragraph className="m-0 p-2 text-small text-muted" data-testid="search-empty">{t('knowledge.searchEmpty')}</Paragraph>}
           {error === null && groups.map((group) => (
-            <div key={group.kind} role="group" aria-label={kindName(group.kind, 'many')} data-testid="search-group" data-kind={group.kind}>
-              <p className="mb-1 mt-2 px-2 text-[12px] uppercase tracking-[0.08em] text-muted first:mt-0">
-                {kindName(group.kind, 'many')} <span className="normal-case tracking-normal" data-testid="search-group-count">{group.total}</span>
-              </p>
-              <ul className="m-0 list-none p-0">
+            <Stack key={group.kind} role="group" aria-label={kindName(group.kind, 'many')} data-testid="search-group" data-kind={group.kind}>
+              <SearchGroupTitle>
+                {kindName(group.kind, 'many')} <Text className="normal-case tracking-normal" data-testid="search-group-count">{group.total}</Text>
+              </SearchGroupTitle>
+              <PlainList className="m-0 list-none p-0">
                 {group.rows.map((row) => {
                   const at = rowAt++;
                   return (
-                    <li key={row.id}>
-                      <a
+                    <ListItem key={row.id}>
+                      <SearchResultLink
                         id={`${listId}-row-${at}`}
                         role="option"
                         aria-selected={at === active}
                         href={appPath(row.href)}
                         data-testid="search-row"
                         data-active={at === active ? 'true' : undefined}
-                        className={'block rounded-[var(--radius-row)] px-2 py-1.5 no-underline ' + (at === active ? 'bg-[var(--surface-active)] text-ink' : 'text-secondary hover:bg-[var(--surface-hover)] hover:text-ink')}
+                        active={at === active}
                         onMouseEnter={() => setActive(at)}
                         onClick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return; event.preventDefault(); go(row.href); }}
                       >
-                        <span className="block truncate text-small font-[550]">{row.title}</span>
-                        {row.excerpt !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="search-excerpt">{row.excerpt}</span>}
-                      </a>
-                    </li>
+                        <Text className="block truncate text-small font-medium">{row.title}</Text>
+                        {row.excerpt !== undefined && <Text className="mt-0.5 block text-small text-muted" data-testid="search-excerpt">{row.excerpt}</Text>}
+                      </SearchResultLink>
+                    </ListItem>
                   );
                 })}
-              </ul>
-            </div>
+              </PlainList>
+            </Stack>
           ))}
-        </div>
+        </SearchResults>
       )}
-    </div>
+    </SearchContainer>
   );
 }

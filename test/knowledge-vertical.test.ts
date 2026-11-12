@@ -22,7 +22,6 @@ import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createHandler, type Handled, type Refusal, type ServerHandler } from '../src/server/http.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 import { createWikiPart } from '../src/server/wiki-app.js';
-import { openProductWiki } from '../src/product-wiki/pages.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { FACTORY, MISSING, PAY, PAYMENTS_SERVICE, ROOT, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
@@ -46,6 +45,7 @@ let product: KnowledgeProduct;
 let folder: string;
 
 beforeAll(async () => {
+  if (skippedSuite !== undefined) return;
   work = mkdtempSync(join(tmpdir(), 'madarch-knowledge-vertical-'));
   repository = generateTrainingRepository(join(work, 'repo'));
   mkdirSync(join(work, 'home'));
@@ -61,6 +61,7 @@ beforeAll(async () => {
 }, 900_000);
 
 afterAll(async () => {
+  if (skippedSuite !== undefined) return;
   await product.close();
   rmSync(work, { recursive: true, force: true });
 });
@@ -620,8 +621,6 @@ describe('every page and every kind as a file for agents', () => {
   let appFolder: string;
 
   beforeAll(() => {
-    const opened = openProductWiki(folder);
-    if (!opened.ok) throw new Error(`the product's wiki did not open: ${opened.message}`);
     appFolder = join(work, 'agent-app');
     mkdirSync(appFolder, { recursive: true });
     writeFileSync(join(appFolder, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
@@ -631,7 +630,7 @@ describe('every page and every kind as a file for agents', () => {
       log: () => undefined,
       errorLog: () => undefined,
       appFolder,
-      wiki: createWikiPart(json, refused, opened.wiki, appFolder),
+      wiki: createWikiPart(json, refused, product.changes, appFolder),
       // The product filled in `beforeAll`, read as it is: the same store, so no second process opens it.
       knowledge: createKnowledgePart({ json, refused, errorLog: () => undefined }, product, () => [{ name: 'training-shop', folder }], {}, false, ''),
     });

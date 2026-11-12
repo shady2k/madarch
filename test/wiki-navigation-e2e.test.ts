@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from './api.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 
 /**
  * Reader navigation against the production-built wiki app and its real server.
@@ -168,7 +169,7 @@ runDescribe('built wiki navigation (real server and Chromium)', async () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`Built wiki app is missing: ${join(APP, 'index.html')}`);
     mkdirSync(SHOTS, { recursive: true });
     product = buildNavigationProduct();
-    server = await startServer({
+    server = await startPreparedServer({
       productFolder: product,
       appFolder: APP,
       port: 0,

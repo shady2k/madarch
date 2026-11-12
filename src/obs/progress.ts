@@ -7,7 +7,7 @@
  * one record, and this reads it as it is written rather than keeping a second
  * count beside it.
  */
-import { readTraceSpans, type TraceSpan } from './trace-report.js';
+import { readTraceSpans, type TraceSpan, type TraceSpanReader } from './trace-report.js';
 import { traceFiles } from './trace.js';
 
 /** What one stage has done so far. */
@@ -103,8 +103,8 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
 }
 
 /** The progress of one trace file. */
-export function readFillProgress(file: string): FillProgress {
-  return fillProgressOf(readTraceSpans(file));
+export function readFillProgress(file: string, reader?: TraceSpanReader): FillProgress {
+  return fillProgressOf(reader === undefined ? readTraceSpans(file) : reader.read(file));
 }
 
 /**
@@ -126,9 +126,9 @@ const NOTHING: FillProgress = { spans: 0, planned: 0, published: 0, failed: 0, b
  * another run's trace (a server's own, a fill of another commit) answers the
  * run asked for and never the newest file that happens to be there.
  */
-export function readFillProgressOf(store: string, runId: string): FillProgress {
+export function readFillProgressOf(store: string, runId: string, reader?: TraceSpanReader): FillProgress {
   const file = traceFiles(store).find((one) => one.runId === runId);
-  return file === undefined ? NOTHING : readFillProgress(file.file);
+  return file === undefined ? NOTHING : readFillProgress(file.file, reader);
 }
 
 

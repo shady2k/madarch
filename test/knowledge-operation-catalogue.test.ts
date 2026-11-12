@@ -34,16 +34,16 @@ test('every current catalogue relation retains its exact cut metadata', async ()
 
 
 test('declared AsyncAPI channels keep ownership, real links and application flow', async () => {
-  const channel = {...entity('code.channel:inventory.adjusted', 'code.channel'), label: 'inventory.adjusted'};
+  const channel = {...entity('code.channel:inventory.adjusted', 'code.channel', {direction_status: 'known', directions: ['publish', 'subscribe']}), label: 'inventory.adjusted'};
   const owner = entity('code.contract:descriptions/events.yaml', 'code.contract', {format: 'asyncapi'});
   const producer = entity('code.file:emit.ts', 'code.file'); const consumer = entity('code.file:read.ts', 'code.file');
-  const ctx = {productFolder: '/fixture', manifest: {kinds: new Map([['code.contract', {}], ['code.channel', {}], ['code.file', {}]])}, repoOfScope: () => 'neutral', readSource: async () => 'asyncapi: 2.6.0\nchannels:\n  inventory.adjusted:\n    subscribe: {message: {name: Record}}\n    publish: {message: {name: Record}}', graph: {neighbors: async () => [{relation: 'code.declares', total: 1, rows: [{entity: owner}]}, {relation: 'code.publishes', total: 1, rows: [{entity: producer}]}, {relation: 'code.consumes', total: 501, rows: [{entity: consumer}]}]}} as unknown as RenderContext;
+  const ctx = {productFolder: '/fixture', manifest: {kinds: new Map([['code.contract', {}], ['code.channel', {}], ['code.file', {}]])}, repoOfScope: () => 'neutral', graph: {neighbors: async () => [{relation: 'code.declares', total: 1, rows: [{entity: owner}]}, {relation: 'code.publishes', total: 1, rows: [{entity: producer}]}, {relation: 'code.consumes', total: 501, rows: [{entity: consumer}]}]}} as unknown as RenderContext;
   const metadata = await operationMetadata(ctx, channel);
   expect(metadata.contracts[0]).toMatchObject({entity: {id: owner.key, href: '/e/code.contract%3Adescriptions%2Fevents.yaml'}, protocol: 'AsyncAPI', directionStatus: 'known', directions: ['publish', 'subscribe']});
   expect(metadata.contracts[0]?.producedBy?.map((row) => row.id)).toEqual([producer.key]);
   expect(metadata.contracts[0]?.consumedBy?.map((row) => row.id)).toEqual([consumer.key]);
   expect(metadata.cuts).toContainEqual({relation: 'code.consumes', shown: 1, total: 501});
-  ctx.readSource = async () => 'asyncapi: 3.0.0\nchannels: {}\noperations: {sendRecord: {action: send}}';
-  expect((await operationMetadata(ctx, channel)).contracts[0]).toMatchObject({directionStatus: 'unavailable'});
-  expect((await operationMetadata(ctx, channel)).contracts[0]?.directions).toBeUndefined();
+  const unavailable = {...channel, properties: {direction_status: 'unavailable'}};
+  expect((await operationMetadata(ctx, unavailable)).contracts[0]).toMatchObject({directionStatus: 'unavailable'});
+  expect((await operationMetadata(ctx, unavailable)).contracts[0]?.directions).toBeUndefined();
 });

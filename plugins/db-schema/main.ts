@@ -726,7 +726,7 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   const uniqueFiles = [...new Map(files.map((file) => [JSON.stringify([file.repository, file.path]), file])).values()]
     .sort((left, right) => compare(left.repository, right.repository) || compare(left.path, right.path));
   files.splice(0, files.length, ...uniqueFiles);
-  await loadPostgres();
+  if (files.length > 0) await loadPostgres();
   context.progress(0, files.length, 'read the file vertices');
   for (const [at, file] of files.entries()) {
     const literalProblems: Problem[] = [];

@@ -20,7 +20,10 @@ import type {
 /** One entity's key, rendered one way everywhere: fields in code point order, their values beside them. */
 export function canonicalKey(key: PluginKeyValues): string {
   const fields = Object.keys(key).sort(byCodePoint);
-  return JSON.stringify(Object.fromEntries(fields.map((field) => [field, key[field]])));
+  return JSON.stringify(Object.fromEntries(fields.map((field) => {
+    const value = key[field];
+    return [field, typeof value === 'object' ? { kind: value.kind, key: JSON.parse(canonicalKey(value.key)) as unknown } : value];
+  })));
 }
 
 /** A refusal, with the place in the answer a person can point at. */
@@ -88,6 +91,25 @@ function checkFields(declaration: PluginVertexKindDeclaration | PluginEdgeKindDe
   return undefined;
 }
 
+function checkReferences(contract: PluginContractDeclaration, declaration: PluginVertexKindDeclaration, key: PluginKeyValues, where: string): ResultCheck | undefined {
+  for (const field of declaration.key ?? []) {
+    const value = key[field];
+    const reference = declaration.fields?.find((held) => held.name === field)?.reference;
+    if (reference === undefined) {
+      if (typeof value === 'object') return refuse('malformed-result', `${where}.${field}`, 'a scalar key field cannot name a reference');
+      continue;
+    }
+    if (typeof value !== 'object' || value.kind !== reference) return refuse('malformed-result', `${where}.${field}`, `the key names ${reference} by {kind,key}`);
+    const target = vertexKind(contract, reference);
+    if (target !== undefined) {
+      if (!keyConforms(value.key, declaredKeyFields(target))) return refuse('undeclared-key-field', `${where}.${field}.key`, `the reference names the wrong key for ${reference}`);
+      const problem = checkReferences(contract, target, value.key, `${where}.${field}.key`);
+      if (problem !== undefined) return problem;
+    }
+  }
+  return undefined;
+}
+
 /**
  * One unit's answer, held against the plugin's introduction: every kind, key
  * field, value and edge kind must be one the plugin declared, nothing may
@@ -108,6 +130,8 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     if (!keyConforms(vertex.key ?? {}, fields)) {
       return refuse('undeclared-key-field', `${where}.key`, `the kind "${vertex.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(vertex.key).sort(byCodePoint).join(', ')}`);
     }
+    const referenceProblem = checkReferences(contract, declaration, vertex.key, `${where}.key`);
+    if (referenceProblem !== undefined) return referenceProblem;
     const fieldProblem = checkFields(declaration, vertex, where);
     if (fieldProblem !== undefined) return fieldProblem;
     const identity = `${vertex.kind}\u0000${canonicalKey(vertex.key ?? {})}`;
@@ -141,6 +165,8 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
       if (!keyConforms(named.key ?? {}, fields)) {
         return refuse('undeclared-key-field', `${where}.${end}.key`, `the kind "${named.kind}" is keyed by ${fields.join(', ')}, and the answer names ${Object.keys(named.key).sort(byCodePoint).join(', ')}`);
       }
+      const referenceProblem = checkReferences(contract, endDeclaration, named.key, `${where}.${end}.key`);
+      if (referenceProblem !== undefined) return referenceProblem;
     }
     const fieldProblem = checkFields(declaration, edge, where);
     if (fieldProblem !== undefined) return fieldProblem;
@@ -157,6 +183,10 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     if (vertexKind(contract, removal.kind) === undefined) {
       return refuse('undeclared-kind', `${where}.kind`, `the plugin declares no vertex kind "${removal.kind}"`);
     }
+    const declaration = vertexKind(contract, removal.kind)!;
+    if (!keyConforms(removal.key, declaredKeyFields(declaration))) return refuse('undeclared-key-field', `${where}.key`, 'the removal names the wrong key');
+    const referenceProblem = checkReferences(contract, declaration, removal.key, `${where}.key`);
+    if (referenceProblem !== undefined) return referenceProblem;
     const identity = `${removal.kind}\u0000${canonicalKey(removal.key ?? {})}`;
     if (seenRemovals.has(identity)) return refuse('duplicate-removal', where, `the kind "${removal.kind}" with key ${canonicalKey(removal.key)} is removed twice in one answer`);
     seenRemovals.add(identity);

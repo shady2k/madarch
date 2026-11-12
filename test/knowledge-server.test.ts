@@ -23,13 +23,19 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { activateTestProduct, startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { publishRepositoryTemplates } from './structured-template-fixture.js';
+
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -79,7 +85,10 @@ beforeAll(async () => {
   git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the entry', '--date', '2026-03-03T10:00:00Z');
   home = join(work, 'home');
   mkdirSync(home);
-  makeProduct(home, 'tiny', repository, 'tiny');
+  const tiny = makeProduct(home, 'tiny', repository, 'tiny');
+  writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+  git(tiny, 'add', '-A');
+  git(tiny, 'commit', '--quiet', '-m', 'Fill native inventory and history in the fixture');
   const bare = makeProduct(home, 'bare', repository, 'tiny');
   rmSync(join(bare, 'madarch'), { recursive: true });
   const empty = makeProduct(home, 'unconnected', repository, 'tiny');
@@ -92,7 +101,7 @@ beforeAll(async () => {
   mkdirSync(join(app, 'fonts'), { recursive: true });
   writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>app</title></head><body><div id="root"></div></body></html>');
   writeFileSync(join(app, 'fonts', 'Face.woff2'), 'face');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   // The first page of a product waits for its reader to start (a process of its own): the suite's first test does not.
   await fetch(`${server.url}/products/tiny/api/status`);
   await fetch(`${server.url}/products/unconnected/api/status`);
@@ -104,7 +113,7 @@ afterAll(async () => {
 });
 
 describe('an empty product', () => {
-  test('a product without a manifest is given nothing by the server, and before a fill it answers no kinds: the graph is the one source', async () => {
+  test('a product without a manifest is given nothing, while a validated manifest publishes kinds before any fill', async () => {
     const bare = await get('/products/bare/api/status');
     // The engine knows no entities: nothing was written into the folder, so the wiki shows no kind and says
     // which file it lacks (decision 0034, item 24).
@@ -116,12 +125,15 @@ describe('an empty product', () => {
     const refused = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(refused.status).toBe(409);
     expect(JSON.stringify(await refused.json())).toContain('madarch/kinds.yaml');
-    // Its manifest stands in the repository and no fill has read it: the second state, never `no-manifest`, and nothing
-    // was written to the graph to say so.
+    // Validated declarations are published to the graph without filling repository content.
     const tiny = await get('/products/tiny/api/status');
     expect(tiny.body).toMatchObject({ manifest: 'not-filled', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
     expect(String(tiny.body.manifestFile)).toBe(join(home, 'tiny', 'madarch', 'kinds.yaml'));
-    expect(tiny.body.kinds).toEqual([]);
+    expect(tiny.body.kinds.length).toBeGreaterThan(0);
+    const catalogue = await get('/products/tiny/api/catalog');
+    expect(catalogue.status).toBe(200);
+    expect(catalogue.body.kinds.length).toBeGreaterThan(0);
+    expect(catalogue.body.kinds.every((kind: { count: number; state: string }) => kind.count === 0 && kind.state === 'never')).toBe(true);
     const unconnected = await get('/products/unconnected/api/status');
     expect(unconnected.body.repositories).toEqual([]);
   });
@@ -130,8 +142,10 @@ describe('an empty product', () => {
     // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
     // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
     seedStarterSet(join(home, 'bare'));
+    writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
     git(join(home, 'bare'), 'add', '-A');
     git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
+    await activateTestProduct(join(home, 'bare'), home, join(work, 'store'));
     const started = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(started.status).toBe(202);
     for (let attempt = 0; attempt < 240; attempt += 1) {
@@ -140,19 +154,23 @@ describe('an empty product', () => {
       await new Promise((rest) => setTimeout(rest, 250));
     }
     const status = await get('/products/bare/api/status');
-    // The status names the kinds with pages (and a member's row), and holds no catalogue of its own.
+    // The status names all published kind declarations and holds no catalogue of its own.
     expect(status.body.manifest).toBe('ok');
-    expect(status.body.kinds.length).toBe(67);
+    const published = readKinds(join(home, 'bare'));
+    if (!published.present || published.manifest.catalog === undefined) throw new Error('the fixture starter catalogue is absent');
+    expect(status.body.kinds.map((kind: { kind: string }) => kind.kind).sort()).toEqual([...published.manifest.catalog.kinds.keys()].sort());
+
     expect(status.body.catalog).toBeUndefined();
     const response = await fetch(`${server.url}/products/bare/api/catalog`);
     const text = await response.text();
     expect(response.status).toBe(200);
     const catalog = JSON.parse(text) as { kinds: any[]; groups: any[]; findings: any[] };
     // The counts are the merged starter catalog's own, read from the manifest the server seeded into this product (the
-    // starter set: 28 areas and 106 subgroups, 515 kinds), as main's `test/catalog-read.test.ts` reads the same manifest.
+    // starter set: 28 areas and 106 subgroups, 519 kinds), as main's `test/catalog-read.test.ts` reads the same manifest.
     // A starter set that grows moves this case with it instead of leaving a number here to edit.
     const read = readKinds(join(home, 'bare'));
     if (!read.present) throw new Error('the server seeded no madarch/kinds.yaml into the bare product');
+
     const seeded = read.manifest;
     expect(seeded.catalog).toBeDefined();
     expect(catalog.kinds.length).toBe(seeded.catalog!.kinds.size);
@@ -187,16 +205,24 @@ describe('an empty product', () => {
   });
 
   test('a page that does not exist is a 404 that names why, and an id is required', async () => {
-    // Before its fill the product's kinds are not in the graph, and the answer names the file it lacks.
+    // Published declarations exist before a fill, but the requested content does not.
     const missing = await get(`/products/tiny/api/page?id=${encodeURIComponent('code.symbol:nothing')}`);
     expect(missing.status).toBe(404);
-    expect(missing.body.message).toBe(`the product has no ${join(home, 'tiny', 'madarch', 'kinds.yaml')}: the wiki shows the kinds that file declares`);
+    expect(missing.body.message).toBe(`no entity "code.symbol:nothing" in the graph or among the product's Markdown pages`);
     expect((await get('/products/tiny/api/page')).status).toBe(400);
     expect((await get('/products/tiny/api/entities?kind=nothing')).status).toBe(404);
   });
 });
 
 describe('the products and the app', () => {
+  test('the removed dependencies page is a 404 without a redirect', async () => {
+    for (const path of ['/dependencies', '/dependencies/', '/products/tiny/dependencies', '/products/tiny/dependencies/']) {
+      const answer = await fetch(`${server.url}${path}`, { redirect: 'manual' });
+      expect(answer.status).toBe(404);
+      expect(answer.headers.get('location')).toBeNull();
+    }
+  });
+
   test('the selector is offered the home\'s products at the root and each product alone under its prefix', async () => {
     const all = await get('/api/products');
     expect(all.body.products.map((product: { folder: string }) => product.folder)).toEqual(['bare', 'nogit', 'tiny', 'unconnected']);
@@ -256,6 +282,7 @@ describe('the fill the reader watches', () => {
       status = (await get('/products/tiny/api/status')).body;
     }
     expect(status.fill.state).toBe('done');
+    await publishRepositoryTemplates(join(home, 'tiny'), home, join(work, 'store'));
     await new Promise((rest) => setTimeout(rest, 700));
     done = true;
     await reader.cancel();
@@ -265,7 +292,7 @@ describe('the fill the reader watches', () => {
     // repository in two passes, not a commit at a time, so its two moments are the two notices.
     expect(revisions.length - opened).toBeGreaterThanOrEqual(2);
     expect(new Set(revisions).size).toBe(revisions.length);
-    expect(revisions[revisions.length - 1]).toMatch(/\+\d+$/);
+    expect(revisions[revisions.length - 1]).toMatch(/^\d+$/);
 
     const final = await get('/products/tiny/api/status');
     expect(final.body).toMatchObject({ filled: true, fill: { state: 'done' }, repositories: [{ name: 'tiny', filled: true }] });
@@ -415,7 +442,9 @@ describe('the fill the reader watches', () => {
   });
 
   test('filling again an unchanged repository is done at once and changes no page', async () => {
-    const before = (await get(`/products/tiny/api/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
+    const id = recordKey('code.file', 'tiny/src/a.ts');
+    const before = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
+    expect(before.status).toBe(200);
     const started = await fetch(`${server.url}/products/tiny/api/fill`, { method: 'POST' });
     expect(started.status).toBe(202);
     for (let tries = 0; tries < 400; tries += 1) {
@@ -423,8 +452,9 @@ describe('the fill the reader watches', () => {
       if (status.fill.state !== 'running') break;
       await new Promise((rest) => setTimeout(rest, 250));
     }
-    const after = (await get(`/products/tiny/api/page?id=${encodeURIComponent(sym('src/a.ts#root'))}`)).body;
-    expect(after).toEqual(before);
+    const after = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
+    expect(after.status).toBe(200);
+    expect(after.body).toEqual(before.body);
   }, 120_000);
 });
 
@@ -635,6 +665,13 @@ describe('what a refresh changed', () => {
   }, 180_000);
 
   test('a file page\'s trail ends in the file, and its History is the commits Git gives for the path', async () => {
+    // Native inventory publishes file/history facts; this fixture authors its graph-backed layouts.
+    const product = join(home, 'tiny');
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, join(work, 'store'))), connectOnly: true });
+    try {
+      await publishFixtureTemplate(owner, product, 'templates/file.liquid', [{ type: 'block', name: 'file-page', params: {}, line: 1 }]);
+      await publishFixtureTemplate(owner, product, 'templates/directory.liquid', [{ type: 'block', name: 'folder', params: {}, line: 1 }]);
+    } finally { await owner.close(); }
     const id = recordKey('code.file', 'tiny/src/a.ts');
     const answer = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
     expect(answer.status).toBe(200);

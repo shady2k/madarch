@@ -8,15 +8,17 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { eventsAddress, getStatus } from './api.js';
+import { RequestError } from '../api.js';
 import type { WikiStatus } from './types.js';
 
 /** How long a burst of commits is gathered into one read. */
 const GATHER_MS = 250;
 
-export function useWikiStatus(): { status: WikiStatus | null; error: string | null; version: number; refresh: () => void } {
+export function useWikiStatus(): { status: WikiStatus | null; error: string | null; publication: 'pending' | 'failed' | undefined; version: number; refresh: () => void } {
   const [status, setStatus] = useState<WikiStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [publication, setPublication] = useState<'pending' | 'failed' | undefined>();
   const controller = useRef<AbortController | null>(null);
   const reading = useRef(false);
   const again = useRef(false);
@@ -35,12 +37,14 @@ export function useWikiStatus(): { status: WikiStatus | null; error: string | nu
     getStatus(mine.signal).then(
       (next) => {
         if (mine.signal.aborted) return;
+        setPublication(next.publication === 'pending' || next.publication === 'failed' ? next.publication : undefined);
         setStatus(next);
         setError(null);
         setVersion((held) => held + 1);
       },
       (failure: unknown) => {
         if (mine.signal.aborted) return;
+        setPublication(failure instanceof RequestError ? failure.publication : undefined);
         setError(failure instanceof Error ? failure.message : String(failure));
       },
     ).finally(() => {
@@ -52,14 +56,14 @@ export function useWikiStatus(): { status: WikiStatus | null; error: string | nu
     });
   }, []);
 
-  // A running fill is followed by asking again: the run writes its trace as it goes and sends no
+  // Startup publication and a running fill are followed by asking again: the run writes its trace as it goes and sends no
   // event per span, so a page that waited for a change would show the press and then nothing until
   // the run ended (madarch-8bdc.2.5, item 2). A quiet product still asks for nothing.
   useEffect(() => {
-    if (status?.fill.state !== 'running') return;
+    if (status?.fill.state !== 'running' && publication !== 'pending') return;
     const poll = setInterval(load, 400);
     return () => clearInterval(poll);
-  }, [status?.fill.state, load]);
+  }, [status?.fill.state, publication, load]);
 
   useEffect(() => {
     load();
@@ -84,7 +88,7 @@ export function useWikiStatus(): { status: WikiStatus | null; error: string | nu
     };
   }, [load]);
 
-  return { status, error, version, refresh: load };
+  return { status, error, publication, version, refresh: load };
 }
 
 /**

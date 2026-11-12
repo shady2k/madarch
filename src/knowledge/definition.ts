@@ -1,21 +1,87 @@
 /**
  * The definition block (madarch-m38l.16): an API contract in the shape its own format gives it — the operations of an
  * OpenAPI document, the channels and their messages of an AsyncAPI document, the services and their rpcs of a protobuf
- * file — beside the contract's own text. It reads the graph the fill published (the contract's `code.declares` edges)
- * and the contract file's bytes, and it is a deferred block: the app asks for it only when a reader opens Definition.
+ * file — beside the contract's published definition opinion. It reads the graph's `code.declares` edges
+ * and structured documentation, and it is a deferred block: the app asks for it only when a reader opens Definition.
  *
  * Every member carries an anchor, so an operation page can open the definition at its own operation, and the raw text
  * says how many lines it holds when the page shows only the first of them.
  */
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { contractDocument, contractFullPath, ContractReadError, object, contractObjectAt, contractReasonOf } from './contract-document.js';
-import { protoDocument } from './proto-document.js';
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity } from './graph-read.js';
 import type { Block, DefinitionMember } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
-import { declarationMissing, definitionBlockFormOf, definitionBlockMemberOf } from './kinds.js';
+import { declarationMissing, definitionBlockFormOf, definitionBlockMemberOf } from '../product/manifest/kinds.js';
+
+type DefinitionOpinion = Pick<Extract<Block, {type: 'definition'}>, 'spec' | 'document' | 'protobuf' | 'descriptions' | 'selection' | 'diagnostics'>;
+
+const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+const positiveLine = (value: unknown): boolean => Number.isInteger(value) && Number(value) > 0;
+const rowsOf = (value: unknown, check: (row: Record<string, unknown>) => boolean): boolean => Array.isArray(value) && value.every((row) => record(row) && check(row));
+const strings = (row: Record<string, unknown>, keys: readonly string[]): boolean => keys.every((key) => typeof row[key] === 'string');
+
+/** Validate the published display model, not the source language it describes. */
+function definitionOpinion(value: unknown): value is DefinitionOpinion {
+  if (!record(value) || !record(value['spec']) || typeof value['spec']['text'] !== 'string' || !Number.isInteger(value['spec']['lines']) || Number(value['spec']['lines']) < 0) return false;
+  if (value['document'] !== undefined && !record(value['document'])) return false;
+  if (value['selection'] !== undefined && (!record(value['selection']) || !strings(value['selection'], ['method', 'path', 'operationId']))) return false;
+  if (value['descriptions'] !== undefined && !rowsOf(value['descriptions'], (row) => strings(row, ['text', 'path', 'fullPath']) && positiveLine(row['line']))) return false;
+  if (value['diagnostics'] !== undefined && !rowsOf(value['diagnostics'], (row) => strings(row, ['path', 'fullPath', 'code', 'detail']) && positiveLine(row['line']) && (row['technicalDetail'] === undefined || typeof row['technicalDetail'] === 'string') && (row['reason'] === undefined || validReason(row['reason'])))) return false;
+  if (value['protobuf'] !== undefined) {
+    const proto = value['protobuf'];
+    if (!record(proto) || !rowsOf(proto['services'], (service) => typeof service['name'] === 'string' && rowsOf(service['methods'], (method) => strings(method, ['name', 'request', 'response']) && typeof method['requestStream'] === 'boolean' && typeof method['responseStream'] === 'boolean')) || !rowsOf(proto['messages'], (message) => typeof message['name'] === 'string' && rowsOf(message['fields'], (field) => strings(field, ['name', 'type', 'rule']) && Number.isInteger(field['id']) && Number(field['id']) > 0 && (field['oneof'] === undefined || typeof field['oneof'] === 'string')) && (message['values'] === undefined || rowsOf(message['values'], (entry) => typeof entry['name'] === 'string' && Number.isInteger(entry['id']))))) return false;
+  }
+  return true;
+}
+
+const REASON_FIELDS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'definitionMissing': {},
+  'contractReadBudget': {maxFiles: 'number', maxBytes: 'number'},
+  'yamlParse': {},
+  'yamlConversion': {},
+  'definitionObjectRequired': {},
+  'yamlAliasCycle': {},
+  'definitionNesting': {maxLevels: 'number'},
+  'definitionRepresentationBudget': {maxBytes: 'number'},
+  'referenceAnchorUnsupported': {ref: 'string'},
+  'referenceRemoteOrAbsolute': {ref: 'string'},
+  'referenceEncodingInvalid': {ref: 'string'},
+  'referenceEscapesRepository': {ref: 'string'},
+  'pointerEncodingInvalid': {ref: 'string'},
+  'referenceUnresolved': {ref: 'string'},
+  'externalExample': {ref: 'string'},
+  'externalLogo': {ref: 'string'},
+  'descriptionImage': {},
+  'descriptionMarkupBudget': {maxNodes: 'number'},
+  'reservedBundleField': {field: 'string'},
+  'operationReferenceBudgetOrCycle': {maxReferences: 'number'},
+  'operationReferenceUnresolved': {ref: 'string'},
+  'protoImportBudget': {maxFiles: 'number', maxDepth: 'number'},
+  'protoImportMissing': {},
+  'protoByteBudget': {maxBytes: 'number'},
+  'protoParse': {},
+  'protoImportInvalid': {ref: 'string'},
+  'protoImportEscapesRepository': {ref: 'string'},
+  'protoResolve': {},
+  'definitionSubjectUnsupported': {},
+  'declaringContractCount': {count: 'number'},
+  'contractFormatUnsupported': {format: 'string'},
+  'contractVersionMissing': {format: 'string'},
+  'operationSelectionMissing': {method: 'string', path: 'string'},
+  'operationIdAmbiguous': {operationId: 'string', count: 'number'},
+  'unknownDefinitionFailure': {},
+  'rendererFailure': {},
+  'rendererValidationFailure': {},
+  'selectionNotRendered': {}
+};
+function validReason(value: unknown): boolean {
+  if (!record(value) || typeof value['code'] !== 'string' || !Object.hasOwn(REASON_FIELDS, value['code'])) return false;
+  const fields = REASON_FIELDS[value['code']]!;
+  const params = value['params'];
+  return Object.keys(fields).length === 0 ? params === undefined : record(params) && Object.entries(fields).every(([key, type]) => typeof params[key] === type);
+}
 
 const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
@@ -108,42 +174,21 @@ export async function definitionBlock(ctx: RenderContext, subject: Subject, para
     }
     contract = owners[0]!.entity;
   }
-  const path = textOf(contract.properties['path']) ?? contract.key.slice('code.contract:'.length);
+  const path = textOf(contract.properties['path']) ?? contract.span?.path ?? contract.key;
   const repo = ctx.repoOfScope(contract.scope) ?? null;
-  const format = textOf(contract.properties['format']) ?? 'other';
-  const fullPath = (path: string): string => contractFullPath(ctx.productFolder, repo, path);
+  const fullPath = repo === null ? resolve(ctx.productFolder, path) : resolve(ctx.productFolder, 'repos', repo, path);
   const location = refOfGraph(ctx, contract).location;
-  const base = {type: 'definition' as const, title, format, contract: path, fullPath: fullPath(path), ...(location === undefined ? {} : {location}), members: [], membersTotal: 0, membersShown: 0, memberCuts: [], spec: {text: '', lines: 0}};
-  try {
-    const read = (path: string): Promise<string | undefined> => ctx.readSource(repo, path);
-    const content = format === 'proto' ? await protoDocument(path, read, fullPath) : await contractDocument(path, read, fullPath);
-    const {members, total, shown, cuts} = await membersOf(ctx, contract);
-    const result = {...base, members, membersTotal: total, membersShown: shown, memberCuts: cuts, spec: {text: content.text, lines: content.text.split('\n').length}};
-    if ('protobuf' in content) return {...result, protobuf: content.protobuf};
-    const document = content.document;
-    if (format !== 'openapi' && format !== 'asyncapi') throw new ContractReadError({path, line: 1, fullPath: fullPath(path), code: 'format', detail: `unsupported contract format: ${format}`, reason: {code: 'contractFormatUnsupported', params: {format}}});
-    if (format === 'openapi' && !(typeof document['openapi'] === 'string' || document['swagger'] === '2.0')) throw new ContractReadError({path, line: 1, fullPath: fullPath(path), code: 'shape', detail: 'the OpenAPI version is missing', reason: {code: 'contractVersionMissing', params: {format: 'OpenAPI'}}});
-    if (format === 'asyncapi' && typeof document['asyncapi'] !== 'string') throw new ContractReadError({path, line: 1, fullPath: fullPath(path), code: 'shape', detail: 'the AsyncAPI version is missing', reason: {code: 'contractVersionMissing', params: {format: 'AsyncAPI'}}});
-    if (operation === undefined || format !== 'openapi') return {...result, document, descriptions: content.descriptions};
-    const method = textOf(operation.properties['method'])?.toLowerCase();
-    const route = textOf(operation.properties['path']);
-    const paths = document['paths'];
-    const item = contractObjectAt(document, object(paths) && route !== undefined ? paths[route] : undefined);
-    const selected = contractObjectAt(document, item !== undefined && method !== undefined ? item[method] : undefined);
-    if (!object(selected) || method === undefined || route === undefined) throw new ContractReadError({path, line: operation.span?.lineStart ?? 1, fullPath: fullPath(path), code: 'selection', detail: `operation selection is missing or ambiguous: ${method ?? '?'} ${route ?? '?'}`, reason: {code: 'operationSelectionMissing', params: {method: method ?? '?', path: route ?? '?'}}});
-    // Give anonymous operations a stable renderer anchor; duplicate ids must never select another operation.
-    const declaredId = selected['operationId'];
-    const operationId = typeof declaredId === 'string' && declaredId !== '' ? declaredId : anchorOf('operation', `${method}:${route}`);
-    let matches = 0;
-    if (object(paths)) for (const held of Object.values(paths)) {
-      const item = contractObjectAt(document, held);
-      if (item !== undefined) for (const [verb, value] of Object.entries(item)) if (['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'].includes(verb) && contractObjectAt(document, value)?.['operationId'] === operationId) matches++;
-    }
-    if (matches > 1) throw new ContractReadError({path, line: operation.span?.lineStart ?? 1, fullPath: fullPath(path), code: 'selection', detail: `ambiguous operationId: ${operationId}`, reason: {code: 'operationIdAmbiguous', params: {operationId, count: matches}}});
-    selected['operationId'] = operationId;
-    return {...result, document, descriptions: content.descriptions, selection: {method, path: route, operationId}};
-  } catch (error) {
-    const diagnostic = error instanceof ContractReadError ? error.diagnostic : {path, line: 1, fullPath: fullPath(path), code: 'parse', detail: String(error), technicalDetail: String(error), reason: contractReasonOf(error) ?? {code: 'unknownDefinitionFailure' as const}};
-    return {...base, diagnostics: [diagnostic]};
+  const format = textOf(contract.properties['format']) ?? 'other';
+  const {members, total, shown, cuts} = await membersOf(ctx, contract);
+  const base = {type: 'definition' as const, title, format, contract: path, fullPath, ...(location === undefined ? {} : {location}), members, membersTotal: total, membersShown: shown, memberCuts: cuts, spec: {text: '', lines: 0}};
+  // The producer owns format parsing, reference resolution and operation selection. A page only presents its opinion.
+  const opinion = entity.properties['definition'];
+  if (opinion === null || typeof opinion !== 'object' || Array.isArray(opinion)) {
+    return {...base, diagnostics: [{path, line: entity.span?.lineStart ?? 1, fullPath, code: 'missing', detail: 'the graph holds no definition opinion for this entity', reason: {code: 'definitionMissing'}}]};
   }
+  if (!definitionOpinion(opinion)) {
+    return {...base, diagnostics: [{path, line: entity.span?.lineStart ?? 1, fullPath, code: 'shape', detail: 'the definition opinion has a malformed spec, document, protobuf, selection, descriptions or diagnostics field', reason: {code: 'definitionObjectRequired'}}]};
+  }
+  const definition = opinion;
+  return {...base, spec: definition.spec, ...(definition.document === undefined ? {} : {document: definition.document}), ...(definition.protobuf === undefined ? {} : {protobuf: definition.protobuf}), ...(definition.descriptions === undefined ? {} : {descriptions: definition.descriptions}), ...(definition.selection === undefined ? {} : {selection: definition.selection}), ...(definition.diagnostics === undefined ? {} : {diagnostics: definition.diagnostics})};
 }

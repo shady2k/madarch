@@ -145,6 +145,40 @@ afterAll(() => {
 });
 
 describe('the handshake', () => {
+  test.each([
+    { name: 'an uncaught startup error', source: `throw new Error('schema could not start');`, expected: 'schema could not start' },
+    { name: 'stderr written just before exit', source: String.raw`import { writeSync } from 'node:fs'; writeSync(2, 'startup failed at schema.sql:7\n'); process.exit(1);`, expected: 'startup failed at schema.sql:7' },
+    { name: 'an empty stderr', source: 'process.exit(1);', expected: '(empty)' },
+    { name: 'a bounded stderr tail', source: String.raw`import { writeSync } from 'node:fs'; writeSync(2, 'discarded-prefix' + 'x'.repeat(80 * 1024) + '\nlast startup error\n'); process.exit(1);`, expected: 'last startup error' },
+  ])('startup reports $name before the introduction', async ({ name, source, expected }) => {
+    const folder = scratch('madarch-plugin-startup-');
+    cpSync(probeFolder, folder, { recursive: true });
+    writeFileSync(join(folder, 'main.ts'), source);
+    const work = scratch();
+    let refusal: unknown;
+    try {
+      const session = await new PluginHost({
+        pluginFolder: folder, repository: probeFolder, workRoot: work,
+        trust: 'validation', env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' },
+      }).open();
+      await session.close();
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeDefined();
+    const cause = refusal as { code: string; message: string };
+    expect(cause.code).toBe('plugin-exited');
+    const message = cause.message;
+    expect(message).toContain('src/plugin/host.ts:');
+    expect(message).toContain(join(work, 'plugin', 'stderr.log'));
+    expect(message).toContain(expected);
+    if (name === 'a bounded stderr tail') {
+      expect(message).toContain('truncated to the log tail');
+      expect(message).not.toContain('discarded-prefix');
+      expect(readFileSync(join(work, 'plugin', 'stderr.log')).length).toBe(64 * 1024);
+    }
+  }, 30_000);
+
   hostTest('a plugin that never introduces itself fails the handshake deadline', async () => {
     let refusal: unknown;
     try {
@@ -446,6 +480,17 @@ describe('the closure and its trust', () => {
     expect(report.ok).toBe(true);
     expect(report.lines.map((line) => line.text.split(':')[0])).toEqual(['introduction', 'contract', 'unit conformance-1', 'pause', 'stop']);
   }, 90_000);
+});
+
+test('conformance returns an introduction refusal for a malformed manifest', async () => {
+  const folder = scratch('madarch-plugin-malformed-');
+  writeFileSync(join(folder, 'plugin.json'), '{');
+  const report = await checkConformance({ pluginFolder: folder, workRoot: scratch() });
+  expect(report.ok).toBe(false);
+  expect(report.lines).toHaveLength(1);
+  expect(report.lines[0]!.ok).toBe(false);
+  expect(report.lines[0]!.text).toContain('introduction:');
+  expect(report.lines[0]!.text).toContain(join(folder, 'plugin.json'));
 });
 
 describe('the answer against the declaration', () => {

@@ -43,6 +43,7 @@
  */
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import type { ClaimedJob, DeadLetter, FailOutcome } from '../src/fill/queue.js';
 
 /** One claim, as the scenario observed it. */
@@ -203,6 +204,28 @@ async function refusal(work: () => Promise<unknown>): Promise<string | null> {
  * closes the owner; this closes only the queue.
  */
 export async function runQueueScenario(owner: DatabaseOwner, schema: string): Promise<QueueScenarioReport> {
+  await prepareStore(owner, { queue: { schema, declarations: [
+    { name: SCENARIO_QUEUES.unitsDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.units, leaseSeconds: 60, retries: 2, retryDelaySeconds: 1, retryBackoff: true, deadLetter: SCENARIO_QUEUES.unitsDead },
+    { name: SCENARIO_QUEUES.plans, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
+    { name: SCENARIO_QUEUES.leases, leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.fixedDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.fixed, leaseSeconds: 60, retries: 1, retryDelaySeconds: 1, retryBackoff: false, deadLetter: SCENARIO_QUEUES.fixedDead },
+    { name: SCENARIO_QUEUES.backoff, leaseSeconds: 60, retries: 2, retryDelaySeconds: 1, retryBackoff: true },
+    { name: SCENARIO_QUEUES.leaseSpentDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.leaseSpent, leaseSeconds: 1, retries: 0, retryDelaySeconds: 0, retryBackoff: false, deadLetter: SCENARIO_QUEUES.leaseSpentDead },
+    { name: SCENARIO_QUEUES.heartbeatQuiet, leaseSeconds: 60, retries: 1, retryDelaySeconds: 0, retryBackoff: false, heartbeatSeconds: 10 },
+    { name: SCENARIO_QUEUES.equalPriority, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.keptRetry, leaseSeconds: 60, retries: 2, retryDelaySeconds: 1, retryBackoff: false },
+    { name: SCENARIO_QUEUES.keptRecover, leaseSeconds: 1, retries: 2, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.keptDeadDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.keptDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, deadLetter: SCENARIO_QUEUES.keptDeadDead },
+    { name: SCENARIO_QUEUES.foreignOrder, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.twoDeadDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.twoDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, deadLetter: SCENARIO_QUEUES.twoDeadDead },
+    { name: SCENARIO_QUEUES.frozen, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false },
+    { name: SCENARIO_QUEUES.raised, leaseSeconds: 60, retries: 1, retryDelaySeconds: 0, retryBackoff: false },
+  ] } });
   const queue = await createPgBossQueue({ owner, schema, supervise: false });
   try {
     await queue.declare({ name: SCENARIO_QUEUES.unitsDead, leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false });

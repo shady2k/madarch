@@ -1,3 +1,4 @@
+import { PageSection, Paragraph } from '@/components/ui/typography.js';
 import { Component, lazy, Suspense, type ReactElement, type ReactNode } from 'react';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
@@ -59,15 +60,15 @@ export default function ContractView({block}: {block: Extract<Block, {type: 'def
   const {t} = useTranslation();
   const imageDiagnostic = block.diagnostics === undefined ? descriptionImageDiagnostic(block.descriptions ?? []) : undefined;
   const diagnostics = block.diagnostics ?? (imageDiagnostic === undefined ? undefined : [imageDiagnostic]);
-  return <section data-block="definition" aria-label={block.title} className="contract-definition">
+  return <PageSection data-block="definition" aria-label={block.title} className="contract-definition">
     <h2>{block.title}</h2>
-    <p className="flex flex-wrap items-center gap-2"><Badge>{block.format === 'proto' ? 'gRPC' : block.format === 'asyncapi' ? 'AsyncAPI' : 'OpenAPI'}</Badge>
-      {block.location === undefined ? <code>{block.contract}</code> : <KLink href={block.location.href}>{block.contract}</KLink>}</p>
+    <Paragraph className="flex flex-wrap items-center gap-2"><Badge>{block.format === 'proto' ? 'gRPC' : block.format === 'asyncapi' ? 'AsyncAPI' : 'OpenAPI'}</Badge>
+      {block.location === undefined ? <code>{block.contract}</code> : <KLink href={block.location.href}>{block.contract}</KLink>}</Paragraph>
     {diagnostics?.map((diagnostic, index) => <ContractDiagnosticView key={index} diagnostic={diagnostic} />)}
     {diagnostics === undefined && <RendererBoundary key={`${block.contract}:${block.selection?.operationId ?? ''}`} path={block.contract} fullPath={block.fullPath ?? block.contract}>
-      <Suspense fallback={<p role="status">{t('knowledge.contractLoading')}</p>}>
-        {block.format === 'openapi' && block.document !== undefined ? <Redoc block={block} /> : block.format === 'asyncapi' && block.document !== undefined ? <AsyncApi block={block} /> : block.format === 'proto' && block.protobuf !== undefined ? <Proto block={block} /> : <p role="alert">{t('knowledge.contractMissingDocument')}</p>}
+      <Suspense fallback={<Paragraph role="status">{t('knowledge.contractLoading')}</Paragraph>}>
+        {block.format === 'openapi' && block.document !== undefined ? <Redoc block={block} /> : block.format === 'asyncapi' && block.document !== undefined ? <AsyncApi block={block} /> : block.format === 'proto' && block.protobuf !== undefined ? <Proto block={block} /> : <Paragraph role="alert">{t('knowledge.contractMissingDocument')}</Paragraph>}
       </Suspense>
     </RendererBoundary>}
-  </section>;
+  </PageSection>;
 }

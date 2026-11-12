@@ -12,11 +12,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { repositoryFacts } from '../src/graph/index.js';
 import { storeDatabasePath } from '../src/product/store.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RepositorySession } from '../src/mcp/session.js';
-import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { fillInProcess } from './fill-inline.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const ROOT = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-product-'));
@@ -34,8 +36,17 @@ function put(folder: string, relativePath: string, text: string): void {
 let session: RepositorySession | undefined;
 let productCommit = '';
 let connectedCommit = '';
+let releasePreparationOwner!: () => void;
+let preparationOwner: Promise<void>;
+
 
 beforeAll(async () => {
+  let opened!: () => void;
+  const ready = new Promise<void>((resolve) => { opened = resolve; });
+  const closed = new Promise<void>((resolve) => { releasePreparationOwner = resolve; });
+  preparationOwner = withStorePreparationOwner(async () => { opened(); await closed; });
+  await Promise.race([ready, preparationOwner]);
+
   // The product's own repository: a manifest, a workflow, a source file and a commit.
   mkdirSync(path.join(PRODUCT, 'src'), { recursive: true });
   writeFileSync(path.join(PRODUCT, 'workspace.yaml'), [
@@ -47,7 +58,12 @@ beforeAll(async () => {
     '    url: https://example.invalid/sample.git',
     '',
   ].join('\n'));
-  writeFirstFillWorkflow(PRODUCT);
+  for (const file of STARTER_FILES) put(PRODUCT, file.path, file.content);
+  put(PRODUCT, 'madarch/workflows.yaml', `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
   put(PRODUCT, 'src/total.ts', 'export function total(): number {\n  return 42;\n}\n');
   run(PRODUCT, 'init', '-q', '-b', 'main');
   run(PRODUCT, 'add', '-A');
@@ -63,11 +79,14 @@ beforeAll(async () => {
   connectedCommit = run(connected, 'rev-parse', 'HEAD');
   mkdirSync(path.join(PRODUCT, 'repos'), { recursive: true });
   symlinkSync(connected, path.join(PRODUCT, 'repos', 'sample'), 'dir');
+  await fillInProcess(PRODUCT, path.join(HOME, 'products'));
   session = await RepositorySession.open({ repository: PRODUCT, env: { ...process.env, MADARCH_HOME: HOME } });
 }, 600_000);
 
 afterAll(async () => {
   await session?.close();
+  releasePreparationOwner?.();
+  await preparationOwner;
   rmSync(ROOT, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });
@@ -84,9 +103,16 @@ describe("the server over a product's own repository", () => {
     expect(answer['asIsCommit']).toBe(productCommit);
     expect((answer['source'] as Record<string, unknown>)['repository']).toBe(PRODUCT);
     expect((answer['source'] as Record<string, unknown>)['commit']).toBe(productCommit);
-    const files = await session.call('list_files', {});
-    expect(files.isError).toBe(false);
-    expect(((files.answer as Record<string, unknown>)['files'] as { path: string }[]).map((file) => file.path)).toEqual(['madarch/workflows.yaml', 'src/total.ts', 'workspace.yaml']);
+    const paths: string[] = [];
+    let after: string | undefined;
+    do {
+      const files = await session.call('list_files', { limit: 200, ...(after === undefined ? {} : { after }) });
+      expect(files.isError).toBe(false);
+      const page = files.answer as { files: { path: string }[]; next: string | null };
+      paths.push(...page.files.map((file) => file.path));
+      after = page.next ?? undefined;
+    } while (after !== undefined);
+    expect(paths).toEqual([...new Set([...STARTER_FILES.map((file) => file.path), 'madarch/workflows.yaml', 'src/total.ts', 'workspace.yaml'])].sort());
   }, 600_000);
 
   test('the store holds both repositories under their own ids and commits, never one for the other', async () => {
@@ -101,7 +127,7 @@ describe("the server over a product's own repository", () => {
     try {
       const product = await repositoryFacts(owner, 'sample-product');
       expect(product?.asIsCommit).toBe(productCommit);
-      expect(product?.fileCount).toBe(3);
+      expect(product?.fileCount).toBe(new Set([...STARTER_FILES.map((file) => file.path), 'madarch/workflows.yaml', 'src/total.ts', 'workspace.yaml']).size);
       const connected = await repositoryFacts(owner, 'sample');
       expect(connected?.asIsCommit).toBe(connectedCommit);
       expect(connected?.fileCount).toBe(1);

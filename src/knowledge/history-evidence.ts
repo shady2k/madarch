@@ -1,7 +1,7 @@
 /** Repository-scoped history projections. Counts use complete indexed evidence before display limits. */
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity, HistoryEvidence } from './graph-read.js';
-import type { HistoryShape } from './kinds.js';
+import type { HistoryShape } from '../product/manifest/kinds.js';
 import { GIT_FIELDS, GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 

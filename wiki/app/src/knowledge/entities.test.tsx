@@ -15,7 +15,7 @@ import { unified } from 'unified';
 import { i18n, setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
-import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
+import { CataloguePage, DocumentsPage, EntityPage, KindPage, StatementPage, filterSources } from './pages.js';
 import { resetPreferences, resetTabs } from '../../test/reset.js';
 import { Root as AppRoot } from './root.js';
 import { addressOfStatement, wikiRouteOf } from './routes.js';
@@ -90,6 +90,20 @@ function tree(text: string, showGrounds: boolean): MNode {
   remarkStatements({ showGrounds })(root);
   return root;
 }
+
+test('an empty agent kind explains how to start its fill instead of saying there is no stage', async () => {
+  (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/entities')
+    ? new Response(JSON.stringify({ kind: 'domain', rows: [], total: 0, next: null, agentFill: 'unconfigured', agentUsage: { model: 'fixture-model', tokens: 42 } }))
+    : new Response('{}', { status: 404 });
+  const container = into(createElement(KindPage, { kind: 'domain', version: 0 }));
+  await until(() => container.querySelector('[data-testid="kind-empty"]') !== null, 'agent fill guidance');
+  const note = container.querySelector('[data-testid="kind-empty"]')!;
+  expect(note.textContent).toContain('Choose an agent');
+  expect(note.querySelector('a')?.getAttribute('href')).toBe('/fill');
+  expect(note.textContent).not.toContain('No fill stage');
+  expect(container.querySelector('[data-testid="kind-agent-usage"]')?.textContent).toContain('fixture-model');
+  expect(container.querySelector('[data-testid="kind-agent-usage"]')?.textContent).toContain('42');
+});
 
 describe('the statements of a page', () => {
   test('a paragraph is cut at the full stops the engine\'s reader cuts at, the footnote after the full stop in its sentence, the blank between two sentences outside both', () => {
@@ -278,7 +292,7 @@ describe('Markdown read as statements', () => {
     const container = into(createElement(BlockView, { block: body, resolutions, pageId: 'domain:payment' }));
     await until(() => container.querySelector('[data-testid=grounds-switch]') !== null, 'the switch');
     expect(container.querySelector('sup')).toBeNull();
-    const toggle = container.querySelector('[data-testid=grounds-switch] input') as HTMLInputElement;
+    const toggle = container.querySelector('[data-testid=grounds-switch] [role=switch]') as HTMLButtonElement;
     toggle.click();
     await until(() => container.querySelector('section[data-footnotes]') !== null, 'the grounds');
     expect(container.querySelector('sup')).not.toBeNull();
@@ -516,11 +530,11 @@ describe('the catalogue', () => {
     findings: [],
   };
 
-  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link when it has a page, in the reader\'s language', async () => {
+  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link to its details, in the reader\'s language', async () => {
     answer(full);
     const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
-    expect(container.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('3 entities, 187 records');
+    expect(container.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('3 kinds, 187 records');
     const groups = [...container.querySelectorAll('[data-testid=catalogue-group]')].map((section) => section.getAttribute('data-group'));
     expect(groups).toEqual(['code', 'history']);
     const row = container.querySelector('[data-kind="code.file"]')!;
@@ -533,11 +547,11 @@ describe('the catalogue', () => {
     expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('code extraction');
     expect(row.querySelector('[data-testid=catalogue-stage]')!.getAttribute('data-stage')).toBe('own');
     expect(container.querySelector('[data-kind="code.commit"] [data-testid=catalogue-stage]')!.textContent).toBe('the history stage');
-    // A kind nothing fills yet stays in the list with zero, and no link is offered to a page it does not have.
+    // Empty catalogue-only kinds also have declaration details.
     const empty = container.querySelector('[data-kind="domain"]')!;
     expect(empty.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
     expect(empty.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('agent');
-    expect(empty.querySelector('a')).toBeNull();
+    expect(empty.querySelector('a')!.getAttribute('href')).toBe('/kind/domain');
     expect(empty.getAttribute('data-filled')).toBe('false');
   });
 
@@ -556,16 +570,16 @@ describe('the catalogue', () => {
     }
   });
 
-  test('a kind with no translation is marked and never shown by an English name', async () => {
+  test('a kind with no translation uses its key without warnings', async () => {
     answer({ ...full, kinds: [kind({ kind: 'domain', labels: { en: { one: 'Domain', many: 'Domains' } }, descriptions: { en: 'A part of the business.' }, count: 0 })] });
     await setWikiLanguage('ru');
     try {
       const container = into(createElement(CataloguePage, { version: 0 }));
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
       const row = container.querySelector('[data-kind="domain"]')!;
-      expect(row.querySelector('[data-testid=catalogue-kind-name]')!.textContent).toBe('domain');
-      expect(row.querySelector('[data-testid=catalogue-no-translation]')!.textContent).toBe('нет перевода');
-      expect(row.querySelector('[data-testid=catalogue-no-description]')!.textContent).toBe('нет перевода');
+      expect(row.querySelector('a')!.textContent).toBe('domain');
+      expect(row.querySelector('[data-testid=catalogue-no-translation]')).toBeNull();
+      expect(row.querySelector('[data-testid=catalogue-no-description]')).toBeNull();
       expect(row.textContent).not.toContain('Domains');
       expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
     } finally {
@@ -586,7 +600,7 @@ describe('the catalogue', () => {
     answer(one);
     const english = into(createElement(CataloguePage, { version: 0 }));
     await until(() => english.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
-    expect(english.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 entity, 1 record');
+    expect(english.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 kind, 1 record');
     rendered?.unmount();
     document.body.innerHTML = '';
     await setWikiLanguage('ru');
@@ -594,7 +608,7 @@ describe('the catalogue', () => {
       answer(one);
       const russian = into(createElement(CataloguePage, { version: 0 }));
       await until(() => russian.querySelector('[data-testid=catalogue-total]') !== null, 'the catalogue');
-      expect(russian.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 сущность, 1 запись');
+      expect(russian.querySelector('[data-testid=catalogue-total]')!.textContent).toBe('1 вид, 1 запись');
     } finally {
       await setWikiLanguage('en');
     }
@@ -703,39 +717,6 @@ describe('the statement view', () => {
     expect(row.textContent).toContain('Online shop');
     expect(row.textContent).toContain('UC-2 Pay');
     expect(row.querySelectorAll('a')[1]!.getAttribute('href')).toContain('/statement?id=product%3Ashop');
-  });
-
-  test('a person says why the statement is wrong: the reason is posted against the statement\'s name, and the answer says where it was saved', async () => {
-    const posts: string[] = [];
-    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (url.includes('/api/correction')) {
-        posts.push(String(init?.body));
-        return new Response(JSON.stringify({ correction: 'c', id: 'correction:c', file: 'docs/corrections/c.md', committed: true, by: { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:00:00.000Z' }), { status: 201 });
-      }
-      return url.includes('/api/statement') ? new Response(JSON.stringify(statement)) : new Response('{}', { status: 404 });
-    };
-    const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
-    await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
-    const place = container.querySelector('[data-testid=statement-correction]')!;
-    const send = place.querySelector('[data-testid=correction-send]') as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
-    const text = place.querySelector('textarea') as HTMLTextAreaElement;
-    const key = Object.keys(text).find((name) => name.startsWith('__reactProps$'))!;
-    (text as unknown as Record<string, { onChange: (event: { target: { value: string } }) => void }>)[key]!.onChange({ target: { value: 'A declined payment also cancels the order.' } });
-    await until(() => !(place.querySelector('[data-testid=correction-send]') as HTMLButtonElement).disabled, 'the enabled button');
-    (place.querySelector('[data-testid=correction-send]') as HTMLButtonElement).click();
-    await until(() => place.querySelector('[data-testid=correction-done]') !== null, 'the saved note');
-    expect(posts).toEqual(['{"statement":"domain:payment#checkout-asks-payments-authorize","reason":"A declined payment also cancels the order."}']);
-    expect(place.querySelector('[data-testid=correction-done]')!.textContent).toContain('docs/corrections/c.md');
-  });
-
-  test('a sentence with no name on its page cannot be corrected yet, and says why', async () => {
-    answer({ ...statement, name: null });
-    const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
-    await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
-    const place = container.querySelector('[data-testid=statement-correction]')!;
-    expect((place.querySelector('textarea') as HTMLTextAreaElement).disabled).toBe(true);
-    expect(place.textContent).toContain('has no name on its page yet');
   });
 
   test('a sentence with no ground says the wiki does not show it as a fact, and a sentence the page lost is refused in the server\'s words', async () => {
@@ -878,7 +859,7 @@ describe('every route names its tab', () => {
     // A filled home whose page the server names.
     { address: '/', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
     // A filled home that is its repository's page (the demo's shape).
-    { address: '/', selector: '[data-testid=entity-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
+    { address: '/', selector: '[data-testid=entity-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, historyShallow: false, steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
     { address: '/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
     { address: '/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
     { address: '/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
@@ -888,14 +869,10 @@ describe('every route names its tab', () => {
     { address: '/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
     { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },
     { address: '/glossary', selector: '[data-testid=glossary-page]', expected: 'Glossary' },
-    { address: '/questions', selector: '[data-testid=questions-error]', expected: 'Questions' },
-    { address: '/questions/missing', selector: '[data-testid=question-error]', expected: 'There is no such question' },
     { address: '/problems', selector: '[data-testid=problems-error]', expected: 'Problems' },
     { address: '/settings', selector: '[data-testid=settings-error]', expected: 'Product settings' },
     { address: '/journal?id=product%3Ashop', selector: '[data-testid=journal-error]', expected: 'How the agent wrote this page' },
     { address: '/fill', selector: '[data-testid=fill-page]', expected: 'Fill' },
-    { address: '/tasks', selector: '[data-testid=tasks-error]', expected: 'Tasks' },
-    { address: '/task?id=t1', selector: '[data-testid=task-page-error]', expected: 'The tasks could not be read' },
     { address: '/statement?id=product%3Ashop&sentence=The%20shop%20takes%20orders', selector: '[data-testid=statement-error]', expected: 'The shop takes orders' },
   ];
 

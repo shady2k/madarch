@@ -18,7 +18,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { readKinds } from '../src/knowledge/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { STARTER_TEMPLATES } from '../src/knowledge/starter-templates.js';
 import { checkStarterTemplate } from './template-check.js';

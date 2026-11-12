@@ -18,7 +18,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readProduct, MANIFEST_FILE } from './manifest.js';
 import type { ProductIdentity } from './manifest.js';
-import { productsHome, type DraftEnv } from './draft.js';
+import { productsHome, type DraftEnv } from './home.js';
 /**
  * The folders' own order: code point by code point, not by UTF-16 code unit.
  * A name holding a character above the Basic Multilingual Plane (U+10000

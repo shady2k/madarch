@@ -19,8 +19,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { seedStarterSet } from '../src/knowledge/seed.js';
-import { readWorkflowsFrom, WORKFLOWS_FILE, type WorkflowStatus } from '../src/knowledge/workflows.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
+import { readWorkflowsFrom, WORKFLOWS_FILE, type WorkflowStatus } from '../src/product/manifest/workflows.js';
+import { workingTreeFiles } from '../src/plugin/product-files.js';
 
 const USAGE = 'usage: bun run check:workflows [--folder <product folder>]';
 

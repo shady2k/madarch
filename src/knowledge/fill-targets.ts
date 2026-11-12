@@ -9,7 +9,7 @@
  * because the reader asked for one value, not for the kind.
  */
 import { byCodePoint } from '../model/order.js';
-import type { KindsManifest } from './kinds.js';
+import type { KindsManifest } from '../product/manifest/kinds.js';
 
 /** Why a kind is in the set: the person asked for it, it is a dependency of one asked for, or it depends on one asked for. */
 export type FillTargetReason = 'requested' | 'dependency' | 'dependant';

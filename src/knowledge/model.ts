@@ -8,11 +8,12 @@ type GuidePageData = Record<string, unknown>;
  * app holds no knowledge of any kind and draws only these shapes.
  */
 import type { RefreshPlan } from '../loop/plan.js';
-import type { Finding } from './kinds.js';
+import type { FieldDecl, Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
 import type { FilesMap, FilesMapArea, FilesMapColour, FilesMapEngine, FilesMapWindow } from './files-map.js';
+import type { AgentUsageReport } from '../obs/trace-report.js';
 
 /**
  * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
@@ -295,7 +296,7 @@ type BlockShape =
   | { type: 'guide'; data: GuidePageData }
   | { type: 'markdown'; markdown: string }
   | { type: 'members'; title: string; kindLabel?: string; kindLabelName?: string; rows: MemberRow[]; total: number }
-  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; definedIn: string | null; definedInLink?: { label: string; href: string }; usages: { location: string; count: number; locationLink?: { label: string; href: string } }[]; usageCount: number; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | DiagramsBlockShape
@@ -471,6 +472,14 @@ export interface CatalogKindView {
   labels?: Record<string, { one: string; many: string }>;
   /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
   descriptions?: Record<string, string>;
+  /** The typed contract, exactly as the product declares it. */
+  fields?: readonly FieldDecl[];
+  /** Both directions of declared relations; a catalogue constraint may leave the other kind unspecified. */
+  relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
+  /** The standards or documents the kind declaration cites. */
+  sources?: readonly string[];
+  /** The summary has standards available from the single-kind detail request. */
+  sourcesAvailable?: boolean;
   count: number;
   /** The statements the pages of this kind make, when the index holds any. */
   statements?: number;
@@ -488,6 +497,8 @@ export interface CatalogKindView {
   filled: boolean;
   /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */
   plugins?: readonly string[];
+  /** The folders of field-bound plugins that the manifest resolves, deduplicated in code point order. */
+  pluginFolders?: readonly string[];
   /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
   dependsOn?: readonly string[];
   /**
@@ -525,13 +536,8 @@ export interface KindEstimate {
   readonly seconds: number | null;
 }
 
-/** The catalogue's fill selection as the store keeps it (madarch-stm0.6): what is checked, the agent and the cap. */
-export interface FillSelectionView {
-  readonly selected: readonly string[];
-  readonly agent: string | null;
-  readonly tokenCap: number | null;
-  readonly savedAt: string;
-}
+/** The catalogue list omits declaration details, acquired by a single-kind request. */
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
 export interface CatalogView {
@@ -572,6 +578,8 @@ export interface KindSummary {
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** Whether this kind has a page; false for members and catalogue-only kinds. */
+  page?: boolean;
   /** The form the kind's listing page takes, from the manifest (`listing:`); absent for the plain table of names and places. */
   listing?: 'operations' | 'glossary';
   /** Where the kind stands in the navigation, from the manifest (`nav:`); absent for a kind page among the pages by kind. */
@@ -591,6 +599,9 @@ export interface KindSummary {
 }
 
 export interface EntityListing {
+  /** Agent kinds wait for a configured adapter until the reader presses fill. */
+  agentFill?: 'unconfigured' | 'ready';
+  agentUsage?: { model: string | null; tokens?: number; inputTokens?: number; outputTokens?: number };
   operations?: Record<string, import('./operation-catalogue.js').OperationMetadata>;
   kind: string;
   total: number;
@@ -649,6 +660,11 @@ export interface FillRunView {
   /** The span names that took the most time of their own, the slowest first. */
   readonly slowest: readonly { readonly name: string; readonly count: number; readonly selfMs: number }[];
   readonly steps: readonly FillStepView[];
+  /**
+   * What the run's model calls cost, per kind, field and model (madarch-stm0.4, decision 0035, item 22), read from the
+   * run's own trace: the model, the tokens in and out, the cost, and the bound a turn stopped at when one did.
+   */
+  readonly agentUsage: AgentUsageReport;
 }
 
 /** What a running fill has done so far, read from its trace (`src/obs/progress.ts`). */
@@ -811,6 +827,9 @@ export interface WikiStatus {
   product: { name: string; id: string };
   /** `no-manifest` when `madarch/kinds.yaml` is absent. */
   manifest: 'ok' | 'not-filled' | 'no-manifest';
+  /** Startup catalogue publication is separate from a fill and never opens a store for a poll. */
+  publication?: 'pending' | 'done' | 'failed';
+  publicationMessage?: string;
   manifestFile: string;
   /** The language the product's pages are written in; English when the manifest names none. */
   language: string;

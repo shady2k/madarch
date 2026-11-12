@@ -9,6 +9,15 @@ import { createServer } from 'node:net';
 import { stopDaemon } from '../src/product/daemon.js';
 import { homeOfCommand, noStrayDrafts, sealedHome } from './scratch-home.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { parseDocument } from 'yaml';
+import { readFileSync } from 'node:fs';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { prepareTestProduct } from './prepared-server.js';
+
 
 /** A port the machine holds free right now, for a daemon the test stops again. */
 async function freePort(): Promise<number> {
@@ -65,8 +74,10 @@ function stopAll(): void {
   for (const proc of runningChildren.splice(0)) try { proc.kill(); } catch { /* already gone */ }
 }
 
-afterEach(() => {
+const preparationOwners: (() => Promise<void>)[] = [];
+afterEach(async () => {
   stopAll();
+  for (const close of preparationOwners.splice(0)) await close();
   for (const dir of scratchFolders.splice(0)) rmSync(dir, { recursive: true, force: true });
   const strays = noStrayDrafts();
   if (strays.newEntries.length) throw new Error(`the real products home gained entries while the tests ran (named, left in place): ${strays.newEntries.join(', ')}`);
@@ -182,17 +193,41 @@ function gitCheckout(folder: string): void {
   git(['init', '--quiet', '--initial-branch=main']); git(['add', '-A']); git(['commit', '--quiet', '-m', 'the product']);
 }
 
-/** Presses the product's fill and waits for it: the documents are the graph's now (decision 0035, item 9). */
-async function fillProduct(address: string): Promise<void> {
-  const pressed = await fetch(`${address}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  expect(pressed.status).toBe(202);
-  for (let attempt = 0; attempt < 600; attempt++) {
-    const status = await (await fetch(`${address}/api/status`)).json() as { fill: { state: string; message?: string } };
-    if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
-    if (status.fill.state !== 'running') return;
-    await Bun.sleep(100);
-  }
-  throw new Error('the fill never ended');
+/** The serve tests supply document opinions explicitly; they do not run the unrelated plugin pipeline. */
+async function prepareDocuments(folder: string, home: string): Promise<void> {
+  const path = join(folder, 'madarch', 'kinds.yaml');
+  const manifest = parseDocument(readFileSync(path, 'utf8'));
+  const declaration = manifest.getIn(['kinds', 'document']) as { toJSON(): Record<string, unknown> };
+  manifest.setIn(['kinds', 'document'], {
+    ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
+    fields: ['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
+      { name: 'anchors', type: 'json', producers: ['fixture'] },
+      { name: 'links', type: 'json', producers: ['fixture'] },
+    ]),
+  });
+  writeFileSync(path, manifest.toString());
+  const committed = spawnSync('git', ['commit', '-am', 'Declare fixture documents'], { cwd: folder, env: { ...process.env, ...SEALED_GIT } });
+  if (committed.status !== 0) throw new Error(new TextDecoder().decode(committed.stderr));
+  preparationOwners.push(await prepareTestProduct(folder, home));
+  const read = readKinds(folder);
+  if (!read.present) throw new Error('the fixture document declaration is absent');
+  const contract = graphContractOf(read.manifest);
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
+  try {
+    await owner.transaction('write', async (tx) => {
+      const journal = journalFor('fixture@1');
+      for (const entry of readdirSync(join(folder, 'docs'), { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+        const file = join(entry.parentPath, entry.name);
+        const markdown = readFileSync(file, 'utf8');
+        const title = /^# (.+)$/m.exec(markdown)?.[1];
+        if (title === undefined) throw new Error(`the fixture document ${file} has no title`);
+        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title } }, 1, journal);
+        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, source_text: markdown, anchors: {}, links: [] } }, 1, journal);
+      }
+      await writeJournal(tx, journal);
+    });
+  } finally { await owner.close(); }
 }
 
 /** A product folder to serve: its manifest plus docs. */
@@ -398,12 +433,12 @@ describe('madarch serve: an existing product served', () => {
     const builder = injectableBuilder(built, 'ok');
     const opener = injectableOpener('ok');
     const folder = product(base, 'named');
+    await prepareDocuments(folder, base);
     const serve = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
     const address = await whenServing(serve);
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body).toEqual({ id: 'demo-id', name: 'named' });
-    await fillProduct(address);
     const vision = (await (await fetch(`${address}/api/document?path=docs/vision.md`)).json()) as { title: string; markdown: string };
     expect(vision.title).toBe('Vision');
     expect(vision.markdown).toBe('# Vision\n\nWhat it is for.\n');
@@ -439,13 +474,13 @@ describe('madarch serve: an existing product served', () => {
     // The example folder stands as the set leaves a product now: it holds its own copy of the starter set.
     seedStarterSet(setMade);
     gitCheckout(setMade);
+    await prepareDocuments(setMade, base);
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });
     const address = await whenServing(serve);
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body.id).toBe('8f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
     expect(body.name).toBe('leftover-listings');
-    await fillProduct(address);
     const documents = (await (await fetch(`${address}/api/documents`)).json()) as { documents: { repo: string | null; path: string }[] };
     const paths = documents.documents.map((document) => document.path);
     expect(paths).toContain('docs/vision.md');

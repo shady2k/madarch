@@ -335,6 +335,8 @@ export interface FillStage {
   configSchema: TSchema;
   /** The stage's defaults, before the product's configuration speaks. */
   defaults: StageDefaults;
+  /** A semantic bound when units must publish in plan order. Larger configured concurrency is refused. */
+  readonly maxConcurrency?: number;
   /**
    * Whether the stage is one of decision 0033's static stages: its units read one
    * file's bytes and bounded graph queries through `StageContext.static`, and its

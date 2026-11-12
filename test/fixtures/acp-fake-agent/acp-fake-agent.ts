@@ -55,7 +55,8 @@
  *                 "steps":[…]}`: a prompt matching a `byPrompt` entry runs that entry's
  *                 steps, and every other prompt runs `steps`. A step is one of
  *                 `{"say":"<text>"}` (a message chunk), `{"thought":"<text>"}`,
- *                 `{"usage":{"used":n,"size":m}}` (a `usage_update`), `{"call":{"tool":…,
+ *                 `{"usage":{"used":n,"size":m,"cost":{"amount":a,"currency":"USD"}}}` (a
+ *                 `usage_update`; the cost, when given, is the session's cumulative cost), `{"call":{"tool":…,
  *                 "arguments":…}}` (a call to the session's first stdio MCP server, its
  *                 answer streamed as a JSON message chunk, the server started on the
  *                 first such step), `{"answer":{…}}` (the object, as a message chunk,
@@ -96,7 +97,7 @@ interface ScriptStep {
   sleep?: number;
   say?: string;
   thought?: string;
-  usage?: { used?: number; size?: number };
+  usage?: { used?: number; size?: number; cost?: { amount: number; currency: string } };
   call?: {
     tool?: string; arguments?: unknown;
     /** Test-authored semantic decisions, keyed by fixture question prose, never production ids.
@@ -330,7 +331,7 @@ async function runScript(id: number | string, sessionId: string, text: string): 
     if (step.sleep !== undefined) { await new Promise((resolve) => setTimeout(resolve, Number(step.sleep))); continue; }
     if (step.say !== undefined) { chunk(sessionId, step.say); continue; }
     if (step.usage !== undefined) {
-      notify('session/update', { sessionId, update: { sessionUpdate: 'usage_update', ...(step.usage.used === undefined ? {} : { used: step.usage.used }), ...(step.usage.size === undefined ? {} : { size: step.usage.size }) } });
+      notify('session/update', { sessionId, update: { sessionUpdate: 'usage_update', ...(step.usage.used === undefined ? {} : { used: step.usage.used }), ...(step.usage.size === undefined ? {} : { size: step.usage.size }), ...(step.usage.cost === undefined ? {} : { cost: step.usage.cost }) } });
       continue;
     }
     if (step.call !== undefined) {

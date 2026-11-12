@@ -32,7 +32,7 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { lineOf, lineOfIndex } from '../product/manifest.js';
 import { jsonPointerToSegments, segmentsToPath, type PathSegment } from '../model/yaml-position.js';
-import { type FillConfigError, type FillStageConfigurationRead } from './config.js';
+import { type FillConfigError, type FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import {
   DEFAULT_STAGE_LIMITS, STAGE_ID_PATTERN,
   type FillStage, type FillStageConfigurationEntry, type ResolvedStageConfiguration, type StageLimitOverrides, type StageLimits,
@@ -429,6 +429,8 @@ function readStageConfiguration(
   if (concurrency !== undefined) {
     if (typeof concurrency !== 'number' || !Number.isInteger(concurrency) || concurrency < 1) {
       fault(lineOf(fields, 'concurrency'), `${at.path}.concurrency`, `${at.path}.concurrency is a whole number of 1 or more, not ${shown(concurrency)}`);
+    } else if (stage.maxConcurrency !== undefined && concurrency > stage.maxConcurrency) {
+      fault(lineOf(fields, 'concurrency'), `${at.path}.concurrency`, `${at.path}.concurrency must be at most ${stage.maxConcurrency}: this stage's units publish in plan order`);
     } else {
       entry.concurrency = concurrency;
     }

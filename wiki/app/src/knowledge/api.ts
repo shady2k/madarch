@@ -2,13 +2,16 @@ import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CatalogView, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillSelectionView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, SearchView, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { AgentChoices, AgentOffer, Block, CatalogKindView, CatalogSummaryView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, SearchView, SourceFile, StatementModel, UserSettings, WikiStatus, WriterState } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
 
 /** The entity catalogue: every kind the manifest declares, with its words, its count and what fills it (madarch-8bdc.2.5). */
-export const getCatalog = (signal?: AbortSignal): Promise<CatalogView> => readJson<CatalogView>('read the entity catalogue', API.catalog, signal);
+export const getCatalog = (signal?: AbortSignal): Promise<CatalogSummaryView> => readJson<CatalogSummaryView>('read the entity catalogue', API.catalog, signal);
+
+/** The complete declaration of one kind, read when its details are opened. */
+export const getCatalogKind = (kind: string, signal?: AbortSignal): Promise<CatalogKindView> => readJson<CatalogKindView>('read the kind declaration', `${API.catalog}?kind=${encodeURIComponent(kind)}`, signal);
 
 /** The wiki-wide search: pages and entities by title and text, grouped by kind (madarch-o0d). */
 export const getSearch = (query: string, lang: string, signal?: AbortSignal): Promise<SearchView> => readJson<SearchView>('search the wiki', `${API.search}?${new URLSearchParams({ q: query, lang: lang === 'ru' ? 'ru' : 'en' }).toString()}`, signal);
@@ -25,6 +28,11 @@ export function getEntities(kind: string, options: { q?: string; after?: string 
   if (options.q !== undefined && options.q !== '') query.set('q', options.q);
   if (options.after !== undefined) query.set('after', options.after);
   return readJson<EntityListing>(`list the entities of kind ${kind}`, `${API.entities}?${query.toString()}`, signal);
+}
+
+/** What the agent spent on a kind: every run counted, the newest listed (madarch-stm0.4, decision 0035, item 22). */
+export function getKindUsage(kind: string, signal?: AbortSignal): Promise<{ usage: KindUsageView }> {
+  return readJson<{ usage: KindUsageView }>(`read the agent spend on kind ${kind}`, `${API.kindUsage}?${new URLSearchParams({ kind }).toString()}`, signal);
 }
 
 /** One file of a repository, as the graph was filled from it. */
@@ -161,15 +169,8 @@ export async function saveGraphVerdictBudgets(itemsPerRun: number, modelCallsPer
   return await post<{ budgets: GraphVerdictBudgets; report?: GraphVerdictReport }>('save the graph verdict budgets', API.graphVerdicts, { itemsPerRun, modelCallsPerRun });
 }
 
-/** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
-/** The catalogue's fill selection as the store keeps it: the kinds checked, the agent and the cap. */
-export const getFillSelection = (signal?: AbortSignal): Promise<{ selection: FillSelectionView }> => readJson('read the fill selection', API.fillSelection, signal);
-
-/** Writes the selection the catalogue page made; the answer is what the store now holds. */
-export const saveFillSelection = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ selection: FillSelectionView }> => post('save the fill selection', API.fillSelection, selection);
-
-/** Starts the fill the panel asked for: the selected kinds, their dependencies added by the engine, in order. */
-export const fillSelected = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ order: string[] }> => post<{ fill: unknown; selection: FillSelectionView; order: string[] }>('fill the selected entities', API.fillSelected, selection);
+/** Starts the fill the page asked for: the selected kinds, their dependencies added by the engine, in order. */
+export const fillSelected = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ order: string[] }> => post<{ fill: FillState; order: string[] }>('fill the selected entities', API.fillSelected, selection);
 
 export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', API.productSettings, settings);
 
@@ -224,10 +225,6 @@ export function getNeighborhood(id: string, options: { relation?: string; direct
 
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
 
-export const getQuestions = (signal?: AbortSignal): Promise<QuestionListing> => readJson<QuestionListing>('list the questions', API.questions, signal);
-
-export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionDetail> => readJson<QuestionDetail>(`read the question ${id}`, `${API.question}?id=${encodeURIComponent(id)}`, signal);
-
 /** The Problems page's first level: one row per rule, with counts (madarch-8bdc.2.5). */
 export function getProblemCategories(options: { section?: ProblemSection } = {}, signal?: AbortSignal): Promise<ProblemCategories> {
   const query = new URLSearchParams();
@@ -252,9 +249,6 @@ export function getProblemItems(rule: string, source: string, options: { after?:
 /** «Не проблема»: the reason is kept as a file in the product repository. */
 export const dismissProblem = (id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> => post('dismiss the problem', API.problemDismiss, { id, reason });
 
-/** «Создать задачу»: a task scoped to the place the problem names (madarch-m38l.14). */
-export const createProblemTask = (id: string): Promise<CreatedTask> => post<CreatedTask>('create a task from the problem', API.problemTask, { id });
-
 async function post<T>(what: string, url: string, body: unknown): Promise<T> {
   let response: Response;
   try {
@@ -274,12 +268,6 @@ async function post<T>(what: string, url: string, body: unknown): Promise<T> {
   throw new RequestError(what, reason, response.status);
 }
 
-/** A person's answer to a question; the server writes it into the question's file and commits it. */
-export const answerQuestion = (question: string, text: string): Promise<AnswerResult> => post<AnswerResult>('save the answer', API.answer, { question, text });
-
-/** A person's correction of a statement (`<page id>#<statement name>`): "wrong, because ...". */
-export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', API.correction, { statement, reason });
-
 /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
 export const getBlock = (id: string, block: string, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block ${block} of the page of ${id}`, `${API.block}?id=${encodeURIComponent(id)}&block=${encodeURIComponent(block)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
 
@@ -290,24 +278,3 @@ export const getViews = (query: string, lang: string, signal?: AbortSignal): Pro
 
 /** Where the frame of a view in the LikeC4 or archify renderer is served (the app's base is added). */
 export const viewFrameAddress = (query: string, renderer: 'likec4' | 'archify', lang: string): string => appPath(`${API.viewFrame}?${query}&renderer=${renderer}&lang=${lang === 'ru' ? 'ru' : 'en'}`);
-
-/** The product's tasks, open first, each with what its change reaches through the graph. */
-export const getTasks = (signal?: AbortSignal): Promise<TaskListing> => readJson('list the tasks', API.tasks, signal);
-
-/** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
-export const getTask = (id: string, signal?: AbortSignal): Promise<TaskDetail> => readJson(`read the task ${id}`, `${API.task}?id=${encodeURIComponent(id)}`, signal);
-
-/** The task an answer proposes: the scope its grounds name and what it reaches, before anything is written. */
-export const proposeTask = (question: string, choice: 'code' | 'docs', language: string): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', API.taskPropose, { question, choice, language });
-
-/** What the reader's edited scope reaches through the graph: the preview follows the scope, not the answer it came from. */
-export const getScopeImpact = (scope: TaskScope[]): Promise<TaskImpact> => post<TaskImpact>('compute what the scope reaches', API.taskImpact, { scope });
-
-/** Confirms the reader's edited proposal: only now is a task written, as the reader, in the product repository. */
-export const createTask = (input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<CreatedTask> => post<CreatedTask>('confirm the task', API.taskCreate, input);
-
-/** Closes a task by hand; a commit that names the task and touches its scope closes it without this. */
-export const closeTask = (id: string): Promise<{ task: { slug: string; id: string }; state: 'closed'; committed: boolean; note?: string }> => post('close the task', API.taskClose, { id });
-
-/** «Поправить страницы сейчас»: a run over exactly the pages this task's impact lists. */
-export const runTask = (id: string): Promise<{ task: TaskRow; pages: string[]; fill: FillState }> => post('fix the task pages now', API.taskRun, { id });

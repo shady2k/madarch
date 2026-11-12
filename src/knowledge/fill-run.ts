@@ -19,9 +19,12 @@
 import { mkdirSync } from 'node:fs';
 import { basename } from 'node:path';
 import { runFill } from '../fill/run.js';
+import type { PluginAgentOptions } from '../plugin/agent.js';
+import { configuredPluginAgent } from './agents.js';
+import type { DraftEnv } from '../product/home.js';
 import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
-import { readChain, readRun } from '../fill/state-store.js';
+import { advanceRun, createRun, readChain, readRun } from '../fill/state-store.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readProduct } from '../product/manifest.js';
 
@@ -67,6 +70,8 @@ const DEFAULT_PUBLISH_MS = 8_000;
 
 /** What one fill of a knowledge store was asked for. */
 export interface KnowledgeFillOptions {
+  /** The owning process prepares the exact pinned contract before any fill client attaches. */
+  readonly prepareContract?: (contract: import('../graph/contract.js').GraphContract) => Promise<void>;
   /** The product's folder: its manifest and the repositories it pins. */
   readonly productFolder: string;
   /** The product's knowledge store folder: `<graph>` and `<read>/<n>` live in it. */
@@ -80,6 +85,10 @@ export interface KnowledgeFillOptions {
    * dependency order, and with a vertex the one entity it rewrites. Left out, the fill takes every kind.
    */
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  /** The ACP adapter chosen for this pressed fill; no adapter is started while reading pages. */
+  readonly pluginAgent?: PluginAgentOptions;
+  /** Adapter discovery and credential environment; the process environment when omitted. */
+  readonly env?: DraftEnv;
   /**
    * The content language the press named, when it named one: the run states it in its own record (its trace's root span,
    * `madarch.language`), so a run another process pressed is read with the language it was asked for (madarch-8bdc.12 —
@@ -203,6 +212,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   const owner = options.database;
   await owner.ready;
   let service: FillOrchestratorService | undefined;
+  let recordEnd = true;
   /** When a reader was last told the run published, and the least time between two notices. */
   let lastNotice: number | undefined;
   const noticeEveryMs = options.snapshotMs ?? DEFAULT_PUBLISH_MS;
@@ -218,14 +228,17 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
       try {
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
         // all start it here (madarch-8bdc.2.5, item 6).
+        const pluginAgent = options.pluginAgent ?? configuredPluginAgent(options.storeFolder, options.env ?? process.env);
         const result = await runFill({
           product: options.productFolder,
           database: owner,
+          ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }),
           runId: options.runId,
           home: options.storeFolder,
           workers: options.workers ?? 16,
           ...(options.language === undefined ? {} : { language: options.language }),
           ...(options.targets === undefined ? {} : { targets: options.targets }),
+          ...(pluginAgent === undefined ? {} : { pluginAgent }),
           maxPasses: 100_000,
           onService: (started) => { service = started; },
           // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to
@@ -274,7 +287,17 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
         };
       } catch (error) {
-        return { ok: false, state: 'failed', message: error instanceof Error ? error.message : String(error), units: 0 };
+        const message = error instanceof Error ? error.message : String(error);
+        if (await readRun(owner, options.runId) === null) {
+          const identity = readProduct(options.productFolder);
+          await createRun(owner, { runId: options.runId, product: identity.ok ? identity.product.name : basename(options.productFolder), at: Date.now() });
+          const failed = await advanceRun(owner, { runId: options.runId, event: { type: 'fail', at: Date.now(), cause: 'initialization-failed', detail: message } });
+          if (!failed.ok) throw new Error(failed.refusal.reason);
+        } else if (service === undefined) {
+          // Initialization of a repeated request must not replace the existing run's end.
+          recordEnd = false;
+        }
+        return { ok: false, state: 'failed', message, units: 0 };
       }
     };
 
@@ -287,19 +310,17 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
      * row said `succeeded` while `knowledge_fill` held no row, and the pins landed 10 ms later).
      */
     const done = (async (): Promise<KnowledgeFillResult> => {
-      const answer = await fillTheStore();
       try {
-        await writeFillEnd(owner, {
+        const answer = await fillTheStore();
+        if (recordEnd) await writeFillEnd(owner, {
           runId: options.runId, state: answer.state,
           ...(answer.message === undefined ? {} : { message: answer.message }),
           ...(answer.unread === undefined ? {} : { unread: answer.unread }),
         });
-      } catch {
-        // The run's answer stands whatever happened to the record of its end: a store that cannot take this row is one
-        // whose pages already answer what the run wrote.
+        return answer;
+      } finally {
+        await close();
       }
-      await close();
-      return answer;
     })();
     return {
       runId: options.runId,

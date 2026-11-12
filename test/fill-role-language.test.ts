@@ -4,15 +4,18 @@
  * so the run recorded no language at all. The case asks for one, runs the role over the store, and reads the language off
  * the run's own root span.
  */
+import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { runFillRole } from '../src/knowledge/fill-role.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { readFillEnd } from '../src/fill/orchestrator-store.js';
+import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
+import { createRun } from '../src/fill/state-store.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { execFileSync } from 'node:child_process';
@@ -30,7 +33,7 @@ function rootSpanOf(traceFile: string): { name: string; attributes: { key: strin
   throw new Error(`the trace ${traceFile} holds no fill.run span`);
 }
 
-test('the language a press names is the one the run records', async () => {
+test('the language a press names is the one the run records', async () => await withStorePreparationOwner(async () => {
   const env = gitEnv(SAMPLE_IDENTITY);
   const repository = join(work, 'repo');
   mkdirSync(join(repository, 'src'), { recursive: true });
@@ -45,7 +48,8 @@ test('the language a press names is the one the run records', async () => {
   // The store the role watches (the folder the product's own fill keeps), and the database folder inside it.
   const storeFolder = productStoreFolder(product, knowledgeRoot);
   const graphFolder = join(storeFolder, 'graph');
-  const owner: DatabaseOwner = await createDatabaseOwner({ store: graphFolder, btreeGist: true });
+  await requestStorePreparation(graphFolder, await readPinnedGraphContract(product));
+  const owner: DatabaseOwner = await createDatabaseOwner({ store: graphFolder, connectOnly: true });
   let queue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   try {
     queue = await openFillRunQueue(owner);
@@ -60,7 +64,7 @@ test('the language a press names is the one the run records', async () => {
         knowledgeRoot,
         log: () => undefined,
         idle: () => finished,
-        openStore: async (folder) => await createDatabaseOwner({ store: folder, btreeGist: true }),
+        openStore: async (folder) => await createDatabaseOwner({ store: folder, connectOnly: true }),
       });
     } finally {
       clearInterval(watching);
@@ -77,4 +81,34 @@ test('the language a press names is the one the run records', async () => {
     await queue?.stop().catch(() => undefined);
     await owner.close();
   }
-}, 180_000);
+}), 180_000);
+
+test('a redelivered fill keeps its published failure and acknowledges the job without reopening the product', async () => await withStorePreparationOwner(async () => {
+  const knowledgeRoot = join(work, 'redelivery-knowledge');
+  const storeFolder = join(knowledgeRoot, 'ended');
+  const graphFolder = join(storeFolder, 'graph');
+  await requestStorePreparation(graphFolder);
+  const owner = await createDatabaseOwner({ store: graphFolder, connectOnly: true });
+  const queue = await openFillRunQueue(owner);
+  const job = { product: join(work, 'missing-redelivered-product'), store: storeFolder, runId: 'ended-run' };
+  const original = { runId: job.runId, state: 'failed', message: 'The original failure must remain exact.' };
+  try {
+    await createRun(owner, { runId: job.runId, product: job.product, at: Date.now() });
+    await writeFillEnd(owner, original);
+    expect(await askFillRun(queue, job)).toBe(true);
+    let passes = 0;
+    expect(await runFillRole({
+      knowledgeRoot,
+      log: () => undefined,
+      idle: () => passes++ > 0,
+      openStore: async (folder) => await createDatabaseOwner({ store: folder, connectOnly: true }),
+    })).toBe(0);
+    expect(await readFillEnd(owner, job.runId)).toEqual(original);
+    expect(existsSync(join(storeFolder, 'traces', `${job.runId}.jsonl`))).toBe(false);
+    // Completion releases the product's singleton, unlike an unfinished retry.
+    expect(await askFillRun(queue, { ...job, runId: 'next-run' })).toBe(true);
+  } finally {
+    await queue.stop();
+    await owner.close();
+  }
+}), 180_000);

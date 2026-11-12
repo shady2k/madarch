@@ -6,13 +6,10 @@ import { contentLanguage } from './plural.js';
  * rendered over the graph and the Markdown. Nothing here names a kind: the
  * kind's declaration and its template say what the page shows.
  */
-import remarkGfm from 'remark-gfm';
-import remarkParse from 'remark-parse';
-import { unified } from 'unified';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock, termBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, fileBlock, folderBlock, idOf, kindOf, memberAnchor, memberParent, membersBlock, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, repositoryBlock, sourceBlock, termBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
 import { filesBlock, graphBlock, treemapBlock } from './diagrams.js';
@@ -23,16 +20,14 @@ import { withSpan } from '../obs/trace.js';
 import type { GraphEntity } from './graph-read.js';
 import { linkedFromBlock } from './linked-from.js';
 import { overviewAbout, overviewData, overviewHow, overviewReading, overviewStatus, overviewTerms } from './overview.js';
-import { filePageBlock } from './file-page.js';
-import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from './kinds.js';
-import { readBody } from './markdown.js';
+import { homeKind, listingFormOf, type Finding, type KindDecl, type Origin } from '../product/manifest/kinds.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolution } from './resolve.js';
 import { HOME_ADDRESS } from './addresses.js';
-import { renderLiquidPage } from './liquid.js';
-import { blockIdentity, foldLanguageParams, parseTemplate, substitute } from './template.js';
-import { kindNumbers } from './kind-numbers.js';
+import { blockIdentity, escapeMarkdown, foldLanguageParams, templatePartsOf } from './template.js';
+import { catalogKinds } from './catalog-view.js';
+import { filePageBlock } from './file-page.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
 
@@ -80,58 +75,41 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   const findings: Finding[] = [];
   let blocks: Block[] = [];
   const value = (name: string): string | undefined => allowedAttribute(decl, name) ? attributeOf(subject, name) : undefined;
-  // A kind's template is Liquid (decision 0032) or, for a product made before it, the Markdown template of 0029: both
-  // answer blocks in the template's order, and both read a block where the graph is.
-  if (decl.template.endsWith('.liquid')) {
-    const outcome = await renderLiquidPage({
-      productFolder: ctx.productFolder,
-      files: ctx.files,
-      template: decl.template,
-      data: { ...pageAttributes(subject, decl.attributes), lang: lang ?? ctx.language },
-      ...(lang === undefined ? {} : { lang }),
-      defer: options.defer === true,
-      deferred: [...DEFERRED_BLOCKS],
-      ...(options.only === undefined ? {} : { only: options.only }),
-      render: (name, params, file, line) => renderBlock(ctx, subject, name, params, file === '' ? decl.template : file, line, lang, decl.details),
-    });
-    findings.push(...outcome.findings);
-    for (const block of outcome.blocks) {
-      if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `${block.block}: ${block.message}` });
-      blocks.push(block);
+  const templates = await ctx.graph.find(`template:${decl.template}`);
+  if (templates.length !== 1) return { ok: false, status: 500, message: `${decl.template}:1: expected one structured template opinion, found ${templates.length}` };
+  const parts = templatePartsOf(templates[0]!.properties['template_parts']);
+  if (parts === undefined) return { ok: false, status: 500, message: `${decl.template}:1: template opinion requires structured template_parts` };
+  let text = '';
+  const flush = (): void => {
+    if (options.only === undefined && text.trim() !== '') blocks.push({ type: 'markdown', markdown: text });
+    text = '';
+  };
+  for (const part of parts) {
+    if (part.type === 'text') { text += part.text; continue; }
+    if (part.type === 'attribute') {
+      const found = value(part.name);
+      if (found === undefined) findings.push({ file: decl.template, line: part.line, message: `"${part.name}" names no attribute of this entity` });
+      text += found === undefined ? '–' : escapeMarkdown(found);
+      continue;
     }
-    if (outcome.refused !== undefined && outcome.blocks.length === 0) return { ok: false, status: 500, message: outcome.refused };
-  } else {
-    // The template is the product repository's file as the graph holds it: a reader of a page never opens the checkout.
-    const templateText = ctx.files.text(decl.template);
-    if (templateText === undefined) {
-      return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: the graph holds no text of it (src/knowledge/render.ts)` };
+    flush();
+    if (part.type === 'problem') {
+      if (options.only !== undefined) continue;
+      findings.push({ file: decl.template, line: part.line, message: part.message });
+      blocks.push({ type: 'problem', block: 'template', message: part.message, file: decl.template, line: part.line });
+      continue;
     }
-    for (const part of parseTemplate(templateText)) {
-      // One block asked for by its identity is the whole page a deferred diagram reads: its text is not part of the answer.
-      if (options.only !== undefined && part.type !== 'block') continue;
-      if (part.type === 'text') {
-        const text = substitute(part.text, part.line, decl.template, value, findings);
-        if (text.trim() !== '') blocks.push({ type: 'markdown', markdown: text });
-        continue;
-      }
-      if (part.type === 'problem') {
-        findings.push({ file: decl.template, line: part.line, message: part.message });
-        blocks.push({ type: 'problem', block: ':::', message: part.message, file: decl.template, line: part.line });
-        continue;
-      }
-      const params = legacyParams(part.params, part.line, decl.template, value, findings, lang);
-      // One block of the template, asked for by its identity (the page a deferred diagram reads itself from).
-      if (options.only !== undefined && blockIdentity(part.name, params) !== options.only) continue;
-      // The diagrams read the graph many times; a page that asks for them later answers at once and draws them when they come.
-      if (options.defer === true && DEFERRED_BLOCKS.has(part.name)) {
-        blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', id: blockIdentity(part.name, params) });
-        continue;
-      }
-      const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang, decl.details);
-      if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
-      blocks.push({ ...block, name: part.name });
+    const params = foldLanguageParams(part.params, lang ?? ctx.language);
+    if (options.only !== undefined && blockIdentity(part.name, params) !== options.only) continue;
+    if (options.defer === true && DEFERRED_BLOCKS.has(part.name)) {
+      blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', id: blockIdentity(part.name, params) });
+      continue;
     }
+    const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang, decl.details);
+    if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `${block.block}: ${block.message}` });
+    blocks.push({ ...block, name: part.name });
   }
+  flush();
 
   // A section with nothing in it is not a section a reader meets: it is left out of the page, unless what it looked
   // for is itself worth saying, and then it carries one sentence in the reader's language (madarch-m38l.21).
@@ -153,10 +131,10 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   const urls = new Set<string>();
   const bodyLinks: { url: string; line: number; ground: boolean }[] = [];
   for (const block of blocks) {
-    if (block.type === 'markdown') for (const link of readBody(block.markdown, decl.template, 1).links) urls.add(link.url);
+    if (block.type === 'markdown') for (const match of block.markdown.matchAll(/madarch:[^\s)\]>"']+/g)) urls.add(match[0]);
   }
   if (subject.source === 'markdown' && blocks.some((block) => block.type === 'body')) {
-    const reading = readBody(subject.entity.body, subject.entity.file, subject.entity.bodyLine);
+    const reading = subject.entity.reading;
     findings.push(...reading.findings);
     for (const link of reading.links) {
       urls.add(link.url);
@@ -246,20 +224,6 @@ function allowedAttribute(decl: KindDecl, name: string): boolean {
   return decl.attributes === undefined || decl.attributes.includes(name) || RESERVED_ATTRIBUTES.includes(name);
 }
 
-/** The parameters of a block of a Markdown template (0029): `{{attribute}}` substituted, and every `<name>-<lang>` folded into `<name>`. */
-function legacyParams(
-  raw: Readonly<Record<string, string>>,
-  line: number,
-  file: string,
-  value: (name: string) => string | undefined,
-  findings: Finding[],
-  lang?: string,
-): Record<string, string> {
-  const params: Record<string, string> = {};
-  for (const [name, text] of Object.entries(raw)) params[name] = substitute(text, line, file, value, findings, { escape: false });
-  return foldLanguageParams(params, lang);
-}
-
 async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined, details: readonly string[] | undefined): Promise<Block> {
   return await withSpan(`wiki.block.${name}`, { 'wiki.block': name }, async () => await renderBlockOf(ctx, subject, name, params, file, line, lang, details));
 }
@@ -312,7 +276,7 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
   const homePage = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name);
   // The first step is the product's home, linked at the root address; a product with no name falls back to its home page.
   if (ctx.productName !== undefined && ctx.productName !== '') push({ id: 'home', kind: 'product', label: ctx.productName, href: HOME_ADDRESS });
-  else if (homePage !== undefined) push(refOfMarkdown(ctx, homePage));
+  else if (homePage !== undefined) push({ ...refOfMarkdown(ctx, homePage), href: HOME_ADDRESS });
   if (subject.source === 'markdown') {
     if (homePage === undefined || subject.entity.id !== homePage.id) push(refOfMarkdown(ctx, subject.entity));
     return parts;
@@ -352,99 +316,44 @@ function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | '
 }
 
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
-  const numbers = await kindNumbers(ctx);
-  return [...ctx.manifest.kinds.values()].filter((decl) => decl.member === undefined).map((decl) => ({
-    kind: decl.name,
-    source: decl.source,
-    single: decl.file !== undefined,
-    // The listing and the navigation the manifest gives the kind travel to the app, which holds no kind of its own: an
-    // app screen asks the kind summary which table the kind's page draws and where the kind stands in the navigation.
-    ...(decl.listing === undefined ? {} : { listing: decl.listing }),
-    ...(decl.nav === undefined ? {} : { nav: decl.nav }),
-    ...(decl.group === undefined ? {} : { group: decl.group }),
-    origins: originsOf(ctx, decl),
-    ...(decl.descriptions === undefined ? {} : { descriptions: { ...decl.descriptions } }),
-    ...(decl.labels === undefined ? {} : { labels: { ...decl.labels } }),
-    ...(numbers.statements.has(decl.name) ? { statements: numbers.statements.get(decl.name)! } : {}),
-    count: numbers.count(decl.name, decl.source),
-  }));
-}
-
-/** A node of the Markdown tree, as the excerpt's reading walks it. */
-interface ReaderNode {
-  type?: string;
-  value?: string;
-  alt?: string;
-  children?: ReaderNode[];
-}
-
-const EXCERPT_PARSER = unified().use(remarkParse).use(remarkGfm);
-
-/**
- * The words a reader reads from a Markdown node: block by block, each leaf's text, and the marks gone — a footnote
- * reference, a link's address, emphasis and code delimiters, an HTML comment. Nothing is stripped from the source as
- * text; the parser says what the document's words are and this walk keeps them.
- */
-function readerWords(node: ReaderNode, out: string[]): void {
-  const type = node.type ?? '';
-  if (type === 'html' || type === 'footnoteReference' || type === 'footnoteDefinition' || type === 'definition') return;
-  if (type === 'text' || type === 'inlineCode' || type === 'code') {
-    if (node.value !== undefined && node.value !== '') out.push(node.value);
-    return;
-  }
-  if (type === 'image') {
-    if (node.alt !== undefined && node.alt !== '') out.push(node.alt);
-    return;
-  }
-  if (type === 'break' || type === 'thematicBreak') {
-    out.push(' ');
-    return;
-  }
-  const block = type === 'paragraph' || type === 'heading' || type === 'listItem' || type === 'tableCell' || type === 'tableRow';
-  if (block) out.push(' ');
-  for (const child of node.children ?? []) readerWords(child, out);
-  if (block) out.push(' ');
-}
-
-/** The words on one line, with single spaces, no leading or trailing space. */
-function oneLine(parts: readonly string[]): string {
-  let text = '';
-  let gap = false;
-  for (const part of parts) {
-    for (const char of part) {
-      if (char === ' ' || char === '\n' || char === '\r' || char === '\t') {
-        gap = text !== '';
-        continue;
-      }
-      if (gap) {
-        text += ' ';
-        gap = false;
-      }
-      text += char;
-    }
-  }
-  return text;
+  const rows = await catalogKinds(ctx);
+  return rows.map((row) => {
+    const decl = ctx.manifest.kinds.get(row.kind);
+    return {
+      kind: row.kind,
+      source: decl?.source ?? 'graph',
+      single: decl?.file !== undefined,
+      page: row.page,
+      ...(decl?.listing === undefined ? {} : { listing: decl.listing }),
+      ...(decl?.nav === undefined ? {} : { nav: decl.nav }),
+      ...(decl?.group === undefined ? {} : { group: decl.group }),
+      origins: decl === undefined ? [] : originsOf(ctx, decl),
+      ...(row.descriptions === undefined ? {} : { descriptions: row.descriptions }),
+      ...(row.labels === undefined ? {} : { labels: row.labels }),
+      ...(row.statements === undefined ? {} : { statements: row.statements }),
+      count: row.count,
+    };
+  });
 }
 
 /** The text around the first match of `needle` a reader reads, on one line, cut at word boundaries with ellipses. */
+
+/** A plain-text search window; this does not interpret Markdown syntax. */
 function excerptOf(body: string, needle: string, language: string, width = 90): string | undefined {
   if (needle === '') return undefined;
-  const parts: string[] = [];
-  readerWords(EXCERPT_PARSER.parse(body) as unknown as ReaderNode, parts);
-  const flat = oneLine(parts);
-  const at = flat.toLocaleLowerCase(language).indexOf(needle);
+  const at = body.toLocaleLowerCase(language).indexOf(needle);
   if (at < 0) return undefined;
   let start = Math.max(0, at - width);
   if (start > 0) {
-    const space = flat.indexOf(' ', start);
+    const space = body.indexOf(' ', start);
     if (space >= 0 && space < at) start = space + 1;
   }
-  let end = Math.min(flat.length, at + needle.length + width);
-  if (end < flat.length) {
-    const space = flat.lastIndexOf(' ', end);
+  let end = Math.min(body.length, at + needle.length + width);
+  if (end < body.length) {
+    const space = body.lastIndexOf(' ', end);
     if (space > at + needle.length) end = space;
   }
-  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`;
+  return `${start > 0 ? '…' : ''}${body.slice(start, end)}${end < body.length ? '…' : ''}`;
 }
 
 /**
@@ -495,7 +404,7 @@ export async function searchWiki(ctx: RenderContext, query: string, lang?: strin
 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
-  if (decl === undefined || decl.member !== undefined) return undefined;
+  if (decl === undefined && !ctx.manifest.catalog?.kinds.has(kind)) return undefined;
   // The graph is the one source of a file listing too: its `code.file` entities carry their repository in the key, so
   // two repositories' paths never collide, and each row links to the entity page the graph names.
   if (kind === 'code.file') {
@@ -518,7 +427,7 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
       }),
     };
   }
-  if (decl.source === 'markdown') {
+  if (decl?.source === 'markdown') {
     const text = options.q?.trim().toLowerCase() ?? '';
     const all = [...ctx.markdown.values()].filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
     const from = options.after === undefined ? 0 : all.findIndex((entity) => byCodePoint(entity.id, options.after!) > 0);

@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { startServer, type StartedServer } from './api.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
 
 /**
@@ -73,7 +74,7 @@ runDescribe('the menu ground on a long page (built app and Chromium)', () => {
     const fillPaths = fillStatePaths(fixture.product);
     mkdirSync(join(fillPaths.root, 'units'), { recursive: true });
     writeFileSync(fillPaths.run, JSON.stringify({ schemaVersion: 1, id: 'e2e-menu-height', productSnapshot: { repository: 'Longpage', defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture' }, agentBranch: 'main', status: 'stopped', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } satisfies FillRun));
-    server = await startServer({
+    server = await startPreparedServer({
       productFolder: fixture.product,
       appFolder: APP,
       port: 0,

@@ -1,3 +1,4 @@
+import { contentsOf, storedFileValueAnswerer } from '../src/plugin/stored-text.js';
 /**
  * The record tables and the two passes (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
  * this step writes, a second run at one commit writing nothing, a new commit writing only what
@@ -9,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { createRecordSchema, fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
+import { fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
 import { commitWithPaths as commitFacts } from '../src/graph/records.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
@@ -17,7 +18,7 @@ import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { instantOf } from '../src/graph/records.js';
 import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
-import { GraphReader, type ContentAt } from '../src/knowledge/graph-read.js';
+import { GraphReader } from '../src/knowledge/graph-read.js';
 import { ensureVertex, publishOpinion } from '../src/graph/write.js';
 import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -51,8 +52,6 @@ function pin(commit: string): RepositoryAt {
 }
 
 /** The commits the fixture makes, oldest first: a past commit's text is read at the commit that held it. */
-let one = '';
-let two = '';
 let three = '';
 
 beforeAll(async () => {
@@ -71,14 +70,13 @@ beforeAll(async () => {
   git(['init', '-q', '-b', 'main']);
   // A remote a person cloned with: the credential is read and never stored (madarch-hsqs stage B review).
   git(['remote', 'add', 'origin', 'https://someone:secret-token@example.test/fixture.git']);
-  one = commitAll('one');
+  commitAll('one');
   // A rename, a deletion and a modification.
   git(['mv', 'docs/same-one.md', 'docs/renamed.md']);
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
-  two = commitAll('two');
-  owner = await createTestDatabaseOwner({});
-  await createRecordSchema(owner);
+  commitAll('two');
+  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
 });
 
 afterAll(async () => {
@@ -126,8 +124,8 @@ describe('the two passes over one fixture', () => {
     // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
     // a replay names no local id of this store.
     expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
-    // The tree entry's author is the tree, and the event of the language dataset says its own producer.
-    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toContain('linguist');
+    // The tree publishes inventory and the extension dataset's separate Linguist opinion, never a picked language.
+    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['git-tree', 'git-history', 'linguist']));
     // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
     const opened = opinions.filter((one) => one.state === 'opened');
     expect(opened.length).toBeGreaterThan(5);
@@ -137,13 +135,13 @@ describe('the two passes over one fixture', () => {
   test('a text file\'s bytes stand in the graph once per blob, and a reader takes them there', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const reader = new GraphReader(owner, () => new Date().toISOString());
-    expect(await reader.content('fixture', 'src/a.ts')).toBe('export const a = 2;\n');
-    expect(await reader.content('fixture', 'docs/renamed.md')).toBe('# one\n');
-    expect(await reader.content('fixture', 'blob.bin')).toBeNull();
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'src/a.ts' }, 'content')).toBe('export const a = 2;\n');
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/renamed.md' }, 'content')).toBe('# one\n');
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'blob.bin' }, 'content')).toBeNull();
     // A path that left the tree has no text at the filled commit, though its row and blob remain.
-    expect(await reader.content('fixture', 'docs/same-one.md')).toBeNull();
+    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/same-one.md' }, 'content')).toBeNull();
     // Many paths at once are one bound text[] parameter: a quote and a backslash in a name are characters, not SQL.
-    const many = await reader.contentsOf('fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
+    const many = await contentsOf(reader, 'fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
     expect(many.get('src/a.ts')).toBe('export const a = 2;\n');
     expect(many.get('docs/renamed.md')).toBe('# one\n');
     expect(many.get('docs/with "quotes" and \\backslash.md')).toBe('# quoted\n');
@@ -165,16 +163,13 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // The language is the opinion's field `language` (never its `lang`, which is a text's natural language): blob.bin is
-    // one language (`unknown`). A `.ts` file is TypeScript and XML in the dataset, and GitHub Linguist's rules decide it
-    // from its text — TypeScript. A `.h` may be C, C++ or Objective-C, and this one's words say C. The text decides; no
-    // language is picked by the reader.
+    // The extension dataset supplies candidates, but no text heuristic chooses among them.
     expect(byPath.get('blob.bin')?.language).toBe('unknown');
-    expect(byPath.get('src/a.ts')?.language).toBe('TypeScript');
-    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript']);
+    expect(byPath.get('src/a.ts')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBe('C');
-    expect(header.candidates).toEqual(['C']);
+    expect(header.language).toBeNull();
+    expect(header.candidates).toEqual(['C', 'C++', 'Objective-C']);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.fileCount).toBe(files.rows.length);
@@ -203,36 +198,16 @@ describe('the two passes over one fixture', () => {
     expect(a?.lines).toBe(1);
   }, 120_000);
 
-  test('a past commit\'s text is the text that commit held, or absent — never the current tree\'s', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const reader = new GraphReader(owner, () => new Date().toISOString());
-    /** The reason a read answers, refused where it answered a text. */
-    const absence = (answer: ContentAt): string => {
-      if ('text' in answer) throw new Error(`the read answered ${JSON.stringify(answer.text)} where the store holds no text of that version`);
-      return answer.absent;
-    };
-    // src/a.ts changed at the second and the third commit: the store holds no text of its first version, and says so.
-    expect(absence(await reader.contentAt('fixture', 'src/a.ts', one))).toContain(one);
-    // docs/renamed.md came into the tree at the second commit, and no commit touched it after: that is its text there.
-    expect(await reader.contentAt('fixture', 'docs/renamed.md', two)).toEqual({ text: '# one\n' });
-    // The same path stood under another name at the first commit: absent there, naming that commit.
-    expect(absence(await reader.contentAt('fixture', 'docs/renamed.md', one))).toContain(one);
-    // The commit the graph was filled from answers the current text.
-    expect(await reader.contentAt('fixture', 'src/a.ts', three)).toEqual({ text: 'export const a = 3;\n' });
-    // A commit the store\'s history does not hold is absent by name, never the tip\'s text.
-    expect(absence(await reader.contentAt('fixture', 'src/a.ts', '0'.repeat(40)))).toContain('0'.repeat(40));
-  });
+
 
   test('a file\'s language is an opinion field: a changed language closes the old opinion, and the filter reads the field', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    // The language dataset reads a `.ts` file as TypeScript or XML, so the tree pass states no one language, and it
-    // states what it read as a field, never as the opinion's `lang`: that column is a text value's natural language
-    // (madarch-stm0.5 translations) and stands null for a language name (madarch-64o5.2, the files worker's finding).
+    // The tree's dataset opinion states candidates in ordinary fields, never in the text's natural-language tag.
     const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'linguist'`,
     ));
-    expect(stored.rows[0]?.lang).toBeNull();
+    expect(stored.rows).toEqual([{ lang: null, language: null, languages: ['TypeScript', 'XML'] }]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'fixture' } }, path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
@@ -246,6 +221,7 @@ describe('the two passes over one fixture', () => {
       `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'linguist' ORDER BY "id"`, [node.nodeId],
     ));
     expect(states.rows.filter((row) => row.state === 'open')).toHaveLength(1);
+    expect(states.rows.every((row) => row.lang === null)).toBe(true);
     expect(states.rows.filter((row) => row.state === 'open')[0]).toMatchObject({ language: 'JavaScript', lang: null });
     expect(states.rows.some((row) => row.state === 'closed' && row.language === 'TypeScript')).toBe(true);
     // The language filter reads the field: the new language finds the file and the one it superseded does not.
@@ -347,9 +323,20 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     const first = await publishHistory(owner, publication(true));
     expect(first.inserted).toBeGreaterThan(0);
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
+    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:shallow', kind: 'code.repository', label: 'shallow', properties: { name: 'shallow' }, nodeIds: [], scope: '' } };
+    const wireBlock = async () => {
+      const reader = new GraphReader(owner!, () => new Date().toISOString());
+      const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/kinds.yaml', 1);
+      if (block.type !== 'repository') throw new Error(`expected repository, got ${block.type}`);
+      return JSON.parse(JSON.stringify(block)).data;
+    };
+    expect((await wireBlock()).historyShallow).toBe(true);
+    expect(await wireBlock()).not.toHaveProperty('gaps');
     // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
     await publishHistory(owner, publication(false));
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
+    expect((await wireBlock()).historyShallow).toBe(false);
+    expect(await wireBlock()).not.toHaveProperty('gaps');
     const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' AND (n.key->>'name') = 'shallow'`,
     ));

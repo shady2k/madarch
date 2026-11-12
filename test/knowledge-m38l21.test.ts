@@ -9,12 +9,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
-import { parseKinds } from '../src/knowledge/kinds.js';
-import { readMarkdownEntitiesFrom } from '../src/knowledge/markdown.js';
+import { parseKinds } from '../src/product/manifest/kinds.js';
+import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
+import { catalogKinds } from '../src/knowledge/catalog-view.js';
 import { Resolver } from '../src/knowledge/resolve.js';
-import { workingTreeFiles } from '../src/knowledge/product-files.js';
 
 const K = (kind: string, rest: string): string => `${kind}:${rest}`;
 const FILE = K('code.file', 'src/a.ts');
@@ -114,19 +114,23 @@ beforeAll(async () => {
   write('templates/item.liquid', '{% layout "./entity.liquid" %}\n{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}\n');
   const read = parseKinds(await Bun.file(join(product, 'madarch/kinds.yaml')).text(), join(product, 'madarch/kinds.yaml'), product);
   expect(read.findings).toEqual([]);
-  const markdown = new Map(readMarkdownEntitiesFrom(workingTreeFiles(product), read).entities.map((entity) => [entity.id, entity]));
+  const block = (name: string, params: Record<string, string> = {}) => ({ type: 'block', name, params, line: 1 });
+  const attribute = (name: string) => ({ type: 'attribute', name, line: 1 });
+  add('template:templates/file.liquid', 'template', 'File', { template_parts: [attribute('path'), block('members', { title: 'Code facts', 'title-ru': 'Сведения о коде', kind: 'code.facet', relation: 'code.facet-of', direction: 'in' })] });
+  add('template:templates/symbol.liquid', 'template', 'Symbol', { template_parts: [attribute('symbolKind'), { type: 'text', text: ' in ', line: 1 }, attribute('path'), block('properties', { title: 'Details', 'title-ru': 'Сведения' }), block('callers', { title: 'Callers', 'title-ru': 'Кто вызывает' }), block('members', { title: 'Fields', 'title-ru': 'Поля', kind: 'code.field', relation: 'code.contains', direction: 'out', readers: 'code.reads-field' })] });
+  add('template:templates/item.liquid', 'template', 'Item', { template_parts: [block('properties', { title: 'Details', 'title-ru': 'Сведения' })] });
   const graph = fake.reader();
+  const markdown = new Map((await graphMarkdownEntities(graph, read)).entities.map((entity) => [entity.id, entity]));
   const readSource = async (_repo: string | null, path: string): Promise<string | undefined> => path === 'src/a.ts' ? 'export function charge() {}\n' : undefined;
   ctx = {
     productFolder: product,
-    files: workingTreeFiles(product),
     manifest: read,
     graph,
     markdown,
     language: 'en',
     repositories: ['shop'],
     commitOf: () => null,
-    resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), readDocument: readSource, repositories: () => ['shop'], locate: () => undefined }),
+    resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), documentKinds: [], repositories: () => ['shop'], locate: () => undefined }),
     repoOfScope: () => 'shop',
     readSource,
   };
@@ -149,10 +153,15 @@ const block = <T extends Block['type']>(model: PageModel, type: T, at = 0): Extr
 };
 
 describe('details, members and empty sections', () => {
-  test('a member kind has no catalogue entry, and its old address opens the parent at the member anchor', async () => {
+  test('status counts a member without a page, and its old address opens the parent at the member anchor', async () => {
     const facets = (await kindSummaries(ctx)).find((summary) => summary.kind === 'code.facet');
-    expect(facets).toBeUndefined();
-    expect(await listEntities(ctx, 'code.facet', { limit: 10 })).toBeUndefined();
+    expect(facets).toMatchObject({ count: 1, page: false });
+    const summary = await kindSummaries(ctx);
+    const catalogue = await catalogKinds(ctx);
+    expect(summary.map(({ kind, count, page }) => ({ kind, count, page }))).toEqual(catalogue.map(({ kind, count, page }) => ({ kind, count, page })));
+    expect(await listEntities(ctx, 'code.facet', { limit: 10 })).toEqual({
+      kind: 'code.facet', total: 1, rows: [{ id: FACET, kind: 'code.facet', label: 'a.ts · src/a.ts', href: `/e/${encodeURIComponent(FACET)}` }], next: null,
+    });
     const model = await page(FACET, 'ru');
     expect(model.id).toBe(FILE);
     expect(model.redirect).toEqual({ id: FILE, anchor: expect.stringMatching(/^member-/) });

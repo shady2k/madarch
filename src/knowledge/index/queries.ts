@@ -6,7 +6,7 @@
  * so by being empty, never by reading a second graph.
  */
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
-import type { DigestMethod, GitReader } from './grounds.js';
+type DigestMethod = 'section' | 'span' | 'object' | 'none';
 
 export interface RelyingStatement {
   readonly page: string;
@@ -53,7 +53,6 @@ export interface GroundChange {
 
 export interface NowState {
   readonly commit: string;
-  readonly git: GitReader;
 }
 
 /** The grounds that changed: no stage writes a statement, so there is no ground to compare. */

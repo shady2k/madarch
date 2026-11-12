@@ -4,8 +4,9 @@ import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type 
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
-import { WORKFLOWS_FILE } from './workflows.js';
+import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { DEFAULT_THRESHOLDS } from '../problems/types.js';
+import { byCodePoint } from '../model/order.js';
 import type { RuleSpec } from '../problems/types.js';
 
 /**
@@ -92,6 +93,10 @@ them, as label.
 {% block lead %}{% body %}{% system title="Architecture of the domain" title-ru="Архитектура домена" view="domain" %}{% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.title %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this page", title_ru="Вокруг этой страницы" %}{% endblock %}
 {% block describedby %}{% related title="Implemented by" title-ru="Реализуют" relation="relates" %}{% endblock %}
+`,
+  'dismissal.liquid': `{% layout "./entity.liquid" %}
+{% block lead %}{{ page.reason }}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
   'guide.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}# {{ page.title }}{% endblock %}
@@ -251,6 +256,10 @@ them, as label.
 {% block relations %}{% render "./partials/relations.liquid", title="Relations", title_ru="Связи" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this table", title_ru="Страницы об этой таблице" %}{% endblock %}
 `,
+  'test-quarantine.liquid': `{% layout "./entity.liquid" %}
+{% block details %}{% properties title="Quarantine" title-ru="Карантин" %}{% endblock %}
+{% block source %}{% source title="Test" title-ru="Тест" %}{% endblock %}
+`,
   'entity-text.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% body %}{% endblock %}
 {% block relations %}{% stated title="Stated in" title-ru="Где описано" %}
@@ -266,13 +275,13 @@ them, as label.
 {% block lead %}{% term title="Definition" title-ru="Определение" field="definition" synonyms="synonyms" code="code" %}{% endblock %}
 `,
   'question.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
   'correction.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
   'task.liquid': `{% layout "./entity.liquid" %}
-{% block lead %}{% body %}{% endblock %}
+{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}
 `,
 };
 
@@ -308,6 +317,35 @@ interface PropertyLabel {
 }
 
 const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
+  task: { en: 'Repair task', ru: 'Задача исправления' },
+  quarantine_reason: { en: 'Reason', ru: 'Причина' },
+  since: { en: 'Quarantined since commit', ru: 'Коммит введения карантина' },
+  latest_result: { en: 'Latest quarantine CI result', ru: 'Последний результат CI карантина' },
+  correction_reason: { en: "Reason", ru: "Причина", format: "text" },
+  dismissal_reason: { en: "Reason", ru: "Причина", format: "text" },
+  statement: { en: "Statement", ru: "Утверждение", format: "text" },
+  sides: { en: "What the sources say", ru: "Что говорят источники", format: "text" },
+  why: { en: "Why it matters", ru: "Почему это важно", format: "text" },
+  question: { en: "Question", ru: "Вопрос", format: "text" },
+  answer: { en: "Answer", ru: "Ответ", format: "text" },
+  problem: { en: "Problem", ru: "Проблема", format: "text" },
+  grounds: { en: "Grounds", ru: "Основания", format: "text" },
+  closed_by: { en: "Closing commit", ru: "Закрывающий коммит", format: "text" },
+  closed_at: { en: "Closed at", ru: "Время закрытия", format: "text" },
+  rule: { en: "Rule", ru: "Правило", format: "text" },
+  identity: { en: "Identity", ru: "Идентификатор", format: "text" },
+  place: { en: "Place", ru: "Место", format: "text" },
+
+  status: { en: "Status", ru: "Статус", format: "text" },
+  about: { en: "About", ru: "О чём", format: "list" },
+  asked_in: { en: "Asked on", ru: "Страница вопроса", format: "text" },
+  asked_at: { en: "Asked at", ru: "Время вопроса", format: "date" },
+  resolved_by: { en: "Used by pages", ru: "Учтено на страницах", format: "list" },
+  resolved_at: { en: "Resolved at", ru: "Время разрешения", format: "date" },
+  written_at: { en: "Written from", ru: "Основания записи", format: "list" },
+  by: { en: "Corrected by", ru: "Автор поправки", format: "text" },
+  at: { en: "Corrected at", ru: "Время поправки", format: "date" },
+
   language: { en: "Language", ru: "Язык", format: "text" },
   frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
   infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
@@ -490,6 +528,10 @@ const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
 
 /** The properties each kind shows on its page, in the order a reader meets them (madarch-m38l.21). */
 export const DETAILS: Readonly<Record<string, readonly string[]>> = {
+  task: ["status", "question", "answer", "problem", "grounds", "scope", "by", "at", "closed_by", "closed_at", "file"],
+  "problem-dismissal": ["rule", "identity", "place", "dismissal_reason", "by", "at", "file"],
+  question: ["question", "why", "sides", "answer", "type", "status", "about", "asked_in", "asked_at", "resolved_by", "resolved_at", "written_at", "file"],
+  correction: ["statement", "correction_reason", "status", "about", "by", "at", "resolved_by", "resolved_at", "file"],
   "code.service": ["language", "frameworks", "infrastructure", "testFramework"],
   "code.package": ["ecosystem", "name", "version", "external", "frameworks", "hasTests", "sourceFiles", "testFiles", "tests", "versionStatus", "standardLibrary"],
   "code.module": ["role", "kind", "language", "files", "parsedFiles", "packageName"],
@@ -540,6 +582,7 @@ export const DETAILS: Readonly<Record<string, readonly string[]>> = {
   "code.newcomer-command": ["command", "folder", "purpose", "order"],
   "code.newcomer-prerequisites": ["tools"],
   "code.newcomer-failure": ["symptom", "command", "fix", "port"],
+  "code.test-quarantine": ["test", "task", "quarantine_reason", "since", "latest_result"],
   "code.test-case": ["name", "testKind", "framework", "language", "path", "skipped", "skipReason", "cases", "suite"],
   "code.commit": ["author", "authorEmail", "subject", "authoredAt", "committedAt", "merge", "mergedBranch"],
   "code.snapshot": ["commit"],
@@ -715,7 +758,7 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
     // product without user stories or quality requirements says so instead of showing a smaller wiki (decision 0032, section 4).
-    `  expect: [${['doc.use-case', 'doc.rule', 'doc.requirement', 'doc.decision'].filter((kind) => names.has(kind)).join(', ')}]`,
+    `  expect: [${chosen.filter((kind) => kind.source === 'document').map((kind) => kind.name).sort(byCodePoint).join(', ')}]`,
     // A fence, an html comment, a rule line and a link definition are a document's furniture: the product names them as
     // blocks that hold no meaning of their own, so the reader can ignore them by a rule instead of guessing (decision
     // 0032 section 4; the review of the eighth pass).
@@ -754,6 +797,8 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
     { ends: ['code.file'], line: "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }" },
     // The data entities the db-schema plugin fills: a table holds its columns and its indexes, a column references a
     // column, and a table is declared in the file that holds its SQL (task madarch-47vw.3).
+    { ends: ['code.test-quarantine', 'code.test-case'], line: "  - { name: quarantines, from: [code.test-quarantine], to: [code.test-case], capability: test-quarantine }" },
+    { ends: ['code.test-quarantine', 'task'], line: "  - { name: fixedBy, from: [code.test-quarantine], to: [task], capability: test-quarantine }" },
     { ends: ['code.table', 'code.column'], line: "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }" },
     { ends: ['code.table', 'code.index'], line: "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }" },
     { ends: ['code.column'], line: "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }" },
@@ -769,13 +814,13 @@ function kindsManifest(kindsNamed?: readonly string[]): string {
   }
   // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3);
   // a plugin no chosen kind uses is not declared, and a product that is only a tracker holds none (decision 0034).
-  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? chosen.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)));
   if (plugins.length > 0) {
     lines.push(
       "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
       "# files of its closure. The lock beside the manifest records the exact version and the closure hash.",
       "plugins:",
-      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [code.file], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
+      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [${pluginUsesCatalogue(plugin) ? '' : 'code.file'}], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
     );
   }
   return `${lines.join('\n')}\n`;
@@ -817,7 +862,7 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
         // A field bound to a plugin states the binding; the plugin's own contract states its type.
         lines.push(field.binding === undefined
           ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
-          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: "${field.binding}" }`);
+          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: ${typeof field.binding === 'string' ? yamlText(field.binding) : `{ agent: ${yamlText(field.binding.agent)} }`}${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
       }
     }
     if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);
@@ -858,6 +903,14 @@ function pluginLockText(plugins: readonly BundledPlugin[]): string {
   ];
   for (const plugin of plugins) lines.push(`  - { id: ${plugin.id}, version: ${plugin.version}, closure: ${bundledClosureHash(plugin)}, path: ${plugin.folder} }`);
   return `${lines.join('\n')}\n`;
+}
+
+/** Whether the bundled plugin fills the catalogue rather than a fixed set of output kinds. */
+function pluginUsesCatalogue(plugin: BundledPlugin): boolean {
+  const held = plugin.files.find((file) => file.path === 'plugin.json')?.content;
+  if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no plugin.json text`);
+  const manifest = JSON.parse(held) as { agent?: { catalogue?: boolean } };
+  return manifest.agent?.catalogue === true;
 }
 
 /** The output kinds a bundled plugin's own contract declares. */
@@ -906,7 +959,7 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
   const kinds = template.kinds === 'all' ? undefined : starterKindNames(template);
   const chosen = kinds === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kinds.includes(kind.name));
   const names = new Set(chosen.map((kind) => kind.name));
-  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? chosen.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)));
   const templates = templatesUsedBy(chosen.flatMap((kind) => (kind.template === undefined ? [] : [kind.template])));
   // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
   const workflows = chosen.some((kind) => kind.source === 'graph');

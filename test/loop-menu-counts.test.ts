@@ -1,19 +1,21 @@
-/**
- * The menu's counts of the loop (the owner's review of madarch-m38l.24): the tasks entry counts what the Tasks page
- * shows as open — a task a commit of a default branch closed is not open — and the problems entry follows the files the
- * Problems page reads, so a manifest edit shows at once instead of waiting for another revision.
- */
+/** The menu problems count follows a committed manifest edit without another server start. */
 import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
-import { writeTask } from '../src/loop/tasks.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
+import { activateTestProduct } from './prepared-server.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, args: string[], extra: Record<string, string> = {}): string =>
@@ -21,10 +23,6 @@ const git = (cwd: string, args: string[], extra: Record<string, string> = {}): s
 
 const SHOP = 'orders-shop';
 const CODE = 'orders-code';
-const READER = { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' };
-/** The task's own moment, before the commit that closes it. */
-const AT = '2026-10-24T09:00:00.000Z';
-
 let work: string;
 let home: string;
 let folder: string;
@@ -75,15 +73,30 @@ beforeAll(async () => {
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
   withoutPluginTurns(folder);
+  const kindsFile = join(folder, 'madarch/kinds.yaml');
+  const kinds = readFileSync(kindsFile, 'utf8');
+  const rule = kinds.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
+  expect(rule).toContain('enabled: true');
+  const debt = '  code.debt:\n';
+  expect(kinds).toContain(debt);
+  writeFileSync(kindsFile, kinds.replace(rule, rule.replace('enabled: true', 'enabled: false')).replace(debt, `${debt}    key: [path]\n    fields:\n      - { name: path, type: text, binding: { agent: "The source file path" } }\n      - { name: marker, type: text, binding: { agent: "The debt marker" } }\n      - { name: text, type: text, binding: { agent: "The comment text" } }\n`));
+  commitProduct(folder, 'Declare a debt opinion and disable its TODO rule');
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   const warmed = await fetch(`${server.url}/products/${SHOP}/api/status`);
   expect(warmed.status).toBe(200);
   await fill();
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+  try {
+    const contract = await readPinnedGraphContract(folder);
+    await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'code.debt', key: { path: 'src/a.ts' }, values: { marker: 'TODO', text: 'Complete the menu probe' }, producer: 'agent', producerVersion: '1' }], removals: [],
+    }, 1, { author: 'agent:fixture' }));
+  } finally { await owner.close(); }
 }, 180_000);
 
 /** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
@@ -100,20 +113,27 @@ afterAll(async () => {
 describe('the problems entry of the menu', () => {
   test('a manifest edit changes the count on the next poll, without another revision of the product', async () => {
     // The count is collected beside the status answer (`statusWithCount`), so the first answers of a product may be pending.
-    const before = await statusWithCount();
     const problemsBefore = await get('/api/problems');
+    const before = await statusWithCount();
     expect(problemsBefore.status).toBe(200);
     // The menu already follows the Problems page: the fresh product has findings of its own (its documents lack the kinds
     // the starter manifest expects), so the count is read rather than assumed.
     expect(before.body.loop.problemsOpen).toBe(problemsBefore.body.open);
 
-    // A group whose parent is not declared: the Problems page reads it as a finding.
-    const manifest = readFileSync(join(folder, 'madarch/kinds.yaml'), 'utf8');
-    expect(manifest).toContain('groups:\n');
-    writeFileSync(join(folder, 'madarch/kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, parent: nowhere }\n'));
-    // The edit is the product repository's commit, and the fill stores it: a reader of a page reads the graph.
-    commitProduct(folder, 'Declare a group whose parent is not declared');
-    await fill();
+    // A valid manifest enables the TODO rule for the one structured debt opinion already in the graph.
+    const file = join(folder, 'madarch/kinds.yaml');
+    const manifest = readFileSync(file, 'utf8');
+    const rule = manifest.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
+    expect(rule).toContain('enabled: false');
+    writeFileSync(file, manifest.replace(rule, rule.replace('enabled: false', 'enabled: true')));
+    commitProduct(folder, 'Enable the TODO finding');
+    const validated = validateProductManifests(folder);
+    if (!validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+    if (validated.value === undefined) throw new Error(`${file}:1: the fixture manifest is absent`);
+    await activateTestProduct(folder, home, join(work, 'store'));
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+    try { await publishValidatedManifests(owner, validated.value); }
+    finally { await owner.close(); }
 
     const problems = await get('/api/problems');
     expect(problems.status).toBe(200);
@@ -123,42 +143,6 @@ describe('the problems entry of the menu', () => {
     // lands — and the count they then carry is the new one, never the old one (a listing of other inputs is not answered).
     const after = await statusWithCount();
     expect(after.body.loop.problemsOpen).toBe(problems.body.open);
-  }, 60_000);
-});
-
-describe('the tasks entry of the menu', () => {
-  test('a task a commit of the default branch closed is not open in the menu, as the Tasks page says', async () => {
-    writeFileSync(join(folder, 'docs/product.md'), '# Shop\n\nA shop.\n');
-    git(folder, ['add', '--', 'docs/product.md']);
-    git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Document the shop']);
-    writeTask(folder, 'docs/tasks/fix-price.md', {
-      slug: 'fix-price', title: 'Fix the price', status: 'open', question: 'question:price', answer: 'answer:price',
-      grounds: ['code.file\u003asrc/a.ts'], scope: [{ type: 'file', path: 'docs/product.md' }], by: { ...READER }, at: AT,
-      closedBy: null, closedAt: null,
-    });
-    // The planning commit names the task but touches none of its scope: the task is still open after it.
-    git(folder, ['add', '--', 'docs/tasks/fix-price.md']);
-    git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Plan the task fix-price']);
-    await fill();
-    const stillOpen = await get('/api/tasks');
-    expect([stillOpen.body.open, stillOpen.body.closed]).toEqual([1, 0]);
-
-    // The commit that closes it: it names the task and changes the file its scope names, on the product's default branch.
-    writeFileSync(join(folder, 'docs/product.md'), '# Shop\n\nA shop with prices.\n');
-    const dated = { GIT_AUTHOR_DATE: '2026-10-24T09:01:00.000Z', GIT_COMMITTER_DATE: '2026-10-24T09:01:00.000Z' };
-    git(folder, ['add', '--', 'docs/product.md'], dated);
-    git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Fix the price\n\nTask: fix-price'], dated);
-    await fill();
-
-    const tasks = await get('/api/tasks');
-    expect(tasks.status).toBe(200);
-    expect([tasks.body.open, tasks.body.closed]).toEqual([0, 1]);
-    expect(tasks.body.tasks[0].status).toBe('closed');
-
-    const status = await get('/api/status');
-    expect(status.status).toBe(200);
-    // The menu's tasks entry counts what the Tasks page shows, by the same closure calculation (product.ts loopCounts).
-    expect(status.body.loop.tasksOpen).toBe(0);
   }, 60_000);
 });
 

@@ -18,6 +18,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { gitEnv } from './git-env.js';
+import { prepareTestProduct } from './prepared-server.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -27,6 +28,7 @@ const CLI = join(import.meta.dir, '..', 'scripts', 'madarch.ts');
 let work: string;
 let home: string;
 let folder: string;
+let closePreparation: (() => Promise<void>) | undefined;
 let product: string;
 let owner: DatabaseOwner;
 
@@ -49,9 +51,10 @@ const blocker: FillStage = {
 };
 
 /** One `madarch fill` of the product, as the command answered: its exit code and both its streams. */
-function fillCommand(): { code: number; stdout: string; stderr: string } {
-  const answer = Bun.spawnSync(['bun', CLI, 'fill', '--product', folder, '--home', home], { env: { ...process.env, HOME: home }, stdout: 'pipe', stderr: 'pipe' });
-  return { code: answer.exitCode ?? 1, stdout: new TextDecoder().decode(answer.stdout), stderr: new TextDecoder().decode(answer.stderr) };
+async function fillCommand(): Promise<{ code: number; stdout: string; stderr: string }> {
+  const answer = Bun.spawn(['bun', CLI, 'fill', '--product', folder, '--home', home], { env: { ...process.env, HOME: home }, stdout: 'pipe', stderr: 'pipe' });
+  const [code, stdout, stderr] = await Promise.all([answer.exited, new Response(answer.stdout).text(), new Response(answer.stderr).text()]);
+  return { code, stdout, stderr };
 }
 
 /** Waits until the store says the product's chain follows a live run. */
@@ -85,10 +88,11 @@ describe('a fill started while the product\'s fill runs', () => {
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(IDENTITY) });
     execFileSync('git', ['commit', '--quiet', '-m', 'The product'], { cwd: folder, env: gitEnv(IDENTITY) });
+    closePreparation = await prepareTestProduct(folder, home);
     // The store the command and this test share: `<home>/.madarch/knowledge/<product id>/graph`.
     const storeFolder = productStoreFolder(folder, join(home, '.madarch', 'knowledge'));
     mkdirSync(storeFolder, { recursive: true });
-    owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), btreeGist: true });
+    owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true });
     await owner.ready;
     await createFillStateSchema(owner);
     service = createFillOrchestratorService({
@@ -106,11 +110,12 @@ describe('a fill started while the product\'s fill runs', () => {
     await background?.catch(() => undefined);
     await service?.stop().catch(() => undefined);
     await owner?.close().catch(() => undefined);
+    await closePreparation?.();
     rmSync(work, { recursive: true, force: true });
   });
 
   test('the second fill says a fill is already running, since when, and how to follow it, with no internal code', async () => {
-    const answer = fillCommand();
+    const answer = await fillCommand();
     expect(answer.code).not.toBe(0);
     const said = `${answer.stderr}${answer.stdout}`;
     expect(said).toContain(`a fill of ${product} is already running`);
@@ -132,7 +137,7 @@ describe('a fill started while the product\'s fill runs', () => {
     release();
     await background;
     await service.stop();
-    const answer = fillCommand();
+    const answer = await fillCommand();
     expect(answer.code).toBe(0);
     expect(answer.stdout).toContain('Units:');
     expect(answer.stdout).toContain('Watch the pages with: madarch serve');

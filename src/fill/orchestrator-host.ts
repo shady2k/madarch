@@ -20,7 +20,7 @@ import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
 import { consumeFillControl } from '../product/fill-runtime.js';
-import type { FillStageConfigurationRead } from './config.js';
+import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { FactApplication } from './orchestrator.js';
 import {
@@ -46,7 +46,7 @@ import { createOrchestratorSchema, readProgress, type RunSnapshot } from './orch
 import type { QueueService } from './queue.js';
 import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
-import type { SnapshotSource } from './snapshot.js';
+import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 
 /** One product a fill runs for. */
 export interface FillProduct {
@@ -184,7 +184,7 @@ async function driveFor(orchestrator: FillOrchestrator, request: { readonly runI
 }
 
 export async function openFillDatabase(store: string): Promise<DatabaseOwner> {
-  return await createDatabaseOwner({ store, btreeGist: true });
+  return await createDatabaseOwner({ store, connectOnly: true });
 }
 
 export async function fillProgressOf(database: DatabaseOwner, product: string): Promise<FillProgressAnswer | null> {
@@ -214,7 +214,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         if (databasePath === undefined) throw new Error("fill-orchestrator: this service was given no store: name the product's owner or its database path (src/fill/orchestrator-host.ts)");
         await mkdir(dirname(databasePath), { recursive: true });
       }
-      const database = lent ?? await createDatabaseOwner({ store: databasePath!, btreeGist: true });
+      const database = lent ?? await createDatabaseOwner({ store: databasePath!, connectOnly: true });
       await createFillStateSchema(database);
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {

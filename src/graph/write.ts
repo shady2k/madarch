@@ -242,13 +242,25 @@ function edgeOfKind(contract: GraphContract, kind: string): { readonly name: str
 }
 
 /** The id of a kind's row in `entity`, made where the contract declares it and the store holds none. */
+// Database owners lend a fresh executor to each transaction, so ids never survive a rollback or schema reset.
+const ENTITY_IDS_OF = new WeakMap<SqlExecutor, Map<string, string>>();
+
 async function entityIdOf(executor: SqlExecutor, kind: string, sort: 'node' | 'edge'): Promise<string> {
+  let ids = ENTITY_IDS_OF.get(executor);
+  const key = `${sort}:${kind}`;
+  const held = ids?.get(key);
+  if (held !== undefined) return held;
   const made = await executor.query<{ id: string }>(
     `INSERT INTO entity (name, sort) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id::text AS id`,
     [kind, sort],
   );
   const id = made.rows[0]?.id;
   if (id === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(kind)} was registered and the store answered no id`);
+  if (ids === undefined) {
+    ids = new Map();
+    ENTITY_IDS_OF.set(executor, ids);
+  }
+  ids.set(key, id);
   return id;
 }
 
@@ -508,6 +520,62 @@ async function stateOpinion(executor: SqlExecutor, entity: string, table: string
   return true;
 }
 
+/** Publishes a batch of one kind's vertex opinions, retaining input order in the journal. */
+export async function publishOpinions(executor: SqlExecutor, contract: GraphContract, drafts: readonly Parameters<typeof publishOpinion>[2][], contextId = 1, journal?: Journal): Promise<readonly boolean[]> {
+  if (drafts.length === 0) return [];
+  journal = heldJournal(executor, journal);
+  const first = drafts[0]!;
+  const vertex = vertexOf(contract, first.kind);
+  if (drafts.some((draft) => draft.kind !== first.kind)) throw new Error(`${WHERE}:1: an opinion batch must state one kind`);
+  const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
+  const identity = (node: string, producer: string, lang: string | null): string => JSON.stringify([node, producer, lang]);
+  const keys = drafts.map((draft) => identity(draft.nodeId, draft.producer, draft.lang ?? null));
+  const sequential = async (): Promise<boolean[]> => {
+    const results: boolean[] = [];
+    for (const draft of drafts) results.push(await publishOpinion(executor, contract, draft, contextId, journal));
+    return results;
+  };
+  // Repeated inputs observe the opinion the preceding input wrote, just as individual calls do.
+  if (new Set(keys).size !== keys.length || drafts.some((draft) => draft.producer.includes('@'))) return await sequential();
+  const held = await executor.query<{ node_id: string; producer: string; lang: string | null }>(
+    `SELECT node_id::text AS node_id, split_part(said_by, '@', 1) AS producer, lang FROM ${vertex.table}
+     WHERE node_id = ANY($1::bigint[]) AND context_id = $2::bigint AND state = 'open'`,
+    [drafts.map((draft) => draft.nodeId), String(contextId)],
+  );
+  const existing = new Set(held.rows.map((row) => identity(row.node_id, row.producer, row.lang)));
+  // Existing opinions retain the writer's comparison, replacement and evidence-only update path.
+  if (keys.some((key) => existing.has(key))) return await sequential();
+  const values = drafts.map((draft) => valuesOf(vertex, draft));
+  const evidence = drafts.map(evidenceList);
+  const columns = [...fields, 'said_by', 'lang', 'evidence', 'translated_from', 'source_digest', 'context_id', 'node_id'];
+  const rows = drafts.map((draft, at) => ({
+    ...Object.fromEntries(fields.map((field) => [field, values[at]!.get(field) ?? null])),
+    said_by: `${draft.producer}@${draft.producerVersion}`, lang: draft.lang ?? null, evidence: evidence[at],
+    translated_from: draft.translatedFrom ?? null, source_digest: draft.sourceDigest ?? null, context_id: contextId, node_id: draft.nodeId,
+  }));
+  const made = await executor.query<{ id: string; node_id: string; said_by: string; lang: string | null; said_at: string; translated_from: string | null; source_digest: string | null; owner_uid: string }>(
+    `INSERT INTO ${vertex.table} (${columns.map((column) => quote(column, 'column')).join(', ')})
+     SELECT ${columns.map((column) => `r.${quote(column, 'column')}`).join(', ')}
+     FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS input(value, ordinal)
+     CROSS JOIN LATERAL jsonb_populate_record(NULL::${vertex.table}, input.value) AS r ORDER BY input.ordinal
+     RETURNING id::text AS id, node_id::text AS node_id, said_by, lang,
+       to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at,
+       translated_from::text AS translated_from, source_digest, (SELECT uid::text FROM node WHERE id = node_id) AS owner_uid`,
+    [canonicalJson(rows)],
+  );
+  const returned = new Map(made.rows.map((row) => [identity(row.node_id, row.said_by.slice(0, row.said_by.lastIndexOf('@')), row.lang), row]));
+  for (const [at, draft] of drafts.entries()) {
+    const row = returned.get(keys[at]!);
+    if (row === undefined) throw new Error(`${WHERE}:1: the opinion batch did not return the row of node ${draft.nodeId}`);
+    journal?.opinion({ id: row.id, entity: vertex.name, node: draft.uid ?? row.owner_uid, state: 'opened',
+      fields: [...values[at]!.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field),
+      lang: draft.lang ?? null, said_by: row.said_by, values: Object.fromEntries(fields.map((field) => [field, values[at]!.get(field) ?? null])),
+      evidence: evidence[at]!, translated_from: row.translated_from, source_digest: row.source_digest, context: contextId, said_at: row.said_at });
+    if (journal !== undefined) await flushJournalIfFull(executor, journal);
+  }
+  return drafts.map(() => true);
+}
+
 /**
  * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
  * wrote, so a rerun of the same answer writes nothing.
@@ -618,23 +686,31 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   journal = heldJournal(executor, journal);
   const vertex = vertexOf(contract, draft.kind);
   const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-  const uid = keyUid(vertex.name, [JSON.stringify(key)]);
-  const node = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
+  if (vertex.key.length === 0 && draft.uid === undefined) throw new Error(`${WHERE}:1: withdrawing a keyless entity requires its uid`);
+  const uid = draft.uid ?? keyUid(vertex.name, [JSON.stringify(key)]);
+  const node = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = $3::bigint FOR UPDATE OF n`, [uid, vertex.name, String(contextId)]);
   const nodeId = node.rows[0]?.id;
   if (nodeId === undefined) return false;
   const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    `UPDATE ${vertex.table} SET "state" = 'closed' WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
-    [nodeId, draft.producer, String(contextId)],
+    `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
+    [nodeId, draft.producer, String(contextId), draft.withdrawAll === true],
   );
   // A withdrawal that withdrew nothing states nothing: no close, and no removal of a vertex that stands (codex, stage 2
   // review, item 4). A repeated ineffective withdrawal is not a change and writes no row.
   if (closed.rows.length === 0) return false;
   for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
-  const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" = 'open' AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
+  const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
   const removed = Number(open.rows[0]?.n ?? '0') === 0;
   // The vertex is journaled as removed only where no open opinion of any producer remains: a producer that withdraws
   // while another's opinion stands closed its own opinion and removed nothing.
-  if (removed) journal?.removedVertex(vertex.name, uid, nodeId);
+  if (removed) {
+    const incident = await executor.query<{ id: string; kind: string }>(
+      `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
+       WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
+    );
+    for (const edge of incident.rows) await removeEdgeById(executor, contract, edge.kind, edge.id, journal);
+    journal?.removedVertex(vertex.name, uid, nodeId);
+  }
   await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, removed]);
   return true;
 }
@@ -875,6 +951,10 @@ export async function publishFileEntries(executor: SqlExecutor, input: {
   const paths = await internPaths(executor, input.files.map((file) => file.path));
   const held = await heldFileEntries(executor, input.repository);
   const blobs = new Map<string, string>();
+  const inserted: { path_id: string; mode: string | null; blob_id: string }[] = [];
+  const updated: { path_id: string; mode: string | null; blob_id: string }[] = [];
+  const deleted: string[] = [];
+  const wanted = new Set(input.files.map((file) => file.path));
   let counts: FileEntryCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
   for (const file of input.files) {
     const known = held.get(file.path);
@@ -884,19 +964,38 @@ export async function publishFileEntries(executor: SqlExecutor, input: {
     if (blobId === undefined || blobId === null) throw new Error(`src/graph/write.ts:1: the blob ${file.blob} of ${JSON.stringify(file.path)} has no row: the files producer interns it first`);
     blobs.set(file.blob, blobId);
     if (known === undefined) {
-      await executor.query(`INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id) VALUES ($1, $2::bigint, $3, $4::bigint)`, [input.repository, pathId, file.mode, blobId]);
+      inserted.push({ path_id: pathId, mode: file.mode, blob_id: blobId });
       counts = { ...counts, inserted: counts.inserted + 1 };
     } else if (known.mode !== file.mode || known.hash !== file.blob) {
-      await executor.query(`UPDATE ${FILE_ENTRY_TABLE} SET mode = $2, blob_id = $3::bigint WHERE repository = $1 AND path_id = $4::bigint`, [input.repository, file.mode, blobId, known.pathId]);
+      updated.push({ path_id: known.pathId, mode: file.mode, blob_id: blobId });
       counts = { ...counts, updated: counts.updated + 1 };
     } else {
       counts = { ...counts, unchanged: counts.unchanged + 1 };
     }
   }
   for (const [path, known] of held) {
-    if (input.files.some((file) => file.path === path) || !within(path)) continue;
-    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = $2::bigint`, [input.repository, known.pathId]);
+    if (wanted.has(path) || !within(path)) continue;
+    deleted.push(known.pathId);
     counts = { ...counts, deleted: counts.deleted + 1 };
+  }
+  // Keep the entry writes bounded without one database round trip per repository path.
+  for (let at = 0; at < inserted.length; at += 500) {
+    await executor.query(
+      `INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id)
+       SELECT $1, e.path_id, e.mode, e.blob_id FROM jsonb_to_recordset($2::jsonb) AS e(path_id bigint, mode text, blob_id bigint)`,
+      [input.repository, JSON.stringify(inserted.slice(at, at + 500))],
+    );
+  }
+  for (let at = 0; at < updated.length; at += 500) {
+    await executor.query(
+      `UPDATE ${FILE_ENTRY_TABLE} f SET mode = e.mode, blob_id = e.blob_id
+       FROM jsonb_to_recordset($2::jsonb) AS e(path_id bigint, mode text, blob_id bigint)
+       WHERE f.repository = $1 AND f.path_id = e.path_id`,
+      [input.repository, JSON.stringify(updated.slice(at, at + 500))],
+    );
+  }
+  for (let at = 0; at < deleted.length; at += 500) {
+    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = ANY($2::bigint[])`, [input.repository, `{${deleted.slice(at, at + 500).join(',')}}`]);
   }
   return { counts, blobIds: blobs };
 }

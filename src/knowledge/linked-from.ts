@@ -6,8 +6,6 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { refOfMarkdown, type RenderContext, type Subject } from './blocks.js';
-import { readStatements } from './markdown.js';
-import { madarchTargets } from '../writer/mentions.js';
 import type { Block, RefRow } from './model.js';
 
 /** The most rows a list of references shows. */
@@ -23,7 +21,7 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
   // 1. The product's pages that ground a statement in this entity or link to it.
   for (const page of [...ctx.markdown.values()].sort((a, b) => byCodePoint(a.id, b.id))) {
     if (page.id === id) continue;
-    const reading = readStatements(page.body, page.bodyLine);
+    const reading = page.statementReading;
     let statements = 0;
     for (const statement of reading.statements) {
       const urls = statement.notes.flatMap((note) => reading.definitions.get(note) ?? []);
@@ -32,7 +30,7 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
     }
     let linked = statements > 0;
     if (!linked) {
-      for (const target of madarchTargets(page.body)) {
+      for (const target of page.mentions) {
         const resolution = await ctx.resolver.resolve(`madarch:${target}`);
         if (resolution.state === 'ok' && resolution.entity === id) { linked = true; break; }
       }
