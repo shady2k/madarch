@@ -128,8 +128,9 @@ must not remain in the accepted change.
   full diagnostic shard provides the same-order timing evidence.
 - Independent bounded static review found no blocking issue in the cleanup's
   ownership chain. This was source inspection, not an independent runtime
-  rerun. The final delivery static check remains pending; no completed full
-  shard acceptance claim is made here.
+  rerun. The final delivery `bun run check` also completed successfully after
+  the focused regression run. No completed full-shard acceptance claim is made
+  here; the failed full diagnostic run remains reported above.
 - Feature document gate passes with `--candidate worktree --target origin/main`.
   Kind `no-behavior` does not require owner approval under the current policy;
   acceptance must report its actual check result, not an invented missing
