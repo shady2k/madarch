@@ -33,11 +33,11 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
   const file = join(draft.folder, 'madarch', 'kinds.yaml');
-  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'depends-on'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: unknown };
+  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: unknown };
   const declared = [...kinds, 'template'];
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
-    if (kind['depends-on'] !== undefined) kind['depends-on'] = kind['depends-on'].filter((dependency) => declared.includes(dependency));
+    if (kind['derives-from'] !== undefined) kind['derives-from'] = kind['derives-from'].filter((dependency) => declared.includes(dependency));
     if (kind.fields !== undefined) for (const field of kind.fields) {
       if (field.reference !== undefined && !declared.includes(field.reference)) delete field.reference;
     }

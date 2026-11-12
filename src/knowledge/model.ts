@@ -460,7 +460,6 @@ export interface PageModel {
  * origin it declares, or the extractor its acquisition names. `person` is not a stage: a page a person writes is listed so
  * the catalogue can say that no stage fills it yet.
  */
-export type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 
 /** One kind of the entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
 export interface CatalogKindView {
@@ -485,22 +484,14 @@ export interface CatalogKindView {
   statements?: number;
   /** The kind has a page of its own (`template-policy: page`), so its row may link to it. */
   page: boolean;
-  /** What produces the kind today, from its declaration; absent when nothing does. */
-  producer?: KindProducer;
-  /**
-   * Who fills the kind (madarch-stm0.6): `own` when a producer the product itself runs does it — a plugin its fields
-   * bind, or the built-in code, documents or history pass — `person` when a page is written by a person, and `agent`
-   * for everything else, which the general agent plugin fills.
-   */
-  fillWith?: 'own' | 'agent' | 'person';
-  /** Whether a stage of the fill produces the kind today: `producer` is not a person and exists. */
+  /** Whether the graph currently contains entities of this kind. */
   filled: boolean;
-  /** The plugins the manifest binds this kind's fields to, in code point order: the fillers that need no model. */
+  /** The plugins declaring production of this kind, in code point order. */
   plugins?: readonly string[];
   /** The folders of field-bound plugins that the manifest resolves, deduplicated in code point order. */
   pluginFolders?: readonly string[];
-  /** The kinds this one's declaration says must finish their turn first (`depends-on`), in code point order. */
-  dependsOn?: readonly string[];
+  /** The kinds this one's declaration says must finish their turn first (`derives-from`), in code point order. */
+  derivesFrom?: readonly string[];
   /**
    * The newest generation of the kind's plugin turn, as the store's state machine names it (`planned`, `running`,
    * `published`, `failed`, ...), absent when the kind's turn never ran (madarch-stm0.6, the dependency graph). The page

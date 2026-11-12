@@ -64,7 +64,7 @@ export function validateProductManifests(productFolder: string, files: ProductFi
     add('kind', name, { ...kind, ...(manifest.catalog?.kinds.get(name) === undefined ? {} : { catalog: manifest.catalog.kinds.get(name) }) }, KINDS_FILE, kind.line);
     for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, KINDS_FILE, field.line ?? kind.line);
     for (const [index, relation] of (kind.relations ?? []).entries()) add('relation', JSON.stringify([name, index]), { from: name, ...relation }, KINDS_FILE, relation.line);
-    for (const dependency of kind.dependsOn ?? []) add('dependency', JSON.stringify(['kind', name, dependency]), { from: dependency, to: name, via: 'depends-on' }, KINDS_FILE, kind.line);
+    for (const dependency of kind.derivesFrom ?? []) add('dependency', JSON.stringify(['kind', name, dependency]), { from: dependency, to: name, via: 'derives-from' }, KINDS_FILE, kind.line);
   }
   for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind }, KINDS_FILE, kind.line);
   for (const [name, edge] of manifest.edges ?? []) add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);

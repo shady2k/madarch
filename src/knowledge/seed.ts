@@ -866,7 +866,7 @@ export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}):
       }
     }
     if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);
-    if (kind.dependsOn !== undefined) lines.push(`    depends-on: [${kind.dependsOn.join(', ')}]`);
+    if (kind.derivesFrom !== undefined) lines.push(`    derives-from: [${kind.derivesFrom.join(', ')}]`);
     if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
     for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
     if (kind.card === true) lines.push('    card: true');

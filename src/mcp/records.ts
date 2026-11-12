@@ -356,7 +356,7 @@ async function dispatch(tool: string, args: Record<string, unknown>, context: Re
             kind: kind.name,
             ...(kind.labels === undefined ? {} : { labels: kind.labels }),
             fields: kind.fields ?? [],
-            dependsOn: dependencies.filter((edge) => edge.workflow === undefined && edge.to === kind.name).map((edge) => edge.from).sort(byCodePoint),
+            derivesFrom: dependencies.filter((edge) => edge.workflow === undefined && edge.to === kind.name).map((edge) => edge.from).sort(byCodePoint),
           })),
           relations: [...(manifest.edges?.values() ?? [])].sort((a, b) => byCodePoint(a.name, b.name)),
           workflowDependencies: dependencies.filter((edge) => edge.workflow !== undefined),

@@ -58,14 +58,14 @@ describe('fill request settings', () => {
     errorLog: () => undefined,
   }, { folder: join(tmpdir(), 'madarch-fill-selection-settings') } as KnowledgeProduct, () => []);
 
-  for (const [field, value] of [['agent', 'codex'], ['tokenCap', 20_000]] as const) {
-    test(`refuses unsupported ${field} instead of silently ignoring it`, async () => {
+  for (const [field, value] of [['agent', 42], ['tokenCap', -1]] as const) {
+    test(`refuses invalid ${field} instead of silently ignoring it`, async () => {
       const answer = await part.fillSelected(new Request('http://wiki.test/api/fill-selected', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ selected: ['doc.term'], [field]: value }),
       }));
       expect(answer.response.status).toBe(400);
-      expect((await answer.response.json()).error).toMatchObject({ field, message: expect.stringContaining('not supported') });
+      expect((await answer.response.json()).error).toMatchObject({ field });
     });
   }
 });
@@ -141,10 +141,10 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     const catalogue = await call('/api/catalog');
     const counts = (rows: { kind: string; count: number }[]) => rows.map(({ kind, count }) => ({ kind, count }));
     expect(counts(status.body.kinds)).toEqual(counts(catalogue.body.kinds));
-    const term = (catalogue.body.kinds as { kind: string; state: string; plugins?: string[]; dependsOn?: string[]; estimate?: { volume: number | null; tokensPerUnit: number | null; tokens: number | null } }[]).find((kind) => kind.kind === 'doc.term');
+    const term = (catalogue.body.kinds as { kind: string; state: string; plugins?: string[]; derivesFrom?: string[]; estimate?: { volume: number | null; tokensPerUnit: number | null; tokens: number | null } }[]).find((kind) => kind.kind === 'doc.term');
     expect(term?.state).toBe('filled');
     expect(term?.plugins).toEqual(['glossary']);
-    expect(term?.dependsOn).toEqual(['code.file']);
+    expect(term?.derivesFrom).toEqual(['code.file']);
     // No producer declares a per-unit figure: the row carries no estimate at all, and the page says the cost is unknown.
     expect(term?.estimate).toBeUndefined();
     // A kind with no table of its own carries no estimate either.

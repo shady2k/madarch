@@ -1,7 +1,6 @@
 /**
  * The entities one fill is asked for (decision 0035, items 11 and 31; madarch-stm0.6): `madarch fill --entity <kind>`
- * fills that kind's turn, the kinds it depends on and the kinds that depend on it — "with what it depends on" and
- * "with its dependants" — in the dependency order the manifest's `depends-on` declares. The engine names no entity of
+ * fills that kind and its transitive derives-from prerequisites only, in declaration order. The engine names no entity of
  * its own: the kinds, their dependencies and their words are the product's manifest, and a request that names a kind the
  * manifest does not declare is refused by name.
  *
@@ -9,10 +8,11 @@
  * because the reader asked for one value, not for the kind.
  */
 import { byCodePoint } from '../model/order.js';
+import { prerequisiteClosure } from './fill-selection.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 
 /** Why a kind is in the set: the person asked for it, it is a dependency of one asked for, or it depends on one asked for. */
-export type FillTargetReason = 'requested' | 'dependency' | 'dependant';
+export type FillTargetReason = 'requested' | 'dependency';
 
 /** One kind in the set, and what put it there. */
 export interface FillTargetEntry {
@@ -49,7 +49,7 @@ function declared(manifest: KindsManifest): string[] {
 
 /** The kinds a kind depends on, as the manifest declares them, in code point order. */
 function dependenciesOf(manifest: KindsManifest, kind: string): string[] {
-  return [...(manifest.kinds.get(kind)?.dependsOn ?? [])].sort(byCodePoint);
+  return [...(manifest.kinds.get(kind)?.derivesFrom ?? [])].sort(byCodePoint);
 }
 
 /** A kind's line in the manifest, for a refusal that names it. */
@@ -58,8 +58,7 @@ function lineOf(manifest: KindsManifest, kind: string): number {
 }
 
 /**
- * The set one request fills: the kinds asked for, every kind they need (item 11's dependency closure) and every kind
- * that depends on them (item 31's "with its dependants"), in dependency order. The walk is deterministic — code point
+ * The set one request fills: the kinds asked for and every transitive prerequisite, in dependency order. The walk is deterministic — code point
  * order at every step — so two runs of one request plan the same units in the same order.
  */
 export function fillTargets(manifest: KindsManifest, requested: readonly string[]): FillTargetRead {
@@ -75,8 +74,7 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
   }
   const reasons = new Map<string, FillTargetEntry>();
   for (const kind of [...new Set(requested)].sort(byCodePoint)) reasons.set(kind, { kind, reason: 'requested', namedBy: kind });
-  // What the requested kinds need, and what needs them: both closures, walked from the requested set only, so a kind
-  // that is both (a relation the manifest would refuse) keeps the reason it was found by first.
+  // Walk prerequisites only; downstream consumers are not selected.
   const queue = [...reasons.keys()].sort(byCodePoint);
   for (let at = 0; at < queue.length; at += 1) {
     const kind = queue[at]!;
@@ -86,35 +84,10 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
       queue.push(dependency);
     }
   }
-  const dependants = new Map<string, string[]>();
-  for (const kind of kinds) {
-    for (const dependency of dependenciesOf(manifest, kind)) {
-      const held = dependants.get(dependency) ?? [];
-      held.push(kind);
-      dependants.set(dependency, held);
-    }
-  }
-  for (const list of dependants.values()) list.sort(byCodePoint);
-  // What depends on the *requested* kinds, never on the dependencies the request added: asking to fill a term does not
-  // ask for the kinds that read a file, and a fill of the files should not drag the whole catalogue in with them.
-  const forward = [...new Set(requested)].sort(byCodePoint);
-  const seenDependants = new Set(forward);
-  const dependantQueue = [...forward].sort(byCodePoint);
-  for (let at = 0; at < dependantQueue.length; at += 1) {
-    const kind = dependantQueue[at]!;
-    for (const dependant of dependants.get(kind) ?? []) {
-      if (seenDependants.has(dependant)) continue;
-      seenDependants.add(dependant);
-      // The kind the person asked for, not the one in between: "doc.usage depends on doc.term" is what a reader acts on.
-      const asked = reasons.get(kind);
-      reasons.set(dependant, { kind: dependant, reason: 'dependant', namedBy: asked?.reason === 'requested' ? kind : asked?.namedBy ?? kind });
-      dependantQueue.push(dependant);
-    }
-  }
   const order = dependencyOrdered(manifest, [...reasons.keys()]);
   if ('refuse' in order) return { ok: false, file: manifest.file, line: order.refuse.line, message: order.refuse.message };
   const entries = [...reasons.values()].sort((left, right) => byCodePoint(left.kind, right.kind));
-  return { ok: true, targets: { order: order.order, entries } };
+  return { ok: true, targets: { order: prerequisiteClosure([...manifest.kinds.values()].map((kind) => ({ kind: kind.name, derivesFrom: kind.derivesFrom })), requested), entries } };
 }
 
 /**

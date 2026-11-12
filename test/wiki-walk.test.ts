@@ -56,7 +56,7 @@ function cleanBlocks(language: string): Block[] {
     { type: 'properties', title: word(language, 'Details', 'Сведения'), rows: [{ name: 'language', value: 'go', nameKey: 'language' }] },
     {
       type: 'related', title: word(language, 'Relations', 'Связи'),
-      groups: [{ relation: 'code.depends-on', direction: 'out', total: 1, rows: [{ entity: ROWS[KIND_SERVICE]![1]!, count: 1 }] }],
+      groups: [{ relation: 'code.derives-from', direction: 'out', total: 1, rows: [{ entity: ROWS[KIND_SERVICE]![1]!, count: 1 }] }],
     },
     {
       type: 'graph', title: word(language, 'Around this', 'Вокруг этого'), depth: 1, shown: 1, total: 1,
@@ -66,9 +66,9 @@ function cleanBlocks(language: string): Block[] {
           { id: 'code.service:orders', kind: KIND_SERVICE, label: 'orders', href: '/products/fixture/e/code.service%3Aorders', hops: 0 },
           { id: 'code.service:payments', kind: KIND_SERVICE, label: 'payments', href: '/products/fixture/e/code.service%3Apayments', hops: 1 },
         ],
-        edges: [{ from: 'code.service:orders', to: 'code.service:payments', relation: 'code.depends-on', count: 1 }],
+        edges: [{ from: 'code.service:orders', to: 'code.service:payments', relation: 'code.derives-from', count: 1 }],
         more: [],
-        relations: [{ relation: 'code.depends-on', direction: 'out', count: 1 }],
+        relations: [{ relation: 'code.derives-from', direction: 'out', count: 1 }],
       },
     },
     {
@@ -335,7 +335,7 @@ describe('the pieces the walk judges with', () => {
   });
 
   test('a relation is a key when the app cannot turn it into words', () => {
-    expect(relationIsKey('code.depends-on')).toBe(false);
+    expect(relationIsKey('code.derives-from')).toBe(false);
     expect(relationIsKey('code.depends_on')).toBe(true);
     expect(relationIsKey('engine:discusses', false)).toBe(true);
     expect(relationIsKey('engine:discusses', true)).toBe(false);
@@ -534,7 +534,7 @@ describe('the shapes a reader meets are read, not skipped', () => {
         neighborhood: {
           ...block.neighborhood,
           nodes: [block.neighborhood.nodes[0]!],
-          edges: [{ from: 'code.service:orders', to: 'code.service:orders', relation: 'code.depends-on', count: 1 }],
+          edges: [{ from: 'code.service:orders', to: 'code.service:orders', relation: 'code.derives-from', count: 1 }],
           more: [],
         },
       }
@@ -552,7 +552,7 @@ describe('a label is the entity own name, and punctuation ends an id', () => {
     expect(inspectCatalogue('code.file', rows, options)).toEqual([]);
     const findings = inspectPage({
       id: 'src/main.ts', kind: 'code.file', title: 'src/main.ts', trail: [],
-      blocks: [{ type: 'related', title: 'Relations', groups: [{ relation: 'code.depends-on', direction: 'out', total: 1, rows: [{ entity: rows[0]!, count: 1 }] }] }],
+      blocks: [{ type: 'related', title: 'Relations', groups: [{ relation: 'code.derives-from', direction: 'out', total: 1, rows: [{ entity: rows[0]!, count: 1 }] }] }],
       resolutions: {}, findings: [], notes: [],
     }, options);
     expect(findings).toEqual([]);

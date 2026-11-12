@@ -14,7 +14,7 @@ import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
 import type { KindDecl, KindsManifest } from '../product/manifest/kinds.js';
-import type { CatalogKindView, CatalogSummaryView, CatalogView, KindProducer, WikiStatus } from './model.js';
+import type { CatalogKindView, CatalogSummaryView, CatalogView, WikiStatus } from './model.js';
 
 /** The list carries navigation and fill metadata; declaration details are read only when a kind is opened. */
 export function catalogSummary(view: CatalogView): CatalogSummaryView {
@@ -33,27 +33,6 @@ export function groupViews(manifest: KindsManifest): WikiStatus['groups'] {
     ...(group.parent === undefined ? {} : { parent: group.parent }),
     ...(group.open === undefined ? {} : { open: group.open }),
   }));
-}
-
-/**
- * What produces one kind today, read from its declaration: a document kind from the documents stage, a kind of the
- * history from the history stage, a code kind from extraction, a page the agent keeps from the writer. A page a person
- * writes names the person, which is not a stage; a kind the declaration marks `not-implemented`, and a catalogue-only
- * kind whose acquisition names no extractor, are produced by nothing yet.
- */
-function producerOf(decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): KindProducer | undefined {
-  if (entry?.status === 'not-implemented') return undefined;
-  if (decl !== undefined) {
-    if (decl.source === 'document') return 'documents';
-    if (decl.origin === 'history') return 'history';
-    if (decl.source === 'graph') return 'extract';
-    return decl.origin === 'person' ? 'person' : 'writer';
-  }
-  if (entry === undefined) return undefined;
-  const extractor = `${extractorMark} `;
-  if (entry.acquisition.some((mark) => mark.startsWith(extractor) && mark.length > extractor.length)) return 'extract';
-  if (entry.acquisition.includes('agent-from-graph')) return 'writer';
-  return undefined;
 }
 
 /** Every kind the manifest declares, as the catalogue page lists it, in the manifest's order. */
@@ -128,16 +107,15 @@ export async function catalogKinds(ctx: RenderContext, turns: {
 } = {}): Promise<CatalogKindView[]> {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
-  const pluginsOf = (decl: KindDecl | undefined): string[] => [...new Set((decl?.fields ?? []).flatMap((field) => (field.binding?.kind === 'plugin' ? [field.binding.plugin] : [])))].sort(byCodePoint);
-  const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined, extractorMark: string): CatalogKindView => {
-    const producer = producerOf(decl, entry, extractorMark);
+  const pluginsOf = (decl: KindDecl | undefined): string[] => [...(ctx.manifest.plugins?.values() ?? [])].filter((plugin) => plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === decl?.name)).map((plugin) => plugin.id).sort(byCodePoint);
+  const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined): CatalogKindView => {
     const plugins = pluginsOf(decl);
     const pluginFolders = [...new Set(plugins.flatMap((id) => {
       const path = ctx.manifest.plugins?.get(id)?.path;
       return path === undefined ? [] : [path];
     }))].sort(byCodePoint);
     const count = numbers.count(kind, decl?.source);
-    const dependsOn = [...(decl?.dependsOn ?? [])].sort(byCodePoint);
+    const derivesFrom = [...(decl?.derivesFrom ?? [])].sort(byCodePoint);
     const turn = turns.turnOf?.(kind);
     const estimate = estimateOf(count, turns.generatedOf?.(kind), count);
     return {
@@ -150,11 +128,10 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       count,
       ...(numbers.statements.has(kind) ? { statements: numbers.statements.get(kind)! } : {}),
       page,
-      ...(producer === undefined ? {} : { producer }),
-      filled: producer !== undefined && producer !== 'person',
+      filled: count > 0,
       ...(plugins.length === 0 ? {} : { plugins }),
       ...(pluginFolders.length === 0 ? {} : { pluginFolders }),
-      ...(dependsOn.length === 0 ? {} : { dependsOn }),
+      ...(derivesFrom.length === 0 ? {} : { derivesFrom }),
       ...(turn === undefined ? {} : { turn }),
       state: stateOf(count, turn),
       ...(estimate.tokens === null && estimate.seconds === null ? {} : { estimate }),
@@ -167,9 +144,8 @@ export async function catalogKinds(ctx: RenderContext, turns: {
       const group = decl.group;
       const held = group === undefined ? undefined : ctx.manifest.groups.get(group);
       const subgroup = held?.parent === undefined ? '' : group!;
-      return row(decl.name, subgroup, { ...(decl.labels === undefined ? {} : { labels: decl.labels }), ...(decl.descriptions === undefined ? {} : { descriptions: decl.descriptions }) }, decl.member === undefined, decl, undefined, 'extractor');
+      return row(decl.name, subgroup, { ...(decl.labels === undefined ? {} : { labels: decl.labels }), ...(decl.descriptions === undefined ? {} : { descriptions: decl.descriptions }) }, decl.member === undefined, decl, undefined);
     });
   }
-  const extractorMark = catalog.schema.extractorMark;
-  return [...catalog.kinds.values()].map((entry) => row(entry.name, entry.subgroup, { labels: entry.labels, descriptions: entry.descriptions }, entry.templatePolicy === 'page' && ctx.manifest.kinds.has(entry.name), ctx.manifest.kinds.get(entry.name), entry, extractorMark));
+  return [...catalog.kinds.values()].map((entry) => row(entry.name, entry.subgroup, { labels: entry.labels, descriptions: entry.descriptions }, entry.templatePolicy === 'page' && ctx.manifest.kinds.has(entry.name), ctx.manifest.kinds.get(entry.name), entry));
 }

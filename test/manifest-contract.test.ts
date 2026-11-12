@@ -41,8 +41,8 @@ ${depends}`;
 const VALID = `groups:
   g: { en: Group, ru: Группа, short: { en: Group, ru: Группа } }
 kinds:
-${KIND('a', '    fields:\n      - { name: name, type: text, producers: [git] }', '    key: [name]', '    depends-on: []')}
-${KIND('b', '    fields:\n      - { name: name, type: text, producers: [git] }\n      - { name: note, type: text, producers: [agent] }', '    key: [name]', '    depends-on: [a]')}
+${KIND('a', '    fields:\n      - { name: name, type: text, producers: [git] }', '    key: [name]', '    derives-from: []')}
+${KIND('b', '    fields:\n      - { name: name, type: text, producers: [git] }\n      - { name: note, type: text, producers: [agent] }', '    key: [name]', '    derives-from: [a]')}
 plugins:
   - { id: git, version: 1, path: plugins/git, inputs: [a], outputs: [a, b], closure: [plugins/git/contract.json] }
 `;
@@ -73,23 +73,23 @@ describe('the manifest contract preflight', () => {
   });
 
   test('a dependency cycle is refused, naming the kinds', () => {
-    const text = VALID.replace('    depends-on: []', '    depends-on: [b]');
+    const text = VALID.replace('    derives-from: []', '    derives-from: [b]');
     const found = findings(text);
     expect(found).toContainEqual(expect.stringContaining('the dependency cycle a -> b -> a is refused'));
   });
 
   test('a dependency on an undeclared kind is refused, naming it', () => {
-    const text = VALID.replace('    depends-on: []', '    depends-on: [missing]');
-    expect(findings(text)).toContainEqual(expect.stringContaining('kind "a": "depends-on" names the kind "missing", and the manifest declares no such kind'));
+    const text = VALID.replace('    derives-from: []', '    derives-from: [missing]');
+    expect(findings(text)).toContainEqual(expect.stringContaining('kind "a": "derives-from" names the kind "missing", and the manifest declares no such kind'));
   });
 
   test('a plugin whose input lies outside the closure of its earliest output kind is refused', () => {
-    const text = VALID.replace('inputs: [a], outputs: [a, b]', 'inputs: [a], outputs: [b]').replace('    depends-on: [a]', '    depends-on: []');
+    const text = VALID.replace('inputs: [a], outputs: [a, b]', 'inputs: [a], outputs: [b]').replace('    derives-from: [a]', '    derives-from: []');
     expect(findings(text)).toContainEqual(expect.stringContaining('plugin "git": input "a" is outside the dependency closure of its earliest output kind "b"'));
   });
 
   test('any declared field may stand in the natural key: the key is the vertex\'s, and no field is authoritative', () => {
-    const text = VALID.replace('    key: [name]\n    depends-on: [a]', '    key: [note]\n    depends-on: [a]');
+    const text = VALID.replace('    key: [name]\n    derives-from: [a]', '    key: [note]\n    derives-from: [a]');
     expect(findings(text)).toEqual([]);
   });
 });
@@ -110,7 +110,7 @@ kinds:
     fields:
 ${fields}
 ${key}
-    depends-on: []
+    derives-from: []
 plugins:
   - { id: git, version: 1, path: plugins/git, inputs: [a], outputs: [a], closure: [plugins/git/contract.json] }
 `;
