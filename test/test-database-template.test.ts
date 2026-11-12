@@ -10,7 +10,8 @@ test('the preload starts the run server before the first database case', () => {
 });
 
 test('fresh database owners are prepared and isolate data and schema changes', async () => {
-  const first = await createTestDatabaseOwner();
+  const phases = new Map<string, number>();
+  const first = await createTestDatabaseOwner({ timing: (phase, elapsedMs) => { phases.set(phase, elapsedMs); } });
   try {
     await requireSchema(first, 'history');
     await requireSchema(first, 'one-graph');
@@ -32,4 +33,7 @@ test('fresh database owners are prepared and isolate data and schema changes', a
     const own = await first.run((tx) => tx.query<{ value: string }>('SELECT value FROM case_only'));
     expect(own.rows).toEqual([{ value: 'first' }]);
   } finally { await first.close(); }
+  for (const phase of ['server-ready', 'template-ready', 'database-clone', 'database-owner-open', 'database-owner-close', 'database-drop']) {
+    expect(phases.get(phase)).toBeGreaterThanOrEqual(0);
+  }
 });

@@ -56,18 +56,24 @@ function quotedDatabase(name: string): string {
  * owner's pool is part of readiness: PostgreSQL cannot clone a connected database.
  * Children on this server reuse the prepared template instead of preparing it again.
  */
-export async function prepareTestDatabaseTemplate(): Promise<void> {
+export async function prepareTestDatabaseTemplate(timing?: TestDatabaseOptions['timing']): Promise<void> {
   templateReady ??= (async () => {
     await ensureRunPostgres();
     const socketDir = testServerSocket();
     const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
     const held = await clusterQuery(cluster, 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DATABASE_TEMPLATE]);
-    if (held.length !== 0) return;
+    if (held.length !== 0) {
+      timing?.('template-already-exists', 0);
+      return;
+    }
+    const preparationStart = performance.now();
+    timing?.('template-preparation-start', 0);
     const owner = await createDatabaseOwner({ cluster: { socketDir }, database: TEST_DATABASE_TEMPLATE });
     try {
       await prepareStore(owner);
     } finally {
       await owner.close();
+      timing?.('template-preparation', performance.now() - preparationStart);
     }
   })();
   await templateReady;
@@ -121,6 +127,8 @@ export async function testStoreServer(): Promise<{ readonly socketDir: string; r
 
 /** What a case asks the run's server for: a fresh database, or a store folder's own cluster. */
 export interface TestDatabaseOptions {
+  /** Optional diagnostics for a case investigating setup cost. Times are wall-clock milliseconds. */
+  readonly timing?: (phase: string, elapsedMs: number) => void;
   readonly graphContract?: GraphContract;
   /** Opens `btree_gist`, which the temporal graph's no-overlap constraints need. */
   readonly btreeGist?: boolean;
@@ -151,7 +159,10 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     return owner;
   }
   // Also support drivers that open a database without the suite's preload.
+  const serverStart = performance.now();
+  options.timing?.('server-ready-start', 0);
   await ensureRunPostgres();
+  options.timing?.('server-ready', performance.now() - serverStart);
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
   // A database the case names is the case's (a store's history database it reopens across seams); one it does not name is
@@ -160,11 +171,24 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   const own = options.database === undefined;
   const clone = options.graphContract === undefined && options.socket === undefined && own;
   if (clone) {
-    await prepareTestDatabaseTemplate();
+    const templateStart = performance.now();
+    const templateWasRequested = templateReady !== undefined;
+    options.timing?.('template-ready-start', 0);
+    await prepareTestDatabaseTemplate(options.timing);
+    options.timing?.(templateWasRequested ? 'template-ready' : 'template-first-request', performance.now() - templateStart);
     const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
-    await clusterQuery(cluster, 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(TEST_DATABASE_TEMPLATE)}`);
+    const cloneStart = performance.now();
+    options.timing?.('database-clone-start', 0);
+    try {
+      await clusterQuery(cluster, 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(TEST_DATABASE_TEMPLATE)}`);
+    } finally {
+      options.timing?.('database-clone', performance.now() - cloneStart);
+    }
   }
+  const ownerStart = performance.now();
+  options.timing?.('database-owner-open-start', 0);
   const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(clone ? { connectOnly: true } : {}), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
+  options.timing?.('database-owner-open', performance.now() - ownerStart);
   if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
   let closed: Promise<void> | undefined;
   return {
@@ -177,8 +201,18 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     exec: (text) => owner.exec(text),
     close: () => {
       closed ??= (async () => {
+        const closeStart = performance.now();
         await owner.close();
-        if (own) await dropDatabase(socketDir, database);
+        options.timing?.('database-owner-close', performance.now() - closeStart);
+        if (own) {
+          const dropStart = performance.now();
+          options.timing?.('database-drop-start', 0);
+          try {
+            await dropDatabase(socketDir, database);
+          } finally {
+            options.timing?.('database-drop', performance.now() - dropStart);
+          }
+        }
       })();
       // A close a case provokes on purpose (from inside the owner's own
       // transaction, say) rejects; this handler keeps that rejection from
@@ -194,14 +228,14 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
  * closes: the shape `createHistoryStore({ clock })` had when a store was a
  * database of its own, without a cluster per case.
  */
-export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string }): Promise<HistoryStore> {
+export async function createTestHistory(options: { readonly clock: Clock; readonly store?: string; readonly timing?: TestDatabaseOptions['timing'] }): Promise<HistoryStore> {
   if (options.store !== undefined) {
     // A history of a store of its own: it opens and closes the store, and names it in the errors it reports.
     const owner = await createTestDatabaseOwner({ store: options.store });
     const held = createHistoryStore({ owner, clock: options.clock });
     return { ...held, close: async () => { try { await held.close(); } finally { await owner.close(); } } };
   }
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner(options.timing === undefined ? {} : { timing: options.timing });
   const history = createHistoryStore({ owner, clock: options.clock });
   return {
     ...history,
