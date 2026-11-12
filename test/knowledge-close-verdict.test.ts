@@ -24,6 +24,7 @@ import { withStorePreparationOwner, requestStorePreparation } from '../src/produ
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { graphVerdictFile } from '../src/knowledge/graph-verdict-store.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -50,7 +51,7 @@ describe('closing a product while its graph verdicts read the store', () => {
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
-      await prepareStore(owner, { contract: await readPinnedGraphContract(draft.folder) });
+      await prepareStore(owner, { contract: withManifestContract(await readPinnedGraphContract(draft.folder)) });
       // The close boundary needs published table metadata, not unrelated repository extraction or model judging.
       const metadata = validateProductManifests(draft.folder);
       if (!metadata.ok) throw new Error(JSON.stringify(metadata.findings));
