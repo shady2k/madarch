@@ -192,3 +192,23 @@ and midflight-declaration repairs. Batch three reported 34 passes / 3 failures.
 Reader N+1 repair is source `3d9ddc9e`; historical replay test expectation repair
 is `b0b8725d`. These source changes are not passing rerun evidence: reruns remain
 pending. Whole-suite green and after-training timing remain unestablished.
+
+
+## Partition and reader rerun evidence reported by coordinator
+
+The complete partition regression run passed: 5 cases / 32 assertions in
+119.93 seconds, `/tmp/m28-partitions-sixth.log`, after `5aa0cb02`, `8a41360e`
+and `41cea5de`. It verified aggregate content over 9 MiB through bounded units,
+prior-fact retention, dependent blocking, immutable first-generation reads and
+successful empty retraction. The negative partition case verified the actual
+refusal cause and attempted out-of-key write, not an unrelated prior-run block.
+These results supersede the earlier partition failures for that tested revision,
+without erasing those observations.
+
+Latest pure tests passed 28 cases / 84 assertions. The reader relation regression
+passed 1 case / 9 assertions with an actual three-SQL-query bound. Root check
+seven encountered a TypeScript test-type failure; repair `ec74dd30` is committed
+and root check eight is running, not yet a passing result. The parent's fourth
+full six-case glossary run is also in progress (`/tmp/m28-glossary-fourth.log`).
+No after-training timing or acceptance result is available. Whole-suite green
+remains unestablished; no pending run is recorded as passed.
