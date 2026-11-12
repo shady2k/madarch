@@ -18,6 +18,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_DOMAIN, SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
+import { publishSamplePageOpinions } from './knowledge-page-opinions.js';
 
 const realKinds = await import('../src/product/manifest/kinds.js');
 const realReadKinds = realKinds.readKinds;
@@ -67,6 +68,7 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   await fill();
+  await publishSamplePageOpinions(folder, join(work, 'store'));
 }, 180_000);
 
 /** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
@@ -105,18 +107,22 @@ describe('a status answer reads the manifest once per key', () => {
     for (const answer of answers) expect(countOf(answer.body, 'domain')).toBe(1);
   });
 
-  test('a page written and committed beside the product shows after the fill that stores it', async () => {
+  test('an explicitly published page updates the graph revision after its source is committed', async () => {
     const before = await get('/api/status');
     expect(countOf(before.body, 'domain')).toBe(1);
     const refund = SAMPLE_DOMAIN.replace('id: domain:payment', 'id: domain:refund').replace('title: Payment', 'title: Refund');
     writeFileSync(join(folder, 'docs', 'domains', 'refund.md'), refund);
-    // Uncommitted, the page is not part of the product repository's commit: the answer stands until a fill reads it.
+    // File bytes are not graph opinions: neither an uncommitted write nor a fill imports a page.
     expect(countOf((await get('/api/status')).body, 'domain')).toBe(1);
     commitProduct(folder, 'Write the refund domain');
     await fill();
+    await publishSamplePageOpinions(folder, join(work, 'store'), [{
+      kind: 'domain', slug: 'refund', title: 'Refund', file: 'docs/domains/refund.md',
+      body: 'Refunds return captured payments.', relates: [], sources: ['docs/requirements.md'],
+    }]);
     const after = await get('/api/status');
     expect(after.status).toBe(200);
-    expect(countOf(after.body, 'domain'), 'a page the fill stored').toBe(2);
+    expect(countOf(after.body, 'domain'), 'a page explicitly published to the graph').toBe(2);
   });
 
   test('a manifest edited and committed beside the product shows after the fill, and the wiki never reads the file itself', async () => {
