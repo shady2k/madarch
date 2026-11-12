@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import { repositoryContract, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { publishGraphDrafts, type GraphDrafts } from '../src/graph/write.js';
-import { ensureEdge } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { projectHistory } from '../src/knowledge/history-evidence.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -74,12 +73,10 @@ test('path history keeps rename and import membership evidence without loading u
     const subject = (await reader.find('code.file:fixture/src/new.txt'))[0]!;
     const src = (await reader.find('code.directory:fixture/src'))[0]!;
     const lib = (await reader.find('code.directory:fixture/lib'))[0]!;
-    const other = (await reader.find('code.directory:fixture/unrelated-0'))[0]!;
-    const next = (await reader.find('code.directory:fixture/unrelated-1'))[0]!;
-    await owner.transaction('write', async (tx) => {
-      await ensureEdge(tx, contract, 'code.imports', src.nodeIds[0]!, lib.nodeIds[0]!);
-      await ensureEdge(tx, contract, 'code.imports', other.nodeIds[0]!, next.nodeIds[0]!);
-    });
+    const imports = [['src', 'lib'], ['unrelated-0', 'unrelated-1']].map(([from, to]) => ({
+      kind: 'code.imports', from: directories.get(from!)!, to: directories.get(to!)!, producer: 'git', producerVersion: '1',
+    }));
+    await owner.transaction('write', tx => publishGraphDrafts(tx, contract, { vertices: [], edges: imports, removals: [] }));
     const evidence = await reader.historyEvidenceFor(subject, 'path', 5);
     expect(evidence.entities.some((one) => String(one.properties['path'] ?? '').startsWith('unrelated-'))).toBe(false);
     expect(evidence.edges.filter((one) => one.relation === 'code.imports')).toEqual([
