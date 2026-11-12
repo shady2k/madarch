@@ -12,7 +12,7 @@ import { AuthoredPage } from './authored.js';
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, FolderGit2Icon, FolderIcon, FileTextIcon, RefreshCwIcon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -30,7 +30,7 @@ import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryProvider, GlossaryPage } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
-import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
+import { RoleContext, loadSettings, useSettings } from './roles.js';
 import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage } from './loop.js';
 import { JournalPage } from './journal.js';
@@ -130,8 +130,8 @@ interface NavSubgroup {
 
 /**
  * A group of the navigation: its direct kinds and, when it has sub-areas, those
- * sub-areas in the manifest's order. `kinds` holds every kind the group shows,
- * sub-areas included, so a role that leads a group keeps its whole branch.
+ * sub-areas with populated entries first, in declared order. `kinds` holds
+ * every kind the group shows, sub-areas included.
  */
 interface NavGroup {
   group: string | null;
@@ -145,30 +145,33 @@ interface NavGroup {
   subgroups: NavSubgroup[];
 }
 
-/** The kinds of the manifest as the navigation shows them: top-level groups, each with its sub-areas, in the manifest's order. */
-export function navGroups(status: WikiStatus, pending: (kind: string) => number): NavGroup[] {
+/** Keep the manifest order within populated and empty entries. */
+const populatedFirst = <T,>(entries: readonly T[], count: (entry: T) => number): T[] => [...entries.filter((entry) => count(entry) > 0), ...entries.filter((entry) => count(entry) === 0)];
+
+/** Navigation groups and sub-areas, with populated siblings first and declared order preserved within each set. */
+export function navGroups(status: WikiStatus): NavGroup[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !inLoop(kind));
-  const shown = status.kinds.filter((kind) => kind.page !== false && !inLoop(kind) && !hasOwnPlace(kind) && !kind.single && (kind.origins.includes('person') || kind.count > 0 || pending(kind.kind) > 0));
+  const shown = status.kinds.filter((kind) => kind.page !== false && !inLoop(kind) && !hasOwnPlace(kind) && !kind.single);
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, short: group.short as Record<string, string> | undefined, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
   const children = declared.filter((group) => group.parent !== undefined && known.has(group.parent));
   const belongs = (kind: KindSummary, group: string | null): boolean => (group === null ? kind.group === undefined || !known.has(kind.group) : kind.group === group);
   const countedOf = (group: string | null): number => counted.filter((kind) => belongs(kind, group)).reduce((sum, kind) => sum + kind.count, 0);
-  const shownOf = (group: string | null): KindSummary[] => shown.filter((kind) => belongs(kind, group));
+  const shownOf = (group: string | null): KindSummary[] => populatedFirst(shown.filter((kind) => belongs(kind, group)), (kind) => kind.count);
   const loose = shownOf(null);
   const all = loose.length > 0 ? [...top, { group: null, labels: null, short: undefined, parent: undefined, open: false }] : top;
-  return all
+  return populatedFirst(all
     .map((entry): NavGroup => {
       const childrenOf = entry.group === null ? [] : children.filter((child) => child.parent === entry.group);
       // A sub-area counts every entity of its kinds, as the parent does, even when none has a navigation row.
-      const subgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, ...(child.short === undefined ? {} : { short: child.short }), total: countedOf(child.group), kinds: shownOf(child.group) }));
+      const subgroups = populatedFirst(childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, ...(child.short === undefined ? {} : { short: child.short }), total: countedOf(child.group), kinds: shownOf(child.group) })), (child) => child.total);
       const childKindNames = new Set(subgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
       const direct = shownOf(entry.group).filter((kind) => !childKindNames.has(kind.kind));
       const kinds = entry.group === null ? shownOf(null) : [...direct, ...subgroups.flatMap((child) => child.kinds)];
       return { group: entry.group, labels: entry.labels, ...(entry.short === undefined ? {} : { short: entry.short }), open: entry.open, total: countedOf(entry.group) + subgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
-    });
+    }), (entry) => entry.total);
 }
 
 function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: WikiRoute; onNavigate?: () => void }): ReactElement {
@@ -180,12 +183,12 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   const problemsOpen = status.loop?.problemsOpen ?? status.loop?.correctionsOpen ?? 0;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
-  const { role, roles } = useRole();
-  const groups = leadGroups(navGroups(status, pendingOf), role, roles);
+  const groups = navGroups(status);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
   const waitingLink = (id: string, href: string, Icon: typeof HomeIcon, label: string, count: number, active: boolean): ReactElement => (
     <NavigationLink
+      icon={Icon}
       href={appPath(href)}
       active={active} empty={count === 0}
       aria-current={active ? 'page' : undefined}
@@ -193,7 +196,6 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
       data-testid={id}
       {...pick(href)}
     >
-      <Icon aria-hidden="true" size={16} />
       <NavigationLabel>{label}</NavigationLabel>
       {/* A count drawn from files is shown only once it is above zero: nothing is read until the fill runs. */}
       {count > 0 && <NavigationCount data-testid={`${id}-count`}>{count}</NavigationCount>}
@@ -207,7 +209,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
     const active = ownRouteOf(kind, route);
     const address = ownAddressOf(kind);
     return (
-      <NavigationLink key={kind.kind} href={appPath(address)} active={active} depth={depth} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(address)}>
+      <NavigationLink icon={FileTextIcon} empty={kind.count === 0} data-empty={kind.count === 0} key={kind.kind} href={appPath(address)} active={active} depth={depth} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(address)}>
         <NavigationLabel>{kindName(kind.kind, 'many')}</NavigationLabel>
         <NavigationCount data-testid="nav-count">
           {kind.count}
@@ -221,19 +223,16 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
       <BrandLink href={appPath(WIKI_HOME)} data-testid="nav-brand" concept={t('brand.concept')} {...pick(WIKI_HOME)}><ShellBrandMark /></BrandLink>
       <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} own={status.own === true} />
       <NavigationScroll aria-label={t('navigation.pages')} data-testid="nav-scroll">
-        <NavigationLink href={appPath(WIKI_HOME)} active={route.name === 'home'} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(WIKI_HOME)}>
-          <HomeIcon aria-hidden="true" size={16} />
+        <NavigationLink icon={HomeIcon} href={appPath(WIKI_HOME)} active={route.name === 'home'} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(WIKI_HOME)}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
         </NavigationLink>
-        <NavigationLink href={appPath(WIKI_CATALOGUE)} active={route.name === 'catalogue'} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
-          <LayoutGridIcon aria-hidden="true" size={16} />
+        <NavigationLink icon={LayoutGridIcon} href={appPath(WIKI_CATALOGUE)} active={route.name === 'catalogue'} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
           <NavigationLabel>{t('navigation.catalogue')}</NavigationLabel>
         </NavigationLink>
-        <NavigationLink href={appPath(WIKI_GLOSSARY)} active={route.name === 'glossary'} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
-          <BookOpenIcon aria-hidden="true" size={16} />
+        <NavigationLink icon={BookOpenIcon} href={appPath(WIKI_GLOSSARY)} active={route.name === 'glossary'} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
           <NavigationLabel>{t('knowledge.glossary.title')}</NavigationLabel>
         </NavigationLink>
-        <NavigationLink href={appPath(WIKI_FILL)} active={route.name === 'fill'} aria-current={route.name === 'fill' ? 'page' : undefined} data-testid="nav-fill" {...pick(WIKI_FILL)}>
+        <NavigationLink icon={RefreshCwIcon} href={appPath(WIKI_FILL)} active={route.name === 'fill'} aria-current={route.name === 'fill' ? 'page' : undefined} data-testid="nav-fill" {...pick(WIKI_FILL)}>
           <NavigationLabel>{t('navigation.fill')}</NavigationLabel>
         </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
@@ -247,7 +246,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           const open = opened[key] ?? (holdsActive || entry.open);
           return (
             <NavigationGroup key={key} data-nav-group={entry.group ?? ''}>
-              <NavigationGroupTrigger open={open} empty={entry.total === 0} data-empty={entry.total === 0} onClick={() => setOpened({ ...opened, [key]: !open })} data-testid="nav-group">
+              <NavigationGroupTrigger icon={FolderIcon} open={open} empty={entry.total === 0} data-empty={entry.total === 0} onClick={() => setOpened({ ...opened, [key]: !open })} data-testid="nav-group">
                 <NavigationLabel>{entry.labels === null ? t('knowledge.groupOther') : entry.short?.[language] ?? entry.labels[language] ?? entry.labels['en'] ?? entry.group}</NavigationLabel>
                 <NavigationCount data-testid="nav-group-count">{entry.total}</NavigationCount>
               </NavigationGroupTrigger>
@@ -256,7 +255,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
                   {directOf(entry).map((kind) => kindLink(kind))}
                   {entry.subgroups.map((subgroup) => (
                     <NavigationGroup key={subgroup.group} data-nav-subgroup={subgroup.group} data-testid="nav-subgroup">
-                      <NavigationSubheading empty={subgroup.total === 0} data-empty={subgroup.total === 0}>
+                      <NavigationSubheading icon={FolderIcon} empty={subgroup.total === 0} data-empty={subgroup.total === 0}>
                         <NavigationLabel>{subgroup.short?.[language] ?? subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</NavigationLabel>
                         <NavigationCount data-testid="nav-subgroup-count">{subgroup.total}</NavigationCount>
                       </NavigationSubheading>
@@ -270,13 +269,11 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         })}
       </NavigationScroll>
       <NavigationFooter data-testid="nav-foot">
-        <NavigationLink href={appPath(WIKI_DOCS)} active={route.name === 'docs' || route.name === 'doc'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(WIKI_DOCS)}>
-          <FolderGit2Icon aria-hidden="true" size={16} />
+        <NavigationLink icon={FolderGit2Icon} href={appPath(WIKI_DOCS)} active={route.name === 'docs' || route.name === 'doc'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(WIKI_DOCS)}>
           <NavigationLabel>{t('knowledge.documents')}</NavigationLabel>
         </NavigationLink>
         {status.own !== true && (
-          <NavigationLink href={appPath(WIKI_SETTINGS)} active={route.name === 'settings'} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(WIKI_SETTINGS)}>
-            <SettingsIcon aria-hidden="true" size={16} />
+          <NavigationLink icon={SettingsIcon} href={appPath(WIKI_SETTINGS)} active={route.name === 'settings'} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(WIKI_SETTINGS)}>
             <NavigationLabel>{t('settings.nav')}</NavigationLabel>
           </NavigationLink>
         )}
