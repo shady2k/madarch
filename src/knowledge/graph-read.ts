@@ -1041,7 +1041,7 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
         `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator
-         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1 ORDER BY e.from_node, e.to_node, e.discriminator, e.id`,
+         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1 WHERE e.context_id = 1 ORDER BY e.from_node, e.to_node, e.discriminator, e.id`,
         [graph.kind],
       );
       const entities = await this.entitiesOfIds(tx, [...new Set(found.rows.flatMap((row) => [row.from_node, row.to_node]))]);
@@ -1078,7 +1078,7 @@ export class GraphReader {
     const byNode = new Map(nodes.map((one) => [one.id, one.key]));
     const found = await this.run(async (tx) => await tx.query<{ node: string; n: string }>(
       `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
-       WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
+       WHERE e.context_id = 1 AND e.to_node = ANY($2::bigint[]) GROUP BY 1`,
       [graph.kind, `{${nodes.map((one) => one.id).join(',')}}`],
     ));
     for (const row of found.rows) {
@@ -1098,7 +1098,7 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; n: string }>(
         `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
-         WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
+         WHERE e.context_id = 1 AND e.to_node = ANY($2::bigint[]) GROUP BY 1`,
         [graph.kind, `{${ids.join(',')}}`],
       );
       const byNode = new Map(entities.flatMap((entity) => entity.nodeIds.map((id) => [id, entity.key] as const)));
@@ -1123,7 +1123,7 @@ export class GraphReader {
     return await this.run(async (tx) => {
       const found = await tx.query<{ node: string; n: string }>(
         `SELECT e.to_node::text AS node, count(DISTINCT e.id)::text AS n FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
-         WHERE e.to_node = ANY($2::bigint[]) GROUP BY 1`,
+         WHERE e.context_id = 1 AND e.to_node = ANY($2::bigint[]) GROUP BY 1`,
         [graph.kind, `{${ids.join(',')}}`],
       );
       for (const row of found.rows) for (const [key, entity] of entities) if (entity.nodeIds.includes(row.node)) counts.set(key, Number(row.n));
