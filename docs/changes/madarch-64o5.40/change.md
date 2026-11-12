@@ -232,3 +232,37 @@ is therefore pending. The engine fixture is to use nine keys of exactly 1 MiB
 each, over 8 MiB in aggregate, to exercise fanout causally without weakening
 assertions or changing bounds/timeouts. No child checks or runtime edits were
 performed to record this clarification; after timing remains pending.
+
+
+## Benchmark comparability audit and settled glossary run
+
+Source audit `/tmp/m28-benchmark-comparability-audit.md` establishes that the
+actual before and planned ordinary-plugin after have unequal total workloads.
+The valid internal-native before remains 10.444655832 seconds, excluding
+24.981595683 seconds of setup. Its training pin and facts are unchanged, but its
+whole graph contains 117 files, 73 commits, 57 directories and two repositories:
+the training repository plus a small manual product repository. It is an internal
+native-pipeline measurement, not public starter admission success.
+
+The ordinary-plugin product adds starter manifests and plugin closures. A
+read-only filesystem inventory, not an independently verified pinned-tree count,
+finds 2,165 regular product files / 13,086,460 bytes, excluding `.git` and the
+`repos` link, in addition to the fixed training input. Disabling unrelated
+producers does not remove their copied input files. The failed after artifact
+at `/tmp/m28-after-valid/after.json` (86.467040113 seconds, zero training facts)
+is not a valid successful after measurement. Its old ratio is not a performance
+conclusion; the benchmark script now explicitly records unequal total workloads.
+
+Training source is held fixed, but the ordinary-plugin product includes
+additional closure/manifest files. These are integration timings for unequal
+total input workloads, not an apples-to-apples speedup or slowdown estimate.
+A valid after integration result still requires successful publication and exact
+training facts, plus honest total/product counts. A controlled comparison needs
+a new paired experiment with equal pinned trees, histories, publication scope,
+workers and timing boundary; it cannot retroactively relabel the actual before.
+No controlled speedup or slowdown is established.
+
+Glossary run four settled at six failures in 267.11 seconds, all the same
+15-children-over-8 fanout failure. Nested graph support `860b2ae5` and causal
+nine-key test `44774579` are committed; runtime integration and rerun evidence
+remain pending. These source commits do not prove repair or acceptance.
