@@ -4,7 +4,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
-import { publishGraphDrafts } from '../graph/write.js';
+import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
 import { headCommitOf } from '../product/fill-updates.js';
 import { KINDS_FILE, readKindsFrom, type Finding, type KindsManifest } from '../product/manifest/kinds.js';
@@ -91,7 +91,21 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
     const held = await tx.query<{ kind: string; name: string }>(`SELECT e.name AS kind, n.key->>'name' AS name FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
     const wanted = new Set(validated.vertices.map((one) => JSON.stringify([one.kind, one.key.name])));
     const removals: VertexRemovalDraft[] = held.rows.filter((one) => !wanted.has(JSON.stringify([one.kind, one.name]))).map((one) => ({ kind: one.kind, key: { name: one.name }, producer: 'manifest' }));
-    return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices: validated.vertices, edges: [], removals }, 1, { author: 'manifest' });
+    // Compare the complete opinion, including its grounds, before replaying declarations through the writer.
+    const unchanged = await tx.query<{ kind: string; name: string }>(`WITH wanted AS (
+      SELECT * FROM jsonb_to_recordset($1::jsonb) AS w(kind text, name text, declaration jsonb, evidence jsonb)
+    ) ${MANIFEST_CONTRACT.vertex.map((kind) => `SELECT w.kind, w.name FROM wanted w
+      JOIN entity e ON e.name = w.kind
+      JOIN node n ON n.entity_id = e.id AND n.key = jsonb_build_object('name', w.name) AND n.context_id = 1 AND NOT n.removed
+      JOIN LATERAL (SELECT p.declaration, p.evidence FROM "${kind.table}" p
+        WHERE p.node_id = n.id AND p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
+        ORDER BY p.id DESC LIMIT 1) p ON true
+      WHERE w.kind = '${kind.name}' AND p.declaration = w.declaration AND p.evidence = w.evidence`).join(' UNION ALL ')}`,
+      [JSON.stringify(validated.vertices.map((one) => ({ kind: one.kind, name: one.key.name, declaration: one.values?.declaration, evidence: evidenceList(one) })))],
+    );
+    const same = new Set(unchanged.rows.map((one) => JSON.stringify([one.kind, one.name])));
+    const vertices = validated.vertices.filter((one) => !same.has(JSON.stringify([one.kind, one.key.name])));
+    return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
   });
 }
 
