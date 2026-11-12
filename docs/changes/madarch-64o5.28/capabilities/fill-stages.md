@@ -440,3 +440,13 @@ typed kinds and use scripted adapters for any exercised agent requests.
 
 All eight review-section-1 regression scenarios are mapped explicitly in the
 contract. These scenarios are required acceptance behavior, not passing results.
+
+### Native-backed declaration identity
+
+A manifest kind explicitly bound to `capability: git` uses the git declaration's
+storage kind, table and key as its single canonical identity. Additional declared
+fields extend that opinion table; no duplicate prefixed vertex or table is made.
+Draft vertices, edge endpoints and reference keys resolve through the capability
+declaration before publication. File and directory identity uses `repository`
+(a text reference) and `path` (text), not physical node or path IDs. This mapping
+is declaration-driven; similarly named kinds without the binding stay distinct.
