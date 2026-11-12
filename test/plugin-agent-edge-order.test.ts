@@ -1,4 +1,5 @@
 import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -101,6 +102,14 @@ edges:
 plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
 `);
+  const manifestFile = join(product, 'madarch/kinds.yaml');
+  const manifest = parseDocument(readFileSync(manifestFile, 'utf8'));
+  const starter = parseDocument(STARTER_FILES.find(file => file.path === 'madarch/kinds.yaml')!.content).toJS();
+  for (const key of ['catalog', 'groups', 'properties']) manifest.set(key, starter[key]);
+  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) {
+    manifest.setIn(['kinds', name], starter.kinds[name]);
+  }
+  writeFileSync(manifestFile, manifest.toString());
   const closure = closureOf(folder).hash;
   writeFileSync(join(product, 'madarch/plugins.lock'), `plugins:\n  - { id: probe-summary, version: 1.0.0, closure: ${closure}, path: plugins/probe-summary }\n`);
   useRepositoryPlugins(product);
@@ -120,6 +129,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     manifest.deleteIn(['kinds', 'probe.summary']);
     for (const name of ['probe.a', 'probe.b']) manifest.setIn(['kinds', name], {
       template: 'templates/item-plain.liquid', source: 'graph',
+      agent: { plugin: 'agent-fill', fields: '*' },
       'derives-from': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
       fields: [{ name: 'id', type: 'text', binding: { agent: 'Stable identity.' } }, { name: 'title', type: 'text', binding: { agent: 'The title.' } }],
     });
