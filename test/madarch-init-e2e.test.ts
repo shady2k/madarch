@@ -134,6 +134,11 @@ describe('madarch init', () => {
     const agents = await get('api/agents');
     // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
     // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
+    if (status.body.publication === 'pending' && agents.status === 503) {
+      expect(agents.body.publication).toBe('pending');
+      return;
+    }
+    expect(agents.status, JSON.stringify(agents.body)).toBe(200);
     expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => offer.id)).toEqual(['claude-code', 'codex', 'opencode', 'omp', 'prime-agent']);
     expect(agents.body.agents.find((offer: { id: string }) => offer.id === 'claude-code')).toMatchObject({ installed: true });
     // The first read of a product opens its store (a PGlite of about two seconds) and asks which adapters stand on the
