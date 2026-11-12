@@ -23,19 +23,8 @@ export interface StarterWorkflow {
   readonly stages: readonly string[];
 }
 
-/**
- * The stages of a fill as the engine's registry holds them today (0026's stage 0
- * to 13 and the page stage): the ten deterministic stages, then the agent stages
- * a run registers when it names an agent, then the narrative stage that cites them.
- * A test holds the list to the registry's own stages.
- */
-const FILL_STAGES: readonly string[] = [
-  // This step's fill (madarch-8bdc.2.5, item 6): the tree and the history of a repository, and the plugins the
-  // product's manifest declares, which read the file vertices the tree published (decision 0035, items 6 and 15).
-  'repository-tree',
-  'repository-history',
-  'plugin-turns',
-];
+/** The generic execution stage; product plugin declarations supply the producers. */
+const FILL_STAGES: readonly string[] = ['plugin-turns'];
 
 /**
  * The four workflows, in code point order of their names.

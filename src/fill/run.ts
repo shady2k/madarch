@@ -16,13 +16,11 @@ import { log } from '../obs/log.js';
 import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
-import { fillSteps, type RecordPassWiring } from './steps.js';
+import { fillSteps } from './steps.js';
 import { assertFillGitVersion } from './git-version.js';
 
-;
 import type { StageRegistry } from './registry.js';
 import { createStagesFill, type StagesFillOptions, type UnreadRepository } from '../product/fill-stages.js';
-import { publishHistory, publishTree } from '../graph/index.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { AgentRunBudget } from './agent-meter.js';
 
@@ -92,15 +90,6 @@ export type FillRunAnswer =
   })
   | RefusedFillRun;
 
-/** The record wiring one fill publishes through: the process's one owner, and the paths it covers. */
-function recordsOf(options: RunFillOptions): RecordPassWiring {
-  return {
-    publishTree: (input) => publishTree(options.database, input),
-    publishHistory: (input) => publishHistory(options.database, input),
-    ...(options.paths === undefined ? {} : { paths: options.paths }),
-  };
-}
-
 /**
  * One list with the steps a caller did not name disabled: the derived graph plans only
  * the requested steps and what they declare they depend on, and never a step outside
@@ -168,7 +157,7 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  const fill = await createStagesFill({ product, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }) }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
+  const fill = await createStagesFill({ product, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }) }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
   const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
   // Reading the pins is what names a checkout with no commit: the answer says what the run did for
   // it once the run has settled, and a run of this product still reads every other repository.

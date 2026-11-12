@@ -1,68 +1,7 @@
 /**
- * The wiring of a product's deterministic fill (madarch-tzte.21.8; decision 0026's
- * stages 0 to 7, decision 0027's host).
- *
- * The orchestrator host (`src/fill/orchestrator-host.ts`) takes one product's
- * wiring from its caller: how the pinned snapshot is read, how the product's
- * configuration resolves, which graph a unit's tracked reads answer from, which
- * named inputs a unit's facts stand on, and where a published fact set lands.
- * This module is that caller for a product that stands in a folder with a
- * manifest: the eight deterministic stages of `src/fill/stages/index.ts`,
- * registered over the product's own repositories, and the reads they make
- * answered from the fill's fact store.
- *
- * **The pins.** The run stands on the product repository and on every code
- * repository its manifest declares (0026, stage 0: "code repositories and the
- * product repository"), each read at the commit its checkout's HEAD names — the
- * product's own folder for the product repository, `<folder>/repos/<name>` for a
- * declared one. Nothing here guesses a commit: a folder that is no Git checkout,
- * and a product whose name is no repository name, are refused by name.
- *
- * The pins are read when a run **plans** — the orchestrator asks the wiring for
- * the run's snapshot first, and the snapshot is read here from a fresh read of
- * them (`repin`) — and every other answer the wiring gives (the snapshot record,
- * a unit's inputs, the sources a stage reads its bytes through) reads that same
- * read. So one run stands on one commit of each repository however often its
- * stages ask, and a run that plans later — the second run of a product in one
- * process, or a resume — reads the pins again rather than standing on the first
- * run's commit in silence.
- *
- * **The snapshot record.** `RunSnapshot` is fill-runtime's own shape, kept by
- * decision 0027, and it names one repository: this wiring names the product
- * repository (its folder, the branch its HEAD stands on and its commit), because
- * that is the commit the run was asked for and the repository a person fills.
- * The other repositories' commits are the pins, which every stage reads for
- * itself; the field cannot carry them all and this module does not pretend it
- * does. `registryHash` is the digest of the *declared stages* — their ids and
- * versions, in code point order — which is what decides what a run writes; the
- * landed fill's own field carried the digest of the product's kinds registry,
- * and a stages run reads no kinds registry (the page kinds arrive with the agent
- * stages of 0026).
- *
- * **The inputs a unit's facts stand on.** The declared stages, and then the
- * unit's own reading: the blob the pinned tree holds at the path its scope names,
- * or — where its scope names no path — the commit of the repository it names
- * (`inputsOf`). So a one-file commit inherits every unit whose own bytes did not
- * move, and computes again the units of the file that did, of the folders it
- * stands in and of the repository-wide readings. The resolution stage's units are
- * the one exception, and the module's `inputsOf` says why: their facts stand on
- * the symbols of the files they read, which the wiring cannot name before they
- * run, so their input is the run's pins.
- *
- * **The reads.** Every stage reads through `createStageReadReader`
- * (`src/fill/stage-reads.ts`): the named reads of the eight stages answered from
- * the fill's fact store, the graph-read grammar's own reads
- * (`src/fill/graph-reads.ts`) and a stage's own SQL (the history stage's three
- * queries, through the `fact` view `createStageReadSchema` creates) alike. A read
- * a caller makes inside a transaction it already opened runs on it: the process's
- * owner refuses a second transaction on one connection, and a publication's
- * recheck reads through its own.
- *
- * **What is not wired here.** The facts land where the host lands them: the
- * fill's own fact store in the process's database (`FACT_APPLICATION`,
- * `fact-store.ts`), which is the wiring's own choice by leaving `facts` out. No
- * human-edit guard is wired. The agent stages (8 to 13) are not registered
- * anywhere yet.
+ * Product wiring for ordinary declared plugin execution. The host pins repository
+ * bytes and configuration once per run; plugins interpret those bytes and publish
+ * their declared graph outputs through the same generic publication path.
  */
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -71,9 +10,8 @@ import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
 import type { FillStageConfigurationRead } from './manifest/fill-config.js';
 import { assertPluginTurnsEnabled, readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
-import { createRecordSchema, publishHistory, publishTree } from '../graph/index.js';
-import { GIT_CONTRACT } from '../fill/stages/git-contract.js';
-import type { DeclaredKinds } from '../graph/records.js';
+import { createOneGraphSchema } from '../graph/one-graph.js';
+import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { planManifestFill } from '../plugin/fill-declarations.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
@@ -105,7 +43,7 @@ import { WORKFLOWS_FILE, engineFirstFillStages, firstFillStagesOfFiles, type Fir
  * storage layer import it) while still reading and lending the owner the host
  * created.
  */
-type FillDatabase = Parameters<typeof createRecordSchema>[0];
+type FillDatabase = Parameters<typeof createOneGraphSchema>[0];
 
 /** What one product's stages fill is built from. */
 export interface StagesFillOptions {
@@ -119,8 +57,8 @@ export interface StagesFillOptions {
    * through the host; it neither opens nor closes it.
    */
   readonly database: FillDatabase;
-  /** What this step's two passes publish through; the store over this owner when it is left out. */
-  readonly records?: import('../fill/steps.js').RecordPassWiring;
+  /** Repository path prefixes forwarded to ordinary plugin inputs. */
+  readonly paths?: readonly string[];
   /**
    * The kinds this run was asked for (madarch-stm0.6, decision 0035 items 11 and 31): their plugin turns only, in this
    * dependency order, and with a vertex the one entity it rewrites. Left out, the run fills every kind the manifest binds
@@ -144,11 +82,11 @@ export interface StagesFillOptions {
 export interface StagesFill {
   /** The product as the host names it. */
   readonly product: FillProduct;
-  /** The eight deterministic stages, registered over this product's own pins. */
+  /** The ordinary plugin stage, registered over this product's own declarations. */
   readonly registry: StageRegistry;
   readonly wiring: ProductFillWiring;
-  /** The graph kinds the product's contract declared: the record passes' entity set (false when it declares none). */
-  readonly kinds: false | DeclaredKinds | undefined;
+  /** The graph kinds the product's contract declared (false when it declares none). */
+  readonly kinds: false | { readonly vertex: readonly string[]; readonly edge: readonly string[] } | undefined;
   /**
    * The declared repositories this run could not pin, each with its path and the state it is
    * in: a checkout that holds no commit yet. A run reads the repositories it can and says what
@@ -182,7 +120,7 @@ export async function readPinnedGraphContract(product: string): Promise<import('
   const snapshots = createGitSnapshotSource(() => pins);
   const own = await snapshots.open(productRepositoryId(read.identity));
   const { kindsRead: kinds } = await readFillManifests(own, folder);
-  return kinds.present ? graphContractOf(kinds.manifest) : GIT_CONTRACT;
+  return kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT;
 }
 
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
@@ -205,8 +143,6 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const snapshots = createGitSnapshotSource(pins);
   /** Reads the pins again, for the run about to plan (`snapshot`): see the module doc. */
   const repin = (): readonly RepositoryPin[] => readPins();
-  // The record store this step's passes publish through: the process's one owner, so what the
-  // wiki's button fills is what `madarch mcp` reads (madarch-8bdc.2.5, item 6).
   // The product's own declaration files as the commit this run pins holds them: the fill reads the tree it stores, never
   // the working tree beside it, so the graph and the run agree byte for byte (madarch-hsqs stage C).
   const { files, kindsRead, lockRead } = await withSpan('fill.product-files', { 'madarch.product': identity.name }, async () => {
@@ -235,32 +171,21 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     ...(budget === undefined ? {} : { budget }),
     save: async (rows: readonly AgentUsageRecord[]) => await recordAgentUsage(options.database, rows),
   };
-  // A folder that is no product — a bare checkout `madarch mcp` serves — reads the code kinds the engine's own
-  // starter set binds; a product with a manifest takes only the capabilities its kinds bind (decision 0034, item 14).
-  const contract = kindsRead.present ? graphContractOf(kindsRead.manifest) : GIT_CONTRACT;
-  // The code entities this run may publish, by graph kind: only the manifest's own, whatever the git reader can fill.
-  // The tree stores the product repository's files as mechanism state even when the run publishes no entity.
+  const contract = kindsRead.present ? graphContractOf(kindsRead.manifest) : EMPTY_CONTRACT;
+  // Only the product's declarations introduce graph kinds.
   const kinds = contract.vertex.length === 0 && contract.edge.length === 0 ? false : { vertex: contract.vertex.map((kind) => kind.name), edge: contract.edge.map((kind) => kind.name) };
   const metadata = read.product ? validateProductManifests(folder, files, pins().find((one) => one.id === productRepositoryId(identity))?.commit) : undefined;
   if (metadata !== undefined && !metadata.ok) throw new Error(metadata.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
   if (options.prepareContract !== undefined) await options.prepareContract(withManifestContract(contract));
-  await createRecordSchema(options.database, contract);
+  await createOneGraphSchema(options.database, withManifestContract(contract));
   if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value);
-  const records = options.records ?? {
-    publishTree: (input: Parameters<typeof publishTree>[1]) => publishTree(options.database, input),
-    publishHistory: (input: Parameters<typeof publishHistory>[1]) => publishHistory(options.database, input),
-  };
   // Building the registry loads the stages' own modules and their parsers: one span names what that cost.
   const registry = await withSpan('fill.registry', { 'madarch.product': identity.name }, async (span) => {
     const held = createStageRegistry({
-      snapshots,
-      records,
-      git: kindsRead.present ? kinds !== false && (contract.vertex.length > 0 || contract.edge.length > 0) : true,
-      kinds,
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present && (kindsRead.manifest.plugins?.size ?? 0) > 0
-        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
+        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);
