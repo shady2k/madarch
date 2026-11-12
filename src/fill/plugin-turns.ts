@@ -114,7 +114,7 @@ export function pluginTurnUnitId(plugin: string, kind: string, vertex?: string):
 
 /** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
-  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
+  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
   const units: PluginTurnUnit[] = [];
   for (const name of plan.order) {
     const plugin = wiring.manifest.plugins!.get(name)!;
@@ -304,7 +304,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   }
   const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
   let agentReport: PluginAgentReport | undefined;
-  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
+  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
   const edgeOutputs = (unit.plugin.contract?.edges ?? []).flatMap((edge) => {
@@ -530,7 +530,7 @@ function partitionChildren(id: string, runId: string | undefined, partitions: re
 
 /** The fill stage of the plugin turns: the units are the manifest's, the work is each plugin's own. */
 export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
-  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
+  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
   return {
     id: PLUGIN_TURN_STAGE_ID,
     version: 10,
@@ -545,11 +545,12 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
     after: [],
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, enabled: true, concurrency: [...(wiring.manifest.plugins?.values() ?? [])].reduce((sum, plugin) => sum + (plugin.declaration?.concurrency ?? 1), 0) || 1, config: {} },
-    async plan(): Promise<{ units: { id: string; scope: string }[]; coverage?: 'planned' | 'nothing-found' }> {
-      const holdsKinds = pluginKindsOf(wiring.manifest).length > 0;
+    async plan() {
+      const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
       const units = await planPluginTurns(wiring);
-      if (units.length === 0) return { units: [], ...(holdsKinds ? { coverage: 'nothing-found' as const } : {}) };
-      return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind.name })), coverage: 'planned' };
+      return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind.name })),
+        coverage: units.length === 0 ? 'nothing-found' as const : 'planned' as const,
+        kindOutcomes: declarationPlan.unproducedKinds };
     },
     async execute(unit, context) {
       const selected = unitOf(wiring, unit.id);

@@ -129,6 +129,8 @@ export interface StagePlan {
    * (decision 0027, "no producer" from "producer found nothing").
    */
   coverage?: 'planned' | 'nothing-found';
+  /** Selected kinds without executable work, reported without pretending a producer succeeded. */
+  kindOutcomes?: readonly { readonly kind: string; readonly outcome: 'abstained'; readonly reason: string }[];
 }
 
 /** A tracked graph read: the query and its result membership are recorded for staleness. */

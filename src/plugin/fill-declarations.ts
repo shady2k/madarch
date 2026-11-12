@@ -243,11 +243,40 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     // An explicit entry claims configured fields; the wildcard gap entry keeps all remaining gaps.
     target!.manifest = { ...target!.manifest, produces: [...target!.manifest.produces, { kind: kind.name, fields: kind.agent.fields === '*' ? '*' : [...kind.agent.fields], reads: capability!.reads, ...(kind.agent.refines === undefined ? {} : { refines: [...kind.agent.refines] }) }] };
   }
-  const requested = selectedKinds ?? [...new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])))];
-  return planFillDeclarations({
+  // An agent wildcard advertises availability; only configured outputs participate in this plan.
+  const executable = declarations.flatMap((plugin) => {
+    const produces = plugin.manifest.produces.filter((output) => !(plugin.manifest.agent !== undefined && output.kind === '*' && output.coverage === 'gaps'));
+    return produces.length === 0 ? [] : [{ ...plugin, manifest: { ...plugin.manifest, produces } }];
+  });
+  const requested = selectedKinds ?? [...manifest.kinds.keys()];
+  const covered = new Set(executable.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
+  const selected = new Set<string>();
+  const collect = (name: string): void => {
+    if (selected.has(name)) return;
+    selected.add(name);
+    for (const prerequisite of manifest.kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
+  };
+  for (const name of requested) collect(name);
+  const unavailable = new Set([...selected].filter((name) => manifest.kinds.has(name) && !covered.has(name)));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const name of selected) {
+      if (unavailable.has(name)) continue;
+      if ((manifest.kinds.get(name)?.derivesFrom ?? []).some((parent) => unavailable.has(parent))) {
+        unavailable.add(name);
+        changed = true;
+      }
+    }
+  }
+  const unproducedKinds = [...unavailable].map((kind) => ({ kind, outcome: 'abstained' as const,
+    reason: covered.has(kind) ? `required prerequisite has no configured producer for ${kind}` : `kind ${kind} has no configured producer; configure an ordinary producer or kind.agent`,
+  }));
+  const plan = planFillDeclarations({
     kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
-    plugins: declarations,
-    selectedKinds: requested,
+    plugins: executable,
+    selectedKinds: requested.filter((name) => !unavailable.has(name)),
     ...(agentSelected === undefined ? {} : { agentSelected }),
   });
+  return { ...plan, unproducedKinds };
 }

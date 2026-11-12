@@ -832,6 +832,10 @@ async function planStageUnitsSpanned(
   const reused: string[] = [];
   const stage = stageOf(orchestrator, stageId);
   const plan: StagePlan = await stage.plan(await orchestrator.graph({ stageId, stageUnitId: '', unitId: '', scope: '', generation: 0 }));
+  for (const outcome of plan.kindOutcomes ?? []) {
+    await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null,
+      kind: 'kind-abstained', summary: JSON.stringify(outcome) });
+  }
   const foundNothing = plan.coverage === 'nothing-found';
   if (foundNothing) {
     // Decision 0027's distinction, made durable: a producer that found nothing is reported, so nobody
