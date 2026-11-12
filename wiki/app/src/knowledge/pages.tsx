@@ -203,9 +203,9 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
         <PageTitle>{kindName(kind, 'many')}</PageTitle>
 
       </PageHeader>
+      <KindDetails kind={kind} version={version} />
       {listing?.agentUsage !== undefined && <Paragraph className="text-small text-muted" data-testid="kind-agent-usage">{t('knowledge.kindAgentModel', { model: listing.agentUsage.model ?? t('knowledge.kindNotReported') })} · {listing.agentUsage.tokens === undefined ? t('knowledge.kindTokensNotReported') : t('knowledge.kindAgentTokens', { count: listing.agentUsage.tokens })}</Paragraph>}
       <KindUsage kind={kind} version={version} />
-      <KindDetails kind={kind} version={version} />
       <KindMap kind={kind} version={version} />
       <SectionTitle>{t('knowledge.kindDetails.records')}</SectionTitle>
       <Stack className="flex items-center gap-3">

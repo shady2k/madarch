@@ -10,7 +10,6 @@
  * showing an English name to a reader of another language.
  */
 import { byCodePoint } from '../model/order.js';
-import { OPINION_FIELDS } from '../graph/contract.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
@@ -144,13 +143,20 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     return {
       kind, subgroup,
       declaration: { file: ctx.manifest.file, line: decl?.line ?? entry!.line },
-      ...(decl?.fields === undefined ? {} : { fields: decl.fields
-        .filter((field) => !(OPINION_FIELDS as readonly string[]).includes(field.name))
-        .map((field) => {
-          const labels = ctx.manifest.properties.get(field.name)?.labels;
-          return { ...field, ...(labels === undefined ? {} : { labels: { ...labels } }),
-            declaration: { file: ctx.manifest.file, line: field.line ?? decl.line } };
-        }) }),
+      fields: (decl?.details ?? []).flatMap((name) => {
+        const property = ctx.manifest.properties.get(name);
+        if (property === undefined) return [];
+        const field = decl?.fields?.find((field) => field.name === name);
+        const binding = field?.binding;
+        const meaning = binding?.kind === 'agent' ? binding.description
+          : binding?.kind === 'plugin' ? ctx.manifest.plugins?.get(binding.plugin)?.contract?.vertices
+            .find((vertex) => vertex.kind === kind)?.fields.find((field) => field.name === binding.field)?.meaning
+          : undefined;
+        return [{ name, labels: { ...property.labels },
+          ...(meaning === undefined ? {} : { meaning }),
+          ...(field?.reference === undefined ? {} : { reference: field.reference }),
+          declaration: { file: ctx.manifest.file, line: property.line } }];
+      }),
       relations: relationsOf(ctx, kind),
       ...(entry === undefined ? {} : { sources: [...entry.sources] }),
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),

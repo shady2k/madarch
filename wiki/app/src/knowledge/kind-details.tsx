@@ -43,12 +43,15 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
         <DefinitionValue className="m-0"><Badge data-testid="kind-state" data-state={graphStateOf(chosen, false)}>{t(`knowledge.catalogueState.${graphStateOf(chosen, false)}`)}</Badge></DefinitionValue>
       </DefinitionList>
     </PageSection>
+    <PageSection data-testid="kind-facts">
+      <Paragraph>{t('knowledge.total', { count: chosen.count })}</Paragraph>
+    </PageSection>
     <PageSection data-testid="kind-fields">
       <SectionTitle>{t('knowledge.kindDetails.fields')}</SectionTitle>
       {(chosen.fields ?? []).length === 0 ? <Paragraph className="text-muted">{t('knowledge.kindDetails.noFields')}</Paragraph> : <DefinitionList className="space-y-2">
         {chosen.fields!.map((field) => <Stack key={field.name} className="flex flex-wrap gap-x-3">
           <DefinitionTerm>{field.labels?.[language] ?? t('knowledge.kindDetails.untranslatedField')}</DefinitionTerm>
-          <DefinitionValue className="m-0 text-muted">{field.type}{field.nullable === true && ' | null'}{field.reference !== undefined && <> → <KLink href={addressOfKind(field.reference)}>{name(field.reference)}</KLink></>}{field.declaration !== undefined && <Text className="ml-2 text-small">{field.declaration.file}:{field.declaration.line}</Text>}</DefinitionValue>
+          <DefinitionValue className="m-0 text-muted">{field.meaning ?? t('knowledge.kindDetails.noFieldMeaning')}{field.reference !== undefined && <> → <KLink href={addressOfKind(field.reference)}>{name(field.reference)}</KLink></>}{field.declaration !== undefined && <Text className="ml-2 text-small">{field.declaration.file}:{field.declaration.line}</Text>}</DefinitionValue>
         </Stack>)}
       </DefinitionList>}
     </PageSection>
