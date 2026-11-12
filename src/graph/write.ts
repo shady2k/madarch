@@ -30,7 +30,6 @@ import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
 export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
-import { FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { keyUid } from './uid.js';
 
 /** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
@@ -313,8 +312,8 @@ function normaliseKeyValue(contract: GraphContract, field: FieldContract, value:
     if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${WHERE}:1: ${where} names a ${JSON.stringify(field.reference)}, and the draft names ${JSON.stringify(value)}: a reference is {kind, key}`);
     const ref = value as EntityRefDraft;
     if (typeof ref.kind !== 'string' || ref.key === null || typeof ref.key !== 'object') throw new Error(`${WHERE}:1: ${where} names a reference that is no {kind, key}`);
-    if (ref.kind !== field.reference && ref.kind !== `code.${field.reference}`) throw new Error(`${WHERE}:1: ${where} names a ${JSON.stringify(field.reference)}, and the draft names a ${JSON.stringify(ref.kind)}`);
-    return { kind: ref.kind, key: canonicalKeyOf(contract, contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind), ref.key, `${where} of the ${ref.kind}`) };
+    if (ref.kind !== field.reference) throw new Error(`${WHERE}:1: ${where} names a ${JSON.stringify(field.reference)}, and the draft names a ${JSON.stringify(ref.kind)}`);
+    return { kind: ref.kind, key: canonicalKeyOf(contract, contract.vertex.find((held) => held.name === ref.kind), ref.key, `${where} of the ${ref.kind}`) };
   }
   if (field.type === 'text') {
     if (typeof value === 'object' && value !== null) throw new Error(`${WHERE}:1: ${where} is a text, and the draft names an object`);
@@ -358,10 +357,8 @@ function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefi
 
 /** One entity a draft's reference names, as the node that holds it, or undefined when no vertex does. */
 async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
-  const vertex = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
+  const vertex = contract.vertex.find((held) => held.name === ref.kind);
   const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
-  // The uid is the graph kind's: a draft may name the wiki's name of a git kind (`code.file`), and the node was made
-  // under the contract's own (`file`).
   const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
   const found = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
   return found.rows[0]?.id;
@@ -785,7 +782,7 @@ async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract
     const declared = keyFieldOf(vertex, field);
     const ref = referenceOf(declared, draft[field]);
     if (ref === undefined) continue;
-    const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
+    const target = contract.vertex.find((held) => held.name === ref.kind);
     const targetKey = canonicalKeyOf(contract, target, ref.key, `the reference ${JSON.stringify(field)}`);
     if (await referencedNodeOf(executor, contract, ref, `the key field ${JSON.stringify(field)} of ${JSON.stringify(kind)}`) !== undefined) {
       // The reference stands now: the record of its not standing goes.
@@ -885,7 +882,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
       for (const [field, ref, other] of [['from', draft.from, toNode], ['to', draft.to, fromNode]] as const) {
         const named = field === 'from' ? fromNode : toNode;
         if (named !== undefined) continue;
-        const target = contract.vertex.find((held) => held.name === ref.kind) ?? contract.vertex.find((held) => `code.${held.name}` === ref.kind);
+        const target = contract.vertex.find((held) => held.name === ref.kind);
         await recordUnresolved(executor, {
           referrer: other ?? null, edgeEntity: draft.kind, field, targetEntity: ref.kind,
           targetKey: canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of ${JSON.stringify(draft.kind)}`),
@@ -909,118 +906,3 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   return written;
 }
 
-// ---- the product repository's files as mechanism state ----------------------------------------------------------
-
-/** One file of a repository's tree, as the files producer read it: its path, its mode and the blob its text stands in. */
-export interface FileEntryDraft {
-  readonly path: string;
-  readonly mode: string | null;
-  readonly blob: string;
-}
-
-/** What one publication of the mechanism file entries wrote. */
-export interface FileEntryCounts {
-  readonly inserted: number;
-  readonly updated: number;
-  readonly deleted: number;
-  readonly unchanged: number;
-}
-
-/** One file entry the mechanism holds: the path's id, its mode and the blob id its bytes stand in. */
-interface HeldFileEntry {
-  readonly pathId: string;
-  readonly mode: string | null;
-  readonly blobId: string | null;
-  readonly hash: string | null;
-}
-
-/** The mechanism's entries of one repository, by path. */
-async function heldFileEntries(executor: SqlExecutor, repository: string): Promise<Map<string, HeldFileEntry>> {
-  const found = await executor.query<{ path: string; path_id: string; mode: string | null; blob_id: string | null; hash: string | null }>(
-    `SELECT p.text AS path, f.path_id::text AS path_id, f.mode, f.blob_id::text AS blob_id, b.hash
-     FROM ${FILE_ENTRY_TABLE} f JOIN ${FILE_PATH_TABLE} p ON p.id = f.path_id
-     LEFT JOIN ${FILE_BLOB_TABLE} b ON b.id = f.blob_id WHERE f.repository = $1`,
-    [repository],
-  );
-  return new Map(found.rows.map((row) => [row.path, { pathId: row.path_id, mode: row.mode, blobId: row.blob_id, hash: row.hash }] as const));
-}
-
-/** The ids of the path texts, interned once each in the mechanism's path index. */
-async function internPaths(executor: SqlExecutor, paths: readonly string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(paths)];
-  if (unique.length > 0) {
-    await executor.query(`INSERT INTO ${FILE_PATH_TABLE} (text) SELECT value FROM jsonb_array_elements_text($1::jsonb) ON CONFLICT (text) DO NOTHING`, [JSON.stringify(unique)]);
-  }
-  const found = await executor.query<{ id: string; text: string }>(
-    `SELECT id::text AS id, text FROM ${FILE_PATH_TABLE} WHERE text IN (SELECT value FROM jsonb_array_elements_text($1::jsonb))`,
-    [JSON.stringify(unique)],
-  );
-  return new Map(found.rows.map((row) => [row.text, row.id]));
-}
-
-/**
- * The product repository's files as mechanism state (decision 0034, item 14; the stage C review of madarch-hsqs): one
- * `file_entry` row per path, which names the path index row and the blob row its bytes stand in, for every product,
- * whatever entities its manifest declares. A scoped publication replaces only its scope. The blob text itself is
- * interned once per blob by the files producer (`src/graph/records.ts`), so two paths with the same bytes share one
- * row; the code kinds' file opinions name the same blob rows. Answers the blob id of every file named.
- */
-export async function publishFileEntries(executor: SqlExecutor, input: {
-  readonly repository: string;
-  readonly files: readonly FileEntryDraft[];
-  /** The blob ids of the files whose text moved or is new; an unchanged entry keeps the id it stands on. */
-  readonly blobIds: ReadonlyMap<string, string>;
-  readonly scope?: readonly string[];
-}): Promise<{ counts: FileEntryCounts; blobIds: Map<string, string> }> {
-  const within = (path: string): boolean => input.scope === undefined || input.scope.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
-  const paths = await internPaths(executor, input.files.map((file) => file.path));
-  const held = await heldFileEntries(executor, input.repository);
-  const blobs = new Map<string, string>();
-  const inserted: { path_id: string; mode: string | null; blob_id: string }[] = [];
-  const updated: { path_id: string; mode: string | null; blob_id: string }[] = [];
-  const deleted: string[] = [];
-  const wanted = new Set(input.files.map((file) => file.path));
-  let counts: FileEntryCounts = { inserted: 0, updated: 0, deleted: 0, unchanged: 0 };
-  for (const file of input.files) {
-    const known = held.get(file.path);
-    const pathId = paths.get(file.path);
-    if (pathId === undefined) throw new Error(`src/graph/write.ts:1: the path ${JSON.stringify(file.path)} of ${JSON.stringify(input.repository)} was not interned`);
-    const blobId = input.blobIds.get(file.blob) ?? (known?.hash === file.blob ? known.blobId : null) ?? input.blobIds.get(file.blob);
-    if (blobId === undefined || blobId === null) throw new Error(`src/graph/write.ts:1: the blob ${file.blob} of ${JSON.stringify(file.path)} has no row: the files producer interns it first`);
-    blobs.set(file.blob, blobId);
-    if (known === undefined) {
-      inserted.push({ path_id: pathId, mode: file.mode, blob_id: blobId });
-      counts = { ...counts, inserted: counts.inserted + 1 };
-    } else if (known.mode !== file.mode || known.hash !== file.blob) {
-      updated.push({ path_id: known.pathId, mode: file.mode, blob_id: blobId });
-      counts = { ...counts, updated: counts.updated + 1 };
-    } else {
-      counts = { ...counts, unchanged: counts.unchanged + 1 };
-    }
-  }
-  for (const [path, known] of held) {
-    if (wanted.has(path) || !within(path)) continue;
-    deleted.push(known.pathId);
-    counts = { ...counts, deleted: counts.deleted + 1 };
-  }
-  // Keep the entry writes bounded without one database round trip per repository path.
-  for (let at = 0; at < inserted.length; at += 500) {
-    await executor.query(
-      `INSERT INTO ${FILE_ENTRY_TABLE} (repository, path_id, mode, blob_id)
-       SELECT $1, e.path_id, e.mode, e.blob_id FROM jsonb_to_recordset($2::jsonb) AS e(path_id bigint, mode text, blob_id bigint)`,
-      [input.repository, JSON.stringify(inserted.slice(at, at + 500))],
-    );
-  }
-  for (let at = 0; at < updated.length; at += 500) {
-    await executor.query(
-      `UPDATE ${FILE_ENTRY_TABLE} f SET mode = e.mode, blob_id = e.blob_id
-       FROM jsonb_to_recordset($2::jsonb) AS e(path_id bigint, mode text, blob_id bigint)
-       WHERE f.repository = $1 AND f.path_id = e.path_id`,
-      [input.repository, JSON.stringify(updated.slice(at, at + 500))],
-    );
-  }
-  for (let at = 0; at < deleted.length; at += 500) {
-    await executor.query(`DELETE FROM ${FILE_ENTRY_TABLE} WHERE repository = $1 AND path_id = ANY($2::bigint[])`, [input.repository, `{${deleted.slice(at, at + 500).join(',')}}`]);
-  }
-  return { counts, blobIds: blobs };
-}

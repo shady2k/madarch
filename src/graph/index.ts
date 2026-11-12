@@ -1,14 +1,8 @@
-/**
- * The graph store of the fill's two record passes (decision 0034): the one
- * graph's schema and the records its tree and history passes write and read.
- * The temporal graph of decision 0028 is gone; a caller that needs a version
- * reads git's own history or the journal, never a versioned row.
- */
+/** Reads of ordinary published graph facts. */
 export {
-  RecordGap, commitWithPaths, createRecordSchema, fileFacts, fileHistory, folderChildrenOf, folderFiles,
-  graphKindCounts, listDirectories, listDocuments, listFiles, listRepositories, publishHistory, publishTree, repositoryFacts,
+  RecordGap, commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles,
+  graphKindCounts, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts,
   repositoryFileIndex,
-  type DeclaredKinds, type FileDate, type FileHistoryRow, type FileRecord, type HistoryCommit, type HistoryPublish, type RecordCounts,
-  type TreeFile, type TreeGitlink, type TreePublish,
+  type FileDate, type FileHistoryRow, type FileRecord,
 } from './records.js';
 export { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from './consistency.js';

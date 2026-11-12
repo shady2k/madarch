@@ -3,7 +3,6 @@ import type { DatabaseOwner, OuterTransaction } from '../database-owner.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../schema-lock.js';
 import { byCodePoint } from '../../model/order.js';
 import { EMPTY_CONTRACT, type GraphContract } from '../../graph/contract.js';
-import { FILE_ENTRY_TABLE } from '../../graph/file-tables.js';
 import { createContractTablesIn } from './graph-contract.js';
 import { SCHEMA, SCHEMA_REVISION, graphSchemaStamp } from './graph-definition.js';
 
@@ -62,7 +61,7 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
     // A journal row written before stage 2 may carry no default for its id; the writer names none, so the database does.
     await tx.query(`ALTER TABLE operation ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
   }
-  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', FILE_ENTRY_TABLE, ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
+  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', 'file_entry', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
     await tx.query(`DROP TABLE IF EXISTS "${table}"`);
   }
 }
