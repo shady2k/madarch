@@ -52,7 +52,7 @@ each option does (`--port <n>` serves on another port, `--no-open` skips the
 browser, `--home <folder>` and `--product <folder>` point at a products home
 and a product folder for one command).
 
-## Start a product
+## Start a product with madarch init
 
 There is one entry point: `madarch init [folder]`. The optional folder is the
 code folder to inspect, not the destination of the product repository. With
