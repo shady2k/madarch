@@ -12,6 +12,7 @@
 import type { EdgeContract, EntityRefDraft, GraphContract, VertexContract } from '../../graph/contract.js';
 import { contractOf, generatedTableName } from '../../graph/contract.js';
 import type { KindsManifest } from '../../product/manifest/kinds.js';
+import type { PluginEntityRef } from '../../plugin/protocol.js';
 
 const text = (name: string): { name: string; type: 'text' } => ({ name, type: 'text' });
 const bigint = (name: string, nullable = false): { name: string; type: 'bigint'; nullable?: boolean } => ({ name, type: 'bigint', ...(nullable ? { nullable: true } : {}) });
@@ -142,6 +143,8 @@ export function canonicalGitKind(manifest: KindsManifest, name: string): string 
 }
 
 /** Resolve a declared git-backed entity and its reference keys before publication. */
+export function canonicalGitEntityRef<T extends PluginEntityRef>(manifest: KindsManifest, ref: T): Omit<T, 'kind' | 'key'> & PluginEntityRef;
+export function canonicalGitEntityRef<T extends EntityRefDraft>(manifest: KindsManifest, ref: T): Omit<T, 'kind' | 'key'> & EntityRefDraft;
 export function canonicalGitEntityRef<T extends EntityRefDraft>(manifest: KindsManifest, ref: T): Omit<T, 'kind' | 'key'> & EntityRefDraft {
   const kind = canonicalGitKind(manifest, ref.kind);
   const bound = [...manifest.kinds.values()].some((held) => held.capability === 'git' && canonicalGitKind(manifest, held.name) === kind);
