@@ -23,6 +23,7 @@ import { gitEnv } from './git-env.js';
 import { withStorePreparationOwner, requestStorePreparation } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { graphVerdictFile } from '../src/knowledge/graph-verdict-store.js';
+import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -50,12 +51,11 @@ describe('closing a product while its graph verdicts read the store', () => {
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
       await prepareStore(owner, { contract: await readPinnedGraphContract(draft.folder) });
-      // The verdict reads the published ordinary graph and its declared table metadata, not an implicit native graph.
-      await withStorePreparationOwner(async () => {
-        expect(await product!.startFill()).toMatchObject({ started: true });
-        await product!.settled();
-      });
-      expect(product.fillState()).toMatchObject({ state: 'done' });
+      // The close boundary needs published table metadata, not unrelated repository extraction or model judging.
+      const metadata = validateProductManifests(draft.folder);
+      if (!metadata.ok) throw new Error(JSON.stringify(metadata.findings));
+      if (metadata.value === undefined) throw new Error('the fixture has no manifest to publish');
+      await publishValidatedManifests(owner, metadata.value);
 
       let releaseLock!: () => void;
       let holdsTheGraph!: () => void;
