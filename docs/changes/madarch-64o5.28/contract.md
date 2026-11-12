@@ -301,3 +301,16 @@ This design is required because the actual glossary disk output measured
 Large outputs must use ordinary bounded partitioning, not remove fields or
 facts. Runtime implementation and validation are pending. This is a contract
 record, not a green-suite, repaired-glossary or acceptance claim.
+
+
+### Bounded partition tree clarification
+
+The generic partition protocol may use the existing fanout of 8 and maximum
+split depth of 3 without changing either bound. This allows at most 512 leaf
+partitions under the existing depth, not unlimited output capacity. An opaque
+branch `plugin-partition` stores `{partitions: immutable references}`; a leaf
+stores `{keys, writes}`. Only the root aggregate applies facts. Successful
+snapshots recursively read the exact immutable references of the complete tree,
+not mutable latest parts. All whole-output barrier, selected-scope, key-plan,
+evidence and failure-retention rules above still apply. Nested units do not
+permit publication before complete success or bypass any unit/message cap.

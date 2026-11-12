@@ -212,3 +212,23 @@ and root check eight is running, not yet a passing result. The parent's fourth
 full six-case glossary run is also in progress (`/tmp/m28-glossary-fourth.log`).
 No after-training timing or acceptance result is available. Whole-suite green
 remains unestablished; no pending run is recorded as passed.
+
+
+## Root check eight and remaining partition capacity issue
+
+The coordinator reports root check eight green: all six checks in 71.89 seconds,
+with the same 18 architecture baseline findings. The fourth glossary run's
+first three cases failed with the same 15 requested children exceeding the
+unchanged fanout of 8 (`/tmp/m28-glossary-fourth.log`); its remaining three cases
+are still running. No whole-suite or acceptance result follows from root checks.
+
+The approved generic remedy uses a bounded partition tree within existing
+fanout 8 and maximum depth 3, at most 512 leaves, not unlimited capacity. Opaque
+branches retain immutable partition references; leaves retain keys/writes. Only
+the root aggregate publishes and snapshots recursively read successful exact
+references. Runtime and graph edits are prepared but source commits are held
+until the active PostgreSQL validation settles. Implementation/rerun evidence
+is therefore pending. The engine fixture is to use nine keys of exactly 1 MiB
+each, over 8 MiB in aggregate, to exercise fanout causally without weakening
+assertions or changing bounds/timeouts. No child checks or runtime edits were
+performed to record this clarification; after timing remains pending.
