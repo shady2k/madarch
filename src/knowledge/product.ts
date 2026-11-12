@@ -40,7 +40,7 @@ import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
-import { graphMarkdownEntities, type MarkdownEntity } from './markdown.js';
+import { graphMarkdownEntities, pageOpinionKinds, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
@@ -103,14 +103,6 @@ function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>;
   const contract = graphContractOf(manifest);
   // Vertices and edges both: a read asks whether the product declares an edge kind too (history, touched).
   return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest), edges: declaredEdgeReads(manifest) };
-}
-
-/** Only generated contracts that can project a body can contribute ordinary knowledge pages. */
-function pageOpinionKinds(manifest: KindsManifest, generated: ReadonlyMap<string, GeneratedKindRead>): KindsManifest {
-  return { ...manifest, kinds: new Map([...manifest.kinds].filter(([kind]) => {
-    const declared = generated.get(kind);
-    return !Object.hasOwn(GUIDE_OUTPUTS, kind) && declared !== undefined && (declared.columns.includes('body') || declared.key.includes('body'));
-  })) };
 }
 
 /** The most terms one listing of a glossary kind reads; a larger glossary is cut rather than read whole. */

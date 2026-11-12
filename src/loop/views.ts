@@ -8,6 +8,8 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { changedGrounds, graphKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
+import { pageOpinionKinds } from '../knowledge/markdown.js';
+import { declaredKindReads } from '../fill/stages/plugin-contract.js';
 import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
 import type { ProductFileSource } from '../plugin/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
@@ -269,7 +271,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   const out: Problem[] = [];
   const notes: ProblemNote[] = [];
   const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
-  const read = await graphKnowledgePages(input.graph, input.manifest);
+  const read = await graphKnowledgePages(input.graph, pageOpinionKinds(input.manifest, declaredKindReads(input.manifest)));
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;
