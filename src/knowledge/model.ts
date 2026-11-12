@@ -463,6 +463,10 @@ export interface PageModel {
 
 /** One kind of the entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
 export interface CatalogKindView {
+  /** True only when this kind's enabled prerequisite-expanded plugin plan requests an agent. */
+  requiresAgent?: boolean;
+  /** An invalid plan cannot be offered as an agentless fill. */
+  fillPlanRefusal?: string;
   kind: string;
   /** The area the kind's subgroup belongs to, derived by the app from `groups` when absent. */
   area?: string;

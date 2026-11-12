@@ -13,6 +13,7 @@ import { byCodePoint } from '../model/order.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
+import { fillRequirementsOf } from './fill-requirements.js';
 import type { KindDecl, KindsManifest } from '../product/manifest/kinds.js';
 import type { CatalogKindView, CatalogSummaryView, CatalogView, WikiStatus } from './model.js';
 
@@ -107,6 +108,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
 } = {}): Promise<CatalogKindView[]> {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
+  const requirementOf = fillRequirementsOf(ctx.manifest, ctx.productFolder);
   const pluginsOf = (decl: KindDecl | undefined): string[] => decl === undefined ? [] : [...(ctx.manifest.plugins?.values() ?? [])].filter((plugin) => plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === decl.name)).map((plugin) => plugin.id).sort(byCodePoint);
   const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined): CatalogKindView => {
     const plugins = pluginsOf(decl);
@@ -120,6 +122,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     const estimate = estimateOf(count, turns.generatedOf?.(kind), count);
     return {
       kind, subgroup,
+      ...(decl === undefined ? {} : requirementOf([kind])),
       ...(decl?.fields === undefined ? {} : { fields: decl.fields }),
       relations: relationsOf(ctx, kind),
       ...(entry === undefined ? {} : { sources: [...entry.sources] }),

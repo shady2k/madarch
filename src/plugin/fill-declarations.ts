@@ -136,6 +136,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   for (const plugin of active) for (const kind of outputs.get(plugin)!.keys()) if (selected.has(kind)) visitUnit(plugin, kind);
   return {
     unitPredecessors,
+    requiresAgent: active.some((name) => plugins.get(name)!.manifest.agent !== undefined),
     order: active,
     outputs,
     refinements,

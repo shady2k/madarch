@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { parsePluginManifest } from '../src/plugin/closure.js';
 import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
+import { fillRequirementOf } from '../src/knowledge/fill-requirements.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
@@ -90,4 +91,39 @@ test('whole manifest fills validate declared plugin outputs, not unrelated nativ
   } as unknown as KindsManifest;
   expect(planManifestFill(manifest, '/product').order).toEqual(['writer']);
   expect(() => planManifestFill(manifest, '/product', ['native'])).toThrow(/selected kind native has no enabled producer/);
+});
+
+// Admission and preview use the same enabled-plugin plan, not kind origins.
+test('agentless deterministic plans expose no agent requirement; selected agent requests retain source advice', () => {
+  const plain = plugin('plain');
+  const agent = plugin('writer', { agent: { prompt: 'Fill.', roots: ['product'] }, produces: [{ kind: 'other', fields: '*' }] });
+  const catalogue = [...kinds, { name: 'other', fields: ['title'], file: '/product/kinds.yaml', line: 9 }];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [plain, agent], selectedKinds: ['note'], agentSelected: false });
+  expect(plan.requiresAgent).toBe(false);
+  expect(planFillDeclarations({ kinds: catalogue, plugins: [plain, agent], selectedKinds: ['other'] }).requiresAgent).toBe(true);
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [plain, agent], selectedKinds: ['other'], agentSelected: false }))
+    .toThrow(/\/product\/writer\/plugin.json:\d+: plugin writer requested an agent but none is selected; choose --agent or select one in the wiki/);
+});
+
+test('catalogue requirement follows prerequisites and wildcard plugins, not unrelated enabled outputs', () => {
+  const source = plugin('source', { agent: { prompt: 'Fill.', roots: ['product'] } });
+  const summary = plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] });
+  const plain = plugin('plain', { produces: [{ kind: 'plain', fields: '*' }] });
+  const declarations = [source, summary, plain];
+  const manifest = {
+    file: '/product/madarch/kinds.yaml',
+    kinds: new Map([
+      ['note', { name: 'note', fields: [{ name: 'title' }, { name: 'body' }], line: 4 }],
+      ['summary', { name: 'summary', fields: [{ name: 'body' }], derivesFrom: ['note'], line: 8 }],
+      ['plain', { name: 'plain', fields: [{ name: 'title' }], line: 12 }],
+    ]),
+    plugins: new Map(declarations.map((item) => [item.manifest.name, { id: item.manifest.name, declaration: item.manifest, declarationFile: item.file, declarationText: item.text }])),
+  } as unknown as KindsManifest;
+  expect(fillRequirementOf(manifest, '/product', ['plain'])).toEqual({});
+  expect(fillRequirementOf(manifest, '/product', ['summary'])).toEqual({ requiresAgent: true });
+  expect(fillRequirementOf(manifest, '/product', ['plain', 'summary'])).toEqual({ requiresAgent: true });
+  const general = plugin('general', { agent: { prompt: 'Fill.', roots: ['product'] }, produces: [{ kind: '*', fields: '*' }], refines: ['*'] });
+  const withGeneral = { ...manifest, plugins: new Map([...manifest.plugins!, ['general', { id: 'general', declaration: general.manifest, declarationFile: general.file, declarationText: general.text }]]) } as unknown as KindsManifest;
+  expect(fillRequirementOf(withGeneral, '/product', ['plain'])).toEqual({ requiresAgent: true });
+  expect(fillRequirementOf({ ...manifest, plugins: new Map() }, '/product', ['plain'])).toEqual({ fillPlanRefusal: '/product/madarch/kinds.yaml:12: selected kind plain has no enabled producer; enable its producer' });
 });
