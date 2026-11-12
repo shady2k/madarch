@@ -10,7 +10,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 // Path evidence must not walk unrelated structure, but import notes still need complete endpoint membership.
 test('path history keeps rename and import membership evidence without loading unrelated structure', async () => {
   const contract: GraphContract = { ...repositoryContract, edge: [...repositoryContract.edge, {
-    name: 'imports', capability: 'fixture', table: generatedTableName('imports', 'edge'), from: ['code.directory'], to: ['code.directory'], repeats: false, fields: [],
+    name: 'code.imports', capability: 'fixture', table: generatedTableName('code.imports', 'edge'), from: ['code.directory'], to: ['code.directory'], repeats: false, fields: [],
   }] };
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
@@ -77,8 +77,8 @@ test('path history keeps rename and import membership evidence without loading u
     const other = (await reader.find('code.directory:fixture/unrelated-0'))[0]!;
     const next = (await reader.find('code.directory:fixture/unrelated-1'))[0]!;
     await owner.transaction('write', async (tx) => {
-      await ensureEdge(tx, contract, 'imports', src.nodeIds[0]!, lib.nodeIds[0]!);
-      await ensureEdge(tx, contract, 'imports', other.nodeIds[0]!, next.nodeIds[0]!);
+      await ensureEdge(tx, contract, 'code.imports', src.nodeIds[0]!, lib.nodeIds[0]!);
+      await ensureEdge(tx, contract, 'code.imports', other.nodeIds[0]!, next.nodeIds[0]!);
     });
     const evidence = await reader.historyEvidenceFor(subject, 'path', 5);
     expect(evidence.entities.some((one) => String(one.properties['path'] ?? '').startsWith('unrelated-'))).toBe(false);
