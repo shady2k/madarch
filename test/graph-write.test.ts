@@ -1,3 +1,4 @@
+import { repositoryContract } from './repository-contract-fixture.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The graph's one writer (decision 0035, items 6 and 7; the amendment of 2026-11-10): the contract a manifest's field
@@ -10,10 +11,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { FILE_ENTRY_TABLE, FILE_PATH_TABLE, FILE_BLOB_TABLE } from '../src/graph/one-graph.js';
 import { generatedTableName } from '../src/graph/contract.js';
-import { publishTree } from '../src/graph/records.js';
-import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 
 import { parseKinds } from '../src/product/manifest/kinds.js';
@@ -153,25 +152,34 @@ test('entity registrations cached in a publication do not survive its rollback',
   })).rejects.toThrow('leave fixture unchanged');
 });
 
-test('tree mechanism entries preserve batched inserts, changes and scoped removals', async () => {
-  const files = Array.from({ length: 503 }, (_, index) => ({
-    path: index === 502 ? 'outside/keep.txt' : `inside/file-${index}.txt`,
-    mode: '100644' as const, blob: 'b'.repeat(40), bytes: 4, form: 'text' as const,
-    lines: 1, content: 'old\n', language: 'Text', candidates: ['Text'],
-  }));
-  const input = { repository: { name: 'batched-entries', url: 'file:///batched' }, commit: 'a'.repeat(40), files, gitlinks: [], kinds: false as const };
-  expect(await publishTree(owner, input)).toEqual({ inserted: 503, updated: 0, deleted: 0, unchanged: 0 });
-  expect(await publishTree(owner, input)).toEqual({ inserted: 0, updated: 0, deleted: 0, unchanged: 503 });
-  const changed = files.slice(0, 501).map((file) => ({ ...file, mode: '100755' as const, blob: 'c'.repeat(40), content: 'new\n' }));
-  expect(await publishTree(owner, { ...input, files: changed, scope: ['inside'] })).toEqual({ inserted: 0, updated: 501, deleted: 1, unchanged: 0 });
-  const held = await owner.transaction('snapshot', async (tx) => await tx.query<{ path: string; mode: string; content: string }>(
-    `SELECT p.text AS path, e.mode, b.content FROM ${FILE_ENTRY_TABLE} e JOIN ${FILE_PATH_TABLE} p ON p.id = e.path_id JOIN ${FILE_BLOB_TABLE} b ON b.id = e.blob_id WHERE e.repository = $1 ORDER BY p.text`,
-    ['batched-entries'],
-  ));
-  expect(held.rows).toHaveLength(502);
-  expect(held.rows.filter((row) => row.path.startsWith('inside/')).every((row) => row.mode === '100755' && row.content === 'new\n')).toBe(true);
-  expect(held.rows.find((row) => row.path === 'outside/keep.txt')).toEqual({ path: 'outside/keep.txt', mode: '100644', content: 'old\n' });
-  expect(await publishTree(owner, { ...input, files: [] })).toEqual({ inserted: 0, updated: 0, deleted: 502, unchanged: 0 });
+test('ordinary file opinions preserve batched inserts, changes and scoped removals', async () => {
+  const store = await createTestDatabaseOwner({ graphContract: repositoryContract });
+  try {
+    const files = Array.from({ length: 503 }, (_, index) => ({
+      path: index === 502 ? 'outside/keep.txt' : `inside/file-${index}.txt`,
+      mode: '100644', blob: 'b'.repeat(40), content: 'old\n',
+    }));
+    const draft = (file: typeof files[number]): VertexDraft => ({
+      kind: 'code.file', key: { repository: 'batched-entries', path: file.path },
+      values: { mode: file.mode, blob: file.blob, content: file.content }, producer: 'disk', producerVersion: '1',
+    });
+    const publish = async (vertices: VertexDraft[], paths: string[] = []): Promise<number> => await store.transaction('write', async tx => await publishGraphDrafts(tx, repositoryContract, {
+      vertices, removals: paths.map(path => ({ kind: 'code.file', key: { repository: 'batched-entries', path }, producer: 'disk' })),
+    }));
+    expect(await publish(files.map(draft))).toBe(1006);
+    expect(await publish(files.map(draft))).toBe(0);
+    const changed = files.slice(0, 501).map(file => ({ ...file, mode: '100755', blob: 'c'.repeat(40), content: 'new\n' }));
+    expect(await publish(changed.map(draft), ['inside/file-501.txt'])).toBe(502);
+    const held = await store.transaction('snapshot', async tx => await tx.query<{ path: string; mode: string; content: string }>(
+      `SELECT n.key->>'path' AS path, o.mode, o.content FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND NOT n.removed ORDER BY n.key->>'path'`,
+    ));
+    expect(held.rows).toHaveLength(502);
+    expect(held.rows.filter(row => row.path.startsWith('inside/')).every(row => row.mode === '100755' && row.content === 'new\n')).toBe(true);
+    expect(held.rows.find(row => row.path === 'outside/keep.txt')).toEqual({ path: 'outside/keep.txt', mode: '100644', content: 'old\n' });
+    expect(await publish([], held.rows.map(row => row.path))).toBe(502);
+    const remaining = await store.transaction('snapshot', async tx => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE state = 'open'`));
+    expect(remaining.rows[0]?.n).toBe('0');
+  } finally { await store.close(); }
 }, 120_000);
 
 describe('the manifest makes the table and the writer fills it', () => {
@@ -472,9 +480,9 @@ describe('the manifest makes the table and the writer fills it', () => {
       const journal = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string; author: string; author_node: string | null }>('SELECT count(*)::text AS n, min(author) AS author, min(author_node::text) AS author_node FROM operation'));
       expect(journal.rows[0]).toEqual({ n: '1', author: '', author_node: null });
       // The empty graph takes a fill: a publication writes its rows again.
-      await prepareStore(old, { contract: GIT_CONTRACT });
-      const counts = await publishTree(old, { repository: { name: 'r', url: 'file:///x' }, commit: 'a'.repeat(40), files: [{ path: 'a.ts', mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', candidates: ['TypeScript'] }], gitlinks: [] });
-      expect(counts.inserted).toBeGreaterThan(0);
+      await prepareStore(old, { contract: repositoryContract });
+      const written = await old.transaction('write', async tx => await publishGraphDrafts(tx, repositoryContract, { vertices: [{ kind: 'code.file', key: { repository: 'r', path: 'a.ts' }, values: { mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', languages: ['TypeScript'] }, producer: 'disk', producerVersion: '1' }], removals: [] }));
+      expect(written).toBeGreaterThan(0);
     } finally {
       await old.close();
     }
@@ -485,15 +493,15 @@ describe('the manifest makes the table and the writer fills it', () => {
     try {
       // A store as d633a460's shape made it: the current tables, no revision row, and a journal without its order
       // column. Its file opinion carries a programming language where the old meaning kept one — in `lang`.
-      await prepareStore(old, { contract: GIT_CONTRACT });
-      const made = await old.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'r' } }, path: 'a.ts' } }));
-      await old.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: made.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript'] } }));
+      await prepareStore(old, { contract: repositoryContract });
+      const made = await old.transaction('write', async (tx) => await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: { repository: 'r', path: 'a.ts' } }));
+      await old.transaction('write', async (tx) => await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript'] } }));
       await old.run(async (tx) => await tx.query(`UPDATE ${GIT_TABLES.file} SET lang = 'TypeScript', language = NULL`));
       await old.run(async (tx) => await tx.query(`INSERT INTO operation (author, change) VALUES ('git-tree@1', '{"vertices":[],"edges":[],"opinions":[]}'::jsonb)`));
       await old.run(async (tx) => await tx.query(`DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph-revision'`));
       await old.run(async (tx) => await tx.query('ALTER TABLE operation DROP COLUMN seq'));
       // The revision moved: the store's rows mean something else now, so the graph is reset as a whole and asks for a fill.
-      const reset = await prepareStore(old, { contract: GIT_CONTRACT });
+      const reset = await prepareStore(old, { contract: repositoryContract });
       expect(reset.reset).toBe(true);
       const opinions = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file}`));
       expect(opinions.rows[0]?.n).toBe('0');
@@ -502,7 +510,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       const marks = await old.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT name FROM madarch_meta.schema_stamp WHERE name IN ('graph-reset', 'one-graph-revision') ORDER BY name`));
       expect(marks.rows.map((row) => row.name)).toEqual(['graph-reset', 'one-graph-revision']);
       // A second open finds the revision it wrote, and resets nothing again.
-      expect((await prepareStore(old, { contract: GIT_CONTRACT })).reset).toBe(false);
+      expect((await prepareStore(old, { contract: repositoryContract })).reset).toBe(false);
       const kept = await old.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'));
       expect(kept.rows[0]?.n).toBe('1');
     } finally {
