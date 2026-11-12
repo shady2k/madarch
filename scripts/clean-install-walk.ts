@@ -114,7 +114,7 @@ async function serveCheck(): Promise<void> {
     const status = runMadarch('status', ['--home', home]);
     if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
   };
-  // `new` returns at once: the products home's background server serves the
+  // `init` returns at once: the products home's background server serves the
   // draft, so the walk reads the address the command printed instead of
   // waiting on a foreground that no longer exists.
   /** The daemon's log, for a failure that only the server's own words explain (the status answers a plain 500). */
@@ -139,14 +139,14 @@ async function serveCheck(): Promise<void> {
   const daemonTimeout = setTimeout(() => { runMadarch('stop', ['--home', home]); }, 480_000);
   try {
     if (port === 0) throw new Error('the walk could not find a free port on 127.0.0.1 to start the server on');
-    console.log(`$ npx madarch new --home ${home} --port ${port} --template everything --json --no-open`);
-    const created = runMadarch('new', ['--home', home, '--port', String(port), '--template', 'everything', '--json', '--no-open']);
-    if (created.status !== 0) throw new Error(`npx madarch new did not create a draft and serve it (exit ${created.status})`);
+    console.log(`$ npx madarch init --home ${home} --port ${port} --template everything --json --no-open`);
+    const created = runMadarch('init', ['--home', home, '--port', String(port), '--template', 'everything', '--json', '--no-open']);
+    if (created.status !== 0) throw new Error(`npx madarch init did not create a draft and serve it (exit ${created.status})`);
     const line = created.stdout.trim().split('\n').filter((part) => part !== '').at(-1) ?? '';
     let facts: { url: string; folder: string; port: number; reused: boolean };
-    try { facts = JSON.parse(line) as typeof facts; } catch { throw new Error(`npx madarch new printed no facts to read the wiki's address from: ${created.stdout}`); }
-    if (facts.reused !== false || facts.port !== port) throw new Error(`npx madarch new served on ${String(facts.port)} though the walk named the free port ${port}: ${line}`);
-    if (!await waitForProduct(facts.url)) throw new Error(`npx madarch new did not serve the graph-backed draft at ${facts.url}`);
+    try { facts = JSON.parse(line) as typeof facts; } catch { throw new Error(`npx madarch init printed no facts to read the wiki's address from: ${created.stdout}`); }
+    if (facts.reused !== false || facts.port !== port) throw new Error(`npx madarch init served on ${String(facts.port)} though the walk named the free port ${port}: ${line}`);
+    if (!await waitForProduct(facts.url)) throw new Error(`npx madarch init did not serve the graph-backed draft at ${facts.url}`);
     // The draft's manifest stands in its repository, and no fill has read it into the graph: the wiki reads the second
     // of its three states, `not-filled`, and nothing is written before the person presses Fill. The first answer may
     // fail while the product's store opens (a Windows runner installs the server on this first use), so the walk
@@ -167,9 +167,9 @@ async function serveCheck(): Promise<void> {
       }
       await new Promise((done) => setTimeout(done, 250));
     }
-    if (state.manifest !== 'not-filled') throw new Error(`npx madarch new: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
-    if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/kinds.yaml')) throw new Error(`npx madarch new: the draft's status names no madarch/kinds.yaml: ${last}`);
-    if (state.fill?.state !== 'idle') throw new Error(`npx madarch new: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
+    if (state.manifest !== 'not-filled') throw new Error(`npx madarch init: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
+    if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/kinds.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/kinds.yaml: ${last}`);
+    if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
     // out of this fixture, not out of the engine. Fill still reads and publishes the product's committed files.
     const manifest = join(facts.folder, 'madarch', 'kinds.yaml');
@@ -199,7 +199,7 @@ async function serveCheck(): Promise<void> {
     if (!completed) throw new Error(`${facts.folder}:1: Fill did not finish within 180000 ms: ${last}`);
     console.log(`Fill completed: ${last}`);
     const entry = await fetch(facts.url);
-    if (!entry.ok || !(await entry.text()).includes('<div id="root"')) throw new Error(`npx madarch new: ${facts.url} is not the wiki app's page (HTTP ${entry.status})`);
+    if (!entry.ok || !(await entry.text()).includes('<div id="root"')) throw new Error(`npx madarch init: ${facts.url} is not the wiki app's page (HTTP ${entry.status})`);
     product = facts.folder;
   } catch (error) {
     failure = new Error(`${(error as Error).message}${daemonTail()}`);
@@ -212,7 +212,7 @@ async function serveCheck(): Promise<void> {
     }
   }
   if (failure !== undefined) throw failure;
-  if (product === '') throw new Error('the walk read no product folder from the facts madarch new printed');
+  if (product === '') throw new Error('the walk read no product folder from the facts madarch init printed');
   // `serve` is still the foreground command: it serves until it is ended.
   const server = spawn(npx, shellParameters([...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open']), { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
   // Capture close before signaling: taskkill's exit is not proof that inherited handles or PostgreSQL are gone.
@@ -247,7 +247,7 @@ async function serveCheck(): Promise<void> {
     if (!await waitForProduct(base)) throw new Error(`npx madarch serve did not reopen the graph-backed product at ${base}. stdout: ${serveOut}; stderr: ${serveErr}`);
   } finally { clearTimeout(serveTimeout); await finish(); }
   console.log(`$ npx madarch serve --product ${product} --port 0 --no-open  (the foreground serve names its own free port)`);
-  console.log(`walk passed (plugin-free store fixture, Fill completed): npx madarch new --home ${home} served ${product} on the port the walk named, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
+  console.log(`walk passed (plugin-free store fixture, Fill completed): npx madarch init --home ${home} served ${product} on the port the walk named, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
   await removeWork();
 }
 

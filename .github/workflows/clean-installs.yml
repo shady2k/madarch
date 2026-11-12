@@ -76,7 +76,7 @@ jobs:
           cp dist/madarch-linux-x64.sha256 dist/SHA256SUMS.txt
           MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
           "$RUNNER_TEMP/madarch-install/bin/madarch" version
-      - name: npx new then serve on Linux x64
+      - name: npx init then serve on Linux x64
         run: bun scripts/clean-install-walk.ts --binary dist/madarch-linux-x64 --os linux --arch x64
 
   linux-homebrew:
@@ -122,7 +122,7 @@ jobs:
           VERSION=$(brew list --versions madarch | awk '{print $2}')
           test -n "$VERSION"
           test "$(madarch version)" = "version: $VERSION"
-      - name: Run new then serve using the published formula
+      - name: Run init then serve using the published formula
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           TMP=$(mktemp -d)
@@ -132,23 +132,24 @@ jobs:
           export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
           export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
           export HOME="$TMP/home"; mkdir -p "$HOME"
-          # The published release returns from `new` at once and serves from the
+          # The published release returns from `init` at once and serves from the
           # home's background server (the form scripts/clean-homebrew-walk.sh walks).
           PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
-          madarch new --json --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1
-          cat "$TMP/new.txt"
-          URL=$(tail -n 1 "$TMP/new.txt" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
-          PRODUCT=$(tail -n 1 "$TMP/new.txt" | sed -n 's/.*"folder":"\([^"]*\)".*/\1/p')
+          cd "$TMP"
+          madarch init --template everything --json --home "$HOME/products" --port "$PORT" --no-open > "$TMP/init.txt" 2>&1
+          cat "$TMP/init.txt"
+          URL=$(tail -n 1 "$TMP/init.txt" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+          PRODUCT=$(tail -n 1 "$TMP/init.txt" | sed -n 's/.*"folder":"\([^"]*\)".*/\1/p')
           test -n "$URL" && test -n "$PRODUCT"
-          for n in $(seq 1 200); do if curl -fsS -L "${URL}api/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
-          curl -fsS -L "${URL}api/status" | grep -q '"manifest":"ok"'
+          for n in $(seq 1 200); do if curl -fsS -L "${URL}api/status" | grep -q '"manifest":"not-filled"'; then break; fi; sleep .1; done
+          curl -fsS -L "${URL}api/status" | grep -q '"manifest":"not-filled"'
           curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null
           curl -fsS -L "$URL" | grep -q '<div id="root"'
           madarch stop --home "$HOME/products"
           PORT=$((PORT + 1))
           madarch serve --product "$PRODUCT" --port "$PORT" --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
-          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
-          curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"manifest":"ok"'
+          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"manifest":"not-filled"'; then break; fi; sleep .1; done
+          curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"manifest":"not-filled"'
           curl -fsS "http://127.0.0.1:$PORT/" | grep -q '<div id="root"'
           cat "$TMP/serve.txt"
           kill "$PID"; wait "$PID" || true; PID=
@@ -172,7 +173,7 @@ jobs:
           cp dist/madarch-darwin-arm64.sha256 dist/SHA256SUMS.txt
           MADARCH_RELEASE_BASE="file://$(pwd)/dist" MADARCH_INSTALL_PREFIX="$RUNNER_TEMP/madarch-install" sh scripts/install.sh v0.0.1
           "$RUNNER_TEMP/madarch-install/bin/madarch" version
-      - name: npx new then serve on macOS arm64
+      - name: npx init then serve on macOS arm64
         run: bun scripts/clean-install-walk.ts --binary dist/madarch-darwin-arm64 --os darwin --arch arm64
       - name: Homebrew install and graph-backed walk
         run: sh scripts/clean-homebrew-walk.sh dist/madarch-darwin-arm64
@@ -200,7 +201,7 @@ jobs:
           $env:MADARCH_INSTALL_PREFIX = Join-Path $env:RUNNER_TEMP 'madarch-install'
           & ./scripts/install.ps1 v0.0.1
           & (Join-Path $env:MADARCH_INSTALL_PREFIX 'madarch.exe') version
-      - name: npx new, plugin-free Fill to completion, then serve on Windows x64
+      - name: npx init, plugin-free Fill to completion, then serve on Windows x64
         timeout-minutes: 12
         shell: pwsh
         env:

@@ -31,7 +31,7 @@ const HASH = 'a'.repeat(64);
 const root = mkdtempSync(join(tmpdir(), 'madarch-graph-write-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-/** A product holding a manifest, a plugin's contract and its lock, as a product made by `madarch new` does. */
+/** A product holding a manifest, a plugin's contract and its lock, as a product made by `madarch init` does. */
 function product(): string {
   const folder = mkdtempSync(join(root, 'product-'));
   mkdirSync(join(folder, 'templates'), { recursive: true });

@@ -10,7 +10,7 @@ import { byCodePoint } from '../model/order.js';
 import type { RuleSpec } from '../problems/types.js';
 
 /**
- * The starter set `madarch new` writes into a product (decision 0029): the
+ * The starter set `madarch init --template everything` writes into a product (decision 0029): the
  * kinds manifest and the templates for the kinds a first reader walks down —
  * the product, a domain, a service, a file and a function. From the first
  * commit they are the product's own files: the engine reads them and holds
@@ -932,7 +932,7 @@ function templatesUsedBy(kindTemplates: readonly string[]): Record<string, strin
     for (const match of content.matchAll(/["']\.\/([^"']+\.liquid)["']/g)) visit(match[1]!);
   };
   for (const template of kindTemplates) visit(template);
-  // In the starter set's own order (`TEMPLATES`), never sorted: the product's file list keeps the order `madarch new`
+  // In the starter set's own order (`TEMPLATES`), never sorted: the product's file list keeps the order `madarch init --template everything`
   // has always written (the base page and the partials first, then the kinds' templates).
   return Object.fromEntries(Object.keys(TEMPLATES).filter((path) => wanted.has(path)).map((path) => [path, TEMPLATES[path]!]));
 }

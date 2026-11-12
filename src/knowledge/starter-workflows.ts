@@ -1,7 +1,7 @@
 /**
  * The four starter workflows (decision 0033, items 1 and 2): a workflow is a
  * named set of the engine's stage ids, and the stages' capabilities give the
- * order — no edge is written here or in the product's file. `madarch new`
+ * order — no edge is written here or in the product's file. `madarch init --template everything`
  * writes them into `madarch/workflows.yaml`, and from the first commit they
  * are the product's own data: a product edits the file to say which stages
  * its workflows run.

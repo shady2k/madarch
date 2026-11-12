@@ -809,10 +809,14 @@ function withFailures(prints: string[], failures: readonly string[]): LifecycleO
  * working copy the clone made is removed, the way a refused draft leaves
  * nothing behind.
  */
-/** Creates a product around the current checkout by linking it through the same manifest operation as `repo add`. */
+/** Starts a product, linking the code checkout when present through the same manifest operation as `repo add`. */
 export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string }): LifecycleOutcome {
   const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
-  if (!top.ok) return refused2([], `madarch init must run inside a Git checkout: ${top.output}; use madarch new to start without one`);
+  if (!top.ok) {
+    const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.template === undefined ? {} : { template: options.template }) });
+    if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
+    return done([`folder: ${draft.folder}`, `id: ${draft.id}`, `name: ${draft.name}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`]);
+  }
   const source = resolve(top.output);
   const current = whereAmI({ folder: source, gitEnv: options.gitEnv });
   if (current.outcome === 'product') { const product = readProduct(current.product); return done([`folder: ${current.product}`, ...(product.ok ? [`id: ${product.product.id}`] : []), `already a product: ${current.product}; nothing changed`]); }

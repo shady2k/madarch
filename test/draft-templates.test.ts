@@ -1,5 +1,5 @@
 /**
- * The templates `madarch new` offers (madarch-64o5.3): each one makes a product whose manifest stands in its
+ * The templates `madarch init` offers (madarch-64o5.3): each one makes a product whose manifest stands in its
  * repository, and whose wiki reads `not-filled` until a person presses Fill; the template that declares no kinds makes
  * a product whose wiki reads `no-manifest`, naming the file. Nothing here fills anything.
  */
@@ -39,7 +39,7 @@ afterAll(() => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-describe('the templates madarch new offers', () => {
+describe('the templates madarch init offers', () => {
   test('the declared templates are data: a third one, declared here and nowhere in the engine, is made, checked and listed', () => {
     // The list is data, not code: a template this test declares is created, checked and shown in the menu like the two
     // the starter data holds, and no engine file names it.

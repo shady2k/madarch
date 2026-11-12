@@ -27,7 +27,7 @@ async function freePort(): Promise<number> {
 /**
  * The `madarch` command's serve step (docs/changes/draft-product/
  * capabilities/product-wiki.md, requirements `serve`, `app` and `result`):
- * `new` creates the draft and serves its wiki in one command; `serve`
+ * `init` creates the draft and serves its wiki in one command; `serve`
  * serves the product of the given or the current folder; the app's built
  * files are built once on first use, through an injectable builder, and
  * the address is printed before the machine's opener — an injectable
@@ -88,12 +88,12 @@ process.on('exit', stopAll);
 function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?: string):
   { status: number | null; stdout: string; stderr: string } {
   const env = { ...process.env, ...SEALED_GIT, ...sealedHome(overrides), ...overrides };
-  if (args[0] === 'new' || args[0] === 'list') homeOfCommand(args, env);
+  if (args[0] === 'init' || args[0] === 'list') homeOfCommand(args, env);
   const run = spawnSync('bun', [CLI, ...args], {
     encoding: 'utf8',
     env,
     timeout: 120_000, // a serving run never ends by itself: a run that serves instead of ending is stopped here, the suite never hangs
-    ...(cwd === undefined ? {} : { cwd }),
+    cwd: cwd ?? (args[0] === 'init' ? scratchFolder('madarch-init-work-') : process.cwd()),
   });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '' };
 }
@@ -114,7 +114,7 @@ function addressOf(stdout: string): string | undefined {
 /** Starts the command live, watching its stdout, until the test closes it through `finish`. */
 function serveLive(args: string[], overrides: Record<string, string>, cwd?: string): LiveServe & { raw: Bun.Subprocess } {
   const env = { ...process.env, ...SEALED_GIT, ...sealedHome(overrides), ...overrides };
-  if (args[0] === 'new') {
+  if (args[0] === 'init') {
     homeOfCommand(args, env);
     const home = homeOfCommand(args, env);
     if (home !== '') startedHomes.push(home);
@@ -124,7 +124,7 @@ function serveLive(args: string[], overrides: Record<string, string>, cwd?: stri
     stdout: 'pipe',
     stderr: 'pipe',
     env,
-    ...(cwd === undefined ? {} : { cwd }),
+    cwd: cwd ?? (args[0] === 'init' ? scratchFolder('madarch-init-work-') : process.cwd()),
   });
   runningChildren.push(proc);
   // stdout is read incrementally: a serving child never ends its stream while
@@ -236,7 +236,7 @@ function product(base: string, name = 'demo'): string {
   mkdirSync(join(folder, 'docs'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), "schemaVersion: 1\nid: demo-id\nname: " + name + "\n");
   writeFileSync(join(folder, 'docs', 'vision.md'), '# Vision\n\nWhat it is for.\n');
-  // A hand-made folder stands as `madarch new` would leave it: its own copy of the starter set.
+  // A hand-made folder stands as `madarch init` would leave it: its own copy of the starter set.
   seedStarterSet(folder);
   gitCheckout(folder);
   return folder;
@@ -613,16 +613,16 @@ describe('madarch serve: an existing product served', () => {
   }, 30_000);
 });
 
-describe('madarch new serving the draft it just created', () => {
-  test('new creates the draft, starts the shared server, prints the address, and returns with the wiki answering over HTTP', async () => {
+describe('madarch init serving the draft it just created', () => {
+  test('init creates the draft, starts the shared server, prints the address, and returns with the wiki answering over HTTP', async () => {
     const base = scratchFolder();
     const built = builtApp(base);
     const opener = injectableOpener('ok');
     const port = await freePort();
-    const serve = serveLive(['new', '--home', base, '--port', String(port), '--template', 'everything', '--no-open'],
+    const serve = serveLive(['init', '--home', base, '--port', String(port), '--template', 'everything', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_BROWSER: opener });
     // The command returns at once where serve would keep running.
-    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
+    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('init did not return at once'); })]);
     // The draft's facts come first, one per line, then the address.
     const lines = serve.stdout.split('\n').filter((line) => line !== '');
     expect(lines[0]).toContain('✓ Created the product');
@@ -636,25 +636,29 @@ describe('madarch new serving the draft it just created', () => {
     expect(stopDaemon({ home: base })).toBe(0);
   }, 30_000);
 
-  test('new with no terminal and no --template takes the first declared template and says so', async () => {
+  test('init with no terminal and no --template leaves the manifest to the wiki', async () => {
     const base = scratchFolder();
     const built = builtApp(base);
     const port = await freePort();
-    const serve = serveLive(['new', '--home', base, '--port', String(port), '--no-open'],
+    const serve = serveLive(['init', '--home', base, '--port', String(port), '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });
-    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('new did not return at once'); })]);
-    const lines = serve.stdout.split('\n').filter((line) => line !== '');
-    // The default is the first entry of the declared list, and the line says which template was used and how to pick
-    // another: a script gets a product, and nothing about the choice is silent.
-    expect(lines.some((line) => line.includes('No terminal asks which template to use: using "Everything", the first declared'))).toBeTrue();
-    expect(lines.some((line) => line.includes('--template <id>') && line.includes('everything') && line.includes('none'))).toBeTrue();
-    expect(lines.some((line) => line.startsWith('✓ Template "Everything":'))).toBeTrue();
+    await Promise.race([serve.raw.exited, Bun.sleep(20_000).then(() => { throw new Error('init did not return at once'); })]);
+    expect(serve.exitCode).toBe(0);
+    expect(serve.stdout).not.toContain('Which template');
+    expect(serve.stdout).toContain('no manifest was copied');
+    const folder = serve.stdout.match(/ in (.+)\n/)?.[1];
+    expect(folder).toBeDefined();
+    expect(existsSync(join(folder!, 'madarch', 'kinds.yaml'))).toBeFalse();
+    const url = serve.stdout.match(/The wiki is running at (http:\/\/\S+)/)?.[1];
+    expect(url).toBeDefined();
+    const status = await (await fetch(`${url}api/status`)).json() as { manifest: string };
+    expect(status.manifest).toBe('no-manifest');
     expect(stopDaemon({ home: base })).toBe(0);
   }, 30_000);
 
-  test('new refuses a template no entry declares, naming the ids, and makes no product', () => {
+  test('init refuses a template no entry declares, naming the ids, and makes no product', () => {
     const base = scratchFolder();
-    const run = runCommand(['new', '--home', base, '--template', 'nope', '--no-open'], { MADARCH_HOME: base });
+    const run = runCommand(['init', '--home', base, '--template', 'nope', '--no-open'], { MADARCH_HOME: base });
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('nope');
     for (const id of ['everything', 'none']) expect(run.stderr).toContain(id);
@@ -662,26 +666,26 @@ describe('madarch new serving the draft it just created', () => {
     expect(existsSync(products) ? readdirSync(products) : []).toEqual([]);
   }, 30_000);
 
-  test('new keeps refusing an unknown option with exit 2, before any draft is created', () => {
+  test('init keeps refusing an unknown option with exit 2, before any draft is created', () => {
     const base = scratchFolder();
-    const run = runCommand(['new', '--nope'], { MADARCH_HOME: base });
+    const run = runCommand(['init', '--nope'], { MADARCH_HOME: base });
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('--nope');
   });
 
-  test('new keeps refusing a --port with no value and a --port that is no port number', () => {
+  test('init keeps refusing a --port with no value and a --port that is no port number', () => {
     const base = scratchFolder();
-    const portOnly = runCommand(['new', '--port'], { MADARCH_HOME: base });
+    const portOnly = runCommand(['init', '--port'], { MADARCH_HOME: base });
     expect(portOnly.status).toBe(2);
     expect(portOnly.stderr).toContain('--port');
-    const portNotANumber = runCommand(['new', '--port', 'not-a-port'], { MADARCH_HOME: base });
+    const portNotANumber = runCommand(['init', '--port', 'not-a-port'], { MADARCH_HOME: base });
     expect(portNotANumber.status).toBe(2);
     expect(portNotANumber.stderr).toContain('not-a-port');
   });
 
-  test('new keeps refusing an option where the --home value was meant', () => {
+  test('init keeps refusing an option where the --home value was meant', () => {
     const base = scratchFolder();
-    const homeValue = runCommand(['new', '--home', '--no-open'], { MADARCH_HOME: base });
+    const homeValue = runCommand(['init', '--home', '--no-open'], { MADARCH_HOME: base });
     expect(homeValue.status).toBe(2);
     expect(homeValue.stderr).toContain('--home');
     expect(homeValue.stderr).toContain('--no-open');
@@ -689,10 +693,10 @@ describe('madarch new serving the draft it just created', () => {
 });
 
 describe('the help the command gives', () => {
-  test('--help names new and serve with every option, and a usage line in the shape scripts/serve.ts uses', () => {
+  test('--help names init and serve with every option, and a usage line in the shape scripts/serve.ts uses', () => {
     const run = runCommand(['--help'], {});
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain('new');
+    expect(run.stdout).toContain('init');
     expect(run.stdout).toContain('serve');
     expect(run.stdout).not.toContain('--home');
     expect(run.stdout).toContain('madarch <command> --help');

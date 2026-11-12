@@ -1,5 +1,5 @@
 /**
- * `madarch new` copies a template into the product repository: the copy is the engine's only source of the product's
+ * `madarch init` copies a template into the product repository: the copy is the engine's only source of the product's
  * kinds, so a draft that writes none — or a starter data module that comes up empty — must fail here, in the source and
  * in the binary the release build compiles. The test fills nothing: it reads the files the draft wrote.
  */

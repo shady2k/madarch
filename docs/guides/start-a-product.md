@@ -16,9 +16,10 @@ error: `0` when done, `2` when something you typed or named cannot be used
 
 On a machine with Node.js 18 or newer, use the primary install:
 
-    npx madarch new
+    npx madarch init
 
-The command creates a draft and serves its wiki. On macOS, Homebrew can install it with:
+Run this from your code checkout to connect it to a separate product, or from
+a folder outside Git to create an empty draft. On macOS, Homebrew can install it with:
 
     brew install shady2k/tap/madarch
 
@@ -26,7 +27,7 @@ The release script is also available on Linux/macOS:
 
     curl -fsSL https://raw.githubusercontent.com/shady2k/madarch/main/scripts/install.sh | sh
 
-On Windows x64, run `scripts/install.ps1` from PowerShell. Windows arm64 is not supported. `madarch new` writes the initial Git commit, so install Git and configure `user.name` and `user.email` before running it. madarch does not change your Git identity.
+On Windows x64, run `scripts/install.ps1` from PowerShell. Windows arm64 is not supported. `madarch init` writes the initial Git commit, so install Git and configure `user.name` and `user.email` before running it. madarch does not change your Git identity.
 
 For contributors who want to run from a source checkout instead:
 
@@ -51,56 +52,54 @@ each option does (`--port <n>` serves on another port, `--no-open` skips the
 browser, `--home <folder>` and `--product <folder>` point at a products home
 and a product folder for one command).
 
-## Start from an existing checkout
+## Start a product
 
-If you already have a Git checkout, enter it and run:
+There is one entry point: `madarch init [folder]`. The optional folder is the
+code folder to inspect, not the destination of the product repository. With
+no folder, it uses the current working folder.
+
+From an existing Git checkout:
 
     cd <checkout>
     madarch init
 
-`madarch init` creates a separate product under the products home, links the
+Or point to the checkout from elsewhere:
+
+    madarch init /path/to/checkout
+
+The command creates a separate product under the products home, connects the
 checkout without moving it, commits the product repository and serves its wiki.
 It uses the checkout folder name and its `origin` URL when present. With no
-origin, it links the checkout and reports that no origin URL is set. The
-checkout remains where you work. Outside Git, use `madarch new` instead.
+origin, it connects the checkout and reports that no origin URL is set.
 
-## Create the draft
+Outside Git, the same command creates an empty draft:
 
+    cd /path/to/folder-outside-git
+    madarch init
 
-    madarch new
+The draft lives under `~/madarch/products`, named `idea-YYYY-MM-DD`, then
+`idea-YYYY-MM-DD-2` for another draft that day. The code folder stays where
+it was; the products home can be moved with `MADARCH_HOME`, or with
+`--home <folder>` for one command.
 
-makes the draft product repository under the products home, `~/madarch/products`
-(and opens its wiki in your browser). The folder is named for the day:
-`idea-2026-10-09`, then `idea-2026-10-09-2` for the second draft that day.
-It prints the draft's folder and id, then serves the wiki:
+In a terminal, init asks only which template to use. The templates are
+`everything` and `none`; `none` starts without
+kind and workflow manifests. There is no repository-selection prompt. When
+input is not a terminal, no template is selected and no kind or workflow
+manifest is written unless you pass `--template` explicitly:
 
-    folder: /home/you/madarch/products/idea-2026-10-11
-    id: 473611d2-ffdd-408e-b94c-143221f4c343
-    address: http://127.0.0.1:14280
+    madarch init --template everything --json --no-open
 
-The addresses and ids here are this guide's run's; yours will be yours (the
-folder is named for the day you run it). The first serve builds the wiki's
-app in the madarch checkout and serves it from there, saying so while it
-builds, and does not build again while the built files stand. The other lines name the draft and its id —
-the identifier the product keeps for its whole life, whatever the folder
-is later called. The command
-The command serves in the foreground until you stop it with Ctrl-C — that
-is the whole session ending, not a fault. Without a browser (a headless
-machine, or `--no-open`) it prints the `address:` line and keeps serving the
-same way; for a bounded look, run it under a timeout (`timeout 60 madarch
-new --no-open`) and the serve ends with the timeout. Leave it running, open
-another terminal, and keep reading. Later serves open immediately unless the
-port is taken (`the port 4180 is already in use: nothing else can serve
-there — name another with --port <n>`).
-
-A products home is a folder of products; move it for real life with
-`MADARCH_HOME`, for a single command with `--home <folder>`.
+Init prints the product folder, its stable id and the wiki address, then
+returns. The products home's background server keeps serving the wiki.
+`--no-open` skips opening the browser. Use `madarch stop` to stop that
+server, and `madarch serve --product <folder>` to open the product again.
+The product is not filled until you press Fill in the wiki.
 
 ## Name the product
 
-The draft's name is its folder's name. `madarch new` printed the folder —
-the example below carries the folder this guide's run printed, named for the
-day it ran; yours is named for the day you run it:
+The draft's name is its folder's name. Use the folder `madarch init` printed.
+For an empty draft created on 2026-10-11:
 
     cd ~/madarch/products/idea-2026-10-11
     madarch rename gadgets

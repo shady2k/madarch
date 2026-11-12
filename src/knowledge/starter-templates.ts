@@ -1,5 +1,5 @@
 /**
- * The templates `madarch new` offers (decision 0035, item 1: the choice is offered as templates — everything, only
+ * The templates `madarch init` offers (decision 0035, item 1: the choice is offered as templates — everything, only
  * the tracker, others — with fine-grained inclusion later). This is starter content, not engine behaviour: the menu
  * lists whatever is declared here, in this order, and neither the engine nor the command names a template or a kind
  * (the architecture rule `starter-data-when-copying` and "the engine holds no product data").
@@ -45,7 +45,7 @@ export const STARTER_TEMPLATES: readonly StarterTemplate[] = [
   },
 ];
 
-/** The template the command takes when a person chose none and the command has no terminal to ask: the whole set. */
+/** The creation library's default starter set; the CLI chooses explicitly, including no manifest for scripts. */
 export const DEFAULT_STARTER_TEMPLATE = 'everything';
 
 /** The template with this id, or undefined when none is declared; `templates` defaults to the declared data. */

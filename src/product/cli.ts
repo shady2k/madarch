@@ -41,8 +41,7 @@ const SHORT_HELP = [
   'madarch — start a product and open its wiki',
   '',
   'Start:',
-  '  new       Create a product and serve its wiki',
-  '  init      Create a product around this Git checkout',
+  '  init      Create a product, connect any Git checkout and open its wiki',
   '',
   'Work with a product:',
   '  serve     Open a product wiki',
@@ -95,22 +94,22 @@ function commandHelp(command: string): string {
       'Example: madarch fill --entity doc.term   (the glossary terms, with the files they read)',
     ].join('\n');
   }
-  const positionals = command === 'repo' ? ' add <name> <url>' : spec.positionals.length === 0 ? '' : ` ${spec.positionals.map((word) => `<${word}>`).join(' ')}`;
+  const positionals = command === 'repo' ? ' add <name> <url>' : spec.positionals.length === 0 ? '' : ` ${spec.positionals.map((word) => word.endsWith('?') ? `[${word.slice(0, -1)}]` : `<${word}>`).join(' ')}`;
   const flags: string[] = [];
   if (spec.flags.home) flags.push('  --home <folder>       Products home');
   if (spec.flags.product) flags.push('  --product <folder>    Product folder');
   if (spec.flags.port) {
     flags.push('  --port <n>            Wiki port (default 4180)');
-    // The three commands that serve through the products home's one server
+    // The commands that serve through the products home's one server
     // say whose port it is: the server was started on it, and a command that
     // names another is told so rather than served elsewhere.
-    if (['new', 'init', 'start'].includes(command)) flags.push("                        the products home's server names the port it starts on; one it does not keep is reported, not ignored");
+    if (['init', 'start'].includes(command)) flags.push("                        the products home's server names the port it starts on; one it does not keep is reported, not ignored");
   }
   if (spec.flags.host) flags.push('  --host <address>      Wiki bind address (default 127.0.0.1)');
   if (spec.flags.open) flags.push('  --no-open             Do not open a browser');
   if (spec.flags.template) {
     flags.push(`  --template <id>       The starter template the product is made from: ${STARTER_TEMPLATES.map((template) => `${template.id} (${template.title.en})`).join(', ')}`);
-    flags.push('                        Without it a terminal asks; a command with no terminal takes the first declared');
+    flags.push('                        Without it a terminal asks; without a terminal, no manifest is copied');
   }
   if (spec.flags.source) flags.push('  --source <path>       Local Git checkout to connect');
   if (spec.flags.mode) flags.push('  --mode <mode>         link, move or clone the checkout');
@@ -118,7 +117,7 @@ function commandHelp(command: string): string {
   if (spec.flags.run) flags.push('  --run <id>            The run to plan (one built from this moment by default)');
   if (spec.flags.workers) flags.push('  --workers <n>         Units the run holds in hand at once (16 by default, 1 through 64)');
   if (spec.flags.yes) flags.push('  --yes                 Confirm without prompting');
-  if (['new', 'init', 'list', 'fill', 'fill-stages'].includes(command)) flags.push('  --json                Print machine-readable facts');
+  if (['init', 'list', 'fill', 'fill-stages'].includes(command)) flags.push('  --json                Print machine-readable facts');
   const usage = `madarch ${command}${positionals}${command === 'repo' ? ' [--source <path>] [--mode <link|move|clone>] [--branch <name>] [--product <folder>]' : ''}`;
   return [`usage: ${usage}`, '', ...(flags.length ? ['Options:', ...flags] : []), '', `Example: ${usage.split(' [')[0]}`].join('\n');
 }
@@ -135,14 +134,14 @@ async function whereHelp(): Promise<string> {
     const git = runGit(process.cwd(), ['rev-parse', '--show-toplevel']);
     if (git.ok) return `This folder is a git repository. To start a product around it: madarch init\nProducts live in ${home}.`;
   }
-  return `Start a new product: madarch new — or cd into your code repository and run madarch init\nProducts live in ${home}.`;
+  return `Start a product: madarch init [folder]\nProducts live in ${home}.`;
 }
 
 
 
 /** One subcommand's argument surface, whole: what it takes, and nothing else. */
 interface CommandSpec {
-  /** The positional words it takes, in order, by their label for the refusals. */
+  /** The positional words it takes, in order; a trailing ? marks an optional word. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
   flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean; entity?: boolean; vertex?: boolean; template?: boolean };
@@ -164,8 +163,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
   trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
-  init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, template: true } },
-  new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, template: true } },
+  init: { positionals: ['folder?'], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, template: true } },
   serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false, host: true } },
   list: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   rename: { positionals: ['name'], flags: { home: false, product: true, port: false, open: false, branch: false, yes: false } },
@@ -201,7 +199,7 @@ interface Parsed {
   entities?: readonly string[];
   /** `--vertex`: the one entity a vertex fill rewrites, as `<kind>:<key values>`. */
   vertex?: string;
-  /** `--template`: the starter template `new` (and `init`) makes the product from. */
+  /** `--template`: the starter template `init` makes the product from. */
   template?: string;
   json: boolean;
 }
@@ -440,7 +438,7 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
   // The words the surface promises, each taken once: a word the subcommand
   // needs and did not get is refused as plainly as one it did not expect.
   const givenWords = parsed.words.length;
-  if (givenWords < spec.positionals.length) {
+  if (givenWords < spec.positionals.filter((word) => !word.endsWith('?')).length) {
     const label = spec.positionals[givenWords]!;
     console.error(`the ${label} is missing: this subcommand takes ${spec.positionals.join(' ')}`);
     console.error('run madarch --help for help');
@@ -464,7 +462,7 @@ function list(home: string | undefined, json = false): number {
     return 2;
   }
   if (json) console.log(JSON.stringify({ products: listed.products.map(({ folder, id, name }) => ({ folder, id, name })) }));
-  else if (listed.products.length === 0) console.log(`No products found in the products home. Start one with: madarch new`);
+  else if (listed.products.length === 0) console.log(`No products found in the products home. Start one with: madarch init`);
   else {
     console.log('Products:');
     for (const product of listed.products) console.log(`  • ${product.name} (${product.id}) — ${displayPath(product.folder)} (open with: cd ${displayPath(product.folder)} && madarch serve)`);
@@ -540,22 +538,11 @@ export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined 
  */
 const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
 
-/**
- * The template the command makes the product from: `--template` when given, else the menu a terminal gets, else the
- * first declared template with `defaulted` set — a script that runs `madarch new` gets a product, and the command says
- * which template it used and how to pick another. The note is the caller's to print, after the product was made and
- * never into a `--json` line.
- */
-async function templateChoice(parsed: Parsed): Promise<{ id: string; defaulted: boolean }> {
-  if (parsed.template !== undefined) return { id: parsed.template, defaulted: false };
-  if (process.stdin.isTTY && process.stdout.isTTY) return { id: await askTemplate(), defaulted: false };
-  return { id: STARTER_TEMPLATES[0]!.id, defaulted: true };
-}
-
-/** The line that says a command with no terminal took the first declared template, and how another is chosen. */
-function defaultTemplateNote(id: string): string {
-  const template = starterTemplateOf(id);
-  return `✓ No terminal asks which template to use: using "${template?.title.en ?? id}", the first declared. Pass --template <id> to choose another (${starterTemplateIds().join(', ')}).`;
+/** A terminal chooses a starter; scripts without an explicit choice leave the manifest to the wiki. */
+async function templateChoice(parsed: Parsed): Promise<string> {
+  if (parsed.template !== undefined) return parsed.template;
+  if (process.stdin.isTTY && process.stdout.isTTY) return await askTemplate();
+  return 'none';
 }
 
 /** The template menu of a terminal: every declared template, in their declared order, and the first one by default. */
@@ -706,18 +693,18 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     return 0;
   }
   if (command.startsWith('--')) {
-    console.error(`unknown option "${command}" before the subcommand: the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "plugin", "version" and "upgrade"`);
+    console.error(`unknown option "${command}" before the subcommand: the subcommands are "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "plugin", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
   if (!(command in COMMANDS)) {
-    console.error(`unknown subcommand "${command}": the subcommands are "new", "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "plugin", "version" and "upgrade"`);
+    console.error(`unknown subcommand "${command}": the subcommands are "init", "demo", "serve", "start", "stop", "status", "list", "rename", "remote", "repo add", "bootstrap", "clone", "fill", "fill-stages", "trace", "plugin", "version" and "upgrade"`);
     console.error('run madarch --help for help');
     return 2;
   }
 
   const spec = COMMANDS[command]!;
-  if (args.slice(1).includes('--json') && !['new', 'init', 'list', 'fill', 'fill-stages'].includes(command)) {
+  if (args.slice(1).includes('--json') && !['init', 'list', 'fill', 'fill-stages'].includes(command)) {
     console.error(`unknown option "--json" for ${command}: machine-readable output is not supported by this command`);
     console.error('run madarch --help for help');
     return 2;
@@ -762,21 +749,22 @@ function productHomeOf(named: string | undefined): string {
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
     const { initLife } = await import('./lifecycle.js');
-    const choice = await templateChoice(parsed);
-    const template = choice.id;
-    const result = initLife({ cwd: process.cwd(), home, template });
+    const cwd = resolve(parsed.words[0] ?? process.cwd());
+    try { await mkdir(cwd, { recursive: true }); }
+    catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
+    const template = await templateChoice(parsed);
+    const result = initLife({ cwd, home, template });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
     const source = result.prints.find((line) => line.startsWith('source: '))?.slice('source: '.length);
     const facts = Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; }));
     if (!parsed.json) {
-      if (choice.defaulted) console.log(defaultTemplateNote(template));
       console.log(`✓ Created the product "${basename(folder)}" in ${displayPath(folder)}`);
-      printTemplate(String(facts['template'] ?? template), Number(facts['kinds'] ?? 0));
+      if (facts['template'] !== undefined) printTemplate(String(facts['template']), Number(facts['kinds'] ?? 0));
       if (source !== undefined) console.log(`✓ Connected your repository ${displayPath(source)} (it stays where it is)`);
-      else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(process.cwd())} (it stays where it is)`);
+      else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(cwd)} (it stays where it is)`);
     }
-    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts, ...(choice.defaulted ? { templateNote: defaultTemplateNote(template) } : {}) } : undefined);
+    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined);
   }
   if (command === 'reset') return await resetCommand(parsed.words[0], home, parsed.yes);
   if (command === 'version') return versionCommand();
@@ -809,26 +797,8 @@ function productHomeOf(named: string | undefined): string {
   }
   if (command === 'clone') return runClone(parsed);
 
-  // The lifecycle subcommands do not serve: their own outcomes decide.
-  if (command !== 'new') return report(await runWrapper(command, parsed), parsed.json);
-
-  // new: the draft is created by madarch's own creation code (decision 0021), then its wiki is served.
-  const choice = await templateChoice(parsed);
-  const template = choice.id;
-  const { createDraft } = await import('./draft.js');
-  const draftStarted = performance.now();
-  const draft = createDraft({ ...(home === undefined ? {} : { home }), template });
-  if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup draft ${(performance.now() - draftStarted).toFixed(1)} ms`);
-  if (draft.outcome !== 'created') {
-    console.error(draft.message);
-    return draft.outcome === 'refused' ? 2 : 1;
-  }
-  if (!parsed.json) {
-    if (choice.defaulted) console.log(defaultTemplateNote(template));
-    console.log(`✓ Created the product "${draft.name}" in ${displayPath(draft.folder)}`);
-    printTemplate(draft.template, draft.kinds);
-  }
-  return await serveShared(parsed, deps, draft.folder, false, parsed.json ? { folder: draft.folder, id: draft.id, name: draft.name, template: draft.template, kinds: draft.kinds, ...(choice.defaulted ? { templateNote: defaultTemplateNote(template) } : {}) } : undefined);
+  // The remaining lifecycle subcommands do not serve: their own outcomes decide.
+  return report(await runWrapper(command, parsed), parsed.json);
 }
 
 /**
@@ -1020,7 +990,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   let targets: { kinds: readonly string[]; vertex?: string } | undefined;
   if (parsed.entities !== undefined || parsed.vertex !== undefined) {
     const kinds = readKinds(folder);
-    if (!kinds.present) { console.error(`${kinds.file}:1: the product ${displayPath(folder)} has no manifest, so it declares no entity to fill: madarch new writes one`); return 1; }
+    if (!kinds.present) { console.error(`${kinds.file}:1: the product ${displayPath(folder)} has no manifest, so it declares no entity to fill: madarch init --template everything writes one`); return 1; }
     const read = readFillTargets(kinds.manifest, { ...(parsed.entities === undefined ? {} : { entities: parsed.entities }), ...(parsed.vertex === undefined ? {} : { vertex: parsed.vertex }) });
     if (!read.ok) { console.error(read.message); return 1; }
     for (const entry of read.targets.entries) {
@@ -1084,7 +1054,7 @@ function nextSteps(folder: string, init: boolean): void {
 }
 
 /**
- * The non-blocking tail of `new` and `init` (change madarch-zcti): the
+ * The non-blocking tail of `init` (change madarch-zcti): the
  * home's shared server is started or reused, the product's address under it
  * is printed — over SSH with the tunnel command — and the command returns
  * at once where `serve` would have kept running. `jsonBase` carries the

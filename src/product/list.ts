@@ -2,7 +2,7 @@
  * Listing the products a products home holds — `madarch list` (decision
  * 0019: madarch serves and lists any folder with a valid `workspace.yaml`,
  * whoever made it, and keeps `madarch list` its own). The products home is
- * resolved the way `madarch new` resolves it; the products are its direct
+ * resolved the way `madarch init` resolves it; the products are its direct
  * subfolders whose manifest reads, in the project's code point order of
  * their paths.
  *
@@ -61,7 +61,7 @@ export type ProductList =
   | { outcome: 'refused'; message: string };
 
 export interface ListOptions {
-  /** The products home, as `--home` names it for this one command; `MADARCH_HOME` and the default as `madarch new` decides them. */
+  /** The products home, as `--home` names it for this one command; `MADARCH_HOME` and the default as `madarch init` decides them. */
   home?: string;
 }
 

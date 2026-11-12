@@ -192,7 +192,7 @@ function describe(violation: ArchitectureViolation): string {
       return `${violation.file} imports ${whole} of ${module}, and only the orchestrator host (src/fill/orchestrator-host.ts) starts a fill`;
     }
     case 'starter-data-when-copying':
-      return `${violation.file} imports the starter set ${violation.symbol}, and only src/product/draft.ts (what \`madarch new\` runs) copies the starter set into a product: the engine reads the product's own catalogue, templates and loop kinds, and a file it lacks is a problem naming that file`;
+      return `${violation.file} imports the starter set ${violation.symbol}, and only src/product/draft.ts (what \`madarch init\` runs) copies the starter set into a product: the engine reads the product's own catalogue, templates and loop kinds, and a file it lacks is a problem naming that file`;
     case 'product-file-readers':
       return `${violation.file} reads or interprets product-file text through ${violation.symbol}: only src/plugin and src/product/manifest.ts may read product meaning`;
     case 'no-unreachable-code':

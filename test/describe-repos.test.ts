@@ -100,7 +100,7 @@ describe('what the checkout carries for the step', () => {
   });
 });
 
-describe('what a real draft made by madarch new holds', () => {
+describe('what a real draft made by madarch init holds', () => {
   test('a fresh draft carries nothing laid — the honest absence', () => {
     const draft = draftIn(tempFolder('madarch-describe-'));
     if (draft.outcome !== 'created') throw new Error(`the draft was not created: ${JSON.stringify(draft)}`);

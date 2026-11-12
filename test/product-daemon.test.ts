@@ -578,7 +578,7 @@ test("a child that has not exec'd yet reads as still starting, never as another 
   const state = { home: '/tmp/products', port: 43137 };
   // The kernel answers the parent's own argv for a fork until the child's exec
   // lands: exactly the line CI run 46865274 shard 2 read out of the pid
-  // `madarch new` had just spawned (`bun test test/ --shard=2/5 …`), and the
+  // `madarch init` had just spawned (`bun test test/ --shard=2/5 …`), and the
   // start failed on it.
   const own = 'bun test test/ --shard=2/5';
   expect(childReading(own, own, state)).toBe('starting');

@@ -152,8 +152,8 @@ export const childReadings: ChildReadings = {
  * answers the parent's argv until the child's exec lands, so a child read
  * that way has not exec'd yet and is still starting, never a foreign program.
  * CI run 46865274's shard 2 read `bun test test/ --shard=2/5 …`, the test
- * runner's own line, out of the pid `madarch new` had just spawned, and
- * `madarch new` failed the start on it (2026-10-18). A command line nothing
+ * runner's own line, out of the pid `madarch init` had just spawned, and
+ * `madarch init` failed the start on it (2026-10-18). A command line nothing
  * answers for is the same window on Windows, which lists a process in its
  * process list a moment after it starts: the read waits, it does not judge.
  * A live process that runs something else stays `foreign`, and a record whose

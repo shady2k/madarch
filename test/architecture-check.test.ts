@@ -406,9 +406,9 @@ describe('the architecture check', () => {
     expect(missing.refusal).toContain('the list of accepted violations is missing');
   });
 
-  test('an engine module importing the starter set fails, while the copy madarch new makes passes', async () => {
+  test('an engine module importing the starter set fails, while the copy madarch init makes passes', async () => {
     const root = fixtureProject();
-    // The starter set's data modules stand in the fixture, and the copy `madarch new` makes imports them.
+    // The starter set's data modules stand in the fixture, and the copy `madarch init` makes imports them.
     writeModule(root, 'src/knowledge/starter-catalog.ts', ["export const CATALOG = 'catalog';"]);
     writeModule(root, 'src/knowledge/seed.ts', ["import { CATALOG } from './starter-catalog.js';", 'export const STARTER = CATALOG;']);
     writeModule(root, 'src/product/draft.ts', ["import { STARTER } from '../knowledge/seed.js';", 'export const copied = STARTER;']);

@@ -70,7 +70,7 @@ function refusals(text: string): [number, string][] {
 }
 
 describe('the workflows the starter set declares', () => {
-  test('`madarch new` writes four workflows, and every stage they name is one the engine\'s registry holds', () => {
+  test('`madarch init` writes four workflows, and every stage they name is one the engine\'s registry holds', () => {
     const read = readWorkflowsFrom(workingTreeFiles(product()), product());
     expect(read.present).toBe(true);
     expect(read.findings).toEqual([]);

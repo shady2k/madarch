@@ -28,9 +28,12 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   the merge base and refuses a gained entry without one. `bun run
   check:architecture` runs it alone, `--update` writes the list from what the
   rules find now, `--rules <names>` runs some of them. The `madarch` command
-  (`bun link` in a checkout, or `bun scripts/madarch.ts new|serve|list …`)
-  creates a draft product repository with madarch's own lifecycle code,
-  serves its wiki, and lists the products of the
+  (`bun link` in a checkout, or `bun scripts/madarch.ts init|serve|list …`)
+  uses `init [folder]` to create a separate product connected to a Git checkout
+  (without moving it), or an empty draft outside Git. Init asks only for a
+  template in a terminal; nonterminal input writes no kind or workflow manifest
+  unless `--template` selects one explicitly. It serves the wiki in the
+  background; `list` names the products of the
   products home; the home is `~/madarch/products`, moved by `MADARCH_HOME`
   (or `--home` for one command).
   The wiki app's own checks run inside `wiki/app`:
