@@ -164,9 +164,15 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     // declared, the opinions it opened and the requests it made (the debug setting is on).
     const storeOwner = await createTestDatabaseOwner({ store: join(productStoreFolder(folder, join(work, 'store')), 'graph'), btreeGist: true });
     const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number; outcome?: string; cause?: string }[] } }>('SELECT author, change FROM operation ORDER BY seq'));
-    await storeOwner.close();
     const plugin = journal.rows.filter((one) => one.author === 'glossary@1.0.0');
-    expect(plugin).toHaveLength(1);
+    const generations = plugin.length === 1 ? undefined : await storeOwner.transaction('snapshot', async (tx) => await tx.query(
+      `SELECT u.unit_id, g.generation, g.state, g.run_id
+         FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id
+        WHERE u.stage_id = 'plugin-turns' AND u.scope_key LIKE 'glossary:%'
+        ORDER BY u.unit_id, g.generation`,
+    ));
+    await storeOwner.close();
+    expect(plugin, JSON.stringify({ operations: plugin, generations: generations?.rows })).toHaveLength(1);
     expect(plugin[0]?.change.vertices.map((one) => one.entity)).toEqual(['doc.term', 'doc.term']);
     expect(plugin[0]?.change.opinions.every((one) => one.state === 'opened')).toBe(true);
     // The bounded journal records requests at the host — its introduction too — with their outcomes and answer
