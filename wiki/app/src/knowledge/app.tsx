@@ -675,7 +675,7 @@ export function KnowledgeApp(): ReactElement {
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const content = useRef<HTMLDivElement>(null);
-  const { status, error, version, refresh } = useWikiStatus();
+  const { status, error, publication, version, refresh } = useWikiStatus();
   const settings = useSettings();
   const { glossary } = useGlossary(version);
   const glossaryValue = useGlossaryValue(glossary);
@@ -698,8 +698,8 @@ export function KnowledgeApp(): ReactElement {
     if (route.name !== 'source' && route.name !== 'doc') content.current?.scrollTo?.(0, 0);
   }, [route]);
 
-  if (error !== null && status === null) {
-    return <div className="grid min-h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]"><p role="alert" data-testid="wiki-error">{error}</p></div>;
+  if (error !== null && (status === null || publication !== undefined)) {
+    return <div className="grid min-h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]"><p role={publication === 'pending' ? 'status' : 'alert'} data-testid="wiki-error" data-publication={publication}>{error}</p></div>;
   }
   if (status === null) {
     return (
