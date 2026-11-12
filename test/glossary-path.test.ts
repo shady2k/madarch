@@ -105,10 +105,13 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
     commit('A glossary document beside authored terms');
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
-    await refill();
-    expect((await product.glossary()).terms).toEqual([]);
-    await product.close();
-    useExtractedGlossary(folder);
+    try {
+      await refill();
+      expect((await product.glossary()).terms).toEqual([]);
+    } finally {
+      await product.close();
+      useExtractedGlossary(folder);
+    }
   }, 300_000);
 
   test('the first fill publishes the terms the glossary states, and the listing and the page read only the graph', async () => {
