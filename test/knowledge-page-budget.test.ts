@@ -17,6 +17,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { makeProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { publishRepositoryFixtureTemplates } from './repository-template-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -85,6 +86,7 @@ beforeAll(async () => {
       await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
       const run = await runFill({ product, database: owner, store, home: store, runId: `page-budget-${product === folder ? 'shop' : 'history'}`, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
+      await publishRepositoryFixtureTemplates(owner, product);
       // What every settled fill does (the button, the CLI, the daemon): the store's statistics and pins.
       await finishKnowledgeStore(owner);
     } finally {

@@ -20,13 +20,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { symlinkSync } from 'node:fs';
 import { runFill } from '../src/fill/run.js';
-import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import type { FillStepView } from '../src/knowledge/model.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { publishRepositoryFixtureTemplates } from './repository-template-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -83,7 +85,16 @@ async function press(server: StartedServer, name: string): Promise<Record<string
     const status = await json(server, name, '/api/status');
     const fill = status.body['fill'] as Record<string, unknown> | undefined;
     if (fill === undefined) throw new Error(`/api/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
-    if (fill['state'] !== 'running') return status.body;
+    if (fill['state'] !== 'running') {
+      // Native stages publish repository facts, not the fixture's page layouts.
+      if (fill['state'] === 'done') {
+        const product = join(home, name);
+        const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
+        try { await publishRepositoryFixtureTemplates(owner, product); }
+        finally { await owner.close(); }
+      }
+      return status.body;
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error('the fill never ended');
@@ -150,7 +161,7 @@ git(folder,'commit','-qm','the nested file moves');
 
       // The repository's entity page, its root listing, one folder, one file, one commit and the run.
       const repositoryPage = await pageOf(server, 'walk', 'code.repository:walk-code');
-      expect(repositoryPage.status).toBe(200);
+      expect(repositoryPage.status, JSON.stringify(repositoryPage.body)).toBe(200);
       const facts = blockOf(repositoryPage, 'repository').data as Record<string, unknown>;
       expect(facts['name']).toBe('walk-code');
       const rootModel = blockOf(repositoryPage, 'folder').data as Record<string, unknown>;
@@ -376,6 +387,7 @@ git(folder,'commit','-qm','the nested file moves');
       await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
       const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
+      await publishRepositoryFixtureTemplates(owner, folder);
     } finally {
       await owner.close();
     }
