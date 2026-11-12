@@ -486,20 +486,22 @@ export function termBlock(ctx: Pick<RenderContext, 'repositories' | 'ownReposito
   // The product's own repository is addressed as the product's documents are; a code repository keeps its name.
   const named = evidence?.repository ?? null;
   const repository = named !== null && named !== ctx.ownRepository && ctx.repositories.includes(named) ? named : null;
-  const where = evidence !== undefined && evidence.path !== null
-    ? `[${repository === null ? '' : `${repository}/`}${evidence.path}${evidence.lineStart === null ? '' : `:${String(evidence.lineStart)}${evidence.lineEnd === null || evidence.lineEnd === evidence.lineStart ? '' : `-${String(evidence.lineEnd)}`}`}](${sourceAddress(repository, evidence.path, evidence.lineStart ?? undefined)})`
-    : null;
+  const definedInLink = evidence !== undefined && evidence.path !== null
+    ? { label: `${repository === null ? '' : `${repository}/`}${evidence.path}${evidence.lineStart === null ? '' : `:${String(evidence.lineStart)}${evidence.lineEnd === null || evidence.lineEnd === evidence.lineStart ? '' : `-${String(evidence.lineEnd)}`}`}`, href: sourceAddress(repository, evidence.path, evidence.lineStart ?? undefined) }
+    : undefined;
+  const where = definedInLink === undefined ? null : `[${definedInLink.label}](${definedInLink.href})`;
   const usages = termUsages(ctx, entity.properties[params['usages'] ?? 'usages']);
-  return { type: 'term', title, definition, synonyms, code, definedIn: where, usages, usageCount: usages.reduce((total, one) => total + one.count, 0), ambiguous: null };
+  return { type: 'term', title, definition, synonyms, code, definedIn: where, ...(definedInLink === undefined ? {} : { definedInLink }), usages, usageCount: usages.reduce((total, one) => total + one.count, 0), ambiguous: null };
 }
 
 /** The mentions the plugin published, linked to the graph-held source at each line. */
-export function termUsages(ctx: Pick<RenderContext, 'repositories' | 'ownRepository'>, value: unknown): { location: string; count: number }[] {
+export function termUsages(ctx: Pick<RenderContext, 'repositories' | 'ownRepository'>, value: unknown): { location: string; count: number; locationLink: { label: string; href: string } }[] {
   if (!Array.isArray(value)) return [];
   return value.map((one: { repository: string; path: string; lineStart: number; lineEnd: number; count: number }) => {
     const repository = one.repository === ctx.ownRepository ? null : one.repository;
     const range = one.lineEnd === one.lineStart ? String(one.lineStart) : `${one.lineStart}-${one.lineEnd}`;
-    return { location: `[${repository === null ? '' : `${repository}/`}${one.path}:${range}](${sourceAddress(repository, one.path, one.lineStart)})`, count: one.count };
+    const locationLink = { label: `${repository === null ? '' : `${repository}/`}${one.path}:${range}`, href: sourceAddress(repository, one.path, one.lineStart) };
+    return { location: `[${locationLink.label}](${locationLink.href})`, locationLink, count: one.count };
   });
 }
 
