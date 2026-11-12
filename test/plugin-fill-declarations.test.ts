@@ -38,6 +38,19 @@ test('S2: declaration gaps never depend on runtime omission or a value quality j
   expect(covered.producers('File', 'description')).toEqual(['index']);
   expect(covered.lastProducer('File', 'description')).toBe('index');
 });
+test('declared refinement metadata remains available without selecting execution outputs', () => {
+  const plan = planFillDeclarations({ kinds, plugins: [
+    plugin('base'),
+    plugin('middle', [output('File', '*', { refines: ['base'] })]),
+    plugin('last', [output('File', ['description'], { refines: ['middle'] })]),
+  ], selectedKinds: [] });
+  expect(plan.declaredProducers('File', 'description')).toEqual(['base', 'middle', 'last']);
+  expect(plan.declaredProducers('File', 'title')).toEqual(['base', 'middle']);
+  expect(plan.order).toEqual([]);
+  expect([...plan.outputs]).toEqual([]);
+  expect(plan.producers('File', 'description')).toEqual([]);
+  expect(plan.lastProducer('File', 'description')).toBeUndefined();
+});
 test('S3: hidden prerequisite reads fail with output and actionable declaration locations', () => {
   const catalogue = [kind('Document'), kind('Policy'), kind('Summary', ['description'], ['Document'])];
   const declarations = [plugin('document', [output('Document')]), plugin('policy', [output('Policy')]), plugin('summary', [output('Summary', '*', { reads: ['Policy'] })])];

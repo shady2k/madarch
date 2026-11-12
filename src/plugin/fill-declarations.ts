@@ -214,6 +214,10 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     selectedKinds: [...selected],
     requiresAgent: order.some((name) => plugins.get(name)!.manifest.agent !== undefined),
     order, outputs, refinements, concurrency, predecessors,
+    // Readers need the declared refinement order even when no output is selected for execution.
+    declaredProducers(kind: string, field: string): readonly string[] {
+      return sortedUnits.map((id) => unitInfo.get(id)!).filter((unit) => unit.kind === kind && allOutputs.get(unit.plugin)?.get(kind)?.includes(field)).map((unit) => unit.plugin);
+    },
     producers(kind: string, field: string): readonly string[] { return order.filter((name) => outputs.get(name)?.get(kind)?.includes(field)); },
     lastProducer(kind: string, field: string): string | undefined { return order.filter((name) => outputs.get(name)?.get(kind)?.includes(field)).at(-1); },
   };

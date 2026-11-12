@@ -98,7 +98,7 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
     const columns = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
     const types = Object.fromEntries(vertex.fields.map((field) => [field.name, field.type]));
     reads.set(kind.name, { kind: kind.name, table: vertex.table, columns, types, key: vertex.key,
-      producers: Object.fromEntries(columns.map((field) => [field, plan.producers(kind.name, field)])),
+      producers: Object.fromEntries(columns.map((field) => [field, plan.declaredProducers(kind.name, field)])),
     });
   }
   return reads;
