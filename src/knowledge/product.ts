@@ -3298,7 +3298,8 @@ export class KnowledgeHost {
   }
 
   async close(): Promise<void> {
-    for (const product of this.products.values()) await product.close();
+    const results = await Promise.allSettled([...this.products.values()].map((product) => product.close()));
     this.products.clear();
+    for (const result of results) if (result.status === 'rejected') throw result.reason;
   }
 }

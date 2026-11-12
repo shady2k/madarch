@@ -82,6 +82,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     }
     server.stop(true);
     await tail;
-    for (const owner of owners.values()) await owner.close();
+    const results = await Promise.allSettled([...owners.values()].map((owner) => owner.close()));
+    for (const result of results) if (result.status === 'rejected') throw result.reason;
   }
 }
