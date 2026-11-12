@@ -193,13 +193,24 @@ async function snapshotDrafts(executor: SqlExecutor, snapshot: PluginSnapshot, p
   if (row === undefined) throw new Error(`immutable producer snapshot ${snapshot.unitId}/${snapshot.generation} is unavailable`);
   const writes = snapshotWrites(row.writes);
   if (partition && writes.filter(write => write.kind === 'plugin-partition').length !== 1) throw new Error(`partition ${snapshot.unitId}/${snapshot.generation} has no unique partition draft`);
-  return writes.flatMap(write => {
-    if (write.kind !== 'plugin-partition') return [write];
-    const inner = (write.value as { writes: DraftWriteLike[] }).writes;
+  const expanded: DraftWriteLike[] = [];
+  for (const write of writes) {
+    if (write.kind !== 'plugin-partition') {
+      expanded.push(write);
+      continue;
+    }
+    const partition = write.value as { partitions?: PartitionReference[]; writes?: DraftWriteLike[] };
+    if (partition.partitions !== undefined) {
+      const children = await partitionSnapshots(executor, [{ kind: 'plugin-aggregate', value: { partitions: partition.partitions } }]);
+      for (const child of children) expanded.push(...await snapshotDrafts(executor, child, true));
+      continue;
+    }
+    const inner = partition.writes ?? [];
     const outcomes = inner.filter(write => write.kind === 'producer-outcome').map(write => write.value as { outcome?: string });
     if (outcomes.length !== 1 || !['completed', 'empty', 'unchanged'].includes(outcomes[0]?.outcome ?? '')) throw new Error(`partition ${snapshot.unitId}/${snapshot.generation} did not complete successfully`);
-    return inner;
-  });
+    expanded.push(...inner);
+  }
+  return expanded;
 }
 
 async function partitionSnapshots(executor: SqlExecutor, writes: readonly DraftWriteLike[], runId?: string): Promise<PluginSnapshot[]> {
