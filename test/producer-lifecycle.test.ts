@@ -116,9 +116,6 @@ async extract(unit, context) {
     release = configure('partial'); const partial = await run('partial'); expect(partial.ok).toBe(true);
     expect(await readProducerOutcomes(owner, { runId: 'partial' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'abstained' })]));
     expect((await problems()).map((row) => row.detail)).toEqual(['outside scope']);
-    release = configure('failed'); await run('failed');
-    expect(await readProducerOutcomes(owner, { runId: 'failed' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'failed' })]));
-    expect((await problems()).map((row) => row.detail)).toEqual(['outside scope']);
     release = configure('good'); const clean = await run('good'); expect(clean.ok).toBe(true);
     expect(await problems()).toEqual([]);
     expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));
@@ -128,5 +125,10 @@ async extract(unit, context) {
       const status = await reader.status();
       expect(status.fill.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));
     } finally { await reader.close(); }
+    release = configure('bad'); await run('bad-again');
+    expect((await problems()).map((row) => row.title)).toEqual(['Bad document']);
+    release = configure('failed'); await run('failed');
+    expect(await readProducerOutcomes(owner, { runId: 'failed' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'failed' })]));
+    expect((await problems()).map((row) => row.title)).toEqual(['Bad document']);
   } finally { await owner.close(); }
 }, 300_000);
