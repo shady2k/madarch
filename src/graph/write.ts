@@ -598,18 +598,6 @@ export async function publishOpinion(executor: SqlExecutor, contract: GraphContr
   return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
 }
 
-/**
- * One opinion of an edge kind's fields, stated by a producer: the edge's table holds it, keyed by `edge_id`. The end
- * points and the discriminator are the edge's identity and stand in `edge`, never here. An attribute-free edge's
- * opinion is the statement that the edge exists, with its evidence.
- */
-export async function publishEdgeOpinion(executor: SqlExecutor, contract: GraphContract, edgeKind: string, edgeId: string, draft: { readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
-  const kind = edgeOfKind(contract, edgeKind);
-  const declared = contract.edge.find((held) => held.name === edgeKind)!;
-  const fields = declared.fields.map((field) => field.name);
-  return await stateOpinion(executor, kind.name, kind.table, 'edge_id', edgeId, `${draft.producer}@${draft.producerVersion}`, new Map(Object.entries(draft.values ?? {})), fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), undefined, edgeId);
-}
-
 /** One edge by its id, removed: its opinions go with it (a consistent cascade), never the vertices it names. */
 export async function removeEdgeById(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, journal?: Journal): Promise<boolean> {
   journal = heldJournal(executor, journal);
