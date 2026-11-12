@@ -24,6 +24,7 @@ import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import type { DiagramsBlockShape } from '../src/knowledge/views.js';
 import { gitEnv } from './git-env.js';
+import { retainTestStorePreparationOwner } from './prepared-server.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const PLUGINS = fileURLToPath(new URL('..', import.meta.url));
@@ -214,6 +215,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
   let work: string;
   let folder: string;
   let product: KnowledgeProduct;
+  let closeOwner: (() => Promise<void>) | undefined;
 
   /** Runs one fill of the product and waits for it. */
   async function refill(): Promise<void> {
@@ -243,12 +245,14 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     git(folder, 'add', '-A');
     git(folder, 'commit', '--quiet', '-m', 'Connect the code repository');
+    closeOwner = await retainTestStorePreparationOwner();
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
     await refill();
   }, 300_000);
 
   afterAll(async () => {
     await product?.close();
+    await closeOwner?.();
     rmSync(work, { recursive: true, force: true });
   });
 
