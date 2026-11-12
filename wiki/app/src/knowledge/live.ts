@@ -37,7 +37,7 @@ export function useWikiStatus(): { status: WikiStatus | null; error: string | nu
     getStatus(mine.signal).then(
       (next) => {
         if (mine.signal.aborted) return;
-        setPublication(undefined);
+        setPublication(next.publication === 'pending' || next.publication === 'failed' ? next.publication : undefined);
         setStatus(next);
         setError(null);
         setVersion((held) => held + 1);

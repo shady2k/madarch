@@ -756,7 +756,8 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'task') view = <TaskPage key={route.id} id={route.id} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
-  else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
+  else if (route.name === 'catalogue') view = publication === undefined ? <CataloguePage version={version} />
+    : <p role={publication === 'pending' ? 'status' : 'alert'} data-publication={publication}>{publication === 'pending' ? 'Publishing the catalogue. Please wait.' : `The catalogue could not be published: ${status.publicationMessage ?? 'see the server diagnostics'}`}</p>;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;

@@ -25,7 +25,17 @@ for (const publication of ['pending', 'failed'] as const) {
     const message = publication === 'pending'
       ? 'The catalogue is being published. Please wait; no catalogue is available yet.'
       : 'The catalogue could not be published: database unavailable';
-    globalThis.fetch = (async () => Response.json({ publication, message }, { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/api/status')) return Response.json({
+        product: { name: 'shop', id: 'x' }, manifest: 'not-filled', manifestFile: 'madarch/kinds.yaml', language: 'en', findingCount: 0,
+        kinds: [], groups: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' },
+        writer: { state: 'idle', agent: null, units: [] }, chosenAgent: null, home: null, roles: {},
+        bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 },
+        publication, publicationMessage: 'database unavailable',
+      });
+      return Response.json({ publication, message }, { status: 503 });
+    }) as unknown as typeof fetch;
     const container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -36,7 +46,7 @@ for (const publication of ['pending', 'failed'] as const) {
     const note = container.querySelector('[data-publication]');
     expect(note?.getAttribute('data-publication')).toBe(publication);
     expect(note?.getAttribute('role')).toBe(publication === 'pending' ? 'status' : 'alert');
-    expect(note?.textContent).toContain(message);
-    expect(container.querySelector('[data-testid="knowledge-app"]')).toBeNull();
+    expect(note?.textContent).toContain(publication === 'pending' ? 'Publishing the catalogue' : 'database unavailable');
+    expect(container.querySelector('[data-testid="knowledge-app"]')).not.toBeNull();
   });
 }
