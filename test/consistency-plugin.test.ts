@@ -57,7 +57,7 @@ kinds:
     template: templates/item-plain.liquid
     source: graph
     findings: true
-    depends-on: [code.file]
+    derives-from: [code.file]
     labels:
       en: { one: Probe finding, many: Probe findings }
       ru: { one: Находка, many: Находки }
@@ -72,7 +72,7 @@ kinds:
   probe.opinion:
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     labels:
       en: { one: Probe opinion, many: Probe opinions }
       ru: { one: Утверждение, many: Утверждения }
@@ -84,7 +84,7 @@ kinds:
   probe.keyed:
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     labels:
       en: { one: Probe keyed, many: Probe keyeds }
       ru: { one: Ключ, many: Ключи }

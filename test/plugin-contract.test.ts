@@ -50,7 +50,7 @@ const MANIFEST = [
   '      - { name: note, type: text, nullable: true, binding: { agent: "the note a person writes" } }',
   '      - { name: strict, type: text, binding: { agent: "a word the agent settles" } }',
   '    key: [name]',
-  '    depends-on: []',
+  '    derives-from: []',
   'plugins:',
   '  - { id: g, version: 1, path: plugins/g, inputs: [doc.term], outputs: [doc.term], closure: [plugins/g/contract.json] }',
   '',

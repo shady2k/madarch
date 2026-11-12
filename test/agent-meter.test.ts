@@ -304,7 +304,7 @@ describe('the bounds a product declares for its plugins', () => {
       '    fields:',
       '      - { name: name, type: text, binding: "g@1.name" }',
       '    key: [name]',
-      '    depends-on: []',
+      '    derives-from: []',
       'plugins:',
       `  - { id: g, version: 1, path: plugins/g, inputs: [doc.term], outputs: [doc.term], closure: [plugins/g/contract.json]${bounds} }`,
       '',
