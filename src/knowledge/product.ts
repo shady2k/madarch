@@ -43,7 +43,7 @@ import { withHistoryLinks, type HistoryContext, type HistorySelection } from './
 import { graphMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
-import { readTraceRun, readTraceSpans } from '../obs/trace-report.js';
+import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
@@ -2191,7 +2191,7 @@ export class KnowledgeProduct {
     // A running fill says what its own trace says it has done (madarch-8bdc.2.5, item 2): the
     // counts are read from the run's file as it is written, never kept as a second count here.
     if (this.fill.state === 'running') {
-      const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(this.storeFolder(), this.fillRunId);
+      const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(this.storeFolder(), this.fillRunId, this.traceReader);
       return progress === undefined ? this.fill : { ...this.fill, progress };
     }
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
@@ -2206,6 +2206,8 @@ export class KnowledgeProduct {
       ...this.fillExtras,
     };
   }
+
+  private readonly traceReader = new TraceSpanReader();
 
   /** The newest run's trace as the run page states it, or null when the store holds no trace. */
   private runViewMemo: { key: string; view: FillRunView | null } | undefined;
@@ -2229,7 +2231,7 @@ export class KnowledgeProduct {
     if (this.runViewMemo?.key === key) return this.runViewMemo.view;
     if (chosen === undefined) return null;
     try {
-      const run = readTraceRun({ store: this.storeFolder(), runId: chosen });
+      const run = readTraceRunSummary({ store: this.storeFolder(), runId: chosen }, this.traceReader);
       const view: FillRunView = {
         runId: run.runId,
         startedAt: new Date(run.startedAtMs).toISOString(),

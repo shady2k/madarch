@@ -13,7 +13,7 @@
  * records, which is a defect of the instrumentation, not a fact about the
  * work.
  */
-import { readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { raise } from '../model/raise.js';
 import { traceFiles, withSpanSync } from './trace.js';
@@ -178,9 +178,12 @@ function valueOf(attribute: { readonly value?: Record<string, unknown> }): unkno
 
 /** The spans one trace file holds, in the order it wrote them. A line that is not a span is refused by its file and line. */
 export function readTraceSpans(file: string): TraceSpan[] {
-  const text = readFileSync(file, 'utf8');
+  return parseTraceSpans(readFileSync(file, 'utf8'), file);
+}
+
+function parseTraceSpans(text: string, file: string, line = 0): TraceSpan[] {
   const spans: TraceSpan[] = [];
-  let at = 0;
+  let at = line;
   for (const line of text.split('\n')) {
     at += 1;
     if (line.trim() === '') continue;
@@ -205,6 +208,47 @@ export function readTraceSpans(file: string): TraceSpan[] {
     });
   }
   return spans;
+}
+
+/** A live trace is append-only. Keep its parsed prefix, not another record of the run's counters. */
+export class TraceSpanReader {
+  private held: { file: string; dev: number; ino: number; size: number; mtime: number; offset: number; lines: number; spans: TraceSpan[] } | undefined;
+
+  read(file: string): TraceSpan[] {
+    const fd = openSync(file, 'r');
+    try {
+      const stat = fstatSync(fd);
+      const previous = this.held;
+      const held = previous !== undefined && previous.file === file && previous.dev === stat.dev && previous.ino === stat.ino
+        && stat.size >= previous.size && (stat.size !== previous.size || stat.mtimeMs === previous.mtime)
+        ? previous : { file, dev: stat.dev, ino: stat.ino, size: 0, mtime: 0, offset: 0, lines: 0, spans: [] };
+      const bytes = Buffer.alloc(stat.size - held.offset);
+      let read = 0;
+      while (read < bytes.length) {
+        const count = readSync(fd, bytes, read, bytes.length - read, held.offset + read);
+        if (count === 0) break;
+        read += count;
+      }
+      const content = bytes.subarray(0, read);
+      const end = content.lastIndexOf(10) + 1;
+      const text = content.subarray(0, end).toString('utf8');
+      const added = parseTraceSpans(text, file, held.lines);
+      // Leave the unterminated suffix unread until its writer completes the line.
+      held.spans.push(...added);
+      held.offset += end;
+      held.lines += text.split('\n').length - 1;
+      held.size = stat.size;
+      held.mtime = stat.mtimeMs;
+      this.held = held;
+      const tail = content.subarray(end).toString('utf8');
+      if (tail.trim() === '') return held.spans;
+      // A complete record need not have its newline yet. An incomplete append is retried next time.
+      try { JSON.parse(tail); } catch { return held.spans; }
+      return [...held.spans, ...parseTraceSpans(tail, file, held.lines)];
+    } finally {
+      closeSync(fd);
+    }
+  }
 }
 
 interface Interval { readonly start: number; readonly end: number }
@@ -263,14 +307,11 @@ function indexSpans(spans: readonly TraceSpan[]): SpanIndex {
   return { byId, childMs };
 }
 
-/** What the spans say: the one function the command and the wiki's page both call. */
-export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
-  return traceReportFrom(spans, file, indexSpans(spans));
-}
+export type TraceSummary = Pick<TraceReport, 'spanCount' | 'wallMs' | 'names' | 'agentUsage'>;
 
-function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanIndex): TraceReport {
-  const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
-  const { byId, childMs } = index;
+/** The live run's projection shares the detailed report's self-time calculation without its diagnostics. */
+export function traceSummaryOf(spans: readonly TraceSpan[], index = indexSpans(spans)): TraceSummary {
+  const { childMs } = index;
   // The wall clock runs from the earliest span of the run to the last: the trace of one run is one window.
   const from = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
   const to = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
@@ -286,6 +327,22 @@ function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanI
     .map(([name, held]) => ({ name, count: held.count, selfMs: held.selfMs, percent: wallMs === 0 ? 0 : (held.selfMs / wallMs) * 100 }))
     .sort((left, right) => right.selfMs - left.selfMs || (left.name < right.name ? -1 : 1))
     .slice(0, 20);
+
+  return { spanCount: spans.length, wallMs, names, agentUsage: agentUsageOf(spans) };
+}
+
+/** What the spans say: the one function the command and the wiki's page both call. */
+export function traceReportOf(spans: readonly TraceSpan[], file: string): TraceReport {
+  return traceReportFrom(spans, file, indexSpans(spans));
+}
+
+function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanIndex): TraceReport {
+  const runId = file.split('/').pop()?.replace(/\.jsonl$/u, '') ?? '';
+  const { byId } = index;
+  const summary = traceSummaryOf(spans, index);
+  const { wallMs, names } = summary;
+  const from = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
+  const to = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
 
   const memory = topSpans(spans, (left, right) =>
     (rssOf(right, 'end') - rssOf(right, 'start')) - (rssOf(left, 'end') - rssOf(left, 'start')) || rssOf(right, 'end') - rssOf(left, 'end'))
@@ -327,7 +384,7 @@ function traceReportFrom(spans: readonly TraceSpan[], file: string, index: SpanI
     uncoveredMs, uncoveredPercent: wallMs === 0 ? 0 : (uncoveredMs / wallMs) * 100,
     gaps: gaps.slice(0, 10),
     slowest,
-    agentUsage: agentUsageOf(spans),
+    agentUsage: summary.agentUsage,
   };
 }
 
@@ -440,19 +497,28 @@ export interface TraceRunReport {
 }
 
 /** One run of a store's trace: the named run, or the newest. The file is read once for both reports. */
-export function readTraceRun(options: { readonly store: string; readonly runId?: string }): TraceRunReport {
+export function readTraceRun(options: { readonly store: string; readonly runId?: string }, reader?: TraceSpanReader): TraceRunReport {
+  return readRun(options, reader, traceReportFrom);
+}
+
+/** The exact report fields the live run page consumes; the detailed CLI diagnostics are not collected. */
+export function readTraceRunSummary(options: { readonly store: string; readonly runId?: string }, reader?: TraceSpanReader): Omit<TraceRunReport, 'report'> & { report: TraceSummary } {
+  return readRun(options, reader, (spans, _file, index) => traceSummaryOf(spans, index));
+}
+
+function readRun<T>(options: { readonly store: string; readonly runId?: string }, reader: TraceSpanReader | undefined, report: (spans: readonly TraceSpan[], file: string, index: SpanIndex) => T): Omit<TraceRunReport, 'report'> & { report: T } {
   const files = traceFiles(options.store);
   if (files.length === 0) raise(`the store holds no trace: its traces are one JSON lines file per run in ${join(options.store, 'traces')}, and a fill writes one`);
   const chosen = options.runId === undefined ? files[0]! : files.find((one) => one.runId === options.runId || one.file.endsWith(`/${traceFileNameOf(options.runId!)}`));
   if (chosen === undefined) raise(`the store holds no trace of run ${JSON.stringify(options.runId)}; its runs are ${files.map((one) => JSON.stringify(one.runId)).join(', ')}`);
-  const spans = withSpanSync('trace.read', {}, () => readTraceSpans(chosen.file));
+  const spans = withSpanSync('trace.read', {}, () => reader === undefined ? readTraceSpans(chosen.file) : reader.read(chosen.file));
   const index = withSpanSync('trace.index', {}, () => indexSpans(spans));
   const startedAt = spans.length === 0 ? 0 : spans.reduce((first, span) => Math.min(first, span.start), Number.POSITIVE_INFINITY);
   const endedAt = spans.length === 0 ? 0 : spans.reduce((last, span) => Math.max(last, span.end), Number.NEGATIVE_INFINITY);
   return {
     file: chosen.file,
     runId: chosen.runId,
-    report: withSpanSync('trace.report', {}, () => traceReportFrom(spans, chosen.file, index)),
+    report: withSpanSync('trace.report', {}, () => report(spans, chosen.file, index)),
     steps: withSpanSync('trace.steps', {}, () => stepReportsOf(spans, index)),
     startedAtMs: startedAt,
     endedAtMs: endedAt,
