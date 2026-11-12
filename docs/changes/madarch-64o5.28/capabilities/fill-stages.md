@@ -327,26 +327,94 @@ file is the product's manifest, `workspace.yaml` (decision 0021).
   not judged by derivation: they say what a publication replaces and what it
   rechecks, which is the orchestrator's publication step (madarch-tzte.19.5).
 
-## Requirement: plugin-declarations — Fill work follows kind and plugin declarations only
-Kinds shall declare derives-from prerequisites. Plugins shall declare nonempty
-produces, reads, optional refines and optional concurrency limits as specified
-in docs/changes/madarch-64o5.28/contract.md. Startup shall refuse undeclared
-output, unordered overlapping writers and cycles with filename and line.
-Every selected kind shall be produced, including by the general agent plugin.
-Selection shall include only requested kinds and their transitive prerequisites.
-Facts shall retain sources; pages shall show the last refinement opinion.
+## Requirement: plugin-declarations — Plugins declare output, input and refinement
 
-### Scenario: selection-direction
-- Given: summary derives from source and report derives from summary
-- When: summary is selected in the wiki or CLI
-- Then: source and summary are filled, and report is not selected
+Each kind shall declare `derives-from`, replacing `depends-on`, as its prerequisite
+kind IDs. Each enabled plugin shall declare nonempty `produces` entries naming a
+kind and either all fields or explicit declared fields, plus `reads`. Optional
+`refines` names earlier producers and optional positive `concurrency` limits its
+own simultaneous work. Wildcard output expands against the product catalogue.
+The engine shall not classify plugins by handler type or numeric stage order.
+The complete manifest syntax is in `../contract.md` of this change.
+
+### Scenario: declare-input-output
+- Given: summary derives from source and its plugin produces summary while reading source
+- When: the product declarations are loaded
+- Then: those declarations alone identify the prerequisites and producers
+
+### Scenario: output-required
+- Given: an enabled checking plugin declares no output
+- When: startup validates the plugin declarations
+- Then: it refuses at the plugin manifest filename and line, asking for output including Problem records for checks
+
+### Scenario: invalid-declaration
+- Given: declarations name an unknown kind, unknown field, unknown refinement target or nonpositive concurrency
+- When: startup validates them before accepting a fill
+- Then: it refuses naming the invalid declaration's filename and source line rather than queueing work
+
+## Requirement: plugin-order — Declared reads and refinement order the work
+
+A reader shall follow every other producer of the kind it reads, except producers
+explicitly downstream of that reader in its direct or transitive refinement
+chain. Reads consume the prerequisite/base opinion, not the reader's own later
+refinement. Refinement shall order the earlier producer before the refining plugin. Overlapping field writers
+must have a refinement relation; read ordering alone does not resolve conflicting
+opinions. Startup shall refuse cycles and unordered overlapping writers before
+running plugins, naming involved plugins and declaration filenames and lines.
+Unrelated ready work may run in parallel within each plugin's concurrency limit.
+Facts retain their plugin source and evidence; the displayed field comes from
+the last producer in its refinement chain, not completion order.
+
+### Scenario: read-order
+- Given: disk produces files and git reads files to produce history
+- When: fill work is planned
+- Then: disk precedes git without a numeric priority
+
+### Scenario: downstream-refiner-read
+- Given: a base plugin reads source and general-agent produces source while explicitly refining that base plugin
+- When: producer read edges are derived
+- Then: no reverse read edge from general-agent to the base plugin is added, and the base precedes its refiner
 
 ### Scenario: conflicting-writers
 - Given: two enabled plugins produce the same field with no refinement relation
 - When: a fill is requested
 - Then: startup refuses naming both plugins, files and lines before executing either
 
-### Scenario: general-producer
-- Given: a selected kind has no dedicated producer and a scripted agent is selected
-- When: its fill is requested
-- Then: the general agent plugin fills it from its description with the selected cap
+### Scenario: cycle-refusal
+- Given: enabled plugin reads or refinements form a cycle
+- When: a fill is requested
+- Then: startup refuses with the cycle path before launching any plugin
+
+### Scenario: refine-with-sources
+- Given: a dedicated plugin and a later declared refining plugin publish the same field
+- When: the page is read after publication
+- Then: it shows the refining opinion and preserves both facts' sources and evidence
+
+### Scenario: independent-work
+- Given: two ready plugins have no dependency relation and each permits concurrent work
+- When: their units are scheduled
+- Then: they may run in parallel without an engine-defined plugin ranking
+
+## Requirement: plugin-selection — Selection follows prerequisites, never dependants
+
+Wiki and CLI shall use the same prerequisite selection function: requested kinds
+and their transitive `derives-from` prerequisites only. Unknown prerequisites and
+cycles are refused by the engine rather than silently dropping work. A selected
+kind without a runnable producer shall be refused before acceptance. The ordinary
+general agent plugin declares wildcard production and refines other producers,
+so a kind without a dedicated producer still has a declared filler.
+
+### Scenario: selection-direction
+- Given: summary derives from source and report derives from summary
+- When: summary is selected in the wiki or CLI
+- Then: source and summary are selected, and report is not selected
+
+### Scenario: transitive-selection
+- Given: report derives from summary which derives from source
+- When: report is selected
+- Then: report, summary and source are selected once each
+
+### Scenario: unavailable-producer
+- Given: the selected kind has no enabled runnable producer
+- When: a fill is requested
+- Then: it is refused with the kind and declaration location rather than accepted with zero work

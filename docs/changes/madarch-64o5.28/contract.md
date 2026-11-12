@@ -75,8 +75,13 @@ No accepted run may silently have zero work for a selected kind.
 ## Ordering, facts and selection
 
 Expand kind wildcards against the pinned catalogue. A plugin reading a kind
-runs after every producer of that kind, except its own production. Refinement
-adds an edge from the refined producer to the refining producer. Order follows
+runs after every producer of that kind, except its own production and producers
+explicitly downstream of that reader in the direct or transitive refinement
+chain. Reads consume the prerequisite/base opinion, not that reader's own later
+refinement. This prevents the ordinary wildcard refiner from creating a reverse
+read edge to every base producer. Refinement adds an edge from the refined
+producer to the refining producer. Unrelated read cycles and contradictory
+refinement declarations remain startup errors. Order follows
 only these declarations; ready unrelated plugins may run in parallel subject
 to their concurrency limits. Refuse cycles before any plugin is launched.
 Two overlapping writers must be comparable in the refinement chain, even if
