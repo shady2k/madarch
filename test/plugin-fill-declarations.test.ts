@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { parsePluginManifest } from '../src/plugin/closure.js';
-import { planFillDeclarations } from '../src/plugin/fill-declarations.js';
+import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
+import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
 function plugin(name: string, extra: Record<string, unknown> = {}) {
@@ -75,4 +76,18 @@ test('kind prerequisite edges combined with plugin reads still refuse genuine un
     plugin('source', { reads: ['summary'] }),
     plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] }),
   ] })).toThrow(/fill declarations form a cycle/);
+});
+
+test('whole manifest fills validate declared plugin outputs, not unrelated native kinds', () => {
+  const producer = plugin('writer');
+  const manifest = {
+    file: '/product/madarch/kinds.yaml',
+    kinds: new Map([
+      ['note', { name: 'note', fields: [{ name: 'title' }, { name: 'body' }], line: 4 }],
+      ['native', { name: 'native', fields: [], line: 8 }],
+    ]),
+    plugins: new Map([['writer', { id: 'writer', declaration: producer.manifest, declarationFile: producer.file, declarationText: producer.text }]]),
+  } as unknown as KindsManifest;
+  expect(planManifestFill(manifest, '/product').order).toEqual(['writer']);
+  expect(() => planManifestFill(manifest, '/product', ['native'])).toThrow(/selected kind native has no enabled producer/);
 });

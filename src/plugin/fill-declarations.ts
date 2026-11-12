@@ -157,10 +157,11 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       throw new ClosureRefusal('fill-declaration', `${file}:1: plugin ${plugin.id} declares no output; declare produces, including Problem records for checks`, file);
     }
   }
+  const requested = selectedKinds ?? [...new Set([...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration!.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])))];
   return planFillDeclarations({
     kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
     plugins: [...(manifest.plugins?.values() ?? [])].filter((plugin) => plugin.declaration !== undefined).map((plugin) => ({ manifest: plugin.declaration!, file: plugin.declarationFile ?? resolve(folder, plugin.path ?? '', 'plugin.json'), text: plugin.declarationText })),
-    ...(selectedKinds === undefined ? {} : { selectedKinds }),
+    selectedKinds: requested,
     ...(agentSelected === undefined ? {} : { agentSelected }),
   });
 }
