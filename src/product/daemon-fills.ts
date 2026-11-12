@@ -17,6 +17,8 @@ export interface DaemonFills {
   status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null>;
   /** The product's newest run as the fill progress reads it, or null when it never ran. */
   progress(folder: string): Promise<FillProgressAnswer | null>;
+  /** Whether this product completed a successful fill; catalogue publication is not a fill. */
+  filled(folder: string): Promise<boolean>;
   /** Whether a product fills now, read from its store's chain (asked before an update is started). */
   activity(request: { readonly product: FillProduct }): Promise<FillActivity>;
   /** A person's pause or stop of one run, or null when the store holds no such run. */
@@ -166,6 +168,12 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       const read = readProduct(resolve(folder));
       if (!read.ok) throw new Error(`the fill progress of ${folder} cannot name its product: ${read.file}:${String(read.line)}: ${read.message}`);
       return await fillProgressOf(held.owner, read.product.name);
+    },
+    async filled(folder: string): Promise<boolean> {
+      const held = await opened(folder);
+      if (held === undefined) return false;
+      const { hasSuccessfulFill } = await import('../fill/state-store.js');
+      return await hasSuccessfulFill(held.owner);
     },
     async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
       const held = await opened(request.product.folder);
