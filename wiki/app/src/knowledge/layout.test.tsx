@@ -119,7 +119,7 @@ describe('the groups of the manifest', () => {
     // The catalogue counts every entity of the parent's branch; a kind with a page of its own is not drawn as a row,
     // but its entities are neither lost from the parent's total (the review).
     expect(groups.map((entry) => entry.group)).toEqual(['business']);
-    expect(groups[0]!.subgroups.map((entry) => entry.group)).toEqual(['domains']);
+    expect(groups[0]!.subgroups.map((entry) => [entry.group, entry.total])).toEqual([['overview', 1], ['domains', 2]]);
     expect(groups[0]!.total).toBe(3);
   });
 
@@ -161,6 +161,60 @@ describe('the front page', () => {
 });
 
 describe('the menu', () => {
+  for (const phase of ['before fill', 'selective fill', 'after fill'] as const) test(`every declared section stays visible with its count and empty style ${phase}`, async () => {
+    const populated = phase === 'after fill';
+    const selected = phase !== 'before fill';
+    const groups = [
+      { group: 'alpha', labels: { en: 'Alpha' }, open: true },
+      { group: 'alpha.direct', labels: { en: 'Direct' }, parent: 'alpha' },
+      { group: 'alpha.empty', labels: { en: 'Empty child' }, parent: 'alpha' },
+      { group: 'beta', labels: { en: 'Beta' }, open: true },
+      { group: 'gamma', labels: { en: 'Catalogue only' }, open: true },
+      { group: 'vacant', labels: { en: 'No kinds' }, open: true },
+    ];
+    const kinds = [
+      kind({ kind: 'sample.direct', group: 'alpha.direct', count: selected ? 3 : 0 }),
+      kind({ kind: 'sample.other', group: 'beta', count: populated ? 2 : 0 }),
+      kind({ kind: 'sample.hidden', group: 'gamma', page: false, count: populated ? 4 : 0 }),
+    ];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/status')) return json(status({ filled: selected, groups, kinds }));
+      if (url.endsWith('/api/products')) return json({ products: [] });
+      if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-testid=nav-scroll]') !== null, 'the sidebar');
+    const top = [...app.querySelectorAll('[data-nav-group]')];
+    expect(top.map((entry) => entry.getAttribute('data-nav-group'))).toEqual(['alpha', 'beta', 'gamma', 'vacant']);
+    const children = [...app.querySelectorAll('[data-nav-subgroup]')];
+    expect(children.map((entry) => entry.getAttribute('data-nav-subgroup'))).toEqual(['alpha.direct', 'alpha.empty']);
+    const totals = [selected ? 3 : 0, populated ? 2 : 0, populated ? 4 : 0, 0];
+    for (const [index, entry] of top.entries()) {
+      const trigger = entry.querySelector('[data-testid=nav-group]')!;
+      expect(trigger.querySelector('[data-testid=nav-group-count]')!.textContent).toBe(String(totals[index]));
+      expect(trigger.getAttribute('data-empty')).toBe(String(totals[index] === 0));
+      expect(trigger.classList.contains('opacity-60')).toBe(totals[index] === 0);
+      expect(trigger.classList.contains('text-muted')).toBe(totals[index] === 0);
+      expect(trigger.classList.contains('text-ink')).toBe(totals[index] !== 0);
+    }
+    for (const [index, entry] of children.entries()) {
+      const heading = entry.querySelector('[data-testid=nav-subgroup-count]')!.parentElement!;
+      const total = index === 0 && selected ? 3 : 0;
+      expect(heading.querySelector('[data-testid=nav-subgroup-count]')!.textContent).toBe(String(total));
+      expect(heading.getAttribute('data-empty')).toBe(String(total === 0));
+      expect(heading.classList.contains('opacity-60')).toBe(total === 0);
+    }
+    expect(app.querySelector('[data-nav-kind="sample.hidden"]')).toBeNull();
+    expect(app.querySelector('[data-nav-kind="sample.direct"]') !== null).toBe(selected);
+    expect(app.querySelector('[data-nav-kind="sample.other"]') !== null).toBe(populated);
+    const waiting = app.querySelector('[data-testid=nav-problems]')!;
+    expect(waiting.getAttribute('data-empty')).toBe('true');
+    expect(waiting.querySelector('[data-testid=nav-problems-count]')).toBeNull();
+  });
+
   test('with no fill the home is the introduction, even when the product files hold a home page', async () => {
     let askedPage = false;
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
