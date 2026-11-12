@@ -23,7 +23,7 @@ export async function activateTestProduct(folder: string, home: string, knowledg
 export async function startPreparedServer(options: Parameters<typeof startServer>[0]): Promise<StartedServer> {
   const home = options.productHome ?? (options.productFolder === undefined ? undefined : dirname(options.productFolder));
   if (home === undefined) throw new Error(`${import.meta.filename}:21: a prepared fixture server requires productHome or productFolder`);
-  const closeOwner = await retainOwner();
+  const closeOwner = await retainTestStorePreparationOwner();
   try {
     const listed = listProducts({ home });
     if (listed.outcome !== 'listed') throw new Error(`${import.meta.filename}:32: cannot list fixture products: ${listed.message}`);
@@ -40,7 +40,7 @@ export async function startPreparedServer(options: Parameters<typeof startServer
 
 // Several fixture servers may coexist (for example, two products homes sharing the own wiki).
 let sharedOwner: { users: number; ready: Promise<void>; done: Promise<void>; release: () => void; url: string; token: string } | undefined;
-async function retainOwner(): Promise<() => Promise<void>> {
+export async function retainTestStorePreparationOwner(): Promise<() => Promise<void>> {
   if (sharedOwner === undefined) {
     let opened!: () => void;
     let refused!: (error: unknown) => void;

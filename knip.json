@@ -9,6 +9,7 @@
     "test/questions-once-browser-check.ts",
     "test/postgres-cluster-owner-driver.ts",
     "test/queue-binary-driver.ts",
+    "test/ci-template-fixture.ts",
     "test/run-scratch.ts",
     "test/run-postgres.ts",
     "test/test-database.ts",

@@ -8,6 +8,12 @@ import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const CLI = join(import.meta.dir, '..', 'scripts', 'madarch.ts');
@@ -22,7 +28,7 @@ function commit(folder: string, message: string): void {
 }
 
 describe('test quarantine through a real fill', () => {
-  test('the catalogue and rendered page gain a quarantine, then lose it after a committed repair', async () => {
+  test('the catalogue and rendered page gain a quarantine, then lose it after a committed repair', async () => await withStorePreparationOwner(async () => {
     const work = mkdtempSync(join(tmpdir(), 'madarch-quarantine-fill-'));
     const previousSandbox = process.env['MADARCH_PLUGIN_SANDBOX'];
     process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
@@ -30,7 +36,7 @@ describe('test quarantine through a real fill', () => {
       const home = join(work, 'home');
       const draft = createDraft({ home, name: 'quarantine-shop', gitEnv: gitEnv(IDENTITY), template: 'quarantine-fixture', templates: [{
         id: 'quarantine-fixture', title: { en: 'Quarantine', ru: 'Карантин' }, description: { en: 'Fixture', ru: 'Fixture' },
-        kinds: ['code.repository', 'code.directory', 'code.file', 'code.test-case', 'code.commit', 'task', 'code.test-quarantine'],
+        kinds: ['code.repository', 'code.directory', 'code.file', 'code.test-case', 'code.commit', 'task', 'code.test-quarantine', 'template'],
       }] });
       if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
       const folder = draft.folder;
@@ -50,18 +56,24 @@ describe('test quarantine through a real fill', () => {
       writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
       commit(folder, 'Link the application');
 
-      function fill(): void {
-        const answer = Bun.spawnSync([process.execPath, CLI, 'fill', '--product', folder, '--home', home, '--entity', 'code.test-quarantine'], {
+      async function fill(): Promise<void> {
+        const answer = Bun.spawn([process.execPath, CLI, 'fill', '--product', folder, '--home', home, '--entity', 'code.test-quarantine'], {
           env: { ...process.env, HOME: home }, stdout: 'pipe', stderr: 'pipe',
         });
-        console.log(new TextDecoder().decode(answer.stdout), new TextDecoder().decode(answer.stderr));
-        if (answer.exitCode !== 0) throw new Error(`fill failed (${answer.exitCode}): ${new TextDecoder().decode(answer.stdout)}\n${new TextDecoder().decode(answer.stderr)}`);
+        const [stdout, stderr, exitCode] = await Promise.all([new Response(answer.stdout).text(), new Response(answer.stderr).text(), answer.exited]);
+        if (exitCode !== 0) throw new Error(`fill failed (${exitCode}): ${stdout}\n${stderr}`);
       }
       function reader(): KnowledgeProduct {
         return new KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
       }
 
-      fill();
+      await fill();
+      const owner = await createTestDatabaseOwner({
+        store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))),
+        graphContract: withManifestContract(await readPinnedGraphContract(folder)),
+      });
+      try { await publishFixtureTemplate(owner, folder, 'templates/test-quarantine.liquid'); }
+      finally { await owner.close(); }
       let pageId: string;
       const first = reader();
       try {
@@ -80,7 +92,7 @@ describe('test quarantine through a real fill', () => {
 
       writeFileSync(file, `test('${name}', () => {});\n`);
       commit(repository, 'Repair the payment test and remove quarantine');
-      fill();
+      await fill();
       const second = reader();
       try {
         expect((await second.catalog()).kinds.find(kind => kind.kind === 'code.test-quarantine')?.count).toBe(0);
@@ -92,5 +104,5 @@ describe('test quarantine through a real fill', () => {
       else process.env['MADARCH_PLUGIN_SANDBOX'] = previousSandbox;
       rmSync(work, { recursive: true, force: true });
     }
-  }, 900_000);
+  }), 900_000);
 });

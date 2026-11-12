@@ -17,6 +17,7 @@ import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { installOwnWiki } from '../src/product/own-wiki.js';
 import { makeWikiRepository, ownGit } from './own-wiki-fixture.js';
+import { publishFixtureOpinions, publishSamplePageOpinions } from './knowledge-page-opinions.js';
 
 const MANIFEST = (roles: string): string => `groups:\n  product: { en: Product, ru: Продукт }\n  code: { en: Code, ru: Код }\nkinds:\n  product:\n    template: templates/product.md\n    source: markdown\n    file: docs/product.md\n${roles}`;
 
@@ -134,8 +135,10 @@ describe('the products-home server with madarch\'s own wiki', () => {
     }
     if (started.status !== 202) throw new Error(`the fill of ${name} answered ${started.status}`);
     for (let attempt = 0; attempt < 1200; attempt += 1) {
-      const state = (await get(server, `/products/${name}/api/status`)).body.fill?.state as string | undefined;
-      if (state !== 'running') return;
+      const status = (await get(server, `/products/${name}/api/status`)).body;
+      const state = status.fill?.state as string | undefined;
+      if (state === 'failed') throw new Error(`the fill of ${name} failed: ${JSON.stringify(status.fill)}; ${errors.join('\n')}`);
+      if (state === 'done') return;
       await new Promise((rest) => setTimeout(rest, 100));
     }
     throw new Error(`the fill of ${name} did not end`);
@@ -174,9 +177,20 @@ describe('the products-home server with madarch\'s own wiki', () => {
         await new Promise((rest) => setTimeout(rest, 500));
       }
     }
-    // Each server's own wiki is a product repository: its pages are the graph's, so a fill stores it once here.
+    // Fill the repository facts once; the explicit fixture opinions below supply its pages.
     for (const server of [empty, busy]) await fillProduct(server, 'madarch-wiki');
     await fillProduct(busy, 'my-product');
+    // This fixture deliberately runs only repository stages, not an external extraction agent.
+    // Publish its explicit page and person-authored glossary opinions at the fixture write boundary.
+    for (const root of [join(work, 'store-a'), join(work, 'store-b')]) {
+      await publishSamplePageOpinions(installed.folder, root, [{ kind: 'product', slug: 'docs', title: 'Example docs', file: 'docs/product.md', body: 'The example tool keeps a manifest for every product.', relates: [], sources: [] }]);
+      await publishFixtureOpinions(installed.folder, root, [
+        { kind: 'template', key: { path: 'templates/product.liquid' }, values: { template_parts: [{ type: 'block', name: 'properties', params: { title: 'Details' }, line: 1 }] } },
+        { kind: 'doc.term', key: {}, values: { title: 'Manifest', body: 'The file that tells the wiki which kinds a product has.', legacy_id: null, front: null } },
+        { kind: 'doc.term', key: {}, values: { title: 'Payment token', body: 'The proof a provider returns when it captured money.', legacy_id: null, front: null } },
+        { kind: 'doc.term', key: {}, values: { title: 'Capture', body: 'The moment the money is taken from the card.', legacy_id: null, front: null } },
+      ]);
+    }
   }, 300_000);
 
   afterAll(async () => {
@@ -222,8 +236,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
 
   test("the own wiki is documentation: its own repository is filled like a product's, and it has no start over", async () => {
     // The pages are the graph's (madarch-hsqs stage C): the install filled its repository, and a press fills it again.
-    const fill = await get(busy, '/products/madarch-wiki/api/fill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    expect([202, 409]).toContain(fill.status);
+    await fillProduct(busy, 'madarch-wiki');
     const status = await get(busy, '/products/madarch-wiki/api/status');
     expect(status.body.filled).toBe(true);
     expect((await get(busy, '/products/madarch-wiki/api/reset', { method: 'POST' })).status).toBe(403);
@@ -232,8 +245,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
   test("the glossary reads the store: the terms are the ones the fill stored from the wiki's own glossary", async () => {
     const answer = await get(busy, '/products/madarch-wiki/api/glossary');
     if (answer.status !== 200) throw new Error(`the glossary answered ${answer.status} ${JSON.stringify(answer.body)}; the server said:\n${errors.join('\n')}`);
-    // The terms are the graph's, written by the files producer's plugin turn (madarch-hsqs stage C): never a request-time
-    // read of the checkout.
+    // The terms are the explicit fixture opinions in the graph, never a request-time read of the checkout.
     const terms = answer.body.terms as { definition: string }[];
     expect(terms.length).toBeGreaterThan(0);
     expect(terms.some((term) => term.definition.includes('money is taken'))).toBe(true);

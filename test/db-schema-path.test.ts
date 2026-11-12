@@ -24,6 +24,16 @@ import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import type { DiagramsBlockShape } from '../src/knowledge/views.js';
 import { gitEnv } from './git-env.js';
+import { parseDocument } from 'yaml';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { retainTestStorePreparationOwner } from './prepared-server.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const PLUGINS = fileURLToPath(new URL('..', import.meta.url));
@@ -146,6 +156,8 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       expect(declared.map((edge) => edge.to.key)).toEqual([{ repository: 'app', path: 'src/schema.ts' }, { repository: 'app', path: 'src/schema.ts' }]);
       const parent = outcome.result.vertices.find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'parent');
       expect(parent?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts' });
+      const child = outcome.result.vertices.find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'child');
+      expect(child?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE });
     } finally {
       await session.close();
     }
@@ -214,6 +226,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
   let work: string;
   let folder: string;
   let product: KnowledgeProduct;
+  let closeOwner: (() => Promise<void>) | undefined;
 
   /** Runs one fill of the product and waits for it. */
   async function refill(): Promise<void> {
@@ -236,6 +249,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
     const kindsPath = join(folder, 'madarch', 'kinds.yaml');
     writeFileSync(kindsPath, readFileSync(kindsPath, 'utf8').replaceAll('terms: ["**/*.ts", "**/*.tsx"]', 'terms: ["src/**/*.ts"]'));
+    const kinds = parseDocument(readFileSync(kindsPath, 'utf8'));
+    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, binding: { agent: 'The structured source excerpt a page shows.' } });
+    writeFileSync(kindsPath, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
     git(code, 'add', '-A');
     git(code, 'commit', '--quiet', '-m', 'First commit');
@@ -243,12 +259,49 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     git(folder, 'add', '-A');
     git(folder, 'commit', '--quiet', '-m', 'Connect the code repository');
+    closeOwner = await retainTestStorePreparationOwner();
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
     await refill();
+    const owner = await createTestDatabaseOwner({
+      store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
+      graphContract: withManifestContract(await readPinnedGraphContract(folder)),
+    });
+    try {
+      const read = readKinds(folder);
+      if (!read.present) throw new Error('the fixture manifest is absent');
+      const contract = graphContractOf(read.manifest);
+      // Source excerpts are explicit opinions now; the plugin's evidence location is checked above independently.
+      await owner.transaction('write', async (tx) => {
+        const journal = journalFor('db-schema@1.0.0');
+        const node = await ensureVertex(tx, contract, { kind: 'code.table', key: { database: 'app', name: 'child' } }, 1, journal);
+        const table = contract.vertex.find((kind) => kind.name === 'code.table')!;
+        const existing = await tx.query<{ unsupported: string | null; schema: string | null }>(`SELECT unsupported, schema FROM ${table.table} WHERE node_id = $1::bigint AND state = 'open'`, [node.nodeId]);
+        await publishOpinion(tx, contract, {
+          kind: 'code.table', nodeId: node.nodeId, producer: 'db-schema', producerVersion: '1.0.0',
+          values: { ...existing.rows[0], source: { text: SOURCE, language: 'typescript', truncated: false, location: {
+            repo: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE, lineEnd: CHILD_LINE,
+            href: '/source/app/src/schema.ts',
+          } } },
+        }, 1, journal);
+        await writeJournal(tx, journal);
+      });
+      await publishFixtureTemplate(owner, folder, 'templates/database.liquid', [
+        { type: 'text', text: 'Static reading shows tables explicitly declared in code. Tables generated at run time are not shown until the agent fill; this is not the complete database schema.', line: 1 },
+        { type: 'block', name: 'properties', params: { title: 'Details' }, line: 2 },
+        { type: 'block', name: 'er', params: { title: 'Tables and their links', limit: '60' }, line: 3 },
+      ]);
+      await publishFixtureTemplate(owner, folder, 'templates/table.liquid', [
+        { type: 'block', name: 'properties', params: { title: 'Details' }, line: 1 },
+        { type: 'block', name: 'source', params: { title: 'Source' }, line: 2 },
+        { type: 'block', name: 'children', params: { title: 'Columns', kind: 'code.column', prefix: 'code.column:app/child/', relation: 'code.has-column', limit: '200' }, line: 3 },
+        { type: 'block', name: 'children', params: { title: 'Indexes', kind: 'code.index', prefix: 'code.index:app/child/', relation: 'code.has-index' }, line: 4 },
+      ]);
+    } finally { await owner.close(); }
   }, 300_000);
 
   afterAll(async () => {
     await product?.close();
+    await closeOwner?.();
     rmSync(work, { recursive: true, force: true });
   });
 

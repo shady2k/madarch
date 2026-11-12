@@ -124,7 +124,7 @@ describe('the starter set madarch new seeds', () => {
     expect(read.manifest.findings).toEqual([]);
     expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['product', 'domain']));
     expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['doc.use-case', 'doc.rule', 'doc.decision', 'doc.term', 'code.service', 'code.module', 'code.file', 'code.symbol', 'code.route', 'code.table', 'code.env-var', 'code.ci-job', 'code.test-case']));
-    expect(homeKind(read.manifest)).toBeUndefined();
+    expect(homeKind(read.manifest)?.name).toBe('product');
     expect(read.manifest.kinds.get('product')?.source).toBe('graph');
 
   });
