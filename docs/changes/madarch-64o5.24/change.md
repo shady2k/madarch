@@ -92,8 +92,26 @@ must not remain in the accepted change.
   `https://github.com/oven-sh/bun/blob/bun-v1.4.2/src/runtime/cli/test/Timings.rs#L149-L181`
   and the serial iteration at
   `https://github.com/oven-sh/bun/blob/bun-v1.4.2/src/runtime/cli/test_command.rs#L2738-L2782`.
-- Green, regression checks, mutation evidence, and independent review are not
-  yet recorded. The document is a proposal, not a completed acceptance claim.
+- Red-to-green scope: the red above is the existing first active case. The
+  originally quarantined case did not run in that baseline; no red result for
+  it is claimed. The restored original case's green result complements, rather
+  than replaces, the first active case's regression evidence.
+- Targeted green in the diagnostic shard after closing the preceding file's
+  histories: the original quarantined store-version case, temporarily enabled
+  for measurement, passed in 744.48 ms. Its phases were clone 315 ms, owner
+  open 52 ms, write 66 ms, read 3 ms, and database drop 252 ms. The next case
+  passed in 972.29 ms. The first snapshot showed zero leaked client sessions,
+  compared with eleven before the fixture cleanup.
+- This targeted result is not a passing full shard. The file-path persistence
+  case still hit its five-second bound while opening its own cluster, as it
+  did in the red run. It is not changed by this fixture cleanup. The final
+  source removes the temporary diagnostic hooks and prior phase console
+  output; neither is part of the accepted cleanup mechanism. Final-source
+  checks, mutation evidence, and independent review remain pending.
+- Feature document gate passes with `--candidate worktree --target origin/main`.
+  Kind `no-behavior` does not require owner approval under the current policy;
+  acceptance must report its actual check result, not an invented missing
+  approval. No completed acceptance claim is made here.
 - No owner approval is fabricated.
 
 ## Blocking questions
