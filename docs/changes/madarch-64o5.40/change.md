@@ -394,3 +394,23 @@ fill-scoped immutable-snapshot cache, never a cache of mutable current values,
 plus path-selected disk and selected-output git read optimization. The source
 hold is released with no PostgreSQL run active; implementation and validation
 of these optimizations remain pending. Whole-suite green remains unresolved.
+
+
+## Graph validation and committed read optimizations
+
+The coordinator reports remaining focused graph coverage green: 16 cases /
+130 assertions in 27.61 seconds, `/tmp/m28-graph-fourth-focused.log`. Coverage
+includes historical replay through actual readers, one-schema behavior and the
+three-SQL relation bound.
+
+Immutable snapshot cache `655e31f4` and plugin read optimization `1a85667a` are
+committed. The generic cache is fresh per reader/transaction and keyed by exact
+snapshot plus kind; mutable current values are not cached. A causal test checks
+that the actual helper loads once while a fresh reader reloads. Full glossary
+nine (`/tmp/m28-glossary-ninth-full.log`), root check twelve and pure run five
+are active with source held stable; their results are pending.
+
+The successful 298.543051-second after integration timing remains valid for its
+pre-optimization source. It is not final-source performance evidence for these
+new commits; a fresh after run is needed to measure their actual effect. The
+unequal-total-workload caveat and unresolved whole-suite acceptance remain.
