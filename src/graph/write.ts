@@ -420,6 +420,43 @@ export async function ensureVertex(executor: SqlExecutor, contract: GraphContrac
   return { nodeId: row.id, uid, created: false, revived: true };
 }
 
+/** Declare distinct keyed vertices of one kind in batches, retaining input order and revival semantics. */
+export async function ensureVertices(executor: SqlExecutor, contract: GraphContract, kindName: string, keys: readonly Readonly<Record<string, KeyValueDraft>>[], contextId = 1): Promise<readonly { nodeId: string; uid: string; created: boolean; revived: boolean }[]> {
+  if (keys.length === 0) return [];
+  const vertex = vertexOf(contract, kindName);
+  if (vertex.key.length === 0) throw new Error(`${WHERE}:1: bulk vertex declaration requires a keyed kind`);
+  const normalized = keys.map((key) => canonicalKeyOf(contract, vertex, key, `an entity of the kind ${JSON.stringify(vertex.name)}`));
+  const uids = normalized.map((key) => keyUid(vertex.name, [JSON.stringify(key)]));
+  if (new Set(uids).size !== uids.length) throw new Error(`${WHERE}:1: bulk vertex declaration requires distinct keys`);
+  const entityId = await entityIdOf(executor, vertex.name, 'node');
+  const journal = heldJournal(executor);
+  const result: { nodeId: string; uid: string; created: boolean; revived: boolean }[] = [];
+  for (let at = 0; at < keys.length; at += 500) {
+    const ids = uids.slice(at, at + 500);
+    const keyChunk = normalized.slice(at, at + 500);
+    const made = await executor.query<{ id: string; uid: string }>(
+      `INSERT INTO node (entity_id, uid, key, context_id)
+       SELECT $1::bigint, r.uid, r.key, $2::bigint FROM jsonb_to_recordset($3::jsonb) AS r(uid uuid, key jsonb)
+       ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, uid::text AS uid`,
+      [entityId, String(contextId), canonicalJson(ids.map((uid, index) => ({ uid, key: keyChunk[index] })))],
+    );
+    const created = new Set(made.rows.map((row) => row.uid));
+    const held = await executor.query<{ id: string; uid: string; removed: boolean }>('SELECT id::text AS id, uid::text AS uid, removed FROM node WHERE uid = ANY($1::uuid[])', [ids]);
+    const byUid = new Map(held.rows.map((row) => [row.uid, row]));
+    const removed = held.rows.filter((row) => row.removed).map((row) => row.uid);
+    if (removed.length > 0) await executor.query('UPDATE node SET removed = false WHERE uid = ANY($1::uuid[])', [removed]);
+    for (const [index, uid] of ids.entries()) {
+      const row = byUid.get(uid);
+      if (row === undefined) throw new Error(`${WHERE}:1: the node ${uid} was declared and the store holds neither it nor its echo`);
+      const isCreated = created.has(uid);
+      if (isCreated || row.removed) journal?.declaredVertex(vertex.name, uid, row.id, keyChunk[index]!);
+      result.push({ nodeId: row.id, uid, created: isCreated, revived: row.removed });
+      if (journal !== undefined) await flushJournalIfFull(executor, journal);
+    }
+  }
+  return result;
+}
+
 /** The tagged evidence list of one opinion: every place its values were read, once each, in the order stated. */
 export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft[] }): readonly EvidenceEntry[] {
   const places: EvidenceEntry[] = [];
@@ -658,6 +695,51 @@ export async function ensureEdges(executor: SqlExecutor, contract: GraphContract
       await flushJournalIfFull(executor, journal);
     }
   }
+}
+
+/** Declare attribute-free edges with their producer's existence opinions and evidence in one transaction. */
+export async function ensureEdgesWithOpinions(executor: SqlExecutor, contract: GraphContract, kindName: string, edges: readonly { readonly from: string; readonly to: string; readonly evidence: readonly EvidenceDraft[] }[], producer: string, producerVersion: string, contextId = 1): Promise<number> {
+  if (edges.length === 0) return 0;
+  const kind = edgeOfKind(contract, kindName);
+  if (contract.edge.find((entry) => entry.name === kindName)!.fields.length !== 0) throw new Error(`${WHERE}:1: bulk existence opinions require an attribute-free edge kind`);
+  const entityId = await entityIdOf(executor, kindName, 'edge');
+  const journal = heldJournal(executor);
+  let count = 0;
+  for (let at = 0; at < edges.length; at += 500) {
+    const chunk = edges.slice(at, at + 500);
+    const made = await executor.query<{ id: string; from_node: string; to_node: string }>(
+      `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id)
+       SELECT $1::bigint, e.from_node, e.to_node, '', $2::bigint FROM unnest($3::bigint[], $4::bigint[]) AS e(from_node, to_node)
+       ON CONFLICT DO NOTHING RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node`,
+      [entityId, String(contextId), chunk.map((edge) => edge.from), chunk.map((edge) => edge.to)],
+    );
+    const created = new Map(made.rows.map((row) => [`${row.from_node}\u0000${row.to_node}`, row]));
+    const inputs = chunk.flatMap((edge) => {
+      const key = `${edge.from}\u0000${edge.to}`;
+      const row = created.get(key);
+      if (row === undefined) return [];
+      created.delete(key);
+      return [{ row, evidence: evidenceList(edge) }];
+    });
+    const opinions = await executor.query<{ id: string; edge_id: string; said_at: string }>(
+      `INSERT INTO ${kind.table} (edge_id, said_by, lang, evidence, context_id)
+       SELECT r.edge_id, r.said_by, NULL, r.evidence, r.context_id
+       FROM jsonb_to_recordset($1::jsonb) AS r(edge_id bigint, said_by text, evidence jsonb, context_id bigint)
+       RETURNING id::text AS id, edge_id::text AS edge_id, to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at`,
+      [canonicalJson(inputs.map(({ row, evidence }) => ({ edge_id: row.id, said_by: `${producer}@${producerVersion}`, evidence, context_id: contextId })))],
+    );
+    const opinionByEdge = new Map(opinions.rows.map((row) => [row.edge_id, row]));
+    const uids = journal === undefined ? undefined : await uidsOfNodes(executor, [...new Set(made.rows.flatMap((row) => [row.from_node, row.to_node]))]);
+    for (const { row, evidence } of inputs) {
+      const opinion = opinionByEdge.get(row.id);
+      if (opinion === undefined) throw new Error(`${WHERE}:1: no existence opinion was returned for edge ${row.id}`);
+      journal?.declaredEdge(kindName, row.id, uids?.get(row.from_node) ?? '', uids?.get(row.to_node) ?? '', '', contextId);
+      journal?.opinion({ id: opinion.id, entity: kindName, edge: row.id, state: 'opened', fields: [], lang: null, said_by: `${producer}@${producerVersion}`, values: {}, evidence, translated_from: null, source_digest: null, context: contextId, said_at: opinion.said_at });
+      if (journal !== undefined) await flushJournalIfFull(executor, journal);
+    }
+    count += made.rows.length;
+  }
+  return count;
 }
 
 /** One edge by its id, removed: its opinions go with it (a consistent cascade), never the vertices it names. */
