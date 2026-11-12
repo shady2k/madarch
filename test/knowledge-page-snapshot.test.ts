@@ -6,7 +6,7 @@
  * not about which kind a page shows.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
@@ -17,20 +17,44 @@ import { renderPage } from '../src/knowledge/render.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { workingTreeFiles } from '../src/plugin/product-files.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
 
 const at = '2026-02-04T00:00:00.000Z';
 const id = 'code.author:walk@example.test';
 let owner: DatabaseOwner;
+let templateFolder = '';
 
 beforeAll(async () => {
-  owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
+  templateFolder = mkdtempSync(join(tmpdir(), 'page-snapshot-template-'));
+  mkdirSync(join(templateFolder, 'madarch'));
+  writeFileSync(join(templateFolder, 'madarch', 'kinds.yaml'), `kinds:
+  template:
+    source: graph
+    template: author.md
+    key: [path]
+    fields:
+      - { name: path, type: text, binding: { agent: "Fixture template path." } }
+      - { name: template_parts, type: json, binding: { agent: "Fixture structured template parts." } }
+`);
+  const read = readKinds(templateFolder);
+  if (!read.present) throw new Error('the snapshot fixture manifest is absent');
+  const templateContract = graphContractOf(read.manifest);
+  owner = await createTestDatabaseOwner({ graphContract: { ...GIT_CONTRACT, vertex: [...GIT_CONTRACT.vertex, ...templateContract.vertex] } });
+  await publishFixtureTemplate(owner, templateFolder, 'author.md', [
+    { type: 'attribute', name: 'name', line: 1 },
+    { type: 'text', text: ' <', line: 1 },
+    { type: 'attribute', name: 'email', line: 1 },
+    { type: 'text', text: '>\n', line: 1 },
+  ]);
   await owner.transaction('write', async (tx) => {
     const node = await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id`, ['signature', JSON.stringify({ name: 'Walk', email: 'walk@example.test' })]);
     await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, said_by) VALUES ($1::bigint, 'git-history@1')`, [node.rows[0]!.id]);
   });
 });
 
-afterAll(async () => { await owner.close(); });
+afterAll(async () => { await owner.close(); rmSync(templateFolder, { recursive: true, force: true }); });
 
 function context(folder: string, graph: GraphReader): RenderContext {
   return {
