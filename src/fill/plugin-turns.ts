@@ -315,7 +315,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       return { ...field, ...(reference === undefined ? {} : { reference }) };
     }) })),
     // Both ends must exist at publication: the later producer turn owns the edge, or the sole agent end does.
-    edges: (unit.plugin.contract?.edges ?? []).filter((edge) => unitEdges.has(edge.kind)).map((edge) => ({ ...edge, fields: edge.fields.map((field) => ({ ...field })) })),
+    edges: (unit.plugin.contract?.edges ?? []).filter((edge) => unitEdges.has(edge.kind)).map((edge) => ({ ...edge, from: typeof edge.from === 'string' ? edge.from : [...edge.from], to: typeof edge.to === 'string' ? edge.to : [...edge.to], fields: edge.fields.map((field) => ({ ...field })) })),
   };
   const workRoot = mkdtempSync(join(tmpdir(), 'madarch-plugin-turn-'));
   const repositoryInputs = await (async () => {
