@@ -21,7 +21,7 @@ import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotValue, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
+import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotValue, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
@@ -197,11 +197,14 @@ function edgeIdentity(kind: string, from: { readonly kind: string; readonly key:
  */
 export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>): GraphAnswerer {
   return {
-    files: async (pattern) => {
-      const files = (await graphFiles(wiring.owner, wiring.contract))
-        .filter((file) => matchesAny([pattern], file.path))
+    files: async (pattern, snapshot) => {
+      const files = snapshot === undefined ? await graphFiles(wiring.owner, wiring.contract)
+        : (await pluginSnapshotVertices(wiring.owner, snapshot, 'code.file')).map(({ key }) => {
+          if (typeof key.repository !== 'string' || typeof key.path !== 'string') throw new Error('immutable code.file snapshot has an invalid declared key');
+          return { repository: key.repository, path: key.path };
+        });
+      return files.filter((file) => matchesAny([pattern], file.path))
         .map((file) => ({ kind: 'code.file', key: { repository: file.repository, path: file.path } }));
-      return files;
     },
     value: async (kind, key, field, snapshot) => {
       const ref = { kind, key };

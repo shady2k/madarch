@@ -29,8 +29,9 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   const scoped: GraphAnswerer = {
     files: async (pattern) => {
       const read = readOf(scope.fileKind);
-      if (typeof read !== 'string') deny('graph.files cannot serve an immutable earlier snapshot');
-      return await graph.files(pattern);
+      const snapshot = scope.snapshots?.get(scope.fileKind);
+      if (typeof read !== 'string' && snapshot === undefined) deny(`earlier snapshot of ${scope.fileKind} from ${read.producer} is unavailable; enable immutable versioned reads before running this output`);
+      return await graph.files(pattern, snapshot);
     },
     value: async (kind, key, field) => {
       const read = readOf(kind);

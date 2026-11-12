@@ -66,6 +66,18 @@ test('explicit earlier read freezes producer generation and never reads later re
   expect(valueFromPluginSnapshot(saved, 'Source', { id: 'x' }, 'omitted')).toBeNull();
 });
 
+test('earlier file enumeration forwards the exact named snapshot and refuses missing snapshots', async () => {
+  const snapshot = { runId: 'original', unitId: 'plugin-turns/base:File', generation: 2 };
+  const calls: unknown[] = [];
+  const graph = { files: async (pattern: string, token?: typeof snapshot) => { calls.push([pattern, token]); return [{ kind: 'File', key: { path: 'saved.ts' } }]; }, value: async () => null };
+  const scope = { location: '/product/plugin.json:7', plugin: 'refiner', output: 'File', fields: [], reads: [{ kind: 'File', version: 'earlier' as const, producer: 'base' }], catalogueKinds: ['File'], fileKind: 'File', edges: [] };
+  const access = pluginInvocationAccess(graph, { ...scope, snapshots: new Map([['File', snapshot]]) });
+  expect(await access.graph.files('**/*.ts')).toEqual([{ kind: 'File', key: { path: 'saved.ts' } }]);
+  expect(calls).toEqual([['**/*.ts', snapshot]]);
+  await expect(pluginInvocationAccess(graph, scope).graph.files('**')).rejects.toThrow('earlier snapshot of File from base is unavailable');
+  expect(calls).toHaveLength(1);
+});
+
 test('snapshot resolver rejects prior-run or unsuccessful generations before execution', async () => {
   const { successfulPluginSnapshot } = await import('../src/graph/plugin-turns.js');
   let parameters: readonly unknown[] = [];
