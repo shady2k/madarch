@@ -192,7 +192,7 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
         FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node
         WHERE k.name = 'contains' AND n.key->>'path' = 'src/a.ts'`));
     expect(damaged.rows).toHaveLength(1);
-    for (const producer of ['git-tree', 'linguist']) {
+    for (const producer of ['git-tree', 'language-attribution']) {
       expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src/a.ts' }, producer }, 1))).toBe(true);
     }
     await owner.transaction('write', async (tx) => {
