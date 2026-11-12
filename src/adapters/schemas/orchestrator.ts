@@ -74,6 +74,7 @@ const SCHEMA: readonly string[] = [
     at bigint NOT NULL,
     PRIMARY KEY (unit_id, generation, query_digest)
   )`,
+  'CREATE INDEX IF NOT EXISTS fill_unit_read_sequence ON fill_unit_read (unit_id, generation, read_seq)',
   `CREATE TABLE IF NOT EXISTS fill_unit_draft (
     unit_id text NOT NULL,
     generation integer NOT NULL,
