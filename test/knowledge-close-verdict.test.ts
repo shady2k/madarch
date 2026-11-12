@@ -43,11 +43,19 @@ describe('closing a product while its graph verdicts read the store', () => {
       const draft = createDraft({ home: join(work, 'home'), name: 'close-shop', gitEnv: gitEnv(IDENTITY) });
       if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
       useFixturePlugins(draft.folder, ['disk', 'git']);
+      execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
+      execFileSync('git', ['commit', '--quiet', '-m', 'Declare repository fact fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
       const storeRoot = join(work, 'store');
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
       await prepareStore(owner, { contract: await readPinnedGraphContract(draft.folder) });
+      // The verdict reads the published ordinary graph and its declared table metadata, not an implicit native graph.
+      await withStorePreparationOwner(async () => {
+        expect(await product!.startFill()).toMatchObject({ started: true });
+        await product!.settled();
+      });
+      expect(product.fillState()).toMatchObject({ state: 'done' });
 
       let releaseLock!: () => void;
       let holdsTheGraph!: () => void;

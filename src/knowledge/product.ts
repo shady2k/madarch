@@ -1364,7 +1364,12 @@ export class KnowledgeProduct {
     // while this validation is still starting (the fill role and the api role have different lifetimes).
     const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
     let snapshot: Awaited<ReturnType<typeof loadGraphSnapshot>>;
-    try { snapshot = await loadGraphSnapshot(owner); } finally { await owner.close().catch(() => undefined); }
+    try {
+      const manifest = await owner.run(async (tx) => await readPublishedManifest(tx));
+      const kinds = manifest === undefined ? undefined : graphKindsOf(manifest);
+      const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds?.declared, kinds?.generated, kinds?.edges);
+      snapshot = await loadGraphSnapshot(reader);
+    } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;
     const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
       env: this.env,

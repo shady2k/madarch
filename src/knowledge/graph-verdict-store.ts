@@ -5,8 +5,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { GraphReader } from './graph-read.js';
+import type { GraphReader } from './graph-read.js';
 import {
   DEFAULT_GRAPH_VERDICT_BUDGETS,
   GRAPH_VERDICT_VALIDATOR_VERSION,
@@ -29,8 +28,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 
 /** Reads every entity and relation the one graph holds, presented as the wiki's code kinds. */
-export async function loadGraphSnapshot(owner: DatabaseOwner): Promise<GraphSnapshot> {
-  const reader = new GraphReader(owner, () => new Date().toISOString());
+export async function loadGraphSnapshot(reader: GraphReader): Promise<GraphSnapshot> {
   const nodes: GraphNodeItem[] = [];
   for (const kind of ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author']) {
     const page = await reader.list(kind, { limit: Number.MAX_SAFE_INTEGER });
