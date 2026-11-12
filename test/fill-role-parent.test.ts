@@ -159,8 +159,13 @@ async function awaitGone(child: number, postmasterPids: readonly number[], withi
     if ((gone.child && gone.postgres) || gone.waitedMs >= within) {
       if (!gone.child || !gone.postgres) {
         const rows = processes();
-        const pids = new Set(rows.filter((row) => row.command.includes(work) || row.pid === child).flatMap((row) => [row.pid, row.ppid]));
-        for (const row of rows) if (pids.has(row.ppid)) pids.add(row.pid);
+        const pids = new Set([child, ...postmasterPids, ...rows.filter((row) => row.command.includes(work)).map((row) => row.pid)]);
+        // Include descendants, not PID 1 and all its unrelated children when the killed server's roles are reparented.
+        for (;;) {
+          const children = rows.filter((row) => pids.has(row.ppid) && !pids.has(row.pid));
+          if (children.length === 0) break;
+          for (const row of children) pids.add(row.pid);
+        }
         const tree = spawnSync('ps', ['-p', [...pids].join(','), '-o', 'pid=,ppid=,stat=,wchan=,command='], { encoding: 'utf8' });
         console.log(`shutdown process states after ${String(gone.waitedMs)} ms:
 ${tree.stdout ?? tree.stderr}`);
@@ -232,7 +237,7 @@ test('a killed server takes its idle fill role and the store\'s PostgreSQL serve
   expect(postgres.length).toBeGreaterThan(0);
   running.kill();
   const gone = await awaitGone(child!.pid, postgres, GONE_WITHIN_MS);
-  console.log(`running fill role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
+  console.log(`idle fill role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
   expect(gone.child, `the fill role ${String(child!.pid)} still ran ${String(gone.waitedMs)} ms after its server was killed`).toBe(true);
   expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the server was killed`).toBe(true);
 }, 180_000);
@@ -294,7 +299,7 @@ test('a killed server takes a fill role running a fill, and the store\'s Postgre
   expect(postgres.length).toBeGreaterThan(0);
   running.kill();
   const gone = await awaitGone(child!.pid, postgres, GONE_WITHIN_MS);
-  console.log(`idle role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
+  console.log(`running fill role ${String(child!.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
   expect(gone.child, `the fill role ${String(child!.pid)} still ran ${String(gone.waitedMs)} ms after its server was killed`).toBe(true);
   expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the server was killed`).toBe(true);
 }, 180_000);

@@ -106,7 +106,9 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         // role killed before its first pass found the store still has a server to stop, and the server's own use of it
         // died with the server.
         const databases = new Set<string>([...state.databaseFolders, ...storeFoldersOf(options.knowledgeRoot).map((folder) => join(folder, 'graph'))]);
-        for (const database of databases) await stopStoreForExit(database, { force: true });
+        // Each server gets its stop request now: one store's shutdown checkpoint must not keep another store running
+        // until the role's deadline exits the process.
+        await Promise.all([...databases].map(async (database) => await stopStoreForExit(database, { force: true })));
       })(),
       Bun.sleep(Math.max(0, deadline - Date.now())),
     ]);
