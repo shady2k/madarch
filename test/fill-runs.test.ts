@@ -2,6 +2,9 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWikiPart } from '../src/server/wiki-app.js';
+import { createDraft } from '../src/product/draft.js';
+import { gitEnv } from './git-env.js';
+import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createTestDatabaseOwner } from './test-database.js';
 import { openChain, advanceChain, createRun, readRun, readRuns, advanceRun, createUnit, readRunUnits, readRunUnitHistory } from '../src/fill/state-store.js';
@@ -152,6 +155,51 @@ test('held chain remains canonical global status when a later request is refused
   Object.assign(product, { reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'held-refused', product: () => ({ name: 'held-shop' }), loadPins: async () => undefined, warmReader: async () => undefined });
   await (product as any).followStoreFill();
   expect((product as any).fill).toMatchObject({ runId: 'held-paused', state: 'paused' });
+});
+
+test('a locally queued request does not adopt the previous chain run before its worker claims it', async () => {
+  await openChain(owner, { product: 'queued-status-shop', at: 14000 });
+  await createRun(owner, { runId: 'queued-previous', product: 'queued-status-shop', at: 14000 });
+  await advanceChain(owner, { product: 'queued-status-shop', event: { type: 'start', runId: 'queued-previous', at: 14001 } });
+  await createRun(owner, { runId: 'queued-request', product: 'queued-status-shop', at: 15000 });
+  const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
+  Object.assign(product, {
+    reader: { owner, seq: 0 }, fill: { state: 'running', runId: 'queued-request' }, fillRunId: 'queued-request',
+    running: new Promise<void>(() => {}), product: () => ({ name: 'queued-status-shop' }),
+    loadPins: async () => undefined, warmReader: async () => undefined,
+  });
+  await (product as any).followStoreFill();
+  expect((product as any).fillRunId).toBe('queued-request');
+  expect((product as any).fill).toMatchObject({ state: 'running', runId: 'queued-request' });
+});
+
+test('starting a new request does not expose the previous run id while opening the store', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'fill-run-start-'));
+  const draft = createDraft({ home: join(work, 'home'), name: 'starting-shop', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+  if (draft.outcome !== 'created') throw new Error('fixture draft was not created');
+  const product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot: join(work, 'store'), fillQueued: true });
+  let release: () => void = () => {};
+  const opening = new Promise<void>((resolve) => { release = resolve; });
+  let observe: () => void = () => {};
+  const opened = new Promise<void>((resolve) => { observe = resolve; });
+  Object.assign(product, {
+    fill: { state: 'done' }, fillRunId: 'previous-start',
+    open: async () => { observe(); await opening; return owner; },
+    runQueuedFill: async () => undefined,
+  });
+  try {
+    const starting = product.startFill();
+    await opened;
+    expect((product as any).fill).toMatchObject({ state: 'done' });
+    release();
+    const result = await starting;
+    expect(result.started).toBe(true);
+    if (result.started) expect(result.fill).toMatchObject({ state: 'running', runId: result.runId });
+  } finally {
+    release();
+    await product.close();
+    rmSync(work, { recursive: true, force: true });
+  }
 });
 
 test('run selection discovers catalogue agent producers from the same declaration matcher as the scheduler', () => {

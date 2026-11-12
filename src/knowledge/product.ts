@@ -930,9 +930,6 @@ export class KnowledgeProduct {
     }
     this.changedPages = undefined;
     this.changedLoaded = true;
-    // The repository the run reads, as the product declares it: the card says what it is reading
-    // before the run's own trace has a unit to count.
-    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
     this.fillExtras = {};
     const chosen = this.chosenAgent();
     const seeded = resuming && this.writer.units.length > 0 ? this.writer : undefined;
@@ -949,7 +946,6 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    this.notify();
     const request = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
@@ -965,8 +961,11 @@ export class KnowledgeProduct {
     };
     if (publication?.status !== 'pending') await createRun(await this.open(), { runId, product: product.name, at: Date.parse(startedAt), ...(selection === undefined ? {} : { selection }) });
     const press = { ...request, ...(selection === undefined ? {} : { selection }) };
+    // The repository the run reads, as the product declares it: the card says what it is reading
+    // before the run's own trace has a unit to count.
     this.fillRunId = runId;
-    this.fill = { ...this.fill, runId };
+    this.fill = { state: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.notify();
     this.running = (async () => {
       try {
         const ready = await waitForManifestPublication(this.folder, this.publicationWait.signal);
@@ -2131,6 +2130,9 @@ export class KnowledgeProduct {
     } catch {
       return;
     }
+    // A queued request belongs to this process until its runner settles it. The chain may still name the previous
+    // run before the worker claims this request; adopting that run would report its old end as this press's result.
+    if (this.running !== undefined && this.fillRunId !== undefined && named?.runId !== this.fillRunId) return;
     const live = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling'].includes(named.state) ? named : null;
     if (named !== null && (named.state === 'paused' || named.state === 'cancelled')) {
       this.fillRunId = named.runId;
@@ -2147,11 +2149,18 @@ export class KnowledgeProduct {
       }
       return;
     }
+    // A run may finish between polls. Adopt its published end, not a terminal row whose store work is still settling.
+    const namedEnd = named !== null && (named.state === 'succeeded' || named.state === 'failed')
+      ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
+    if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
+      this.fillRunId = named.runId;
+      this.fill = { state: 'running', runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+    }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
       // run row's terminal state alone is not the store's publication, because the pins a page reads land after it. A run
       // the process has not ended here yet keeps this answer `running`.
-      const end = await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
+      const end = namedEnd ?? await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
       if (end === null) return;
       await this.published(undefined).catch(() => undefined);
       // The answer that reads the settled run warms the worker and the repository aggregates: the page a person opens
