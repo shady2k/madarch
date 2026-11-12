@@ -25,8 +25,9 @@ folder when none is named. In a Git checkout it shall create a separate
 product connected to that checkout, without moving the code, using its folder
 name and its origin URL when present. Outside Git it shall create an empty
 draft. Init shall serve the product's wiki in the background and return.
-In a terminal it shall ask only which template to use, with no repository
-selection prompt. The menu shall list the catalogue's declared templates in declaration order;
+In a terminal it shall ask only which starter template to use, with no repository,
+agent or token-cap question. The deleted `new` command shall have no alias;
+its command and help shall be refused as unknown with exit 2. The menu shall list the catalogue's declared templates in declaration order;
 Enter shall select the first. Nonterminal input without `--template` shall write
 no kind or workflow manifest; an explicit `--template` shall select that
 template. `none` shall write no kind or workflow manifest.
@@ -83,13 +84,23 @@ folder behind.
 
 ### Scenario: init-connects-checkout
 - Given: a Git checkout outside a product
-- When: `madarch init` is run from that checkout, or `madarch init <folder>` names it
+- When: `madarch init` is run from that checkout, or `madarch init checkout-folder` names it
 - Then: a separate product is created under the products home and connected to the checkout without moving it; its wiki is served and init returns
 
 ### Scenario: init-nonterminal-without-template
 - Given: the command's input is not a terminal
 - When: `madarch init` is run without `--template`
 - Then: the product is created without kind or workflow manifests, with no prompt
+
+### Scenario: init-terminal-default
+- Given: init has terminal input in an empty folder or a checkout, and no explicit template
+- When: the user presses Enter at the starter-template question
+- Then: the first declared catalogue template is applied; no repository, agent or token-cap question is asked
+
+### Scenario: deleted-new-command
+- Given: the installed CLI
+- When: the user runs `madarch new` or `madarch new --help`
+- Then: it exits 2 naming the command as unknown, without creating a product
 
 ### Scenario: init-explicit-template
 - Given: the command's input is not a terminal
@@ -194,6 +205,20 @@ as unknown, naming what it accepts.
 - Then: it exits 2 naming that path
 
 ## Requirement: contract — the product repository's mechanism is a published, versioned schema, read by the version the registry carries
+The current runtime reads validated declarations from `madarch/kinds.yaml`,
+workflows and plugin metadata at the manifest boundary, then publishes their
+structured graph metadata. Wiki readers consume that metadata and structured
+page opinions. They do not open a retired registry or parse document headers
+at request time. Invalid current declarations are reported with file, line and
+field; they do not switch the wiki to a plain working-tree Markdown reader.
+
+Historical contract-v1 requirements (superseded at runtime):
+
+The registry, document-field and live-edit scenarios below record the earlier
+contract-v1 design, not the current reader's behavior. Decision 0035 and
+madarch-64o5.13 retired that runtime path. Published historical schemas and
+conformance cases do not enable it in the wiki.
+
 The read side of the product repository's format — the generic fields a
 document may carry (`id`, `kind`, `status`, `links`), the kinds registry's
 own shape and the stages as an ordered list with no fixed kinds — is
@@ -249,37 +274,14 @@ the lifecycle's milestones and the roles section are the amendment's
 reservations in prose; their shape arrives with the milestone that
 implements them.
 
-The reading (`parseContractText` in `src/product/contract.ts`) refuses in
-values, never thrown: strict YAML, then the schema, then the fields' own
-checks — the contract version gate (a registry that is no mapping at all
-is the schema's refusal; a mapping that carries no `contract`, a
-`contract` that is not a whole number, or a whole number madarch does not
-read, is refused naming what stands), the prefix's shape, the folder under
-`docs/` (no leg climbing out), the stage naming a stage of the list, the
-hint carrying words, a prefix named once, a stage id named once, a status
-named once within its kind, a link field named once within its kind, a
-link field never carrying one of the generic fields madarch reads itself
-(`id`, `kind`, `status`, `links`), and every target naming a kind the
-registry declares — every refusal naming the file, the line the field
-stands on, the field's path from the registry's top (empty for a file
-that does not parse as YAML at all), and the words a reader prints. The generic document fields are read from every Markdown
-under the layout (`parseDocumentFields`), with their own published schema
-(`schema/product-document.schema.json`): `id`, `kind`, `status` and
-`links` read from the document's lines before its first heading after
-line 1 (the identity line itself is not a field), a field
-case-insensitively spelled (`Kind:` read as `kind`), an unknown field
-ignored the way a manifest grows by fields, `links` a comma-separated
-list of ids, and every field but `links` given once (repeated `Links:`
-lines add to one list). The check command
-(`bun run contract:check`, beside `bun run views:check`) walks the
-conformance examples — three example product folders, one without a
-registry, one with it and one the skill set made, read as the layout, the documents' fields and
-the registry naming no refusal — and the registry and document-field
-refusal cases, each carrying the printed words — and exits 0 when every
-case reads the way its words say and 1 naming the file, the line and the
-words of every mismatch; CI runs it.
+The current declaration reader (`src/product/manifest/kinds.ts`) validates the
+product's declared kinds, fields, relations and templates. Refusals name the
+file, line and field. The retired registry and generic Markdown-field readers
+are not part of the runtime. Pages are structured graph opinions, read by
+`src/knowledge/markdown.ts`; the wiki does not infer entities or statements
+from Markdown files beside the checkout.
 
-The wiki that serves the product opens the registry the same way. A
+In that earlier design, the wiki opened the registry the same way. A
 registry at a version madarch reads, reading whole, serves as a registry:
 at contract v1 the pages' kinds, statuses and groups are the set's own
 computed reading until the registry lane moves them onto the
@@ -394,7 +396,7 @@ until the installed set lays one.
 ### Scenario: the-registryless-product-describes-as-before
 - Given: a fixture product whose manifest declares one small repository and whose agent has the set's release installed
 - When: the repository is described the way the installed step describes it
-- Then: the repository's model folder holds a model and a review report, the product's `docs/repositories/name/` holds the architecture page with the derived artifacts beside it, and every page the run wrote is a page of the wiki — the same places the capability reads, whoever installed the step
+- Then: the repository's model folder holds a model and a review report, the product's `docs/repositories/name/` holds the architecture page with the derived artifacts beside it, and every page published as a structured graph opinion is available in the wiki — the same places the capability reads, whoever installed the step
 
 ## Requirement: describe-skill — A product's described repository carries the artifacts the wiki reads
 A repository connected to the product (declared in the manifest with `madarch
@@ -414,15 +416,16 @@ the lines it was read from; and then the decisions found in the repository's
 code or its own ADRs as decision records, each linked to the model elements
 it shapes. A repository holding uncommitted changes is described only after
 they are committed: the evidence the model pins is committed text. The wiki
-shows what the step wrote as it is saved; the described repository's
-architecture page joins the design stage's material beside the kind folders
-the registry names, and the product serves the same wiki with or without any
-skill installed at all.
+shows the structured page opinions a configured producer publishes from those
+artifacts, not their working-tree text as it is saved. The described
+repository's architecture page joins the declared kinds after publication,
+and the product serves the same graph-backed wiki with or without any skill
+installed at all.
 
 ### Scenario: described-repository-shows-its-artifacts
 - Given: a fixture product whose manifest declares one small repository and whose checkout is clean
 - When: that repository is described the way the installed step describes it (a fixture laying the model, its review report, the architecture page, a derived requirement and use case, and a decision record where the capability reads them)
-- Then: the repository's model folder holds a model and a review report the model check passes, the product's `docs/repositories/name/` holds the architecture page, at least one requirement and one use case marked derived from code with `Source: code` and `Evidence:` lines of file-and-line citations in their `Sources` sections, and one decision record naming a model id, and every page the run wrote is a page of the wiki
+- Then: the repository's model folder holds a model and a review report the model check passes, the product's `docs/repositories/name/` holds the architecture page, at least one requirement and one use case marked derived from code with `Source: code` and `Evidence:` lines of file-and-line citations in their `Sources` sections, and one decision record naming a model id, and every page published as a structured graph opinion is available in the wiki
 
 ### Scenario: uncommitted-checkout-refused
 - Given: a fixture product whose declared repository holds an uncommitted change

@@ -953,7 +953,7 @@ The starter set `madarch init --template everything` writes shall declare `views
 - Then: exactly the kinds that drew a component view, an ER view, a state view, a chain, a system part, a definition, an operations listing or a place of the navigation declare it, and every other kind declares none
 
 ### Scenario: starter-set-shows-the-same-pages
-- Given: the generated training repository, and a product `madarch init` made from it and filled, at the revision this change starts from and at this one
+- Given: the generated training repository, and a product `madarch init --template everything` made from it and filled, at the revision this change starts from and at this one
 - When: every page of the product, every kind's listing, every diagram view each page asks for and every kind's map is rendered at both revisions
 - Then: the pages, the listings, the views, the maps, the findings and the home are the same, and the kind summaries differ only in the listing form and the navigation place this change moves into the manifest
 

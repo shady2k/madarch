@@ -1,14 +1,14 @@
 # One command to start a product
 
 Change: madarch-64o5.4
-Base: 0e27a75f8b7a99dc9d77f9f29f12e953ee669298
+Base: 7cbfed93effa7a4e3592b2c522f1cbd1f2760a2d
 Tasks: madarch-64o5.4
 Kind: behavior
 
 ## Intent
 
 Keep `madarch init [folder]` as the only command that starts a product.
-Retire `madarch init` without an alias. Connect a Git checkout when one is
+Delete `madarch new` without an alias. Connect a Git checkout when one is
 present, otherwise create an empty draft under the products home. Open its wiki.
 
 Follow the owner's latest correction, recorded on 2026-11-12: a terminal asks
@@ -29,16 +29,33 @@ The latest tracker correction supersedes the intermediate nonterminal default
 that chose the first template. Historical decisions, milestones and prior
 change records retain their original wording as history.
 
+## Changes to requirements
+
+The complete capability proposals are compared with the pinned main base.
+Each changed requirement is replaced once, with before read from that base.
+Repository contract and describe-skill retain main's structured-publication
+wording, not the older working-tree reader. Requirement manifest, list and demo
+only rename their start-command references; identity and update behavior remain.
+
 ## Preserved contracts
 
-- product-repository/manifest: the product keeps its UUID and workspace manifest.
-- product-repository/demo: demo cloning and update behavior stays unchanged.
-- product-wiki/serve: the shared server opens the created product's wiki.
+None.
 
 ## Coverage
 
-- product-repository/draft: product-cli, product-cli-script and product-serve tests.
-- release-binary/installers: compiled-binary smoke and local clean npm install walk.
+- product-repository/draft: static test review
+- product-repository/manifest: static test review
+- product-repository/list: static test review
+- product-repository/describe-step: static test review
+- product-repository/demo: static test review
+- product-wiki/serve: static test review
+- product-wiki/catalog: static test review
+- product-wiki/extractor-mapping: static test review
+- product-wiki/pov: static test review
+- product-wiki/presentation: static test review
+- product-wiki/views: static test review
+- product-wiki/workflows: static test review
+- release-binary/installers: static review
 
 ## Where it is seen
 
