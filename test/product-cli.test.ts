@@ -230,7 +230,7 @@ describe('the single start command', () => {
           expect(run.stderr).toBe('');
           const facts = JSON.parse(run.stdout) as { folder: string; url: string; template: string };
           expect(facts.template).toBe(template ?? 'none');
-          for (const file of ['kinds.yaml', 'workflows.yaml']) expect(existsSync(join(facts.folder, 'madarch', file))).toBe(template !== undefined);
+          for (const file of ['catalog.yaml', 'kinds', 'workflows.yaml']) expect(existsSync(join(facts.folder, 'madarch', file))).toBe(template !== undefined);
           const status = await (await fetch(`${facts.url}api/status`)).json() as { manifest: string };
           expect(status.manifest).toBe(template === undefined ? 'no-manifest' : 'not-filled');
           expect((await fetch(facts.url)).ok).toBeTrue();
@@ -285,7 +285,7 @@ describe('the single start command', () => {
       expect(output).not.toContain('token cap');
       const productFolder = output.match(/ in ([^\r\n]+)/)?.[1];
       expect(productFolder).toBeDefined();
-      expect(existsSync(join(productFolder!, 'madarch', 'kinds.yaml'))).toBeTrue();
+      expect(existsSync(join(productFolder!, 'madarch', 'catalog.yaml'))).toBeTrue();
       expect(existsSync(opened)).toBeTrue();
       const url = readFileSync(opened, 'utf8');
       expect((await fetch(url)).ok).toBeTrue();

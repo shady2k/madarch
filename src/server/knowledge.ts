@@ -233,7 +233,7 @@ export function createKnowledgePart(
       const kind = new URL(request.url).searchParams.get('kind');
       if (kind === null) return { response: json(200, catalogSummary(catalog)) };
       const detail = catalog.kinds.find((entry) => entry.kind === kind);
-      if (detail === undefined) return refused(404, { field: 'kind', message: `${resolve(product.folder, 'madarch/kinds.yaml')}:1: the manifest declares no kind "${kind}"` });
+      if (detail === undefined) return refused(404, { field: 'kind', message: `${resolve(product.folder, 'madarch/catalog.yaml')}:1: the manifest declares no kind "${kind}"` });
       return { response: json(200, detail) };
     }),
     search: guarded('search the wiki', async (request) => {

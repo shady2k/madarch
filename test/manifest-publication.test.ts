@@ -192,7 +192,7 @@ kinds:
 
 test('the catalogue route reads published declarations before any fill, even after the checkout changes', async () => {
   const folder = fixture();
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `properties:
+  writeFolderManifest(folder, `properties:
   summary: { en: Summary, ru: Описание }
 kinds:
   term:
@@ -209,7 +209,7 @@ kinds:
     const validated = validateProductManifests(folder);
     if (!validated.ok || validated.value === undefined) throw new Error(JSON.stringify(validated));
     await publishValidatedManifests(owner, validated.value);
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: {}');
+    writeFolderManifest(folder, 'kinds: {}');
     const manifest = (await owner.run((tx) => readPublishedManifest(tx)))!;
     const kinds = await catalogKinds({ manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext);
     const product = { folder, catalog: async () => ({ product: { name: 'Published', id: 'published' }, language: 'ru', groups: [], kinds, findings: [] }) } as unknown as KnowledgeProduct;
@@ -222,12 +222,12 @@ kinds:
     expect(result.response.status).toBe(200);
     expect(await result.response.json()).toMatchObject({
       kind: 'term', count: 0, state: 'never',
-      declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 4 },
-      fields: [{ name: 'summary', labels: { en: 'Summary', ru: 'Описание' }, declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 2 } }],
+      declaration: { file: join(folder, 'madarch', 'kinds/fixture/fixture/term.yaml'), line: 1 },
+      fields: [{ name: 'summary', labels: { en: 'Summary', ru: 'Описание' }, declaration: { file: join(folder, 'madarch', 'catalog.yaml'), line: 2 } }],
     });
     const unknown = await part.catalog(new Request('http://localhost/api/catalog?kind=absent'));
     expect(unknown.response.status).toBe(404);
-    expect((await unknown.response.json()).message).toContain(`${join(folder, 'madarch', 'kinds.yaml')}:1:`);
+    expect((await unknown.response.json()).message).toContain(`${join(folder, 'madarch', 'catalog.yaml')}:1:`);
     const contents = await owner.run((tx) => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM file_entry'));
     expect(contents.rows[0]!.count).toBe('0');
   } finally { await owner.close(); }
