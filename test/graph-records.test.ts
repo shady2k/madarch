@@ -152,8 +152,8 @@ describe('the two passes over one fixture', () => {
     // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
     // a replay names no local id of this store.
     expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
-    // The tree publishes inventory and the extension dataset's separate Linguist opinion, never a picked language.
-    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['git-tree', 'git-history', 'linguist']));
+    // The tree publishes inventory and a separate language-attribution opinion, never a picked ambiguous language.
+    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['git-tree', 'git-history', 'language-attribution']));
     // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
     const opened = opinions.filter((one) => one.state === 'opened');
     expect(opened.length).toBeGreaterThan(5);
@@ -233,20 +233,20 @@ describe('the two passes over one fixture', () => {
     // The tree's dataset opinion states candidates in ordinary fields, never in the text's natural-language tag.
     const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
-       WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'linguist'`,
+       WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'language-attribution'`,
     ));
     expect(stored.rows).toEqual([{ lang: null, language: null, languages: ['TypeScript', 'XML'] }]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'fixture' } }, path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
+    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'language-attribution', producerVersion: 'linguist-9.5.0+json-1', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
     const first = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'linguist'`, [node.nodeId],
+      `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'language-attribution'`, [node.nodeId],
     ));
     expect(first.rows[0]?.n).toBe('1');
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
+    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'language-attribution', producerVersion: 'linguist-9.5.0+json-1', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
     const states = await owner.transaction('snapshot', async (tx) => await tx.query<{ state: string; language: string | null; lang: string | null }>(
-      `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'linguist' ORDER BY "id"`, [node.nodeId],
+      `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'language-attribution' ORDER BY "id"`, [node.nodeId],
     ));
     expect(states.rows.filter((row) => row.state === 'open')).toHaveLength(1);
     expect(states.rows.every((row) => row.lang === null)).toBe(true);
