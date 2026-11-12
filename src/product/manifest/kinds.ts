@@ -1775,7 +1775,8 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     const producers = field.producers ?? [];
     // A field with a binding names its producer there, and the plugin's own declaration states its type.
     if (field.binding === undefined) {
-      if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
+      const declared = !edge && [...plugins.values()].some((plugin) => plugin.declaration?.produces.some((output) => (output.kind === '*' || output.kind === owner) && (output.fields === '*' || output.fields.includes(field.name))));
+      if (producers.length === 0 && !declared) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
     } else if (producers.length > 0) {
       findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names its producer twice, as a binding and as producers: a field names one` });
     }
