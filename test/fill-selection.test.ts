@@ -54,7 +54,7 @@ describe('fill request settings', () => {
     json: (status, body) => Response.json(body, { status }),
     refused: (status, error) => ({ response: Response.json({ error }, { status }) }),
     errorLog: () => undefined,
-  }, {} as KnowledgeProduct, () => []);
+  }, { folder: join(tmpdir(), 'madarch-fill-selection-settings') } as KnowledgeProduct, () => []);
 
   for (const [field, value] of [['agent', 'codex'], ['tokenCap', 20_000]] as const) {
     test(`refuses unsupported ${field} instead of silently ignoring it`, async () => {
