@@ -8,7 +8,12 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('disk extraction cancelled');
-    const tree = await readRepositoryTree(pin);
+    if (unit.kind === 'code.repository') {
+      vertices.push({ kind: 'code.repository', key: { name: pin.repository }, values: { url: pin.url ?? '', default_branch: pin.defaultBranch ?? null }, evidence: { repository: pin.repository, commitOrDigest: pin.commit } });
+      context.progress(vertices.length, undefined, pin.repository);
+      continue;
+    }
+    const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file' });
     const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
     vertices.push({ ...repository, values: { url: tree.repository.url, default_branch: pin.defaultBranch ?? null }, evidence });

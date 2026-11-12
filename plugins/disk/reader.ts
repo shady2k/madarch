@@ -199,7 +199,7 @@ export interface RepositoryTreeRead {
   readonly gaps: readonly ReadGap[];
 }
 
-export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryTreeRead> {
+export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean } = {}): Promise<RepositoryTreeRead> {
   const gaps: ReadGap[] = [];
   const entries: TreeEntry[] = [];
   const treeSplit = byteSplit();
@@ -235,7 +235,7 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
   };
   const numstatRecords: Buffer[] = [];
   const numstatSplit = byteSplit();
-  await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit], (chunk) => {
+  if (options.fileFacts !== false) await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit], (chunk) => {
     for (const record of numstatSplit.push(chunk)) numstatRecords.push(record);
   });
   for (const record of numstatSplit.done()) numstatRecords.push(record);
@@ -253,7 +253,7 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
     at += 2;
   }
   const blobs = entries.filter((entry) => entry.type === 'blob');
-  const overrides = await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
+  const overrides = options.fileFacts === false ? new Map<string, string>() : await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
   const files: TreeFile[] = [];
   const gitlinks: TreeGitlink[] = [];
   for (const entry of entries) {
@@ -265,7 +265,7 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
     if (entry.type !== 'blob') continue;
     const held = countsByKey.get(entry.path);
     const form = held?.added === null || held?.added === undefined ? 'binary' : 'text';
-    const language = overrides.get(entry.path) ?? languageOfPath(entry.path);
+    const language = options.fileFacts === false ? { language: 'unknown', candidates: [] } : overrides.get(entry.path) ?? languageOfPath(entry.path);
     files.push({
       path: entry.path,
       mode: entry.mode === '100755' ? '100755' : entry.mode === '120000' ? '120000' : '100644',
@@ -279,7 +279,7 @@ export async function readRepositoryTree(pin: RepositoryAt): Promise<RepositoryT
     });
   }
   // The text files' bytes, once per blob: two files with the same bytes share one row in the store (item 9).
-  const contents = await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
+  const contents = options.fileFacts === false ? new Map<string, string | null>() : await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
   for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
