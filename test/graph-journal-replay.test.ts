@@ -299,7 +299,7 @@ describe('a replay over the journal answers the store', () => {
         await prepareStore(target, { contract: repositoryContract });
         const steps = sequence(seed);
         // The state after every step, and how many journal rows existed then: the cut points the replay is held to.
-        const states: Record<string, unknown>[] = [];
+        const states: (Record<string, unknown> & { reader: Awaited<ReturnType<typeof readerView>> })[] = [];
         const rowsAfter: number[] = [];
         for (const step of steps) {
           await applyStep(source, step);
