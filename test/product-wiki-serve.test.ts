@@ -6,6 +6,12 @@ import { afterEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
 import { serveWiki, type ServeResult } from '../src/product-wiki/serve.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { parseDocument } from 'yaml';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { prepareTestProduct } from './prepared-server.js';
 import type { StartedServer } from '../src/server/http.js';
 
@@ -68,17 +74,54 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
     // The product's own copy of the starter set: the engine knows no entities (decision 0034, item 24).
     seedStarterSet(product);
+    const kindsFile = join(product, 'madarch', 'kinds.yaml');
+    const manifest = parseDocument(readFileSync(kindsFile, 'utf8'));
+    const documentKind = manifest.getIn(['kinds', 'document']);
+    const documentDeclaration = (documentKind as { toJSON(): Record<string, unknown> }).toJSON();
+    manifest.setIn(['kinds', 'document'], {
+      ...documentDeclaration, source: 'graph', origin: 'person', key: ['title'], title: 'title',
+      fields: [
+        { name: 'title', type: 'text', producers: ['fixture'] },
+        { name: 'repository', type: 'text', producers: ['fixture'] },
+        { name: 'path', type: 'text', producers: ['fixture'] },
+        { name: 'markdown', type: 'text', producers: ['fixture'] },
+        { name: 'source_text', type: 'text', producers: ['fixture'] },
+        { name: 'anchors', type: 'json', producers: ['fixture'] },
+        { name: 'links', type: 'json', producers: ['fixture'] },
+      ],
+    });
+    writeFileSync(kindsFile, manifest.toString());
+    writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
+  first-fill:
+    status: implemented
+    stages: [repository-tree, repository-history]
+`);
     runIn(product, ['init', '--quiet', '--initial-branch=main']); runIn(product, ['add', '-A']); runIn(product, ['commit', '--quiet', '-m', 'Product']);
     preparationOwners.push(await prepareTestProduct(product, base));
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
     // The documents are the graph's now: the files producer reads the checkout into the store first (decision 0035, item 9).
     const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(pressed.status).toBe(202);
+    let finalStatus: { fill: { state: string; message?: string } } | undefined;
     for (let attempt = 0; attempt < 1200; attempt++) {
-      const status = await (await fetch(`${result.url}/api/status`)).json() as { fill: { state: string } };
-      if (status.fill.state !== 'running') break;
+      finalStatus = await (await fetch(`${result.url}/api/status`)).json() as { fill: { state: string; message?: string } };
+      if (finalStatus.fill.state !== 'running') break;
       await new Promise((rest) => setTimeout(rest, 100));
     }
+    expect(finalStatus?.fill.state, JSON.stringify(finalStatus)).toBe('done');
+    // Native stages store repository facts; this fixture supplies the document and source-text producer's structured answer.
+    const read = readKinds(product);
+    if (!read.present) throw new Error('the fixture document declaration is absent');
+    const contract = graphContractOf(read.manifest);
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(base))), connectOnly: true });
+    try {
+      await owner.transaction('write', async (tx) => {
+        const journal = journalFor('fixture@1');
+        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: 'Linked source' } }, 1, journal);
+        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }, 1, journal);
+        await writeJournal(tx, journal);
+      });
+    } finally { await owner.close(); }
     const listed = await (await fetch(`${result.url}/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
     expect(listed.documents).toContainEqual({ repo: 'source', path: 'README.md', title: 'Linked source' });
     const response = await fetch(`${result.url}/api/document?repo=source&path=README.md`);
