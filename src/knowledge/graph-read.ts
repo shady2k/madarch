@@ -744,10 +744,11 @@ export class GraphReader {
     const prefix = colon < 0 ? key : key.slice(0, colon);
     const tail = colon < 0 ? '' : key.slice(colon + 1);
     const generated = this.generatedKind(prefix);
-    if (generated !== undefined) return this.scoped(await this.run(async (tx) => await this.generatedFind(tx, generated, tail)));
     const graphKind = graphKindOf(prefix);
-    if (graphKind === undefined || !this.holds(graphKind)) return [];
+    if (generated === undefined && (graphKind === undefined || !this.holds(graphKind))) return [];
     return await this.run(async (tx) => {
+      const generatedMatches = generated === undefined ? [] : await this.generatedFind(tx, generated, tail);
+      if (graphKind === undefined || !this.holds(graphKind)) return this.scoped(generatedMatches);
       const referenceKind = graphKind === `${GIT_KINDS.directory}` || graphKind === `${GIT_KINDS.file}` || graphKind === `${GIT_KINDS.gitlink}`;
       const slash = referenceKind ? tail.indexOf('/') : -1;
       const repository = slash < 0 ? '' : tail.slice(0, slash);
@@ -758,7 +759,7 @@ export class GraphReader {
             : referenceKind && repository !== '' ? `(${REPOSITORY_KEY('n')} = $2 AND ${PATH_KEY('n')} = $3)` : `${PATH_KEY('n')} = $2`;
       const params = referenceKind && repository !== '' ? [graphKind, repository, path] : [graphKind, referenceKind ? path : tail];
       const found = await tx.query<Raw>(`${entitySelectSql(this.scope ?? null, 'full', this.declared)} WHERE k.name = $1 AND ${condition} ORDER BY n.id`, params);
-      return this.scoped(found.rows.map((row) => entityOf(row)));
+      return this.scoped([...found.rows.map((row) => entityOf(row)), ...generatedMatches]);
     });
   }
 
@@ -1007,7 +1008,12 @@ export class GraphReader {
     if (parts.length === 0) return [];
     return await this.run(async (tx) => {
       const found = await tx.query<{ kind: string; n: string }>(parts.join(' UNION ALL '));
-      return found.rows.map((row) => ({ kind: WIKI_KIND[row.kind] ?? row.kind, count: Number(row.n) })).sort((a, b) => byCodePoint(a.kind, b.kind));
+      const counts = new Map<string, number>();
+      for (const row of found.rows) {
+        const kind = WIKI_KIND[row.kind] ?? row.kind;
+        counts.set(kind, (counts.get(kind) ?? 0) + Number(row.n));
+      }
+      return [...counts].map(([kind, count]) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind));
     });
   }
 
