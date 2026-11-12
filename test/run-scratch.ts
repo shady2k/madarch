@@ -368,8 +368,8 @@ function running(pid: number): boolean {
   }
 }
 
-// The preload's work, at load: create the scratch, point the variables into it, and leave the removal to the hooks
-// above. The run's server is started by the first case that opens a database (`ensureRunPostgres`), and the same hook
-// stops it with the scratch.
+// Prepare the shared server and its template before test files load, outside every case's bound.
 runScratch();
 await installEndOfRun();
+await (await import('./run-postgres.js')).ensureRunPostgres();
+await (await import('./test-database.js')).prepareTestDatabaseTemplate();

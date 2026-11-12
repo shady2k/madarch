@@ -2,6 +2,8 @@
  * The database this test run's cases open (madarch-8bdc.2.5, item 2): one
  * PostgreSQL server for the run, started by the preload (`run-scratch.ts`), and
  * one database per case or per file on it, dropped when the case's owner closes.
+ * Default empty-contract cases clone a template prepared by the preload once;
+ * explicit stores, database names, sockets and graph contracts prepare directly.
  *
  * Before this, a case that opened a store booted a database of its own: 1.66 s on
  * the pod the suite runs on (measured 2026-10-20, madarch-cznn), which is what
@@ -37,8 +39,39 @@ function historyDatabaseOf(stem: string, namespace?: string): string {
 /** The variable naming the run server's socket folder; `run-postgres.ts` sets it before any test file loads. */
 export const TEST_SERVER_VARIABLE = 'MADARCH_TEST_PG_SOCKET';
 
+/** One prepared database on the run's server, never opened by a case. */
+const TEST_DATABASE_TEMPLATE = 'template_madarch_test';
+let templateReady: Promise<void> | undefined;
+
 /** How many databases this process has made, so two cases of one file never share a name. */
 let made = 0;
+
+/** A database identifier, including names a caller supplies, as SQL spells it. */
+function quotedDatabase(name: string): string {
+  return `"${name.replace(/"/gu, '""')}"`;
+}
+
+/**
+ * Prepares the run's empty-contract store before test cases load. Closing the
+ * owner's pool is part of readiness: PostgreSQL cannot clone a connected database.
+ * Children on this server reuse the prepared template instead of preparing it again.
+ */
+export async function prepareTestDatabaseTemplate(): Promise<void> {
+  templateReady ??= (async () => {
+    await ensureRunPostgres();
+    const socketDir = testServerSocket();
+    const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+    const held = await clusterQuery(cluster, 'postgres', 'SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DATABASE_TEMPLATE]);
+    if (held.length !== 0) return;
+    const owner = await createDatabaseOwner({ cluster: { socketDir }, database: TEST_DATABASE_TEMPLATE });
+    try {
+      await prepareStore(owner);
+    } finally {
+      await owner.close();
+    }
+  })();
+  await templateReady;
+}
 
 /**
  * Why the run's server is not there, when the preload could not start it. The
@@ -81,7 +114,7 @@ function testServerSocket(): string {
  * pod, measured 2026-10-20, madarch-cznn). A case about a store's own cluster passes no server and pays that cluster.
  */
 export async function testStoreServer(): Promise<{ readonly socketDir: string; readonly port: number; readonly user: string }> {
-  // The run's server starts on the first case that opens a database; naming it waits for that start.
+  // The preload starts the server; standalone drivers can also ask for it here.
   await ensureRunPostgres();
   return { socketDir: testServerSocket(), port: CLUSTER_PORT, user: 'postgres' };
 }
@@ -117,7 +150,7 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
     await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
     return owner;
   }
-  // The run's server is started here, on the first case that needs one.
+  // Also support drivers that open a database without the suite's preload.
   await ensureRunPostgres();
   const socketDir = options.socket ?? testServerSocket();
   made += 1;
@@ -125,8 +158,14 @@ export async function createTestDatabaseOwner(options: TestDatabaseOptions = {})
   // this owner's own fresh one, dropped when the owner closes.
   const database = options.database ?? `t_${String(process.pid)}_${String(made)}`;
   const own = options.database === undefined;
-  const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(options.btreeGist === true ? { btreeGist: true } : {}) });
-  await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
+  const clone = options.graphContract === undefined && options.socket === undefined && own;
+  if (clone) {
+    await prepareTestDatabaseTemplate();
+    const cluster = { dataDir: socketDir, socketDir, port: CLUSTER_PORT, user: 'postgres', bin: '', stop: async () => await Promise.resolve() };
+    await clusterQuery(cluster, 'postgres', `CREATE DATABASE ${quotedDatabase(database)} TEMPLATE ${quotedDatabase(TEST_DATABASE_TEMPLATE)}`);
+  }
+  const owner = await createDatabaseOwner({ cluster: { socketDir }, database, ...(clone ? { connectOnly: true } : {}), ...(options.btreeGist === true ? { btreeGist: true } : {}) });
+  if (!clone) await prepareStore(owner, options.graphContract === undefined ? {} : { contract: options.graphContract });
   let closed: Promise<void> | undefined;
   return {
     location: owner.location,
