@@ -13,13 +13,14 @@
 import type { AgentUsageRecord } from '../adapters/agent-usage.js';
 import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotValue, pluginGraphValue } from '../graph/plugin-turns.js';
+import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotValue, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
@@ -149,7 +150,7 @@ function evidenceDeclarations(manifest: KindsManifest): EvidenceDeclaration[] {
 function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
   const cut = id.indexOf(':');
   if (cut < 0) throw new Error(`src/fill/plugin-turns.ts:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind>`);
-  const rest = id.slice(cut + 1);
+  const rest = id.slice(cut + 1).split('#')[0]!;
   const plugin = wiring.manifest.plugins?.get(id.slice(0, cut));
   const lock = plugin === undefined ? undefined : wiring.locks.get(plugin.id);
   const at = rest.indexOf('@');
@@ -265,7 +266,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
   });
 }
 
-export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string): Promise<void> {
+export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
   const unit = unitOf(wiring, id);
@@ -357,11 +358,32 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         kinds: [unit.kind], kind: unit.kind,
         files: [],
       };
-      const outcome = await session.runUnit({ unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { ...(agentInputs ?? { pattern: unit.patterns[0] ?? '', patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }) } });
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { ...(agentInputs ?? { pattern: unit.patterns[0] ?? '', patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      if (partition?.plan !== undefined) {
+        const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
+        const cursors = new Set<string>();
+        let cursor: string | undefined;
+        do {
+          const page = await session.planOutput(request, cursor);
+          partitions.push(...page.partitions);
+          cursor = page.next;
+          if (cursor !== undefined && cursors.has(cursor)) throw new Error(`${location}: repeated output planning cursor`);
+          if (cursor !== undefined) cursors.add(cursor);
+        } while (cursor !== undefined);
+        access.assertAllowed();
+        partition.plan(partitions);
+        return;
+      }
+      const outcome = await session.runUnit(request);
       access.assertAllowed();
       if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
       access.assertWrites(outcome.result);
       for (const edge of outcome.result.edges) if (!ownsEdge(edge)) throw new Error(`${location}: plugin ${unit.plugin.id} output ${unit.kind.name}: write of unselected edge endpoints ${edge.kind} ${edge.from.kind} -> ${edge.to.kind}`);
+      const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
+      if (partitionKeys !== undefined) {
+        for (const vertex of [...outcome.result.vertices, ...outcome.result.removals]) if (!partitionKeys.has(canonicalKey(vertex.key))) throw new Error(`${location}: output outside selected partition keys`);
+        for (const edge of outcome.result.edges) if (!partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge outside selected partition keys`);
+      }
       if (outcome.result.end.state === 'partial') {
         draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: outcome.result.end.cause } });
         draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
@@ -429,6 +451,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           const held = answered.get(kind) ?? new Set<string>();
           for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
             if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
+            if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(entity.key))) continue;
             if (held.has(canonicalKey(entity.key))) continue;
             draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: unit.plugin.id, selectedFields: allowedFields } });
           }
@@ -437,6 +460,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           if (!wiring.contract.edge.some((edge) => edge.name === kind)) continue;
           for (const edge of await producerEdges(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
             if (!ownsEdge(edge)) continue;
+            if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) continue;
             if (wiring.paths !== undefined && ![edge.from.key, edge.to.key].some((key) => wiring.paths!.some((path) => typeof key.path === 'string' && (key.path === path || key.path.startsWith(`${path.replace(/\/$/, '')}/`))))) continue;
             if (answeredEdges.has(edgeIdentity(kind, edge.from, edge.to, edge.discriminator))) continue;
             draft.write({ kind: 'edge-removal', evidence: kind, value: { kind, from: edge.from, to: edge.to, ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: unit.plugin.id } });
@@ -469,7 +493,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
   return {
     id: PLUGIN_TURN_STAGE_ID,
-    version: 8,
+    version: 9,
     unitScheduling(id) {
       const unit = unitOf(wiring, id);
       const plan = declarationPlan;
@@ -488,8 +512,60 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind.name })), coverage: 'planned' };
     },
     async execute(unit, context) {
-      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
-      return { outcome: 'draft' };
+      const selected = unitOf(wiring, unit.id);
+      const partitioned = selected.plugin.declaration?.produces.some((output) => (output.kind === selected.kind.name || output.kind === '*') && output.partition === 'key') === true;
+      if (!partitioned) {
+        await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
+        return { outcome: 'draft' };
+      }
+      if (unit.id.includes('#')) {
+        const scope = JSON.parse(unit.scope) as { keys: import('../plugin/protocol.js').PluginKeyValues[] };
+        const writes: import('./stage.js').StageDraftWrite[] = [];
+        await runPluginTurn(wiring, unit.id, { write: (write) => { writes.push(write); }, writes: () => ({ writes }) }, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { keys: scope.keys });
+        const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
+        if (!['completed', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`partition ${unit.id} did not complete; its output remains unpublished`);
+        context.draft.write({ kind: 'plugin-partition', evidence: selected.kind.name, value: { keys: scope.keys, writes } });
+        return { outcome: 'draft' };
+      }
+      if (context.sealedChildren !== undefined) {
+        if (context.runId === undefined) throw new Error('partition barrier requires a run identity');
+        const partitions = context.sealedChildren.map((child) => ({ runId: context.runId!, unitId: child.unitId, generation: child.generation }));
+        const outcome = await pluginPartitionOutcome(wiring.owner, partitions);
+        if (!outcome.complete) throw new Error(`partitioned output ${unit.id} did not complete; earlier graph opinions remain unchanged`);
+        context.draft.write({ kind: 'plugin-aggregate', evidence: selected.kind.name, value: { partitions } });
+        context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced } });
+        return { outcome: 'draft' };
+      }
+      let planned: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
+      await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { plan: (partitions) => { planned = partitions; } });
+      const declaredKey = wiring.contract.vertex.find((vertex) => vertex.name === selected.kind.name)?.key ?? [];
+      const seen = new Set<string>();
+      const partitions = planned.map((partition) => {
+        if (partition.keys.length === 0) throw new Error('an output partition must declare at least one key');
+        const keys = partition.keys.map((key) => {
+          if (Object.keys(key).sort(byCodePoint).join('\0') !== [...declaredKey].sort(byCodePoint).join('\0')) throw new Error(`partition key does not match ${selected.kind.name} declared key`);
+          const canonical = canonicalKey(key);
+          if (seen.has(canonical)) throw new Error(`duplicate output partition key ${canonical}`);
+          seen.add(canonical);
+          return key;
+        }).filter((key) => wiring.targets?.vertex === undefined || entityIdOf(wiring, selected.kind.name, key) === wiring.targets.vertex);
+        return { keys };
+      }).filter((partition) => partition.keys.length > 0);
+      // Prior identities remain work even when enumeration is empty: missing keys retract only their own scoped fields.
+      for (const entity of await producerEntities(wiring.owner, wiring.contract, selected.kind.name, selected.plugin.id)) {
+        if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
+        if (wiring.targets?.vertex !== undefined && entityIdOf(wiring, selected.kind.name, entity.key) !== wiring.targets.vertex) continue;
+        if (!seen.has(canonicalKey(entity.key))) { seen.add(canonicalKey(entity.key)); partitions.push({ keys: [entity.key] }); }
+      }
+      if (partitions.length === 0) {
+        context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: 'empty', produced: 0 } });
+        return { outcome: 'draft' };
+      }
+      return { outcome: 'split', children: partitions.map(({ keys }) => {
+        const ordered = [...keys].sort((left, right) => byCodePoint(canonicalKey(left), canonicalKey(right)));
+        const hash = createHash('sha256').update(JSON.stringify(ordered.map(canonicalKey))).digest('hex');
+        return { id: `${unit.id}#${hash}`, scope: JSON.stringify({ keys: ordered }) };
+      }) };
     },
     validate: () => ({ ok: true }),
   };

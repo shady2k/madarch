@@ -167,6 +167,8 @@ interface StaticEdgeDraft {
  * a second pair of ends could state an edge whose ends nothing publishes.
  */
 export type StageDraftWrite =
+  | { kind: 'plugin-partition'; evidence: string; value: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly writes: readonly StageDraftWrite[] } }
+  | { kind: 'plugin-aggregate'; evidence: string; value: { readonly partitions: readonly { readonly runId: string; readonly unitId: string; readonly generation: number }[] } }
   | { kind: 'producer-outcome'; evidence: string; value: ProducerOutcomeDraft }
   | { kind: 'fact'; evidence: string; value: unknown }
   | { kind: 'entity'; evidence: string; value: unknown }
