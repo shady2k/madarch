@@ -205,9 +205,9 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
         transaction: async (_kind, work) => await work(transaction as OuterTransaction),
         run: async (work) => await work(transaction as OuterTransaction),
       };
-      const answerer = pluginGraphAnswerer({ owner, manifest: kindsRead.manifest, contract });
+      const answerer = kindsRead.present ? pluginGraphAnswerer({ owner, manifest: kindsRead.manifest, contract }) : undefined;
       return { query: async (text) => {
-        if (!kindsRead.present) throw new Error('src/product/fill-stages.ts:1: plugin graph reads require the product kind declarations');
+        if (answerer === undefined) throw new Error('src/product/fill-stages.ts:1: plugin graph reads require the product kind declarations');
         return await answerPluginGraphQuery(answerer, text);
       } };
     },
