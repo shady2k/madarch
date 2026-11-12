@@ -14,7 +14,7 @@ import { fileFacts, listDirectories, listFiles, repositoryFacts } from '../src/g
 import { commitWithPaths as commitFacts } from '../src/graph/records.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
-import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
+import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { runFill } from '../src/fill/run.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
@@ -73,6 +73,7 @@ function makeProduct(folder: string, source: string, name: string): void {
   symlinkSync(source, join(folder, 'repos', name));
   writeFileSync(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: records\nrepos:\n  - name: ${name}\n    url: file://${source}\n`);
   useRepositoryPlugins(folder);
+  restrictRepositoryDeclarations(folder);
   execFileSync('git', ['init', '-q'], { cwd: folder });
   execFileSync('git', ['add', '-A'], { cwd: folder });
   execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Declare repository plugins'], { cwd: folder });
