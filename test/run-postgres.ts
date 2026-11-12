@@ -109,10 +109,9 @@ function alive(pid: number): boolean {
 }
 
 /**
- * Starts the run's server, once, and puts its socket folder where every test file
- * and every child process it starts reads it: the first case that opens a
- * database asks, and a run with no such case never starts a server (a child run
- * of the scratch fixture is 10 s slower when every run boots one). A server that
+ * Starts the run's server once. The preload awaits it before test files load,
+ * so no case pays for cluster startup. The socket folder is inherited by child
+ * processes that use the test database helper. A server that
  * cannot start (root, a platform with no pinned build, a machine that cannot
  * download) is kept as the failure every case that opens a database reports.
  */
