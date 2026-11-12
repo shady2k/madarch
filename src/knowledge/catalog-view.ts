@@ -10,6 +10,7 @@
  * showing an English name to a reader of another language.
  */
 import { byCodePoint } from '../model/order.js';
+import { OPINION_FIELDS } from '../graph/contract.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
@@ -18,7 +19,7 @@ import type { CatalogKindView, CatalogSummaryView, CatalogView, KindProducer, Wi
 
 /** The list carries navigation and fill metadata; declaration details are read only when a kind is opened. */
 export function catalogSummary(view: CatalogView): CatalogSummaryView {
-  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, ...kind }) => ({
+  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, declaration, ...kind }) => ({
     ...kind,
     ...(sources === undefined || sources.length === 0 ? {} : { sourcesAvailable: true }),
   })) };
@@ -142,7 +143,14 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     const estimate = estimateOf(count, turns.generatedOf?.(kind), count);
     return {
       kind, subgroup,
-      ...(decl?.fields === undefined ? {} : { fields: decl.fields }),
+      declaration: { file: ctx.manifest.file, line: decl?.line ?? entry!.line },
+      ...(decl?.fields === undefined ? {} : { fields: decl.fields
+        .filter((field) => !(OPINION_FIELDS as readonly string[]).includes(field.name))
+        .map((field) => {
+          const labels = ctx.manifest.properties.get(field.name)?.labels;
+          return { ...field, ...(labels === undefined ? {} : { labels: { ...labels } }),
+            declaration: { file: ctx.manifest.file, line: field.line ?? decl.line } };
+        }) }),
       relations: relationsOf(ctx, kind),
       ...(entry === undefined ? {} : { sources: [...entry.sources] }),
       ...(words.labels === undefined || Object.keys(words.labels).length === 0 ? {} : { labels: { ...words.labels } }),

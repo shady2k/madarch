@@ -162,16 +162,13 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
   return all
     .map((entry): NavGroup => {
       const childrenOf = entry.group === null ? [] : children.filter((child) => child.parent === entry.group);
-      // A sub-area counts every entity of its kinds, as the parent does; a kind with a page of its own is not drawn as a
-      // row, but its entities are not lost from the parent's total (the review). Only rows the menu can draw stand open.
-      const allSubgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, ...(child.short === undefined ? {} : { short: child.short }), total: countedOf(child.group), kinds: shownOf(child.group) }));
-      const subgroups = allSubgroups.filter((child) => child.kinds.length > 0);
-      const childKindNames = new Set(allSubgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
+      // A sub-area counts every entity of its kinds, as the parent does, even when none has a navigation row.
+      const subgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, ...(child.short === undefined ? {} : { short: child.short }), total: countedOf(child.group), kinds: shownOf(child.group) }));
+      const childKindNames = new Set(subgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
       const direct = shownOf(entry.group).filter((kind) => !childKindNames.has(kind.kind));
       const kinds = entry.group === null ? shownOf(null) : [...direct, ...subgroups.flatMap((child) => child.kinds)];
-      return { group: entry.group, labels: entry.labels, ...(entry.short === undefined ? {} : { short: entry.short }), open: entry.open, total: countedOf(entry.group) + allSubgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
-    })
-    .filter((entry) => entry.kinds.length > 0);
+      return { group: entry.group, labels: entry.labels, ...(entry.short === undefined ? {} : { short: entry.short }), open: entry.open, total: countedOf(entry.group) + subgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
+    });
 }
 
 function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: WikiRoute; onNavigate?: () => void }): ReactElement {
@@ -236,6 +233,9 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <BookOpenIcon aria-hidden="true" size={16} />
           <NavigationLabel>{t('knowledge.glossary.title')}</NavigationLabel>
         </NavigationLink>
+        <NavigationLink href={appPath(WIKI_FILL)} active={route.name === 'fill'} aria-current={route.name === 'fill' ? 'page' : undefined} data-testid="nav-fill" {...pick(WIKI_FILL)}>
+          <NavigationLabel>{t('navigation.fill')}</NavigationLabel>
+        </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
@@ -247,7 +247,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           const open = opened[key] ?? (holdsActive || entry.open);
           return (
             <NavigationGroup key={key} data-nav-group={entry.group ?? ''}>
-              <NavigationGroupTrigger open={open} onClick={() => setOpened({ ...opened, [key]: !open })} data-testid="nav-group">
+              <NavigationGroupTrigger open={open} empty={entry.total === 0} data-empty={entry.total === 0} onClick={() => setOpened({ ...opened, [key]: !open })} data-testid="nav-group">
                 <NavigationLabel>{entry.labels === null ? t('knowledge.groupOther') : entry.short?.[language] ?? entry.labels[language] ?? entry.labels['en'] ?? entry.group}</NavigationLabel>
                 <NavigationCount data-testid="nav-group-count">{entry.total}</NavigationCount>
               </NavigationGroupTrigger>
@@ -256,7 +256,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
                   {directOf(entry).map((kind) => kindLink(kind))}
                   {entry.subgroups.map((subgroup) => (
                     <NavigationGroup key={subgroup.group} data-nav-subgroup={subgroup.group} data-testid="nav-subgroup">
-                      <NavigationSubheading>
+                      <NavigationSubheading empty={subgroup.total === 0} data-empty={subgroup.total === 0}>
                         <NavigationLabel>{subgroup.short?.[language] ?? subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</NavigationLabel>
                         <NavigationCount data-testid="nav-subgroup-count">{subgroup.total}</NavigationCount>
                       </NavigationSubheading>
@@ -665,7 +665,7 @@ export function KnowledgeApp(): ReactElement {
       </ShellNavigationSheet>
     </Sheet>
   );
-  const contentPage = !['catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
+  const contentPage = !['kind', 'catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
   let view: ReactElement;
   // No store, no home page: until a fill runs the home is the introduction, even when the product repository holds a
   // page a later stage will read. Nothing of the product is parsed before the fill writes it.

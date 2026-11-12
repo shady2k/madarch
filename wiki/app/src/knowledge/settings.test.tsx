@@ -440,7 +440,7 @@ describe('a failure is told once, in the reader\'s language', () => {
     const note = into(createElement(FailureNote, { scope: 'writer', code: 'units', message: detail }));
     await until(() => note.querySelector('[data-testid=failure-note]') !== null, 'the note');
     expect(note.querySelector('[data-testid=failure-note] p')!.textContent).toBe('Часть страниц не написана. Список ниже говорит, почему, для каждой страницы.');
-    expect(note.querySelector('a')!.textContent).toBe('Открыть «Проблемы»');
+    expect(note.querySelector('a')!.textContent).toBe('Проблемы');
     rendered?.unmount();
     document.body.innerHTML = '';
     const plain = into(createElement(FailureNote, { scope: 'fill', code: 'unheard-of', message: 'something odd' }));

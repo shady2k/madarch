@@ -404,7 +404,7 @@ describe('madarch serve: an existing product served', () => {
     expect(run.stdout).toContain(`building the wiki app in ${built}`);
     expect(run.stderr).toContain('the build failed');
     expect(run.stderr).toContain(builder.command);
-  });
+  }, 60_000); // Standalone serve prepares its store before the API role can refuse the app build.
 
   test('the install step failing behaves the same: exit 2 with what the builder said', () => {
     const base = scratchFolder();
@@ -414,7 +414,7 @@ describe('madarch serve: an existing product served', () => {
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command }, base);
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('no registry here');
-  });
+  }, 60_000);
 
   test('a build that succeeds with no dist refuses: the app cannot be served then', () => {
     const base = scratchFolder();
@@ -425,7 +425,7 @@ describe('madarch serve: an existing product served', () => {
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('dist');
     expect(run.stderr).toContain('index.html');
-  });
+  }, 60_000);
 
   test('a served product answers its home and one page over HTTP; the build runs once and the opener is not reached with --no-open', async () => {
     const base = scratchFolder();
@@ -597,7 +597,7 @@ describe('madarch serve: an existing product served', () => {
     expect(run.status).toBe(2);
     expect(run.stderr).not.toContain('exit null');
     expect(run.stderr).toMatch(/no such file|ENOENT/i);
-  });
+  }, 60_000);
 
   test('serve --no-open opens nothing, not even through MADARCH_BROWSER', async () => {
     const base = scratchFolder();

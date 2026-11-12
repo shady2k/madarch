@@ -104,6 +104,7 @@ describe('a kind\'s table comes from the manifest', () => {
     const other = product(noPlugin, CONTRACT);
     const readOther = parseKinds(noPlugin, 'madarch/kinds.yaml', other);
     expect(manifestContractOf(readOther).vertex).toEqual([]);
-    expect(declaredKindReads(readOther).size).toBe(0);
+    expect(declaredKindReads(readOther).has('doc.term')).toBe(false);
+    expect([...declaredKindReads(readOther).keys()]).toEqual(['template']);
   });
 });

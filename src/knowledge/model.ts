@@ -472,8 +472,10 @@ export interface CatalogKindView {
   labels?: Record<string, { one: string; many: string }>;
   /** What the kind is per interface language; a missing language is left out and its finding names the declaration. */
   descriptions?: Record<string, string>;
-  /** The typed contract, exactly as the product declares it. */
-  fields?: readonly FieldDecl[];
+  /** The published manifest location of this kind. */
+  declaration?: { file: string; line: number };
+  /** Manifest fields with reader-facing labels, excluding engine opinion columns. */
+  fields?: readonly (FieldDecl & { labels?: Readonly<Record<string, string>>; declaration?: { file: string; line: number } })[];
   /** Both directions of declared relations; a catalogue constraint may leave the other kind unspecified. */
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   /** The standards or documents the kind declaration cites. */
@@ -537,7 +539,7 @@ export interface KindEstimate {
 }
 
 /** The catalogue list omits declaration details, acquired by a single-kind request. */
-export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources' | 'declaration'>[] };
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
 export interface CatalogView {

@@ -27,7 +27,6 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
-import { publishRepositoryTemplates } from './structured-template-fixture.js';
 import { parseDocument } from 'yaml';
 
 const env = gitEnv(SAMPLE_IDENTITY);
@@ -86,7 +85,6 @@ async function press(server: StartedServer, name: string): Promise<Record<string
     const fill = status.body['fill'] as Record<string, unknown> | undefined;
     if (fill === undefined) throw new Error(`/api/status answered ${String(status.status)} with no fill state: ${JSON.stringify(status.body).slice(0, 500)}`);
     if (fill['state'] !== 'running') {
-      await publishRepositoryTemplates(join(home, name), home);
       return status.body;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -264,7 +262,8 @@ git(folder,'commit','-qm','the nested file moves');
       const expectedKinds = [...(declared.manifest.catalog?.kinds.keys() ?? declared.manifest.kinds.keys())].sort(byCodePoint);
       const emptyKinds = empty.body['kinds'] as { kind: string; count: number }[];
       expect(emptyKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
-      expect(emptyKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
+      expect(emptyKinds.filter((kind) => kind.kind !== 'template').every((kind) => kind.count === 0)).toBe(true);
+      expect(emptyKinds.find((kind) => kind.kind === 'template')?.count).toBeGreaterThan(0);
       const glossary = await json(server, 'docs', '/api/glossary');
       expect(glossary.body).toEqual({ terms: [], resolutions: {}, findingCount: 0 });
       // The kind is declared, but file text alone produces no document entity.
@@ -391,7 +390,6 @@ git(folder,'commit','-qm','the nested file moves');
     } finally {
       await owner.close();
     }
-    await publishRepositoryTemplates(folder, home);
     const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
     try {
       const status = await json(server, 'treeonly', '/api/status');

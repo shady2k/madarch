@@ -23,7 +23,7 @@ test('MCP kinds reads published declarations without a repository fill or checko
       ? { $map: [...value].map(([key, held]) => [key, encode(held)]) }
       : Array.isArray(value) ? value.map(encode)
       : value !== null && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, held]) => [key, encode(held)])) : value;
-    await publishValidatedManifests(owner, { folder: '/absent-product', manifest, vertices: [{ kind: 'manifest.catalogue', key: { name: 'product' }, values: { declaration: encode(manifest) }, producer: 'manifest', producerVersion: '1', evidence: [] }, { kind: 'manifest.dependency', key: { name: 'alpha-zebra' }, values: { declaration: { from: 'alpha', to: 'zebra', via: 'depends-on' } }, producer: 'manifest', producerVersion: '1', evidence: [] }] });
+    await publishValidatedManifests(owner, { folder: '/absent-product', manifest, templatePaths: [], vertices: [{ kind: 'manifest.catalogue', key: { name: 'product' }, values: { declaration: encode(manifest) }, producer: 'manifest', producerVersion: '1', evidence: [] }, { kind: 'manifest.dependency', key: { name: 'alpha-zebra' }, values: { declaration: { from: 'alpha', to: 'zebra', via: 'depends-on' } }, producer: 'manifest', producerVersion: '1', evidence: [] }] });
     expect(isRecordTool('kinds')).toBe(true);
     const result = await callRecordTool('kinds', {}, { owner, repository: 'sample', source: { repository: '/absent-product', commit: null, branch: null, head: null, changed: [] } });
     expect(result.isError).toBe(false);

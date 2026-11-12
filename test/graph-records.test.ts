@@ -98,6 +98,34 @@ describe('the record tables', () => {
   }, 120_000);
 });
 
+test('file-only facts need no repository entity or history, and a missing file is null', async () => {
+  const files = await createTestDatabaseOwner({ graphContract: {
+    vertex: GIT_CONTRACT.vertex.filter((kind) => kind.name === GIT_KINDS.file),
+    edge: [], dictionary: [],
+  } });
+  try {
+    const blob = 'b'.repeat(40);
+    await publishTree(files, {
+      repository: { name: 'files-only', url: 'file:///fixture' }, commit: 'a'.repeat(40),
+      kinds: { vertex: [GIT_KINDS.file], edge: [] }, gitlinks: [],
+      files: [{ path: 'src/one.ts', mode: '100644', blob, bytes: 20, form: 'text', lines: 1, content: 'export const n = 1;\n', language: 'TypeScript', candidates: ['TypeScript'] }],
+    });
+    const repositories = await files.run((tx) => tx.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = $1',
+      [GIT_KINDS.repository],
+    ));
+    expect(repositories.rows).toEqual([{ count: '0' }]);
+    expect(await fileFacts(files, 'files-only', 'src/one.ts', { history: false })).toMatchObject({
+      path: 'src/one.ts', mode: '100644', blob, bytes: 20, form: 'text', lines: 1,
+      language: 'TypeScript', candidates: ['TypeScript'],
+      created: null, modified: null, commitCount: 0, authors: [],
+    });
+    expect(await fileFacts(files, 'files-only', 'src/missing.ts', { history: false })).toBeNull();
+  } finally {
+    await files.close();
+  }
+});
+
 describe('the two passes over one fixture', () => {
   test('write the tree and the history, and a second run writes nothing', async () => {
     if (owner === undefined) throw new Error('the store was not opened');

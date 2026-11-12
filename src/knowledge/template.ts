@@ -24,12 +24,30 @@ export function foldLanguageParams(params: Readonly<Record<string, string>>, lan
   return out;
 }
 
-/** Literal text and attributes are separate nodes; the reader parses no interpolation syntax. */
+/** Values compiled by the template plugin; readers evaluate data, never product syntax. */
+export type TemplateValue = string | { type: 'attribute'; name: string } | { type: 'concat'; values: readonly TemplateValue[] };
+export type TemplateCondition = { type: 'truthy'; value: TemplateValue } | { type: 'equal'; left: TemplateValue; right: TemplateValue };
+
+/** Literal text, attributes and control flow are separate structured nodes. */
 export type TemplatePart =
   | { type: 'text'; text: string; line: number }
   | { type: 'attribute'; name: string; line: number }
-  | { type: 'block'; name: BlockName; params: Readonly<Record<string, string>>; line: number }
+  | { type: 'block'; name: BlockName; params: Readonly<Record<string, TemplateValue>>; line: number }
+  | { type: 'conditional'; condition: TemplateCondition; then: readonly TemplatePart[]; else: readonly TemplatePart[]; line: number }
   | { type: 'problem'; message: string; line: number };
+
+function isTemplateValue(value: unknown): value is TemplateValue {
+  if (typeof value === 'string') return true;
+  if (value === null || typeof value !== 'object') return false;
+  const held = value as Record<string, unknown>;
+  return (held.type === 'attribute' && typeof held.name === 'string') || (held.type === 'concat' && Array.isArray(held.values) && held.values.every(isTemplateValue));
+}
+
+function isTemplateCondition(value: unknown): value is TemplateCondition {
+  if (value === null || typeof value !== 'object') return false;
+  const held = value as Record<string, unknown>;
+  return (held.type === 'truthy' && isTemplateValue(held.value)) || (held.type === 'equal' && isTemplateValue(held.left) && isTemplateValue(held.right));
+}
 
 /** Validate an opinion's structure without interpreting any product language. */
 export function templatePartsOf(value: unknown): readonly TemplatePart[] | undefined {
@@ -39,10 +57,31 @@ export function templatePartsOf(value: unknown): readonly TemplatePart[] | undef
     if (part.type === 'text' && typeof part.text === 'string') continue;
     if (part.type === 'attribute' && typeof part.name === 'string') continue;
     if (part.type === 'problem' && typeof part.message === 'string') continue;
-    if (part.type === 'block' && BLOCK_NAMES.includes(part.name) && part.params !== null && typeof part.params === 'object' && !Array.isArray(part.params) && Object.values(part.params).every((item) => typeof item === 'string')) continue;
+    if (part.type === 'block' && BLOCK_NAMES.includes(part.name) && part.params !== null && typeof part.params === 'object' && !Array.isArray(part.params) && Object.values(part.params).every(isTemplateValue)) continue;
+    if (part.type === 'conditional' && isTemplateCondition(part.condition) && templatePartsOf(part.then) !== undefined && templatePartsOf(part.else) !== undefined) continue;
     return undefined;
   }
   return value as TemplatePart[];
+}
+
+
+/** Evaluate the compiled scalar expressions against this page's attributes. */
+export function templateValueOf(value: TemplateValue, attribute: (name: string) => string | undefined): string {
+  if (typeof value === 'string') return value;
+  if (value.type === 'attribute') return attribute(value.name) ?? '';
+  return value.values.map((one) => templateValueOf(one, attribute)).join('');
+}
+
+/** Select compiled branches before drawing blocks; no reader interprets Liquid. */
+export function* templatePartsFor(parts: readonly TemplatePart[], attribute: (name: string) => string | undefined): Generator<Exclude<TemplatePart, { type: 'conditional' }>> {
+  for (const part of parts) {
+    if (part.type !== 'conditional') { yield part; continue; }
+    const condition = part.condition;
+    const selected = condition.type === 'truthy'
+      ? templateValueOf(condition.value, attribute) !== ''
+      : templateValueOf(condition.left, attribute) === templateValueOf(condition.right, attribute);
+    yield* templatePartsFor(selected ? part.then : part.else, attribute);
+  }
 }
 
 /**

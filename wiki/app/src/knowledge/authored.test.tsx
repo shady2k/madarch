@@ -16,7 +16,13 @@ afterAll(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); 
 let root: Root | undefined;
 const originalFetch = globalThis.fetch;
 afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = ''; globalThis.fetch = originalFetch; window.history.replaceState({}, '', '/'); window.sessionStorage.clear(); window.localStorage.clear(); resetTabs(); resetPreferences(); });
-function mount(element: ReturnType<typeof createElement>): void { const div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div); root.render(element); }
+function mount(element: ReturnType<typeof createElement>): void {
+  const authoredFetch = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, options?: RequestInit) => String(input).includes('/api/catalog')
+    ? Promise.resolve(respond({ message: 'Catalogue unavailable in this authored-record fixture' }, 503))
+    : authoredFetch(input, options)) as typeof fetch;
+  const div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div); root.render(element);
+}
 async function until(predicate: () => boolean): Promise<void> { for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 10)); } throw new Error(document.body.innerHTML); }
 const fields = [{ name: 'title', type: 'text', nullable: true }, { name: 'enabled', type: 'boolean', nullable: true }, { name: 'data', type: 'json', nullable: true }];
 const entity = { id: 'note:u1', uid: 'u1', revision: '10', values: { title: 'A note', enabled: false, data: { count: 3 } } };
@@ -171,7 +177,7 @@ for (const kind of ['question', 'correction', 'task']) {
     const kinds: KindSummary[] = [{ kind, source: 'graph', count: 0, single: false, origins: ['person'] }];
     const wrap = (page: ReturnType<typeof createElement>) => createElement(KindLabels.Provider, { value: kinds }, page);
     mount(wrap(createElement(KindPage, { kind, version: 0 })));
-    await until(() => document.querySelector('[data-testid="authored-kind-page"] p')?.textContent === 'Nothing of this kind is in the graph yet.');
+    await until(() => [...document.querySelectorAll('[data-testid="authored-kind-page"] p')].some((paragraph) => paragraph.textContent === 'Nothing of this kind is in the graph yet.'));
     expect(document.querySelector('h1')!.textContent).toBe(`${kind[0]!.toUpperCase()}${kind.slice(1)}s`);
     expect([...document.querySelectorAll('button')].some((button) => button.textContent === 'New')).toBe(true);
     root!.render(wrap(createElement(EntityPage, { id: record.id, version: 0 })));

@@ -17,7 +17,7 @@
       "confirmDelete": "Delete “{{title}}”? This closes its open opinions.",
       "confirm": "Delete entity",
       "deleted": "Entity deleted",
-      "back": "Back to list"
+      "back": "List"
   },
   "brand": {
     "product": "Madarch",
@@ -29,6 +29,7 @@
     "local": "Served locally"
   },
   "navigation": {
+    "fill": "Fill",
     "overview": "Product overview",
     "documents": "Sources",
     "aria": "Document navigation",
@@ -58,6 +59,7 @@
     "language": "Choose language"
   },
   "knowledge": {
+    "prefill": {"created": "Product created", "connected": "Code connected", "noCode": "No code repository connected", "empty": "The graph is empty. Choose what to fill next.", "open": "Fill…"},
     "dependencies": {
       "title": "Dependency graph",
       "intro": "The entities that take part in a dependency, one column per depth in the dependency order their declarations give: an entity stands after the entities it needs. The state is what the last fill left: filled, partial, or never filled. The entities that take part in no dependency are grouped by section below.",
@@ -175,7 +177,7 @@
       "folders": "Folders",
       "files": "Files",
       "more": "The next page",
-      "up": "Up one folder",
+      "up": "Parent folder",
       "emptyFolder": "This folder holds no file and no folder at this commit.",
       "textTitle": "Text",
       "textMissing": "The file's text is not shown",
@@ -250,7 +252,7 @@
     "colDeclared": "Declared at",
     "colSites": "Sites",
     "showing": "Showing {{shown}} of {{total}}.",
-    "openSource": "Open the file",
+    "openSource": "Source file",
     "noLinks": "no links in the graph",
     "noCalls": "no calls in the graph",
     "noTables": "no tables in the graph",
@@ -281,17 +283,6 @@
     "chooseProduct": "Choose a product",
     "products": "Products",
     "home": "Home",
-    "homeIntro": {
-      "summary": "madarch is a wiki of a product that fills itself from its repositories.",
-      "canTitle": "Here you can:",
-      "canStart": "start the fill and watch pages appear as it reads the repositories;",
-      "canOpen": "open the files, folders and commits of the repositories the product joins;",
-      "canAsk": "ask the wiki through MCP.",
-      "howTitle": "How it works",
-      "howRead": "The fill reads the joined repositories commit by commit into the product's graph.",
-      "howStages": "Each stage adds a layer, and the wiki draws only what those stages wrote.",
-      "howAgent": "The agent, if you choose one, writes pages from the graph and nothing else."
-    },
     "waiting": "Waiting for you",
     "kinds": "Pages by kind",
     "documents": "Sources",
@@ -332,27 +323,15 @@
     "fillOpening": "Opening the product's graph store.",
     "fillLive": "Pages appear and update here as commits are read. You can open any page now.",
     "fillFailedTitle": "The fill stopped",
-    "fillRetry": "Start the fill again",
-    "emptyTitle": "This wiki is empty",
-    "emptyConnected": "Start the fill to read the code repositories ({{repositories}}) into this product's graph. Pages appear here as commits are read.",
-    "emptyNoRepository": "The product has no code repository yet. Connect one, then start the fill:",
+    "fillRetry": "Fill setup",
     "incompleteTitle": "The fill is not finished",
     "incomplete": "The graph holds only part of the repository's history: a fill stopped before its last commit. Pages show what was read. Continue the fill to read the rest.",
-    "fillContinue": "Continue the fill",
-    "fillStart": "Start the fill",
+    "fillContinue": "Fill setup",
+    "fillStart": "Fill setup",
     "overviewFilled": "No home page is written yet. The pages below come from the graph; an agent writes the product and domain pages as Markdown in the product repository.",
     "overviewEmpty": "Nothing is known about this product yet.",
     "fromMarkdown": "Markdown pages of the product repository",
     "fromGraph": "Read from the code by the fill",
-    "noManifestTitle": "The product repository has no kinds manifest",
-    "noManifest": "The graph holds no {{file}} at the commit the fill read: the wiki shows the kinds that file declares, so it has none to show. Add the file to the product repository and fill again.",
-    "noManifestScratch": "The product was started from scratch. No command copies the starter set into an existing product, so write {{file}} by hand; the guide tells you every field it takes.",
-    "noManifestGuide": "How to write a product's manifests",
-    "notFilledTitle": "The product is created",
-    "notFilledWhat": "madarch created the product, and its kinds manifest stands at {{file}}. Nothing is read yet: the graph holds no page until the fill reads the product repository.",
-    "notFilledNext": "Press Fill to read the product repository into the graph: the kinds the manifest declares, the documents and the page templates they name. The wiki's pages stand afterwards. Nothing runs until you press.",
-    "notFilledGuide": "How to write a product's manifests",
-    "notFilledFill": "Fill reads the product repository itself into the graph: the kinds the manifest declares, the documents and the page templates. It starts only when you press.",
     "unitLimits": {
       "turns_one": "{{count}} turn",
       "turns_few": "{{count}} turns",
@@ -376,9 +355,7 @@
       "notInstalled": "Its adapter is not installed: pressing the button below installs {{package}} {{version}} (about {{size}}) into {{folder}}.",
       "signedIn": "Signed in on this machine.",
       "notSignedIn": "{{agent}} has no sign-in here: sign in with {{agent}} itself first, or the pages it writes will fail and it will say so.",
-      "offerTitle": "Let an agent write the product pages",
-      "offerDescription": "The graph is filled from the code. An agent can now write the product page and one page per domain, each statement grounded in the graph. Choose the agent, then press the button; the pages appear as they are written.",
-      "retry": "Try the agent again",
+      "retry": "Fill setup",
       "live": "Each page appears in the wiki the moment the agent writes it. You can open any page now.",
       "failedTitle": "{{agent}} did not finish the pages",
       "unitWaiting": "waiting",
@@ -431,7 +408,7 @@
     "noDocuments": "No source matches.",
     "documentsIntro": "The documents the product is described by: its own and those of its code repositories. Every page and every statement of the wiki rests on them.",
     "filterSources": "Filter by title or path",
-    "cardOpen": "Open the page of this {{kind}}",
+    "cardOpen": "{{kind}} page",
     "cardFacts": "What the code says about it",
     "cardRelated": "Connected to",
     "noSuchDocument": "This document is not there",
@@ -494,7 +471,7 @@
     "statementCorrectionPlaceholder": "This is wrong, because…",
     "statementCorrectionSend": "Record the correction",
     "statementMissing": "The statement cannot be shown",
-    "openOnHost": "Open in {{host}}",
+    "openOnHost": "{{host}}",
     "citedLines": "cited lines {{start}}–{{end}}",
     "cutShown": "The excerpt is cut; the whole file is one click away.",
     "colNote": "Why",
@@ -912,11 +889,11 @@
       "repeated": "repeated"
     },
     "historyDateTitle": "{{repo}} at {{date}}",
-    "historyCurrent": "Return to current code",
+    "historyCurrent": "Current code",
     "historyRepository": "Repository",
     "historyDateFormat": "YYYY-MM-DD",
     "historyChooseDate": "Date (UTC)",
-    "historyOpenDate": "Open this date",
+    "historyOpenDate": "Code on this date",
     "historyPointUnread": "structure not read",
     "historyLandmarkCovered_one": "{{count}} distinct tree covered",
     "historyLandmarkCovered_few": "{{count}} distinct trees covered",
@@ -977,7 +954,7 @@
       "writtenCount": "{{done}} written",
       "writingNow": "Writing: {{name}}",
       "waiting": "Waiting for the first page",
-      "open": "Open the fill",
+      "open": "Fill",
       "idle": "The fill has not run yet.",
       "pause": "Pause",
       "paused": "Paused",
@@ -995,7 +972,7 @@
       "stopWords_other": "Stopping ends the run now. {{count}} pages have already been rewritten by this run: they stay as they are, and the page being written now stays as it was before the run."
     },
     "pageProblems": "Problems on this page: {{count}}",
-    "findingsWhere": "Open the problems",
+    "findingsWhere": "Problems",
     "findingsCount": "Findings: {{count}}",
     "usage": {
       "title": "What the model calls cost",
@@ -1025,7 +1002,7 @@
       "rendered": "Rendered",
       "source": "Source",
       "softWrap": "Soft wrap",
-      "sourcesPage": "Open in Sources",
+      "sourcesPage": "Sources",
       "noSource": "The graph holds no text of this file.",
       "noHistory": "No commit touched this file.",
       "noCochange": "No other file changed with it in two or more commits.",
@@ -1038,8 +1015,8 @@
     "kindAgentTokens": "Tokens: {{count}}",
     "kindTokensNotReported": "Token usage not reported",
     "kindWaitingForFill": "This kind is ready to be filled.",
-    "kindStartAgentFill": "Open Fill",
-    "fillChoose": "Fill…",
+    "kindStartAgentFill": "Fill",
+    "fillChoose": "Fill setup",
     "fillSetup": {
       "title": "Choose what to fill",
       "intro": "Select kinds or sections, review their dependencies, then run. Nothing is selected by default.",
@@ -1064,7 +1041,7 @@
       "invalidCap": "Enter a positive whole-number token cap.",
       "unsupported": "Selected runs currently support own producers only. Agent execution and token caps are not supported yet."
     },
-    "kindDetails": {"unavailable": "The kind declaration is unavailable. Records are shown below.", "fields": "Fields", "relations": "Relations", "noFields": "No fields are declared.", "noRelations": "No relations are declared.", "records": "Records"},
+    "kindDetails": {"unavailable": "The kind declaration is unavailable. Records are shown below.", "fields": "Fields", "relations": "Relations", "noFields": "No fields are declared.", "noRelations": "No relations are declared.", "records": "Records", "untranslatedField": "Untranslated field", "untranslatedKind": "Untranslated kind", "noProducer": "No producer is declared", "untranslatedDescription": "The kind description is not translated."},
     "kindSources": {
       "standards": "Standards and practices",
       "producer": "Filled by"
@@ -1343,7 +1320,7 @@
   },
   "journal": {
     "title": "How the agent wrote this page",
-    "back": "Back to the page",
+    "back": "Page",
     "intro": "Every call the agent made while it wrote this page, and every request the core refused, as the core recorded them. The journal is kept on this machine, not in the product repository.",
     "none": "No journal for this page. It was written before the core kept one, or no agent has written it on this machine.",
     "failed": "The journal could not be read",
@@ -1510,7 +1487,7 @@
     }
   },
   "errors": {
-    "problems": "Open the Problems page",
+    "problems": "Problems",
     "fill": {
       "store": "The product's index could not be opened on this machine.",
       "worker-start": "The reader of the code could not be started.",

@@ -16,6 +16,7 @@ import { generatedTableName, type EdgeContract, type FieldContract, type GraphCo
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
+import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
@@ -96,23 +97,12 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
  */
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
-  for (const kind of manifest.kinds.values()) {
-    if (kind.fields === undefined) continue;
-    const keyFields = kind.key ?? [];
-    const columns: string[] = [];
-    const types: Record<string, GeneratedKindRead['types'][string]> = {};
-    const bound = new Set<string>();
-    for (const field of kind.fields) {
-      const held = resolved(field, kind, manifest);
-      if (held === undefined) continue;
-      bound.add(field.name);
-      if (keyFields.includes(field.name)) continue;
-      columns.push(field.name);
-      types[field.name] = held.type;
-    }
-    // A kind no declaration fills, or whose key no producer names, has no table a reader can answer from.
-    if (bound.size === 0 || !keyFields.every((field) => bound.has(field))) continue;
-    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields });
+  for (const kind of [...manifestContractOf(manifest).vertex.filter((kind) => !TEMPLATE_CONTRACT.vertex.some((one) => one.name === kind.name)), ...TEMPLATE_CONTRACT.vertex]) {
+    const columns = kind.fields.filter((field) => !kind.key.includes(field.name));
+    reads.set(kind.name, {
+      kind: kind.name, table: kind.table, columns: columns.map((field) => field.name),
+      types: Object.fromEntries(columns.map((field) => [field.name, field.type])), key: kind.key,
+    });
   }
   return reads;
 }
@@ -153,5 +143,5 @@ function merge(left: GraphContract, right: GraphContract): GraphContract {
  * declare. A product that declares neither gets no table at all.
  */
 export function graphContractOf(manifest: KindsManifest): GraphContract {
-  return merge(gitContractOf(manifest), manifestContractOf(manifest));
+  return merge(merge(gitContractOf(manifest), manifestContractOf(manifest)), TEMPLATE_CONTRACT);
 }

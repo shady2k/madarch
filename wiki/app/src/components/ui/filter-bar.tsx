@@ -18,3 +18,15 @@ export function PaginationBar({ className, ...props }: HTMLAttributes<HTMLDivEle
 export function PaginationSummary({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
   return <span className={cn('flex-auto', className)} {...props} />;
 }
+
+/** Keep enough space below an edited filter that shorter results cannot clamp its scroll position. */
+export function FilterResults({ onChangeCapture, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} onChangeCapture={(event) => {
+    const box = event.currentTarget;
+    let owner = box.parentElement;
+    while (owner !== null && !/(auto|scroll)/.test(getComputedStyle(owner).overflowY)) owner = owner.parentElement;
+    const bottom = owner === null ? window.innerHeight : owner.getBoundingClientRect().top + owner.clientHeight;
+    box.style.minHeight = `${Math.max(0, bottom - box.getBoundingClientRect().top)}px`;
+    onChangeCapture?.(event);
+  }} />;
+}
