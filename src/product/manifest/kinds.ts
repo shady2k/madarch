@@ -896,6 +896,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
   const file = join(productFolder, metadataPath);
   const paths = files.filesBelow(kindsFolder).filter((path) => path !== metadataPath).sort(byCodePoint);
   if (!files.has(metadataPath) && paths.length === 0) return { present: false, file };
+  const documents = folderManifestDocuments(productFolder, [file, ...paths.map((path) => join(productFolder, path))]);
   const findings: Finding[] = [];
   const locations: { file: string; line: number }[] = [];
   const composite: string[] = [];
@@ -913,7 +914,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
       findings.push({ file: full, source: full, line: 1, message: 'the file cannot be read: the source holds no text of it' });
       return undefined;
     }
-    const { doc } = parsedManifest(text, full);
+    const { doc } = parsedFolderManifest(documents, text, full);
     if (doc.errors.length > 0) {
       for (const error of doc.errors) findings.push({ file: full, source: full, line: error.linePos?.[0].line ?? 1, message: error.message.split('\n')[0] ?? error.message });
       return undefined;
@@ -925,7 +926,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
     }
     for (const key of ['kinds', ...(path === metadataPath ? [] : ['name', 'group'])]) {
       if (Object.hasOwn(value, key)) {
-        const { lines } = parsedManifest(text, full);
+        const { lines } = parsedFolderManifest(documents, text, full);
         findings.push({ file: full, source: full, line: lineForPath(doc, lines, [key]), message: `"${key}" is not declared here: kind names and groups come from the folder layout` });
         return undefined;
       }
@@ -935,7 +936,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
   };
   const metadata = documentText(metadataPath);
   if (metadata !== undefined) {
-    const { doc, lines } = parsedManifest(metadata, file);
+    const { doc, lines } = parsedFolderManifest(documents, metadata, file);
     if ((doc.contents as { flow?: boolean } | null)?.flow === true) {
       const value = doc.toJS() as Record<string, unknown>;
       const written = stringify(value, { lineWidth: 0 });
@@ -953,7 +954,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
       mapPaths(value, []);
     } else append(metadata, metadataPath);
   }
-  const rawGroups: unknown = metadata === undefined ? undefined : parsedManifest(metadata, file).doc.toJS()?.groups;
+  const rawGroups: unknown = metadata === undefined ? undefined : parsedFolderManifest(documents, metadata, file).doc.toJS()?.groups;
   const groups = rawGroups !== null && typeof rawGroups === 'object' && !Array.isArray(rawGroups) ? rawGroups as Record<string, { parent?: unknown }> : {};
   composite.push('kinds:'); locations.push({ file, line: 1 });
   for (const path of paths) {
@@ -977,7 +978,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
     const joinedGroup = segments.slice(0, -1).join('.');
     const subgroup = segments[1]!;
     const group = JSON.stringify(groups[subgroup]?.parent === segments[0] ? subgroup : joinedGroup);
-    const { doc } = parsedManifest(text, full);
+    const { doc } = parsedFolderManifest(documents, text, full);
     if ((doc.contents as { flow?: boolean } | null)?.flow === true) {
       const offset = doc.contents!.range![0];
       append(text.slice(0, offset + 1) + `group: ${group}, ` + text.slice(offset + 1), path, '    ');
@@ -1035,7 +1036,30 @@ const PARSED_MANIFESTS_KEPT = 8;
  * is made *of* the parsed document — findings, line numbers, whether a template exists — is worked out on every read and
  * is not cached, so a template written beside an unchanged manifest is still seen (madarch-u3vw.8).
  */
-const parsedManifests = new Map<string, { readonly text: string; readonly doc: Document; readonly lines: LineCounter }>();
+type ParsedManifest = { readonly text: string; readonly doc: Document; readonly lines: LineCounter };
+const parsedManifests = new Map<string, ParsedManifest>();
+
+/** Raw declarations belong to a bounded set of products, separately from their composite parse. */
+const folderManifests = new Map<string, Map<string, ParsedManifest>>();
+
+function folderManifestDocuments(productFolder: string, files: readonly string[]): Map<string, ParsedManifest> {
+  const documents = folderManifests.get(productFolder) ?? new Map<string, ParsedManifest>();
+  const current = new Set(files);
+  for (const file of documents.keys()) if (!current.has(file)) documents.delete(file);
+  folderManifests.delete(productFolder);
+  folderManifests.set(productFolder, documents);
+  while (folderManifests.size > PARSED_MANIFESTS_KEPT) folderManifests.delete(folderManifests.keys().next().value!);
+  return documents;
+}
+
+function parsedFolderManifest(documents: Map<string, ParsedManifest>, text: string, file: string): ParsedManifest {
+  const held = documents.get(file);
+  if (held !== undefined && held.text === text) return held;
+  const lines = new LineCounter();
+  const entry = { text, doc: parseDocument(text, { lineCounter: lines, uniqueKeys: true }), lines };
+  documents.set(file, entry);
+  return entry;
+}
 
 /** The parse of one manifest text, from the cache when this file last saw this text. */
 function parsedManifest(text: string, file: string): { readonly doc: Document; readonly lines: LineCounter } {

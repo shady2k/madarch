@@ -1,4 +1,5 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
+import * as yaml from 'yaml';
 import { readKindsFrom } from '../src/product/manifest/kinds.js';
 import type { ProductFileSource } from '../src/plugin/product-files.js';
 
@@ -107,4 +108,37 @@ test('multiline flow metadata retains nested field diagnostic lines', () => {
   const finding = read.manifest.findings.find((one) => one.message.includes('name in "en"'));
   expect(finding?.line).toBe(4);
   expect(finding?.file).toBe('/product/madarch/catalog.yaml');
+});
+
+test('unchanged folder reads reuse raw and composite parses, while edits and removals remain visible', () => {
+  const declaration = 'source: graph\ntemplate: templates/fixture.liquid\n';
+  const entries: Record<string, string> = { 'madarch/catalog.yaml': metadata, 'templates/fixture.liquid': '# Fixture' };
+  for (let index = 0; index < 12; index++) entries[`madarch/kinds/code/structure/fixture.${index}.yaml`] = declaration;
+  const files = source(entries);
+  const parser = spyOn(yaml, 'parseDocument');
+  const read = () => {
+    const held = readKindsFrom(files, '/cache-product');
+    if (!held.present) throw new Error('the authored folder must declare a manifest');
+    return held.manifest;
+  };
+  try {
+    const initial = read();
+    expect(initial.kinds.size).toBe(12);
+    const parsed = parser.mock.calls.length;
+    expect(parsed).toBeGreaterThan(12);
+    const repeated = read();
+    expect(repeated).toEqual(initial);
+    expect(parser.mock.calls.length).toBe(parsed);
+    const edited = 'madarch/kinds/code/structure/fixture.0.yaml';
+    entries[edited] = 'source: wrong\n';
+    const invalid = read();
+    expect(invalid.findings.find((finding) => finding.message.includes('source'))).toMatchObject({ file: `/cache-product/${edited}`, source: `/cache-product/${edited}`, line: 1 });
+    expect(parser.mock.calls.length).toBe(parsed + 2);
+    entries[edited] = declaration;
+    expect(read().findings).toEqual(initial.findings);
+    delete entries[edited];
+    expect(read().kinds.size).toBe(11);
+    entries['madarch/catalog.yaml'] = metadata.replace('en: Code', 'en: Updated');
+    expect(read().groups.get('code')?.labels['en']).toBe('Updated');
+  } finally { parser.mockRestore(); }
 });

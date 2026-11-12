@@ -1350,10 +1350,12 @@ export class KnowledgeProduct {
         cached: true,
       };
     }
+    let evidenceContext: ReturnType<KnowledgeProduct['context']> | undefined;
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
       const product = this.product();
       if ('message' in product) throw new WikiReadError(product.message);
-      const context = await this.context();
+      evidenceContext ??= this.context();
+      const context = await evidenceContext;
       if ('absent' in context) return undefined;
       for (const kind of context.manifest.kinds.values()) {
         if (!kind.fields?.some((field) => field.name === 'source_text')) continue;
