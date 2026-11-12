@@ -6,5 +6,12 @@
     "name": "bun",
     "version": "1.4.2"
   },
-  "description": "A fixture plugin with graph reads and no filesystem right."
+  "description": "A fixture plugin with graph reads and no filesystem right.",
+  "produces": [
+    {
+      "kind": "probe",
+      "fields": "*"
+    }
+  ],
+  "reads": []
 }

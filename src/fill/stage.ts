@@ -337,6 +337,8 @@ export interface FillStage {
   defaults: StageDefaults;
   /** A semantic bound when units must publish in plan order. Larger configured concurrency is refused. */
   readonly maxConcurrency?: number;
+  /** Declaration-derived dependencies and a shared admission limit for one unit's producer. */
+  unitScheduling?(id: string): { readonly after: readonly string[]; readonly group: string; readonly concurrency: number };
   /**
    * Whether the stage is one of decision 0033's static stages: its units read one
    * file's bytes and bounded graph queries through `StageContext.static`, and its

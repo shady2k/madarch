@@ -23,6 +23,7 @@ import { SDK_SOURCE } from './sdk-asset.js';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
+import { LineCounter, parseDocument } from 'yaml';
 
 /** Where a refusal stands, as every error of this codebase names it. */
 const WHERE = 'src/plugin/closure.ts';
@@ -48,6 +49,13 @@ export const PluginManifest = Type.Object(
       },
       { additionalProperties: false },
     ),
+    produces: Type.Array(Type.Object({
+      kind: Type.String({ minLength: 1 }),
+      fields: Type.Union([Type.Literal('*'), Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })]),
+    }, { additionalProperties: false }), { minItems: 1 }),
+    reads: Type.Array(Type.String({ minLength: 1 })),
+    refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     description: Type.Optional(Type.String({ minLength: 1 })),
     agent: Type.Optional(Type.Object({
       prompt: Type.String({ minLength: 1 }),
@@ -168,16 +176,32 @@ export function readPluginManifest(folder: string): PluginManifest {
 }
 
 /** The same manifest check over pinned or working-tree bytes, without executing a plugin. */
+export function pluginManifestLine(text: string, path: readonly (string | number)[]): number {
+  const counter = new LineCounter();
+  const document = parseDocument(text, { lineCounter: counter });
+  const node = document.getIn([...path], true) as { range?: readonly number[] } | undefined;
+  return counter.linePos(node?.range?.[0] ?? 0).line;
+}
+
 export function parsePluginManifest(text: string, file: string): PluginManifest {
+  file = resolve(file);
   let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch (error) {
-    throw new ClosureRefusal('plugin-manifest', `${file}:1: ${(error as Error).message}`, file);
+  try { value = JSON.parse(text); }
+  catch (error) { throw new ClosureRefusal('plugin-manifest', `${file}:1: ${(error as Error).message}`, file); }
+  const body = value as Partial<PluginManifest> | null;
+  const refuse = (key: string, message: string): never => {
+    const line = pluginManifestLine(text, [key]);
+    throw new ClosureRefusal('plugin-manifest', `${file}:${line}: ${message}`, file, line);
+  };
+  if (body !== null && typeof body === 'object') {
+    if (body.concurrency !== undefined && (!Number.isInteger(body.concurrency) || body.concurrency < 1)) refuse('concurrency', `plugin ${body.name ?? '?'} concurrency must be a positive integer`);
+    if (!Array.isArray(body.produces) || body.produces.length === 0) refuse('produces', `plugin ${body.name ?? '?'} declares no output; declare produces, including Problem records for checks`);
   }
   if (!Value.Check(PluginManifest, value)) {
     const first = [...Value.Errors(PluginManifest, value)][0];
-    throw new ClosureRefusal('plugin-manifest', `${file}:1: ${first === undefined ? 'the manifest is not a plugin manifest' : `${first.instancePath === '' ? 'the manifest' : first.instancePath.slice(1)}: ${first.message}`}`, file);
+    const path = first?.instancePath.split('/').slice(1) ?? [];
+    const line = pluginManifestLine(text, path);
+    throw new ClosureRefusal('plugin-manifest', `${file}:${line}: ${first === undefined ? 'the manifest is not a plugin manifest' : `${first.instancePath === '' ? 'the manifest' : first.instancePath.slice(1)}: ${first.message}`}`, file, line);
   }
   return value;
 }

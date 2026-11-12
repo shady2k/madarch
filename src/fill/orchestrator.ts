@@ -1124,13 +1124,29 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       // limits are counted and the step taken under one lock and a slot can never be given twice.
       const locked = await executor.query<{ run_id: string }>('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [run.runId]);
       if (locked.rows.length === 0) raise(`table fill_run: no run ${run.runId}`);
-      const counted = await executor.query<{ stage_id: string; state: string }>(
-        `SELECT u.stage_id AS stage_id, g.state AS state
+      const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
+      if (scheduling !== undefined) {
+        for (const dependency of scheduling.after) {
+          const previous = await executor.query<{ state: string }>(
+            'SELECT g.state FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1',
+            [unitIdFor(unit.stageId, dependency)],
+          );
+          if (previous.rows[0]?.state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
+        }
+      }
+      const counted = await executor.query<{ unit_id: string; stage_id: string; state: string }>(
+        `SELECT u.unit_id AS unit_id, u.stage_id AS stage_id, g.state AS state
            FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
           WHERE g.run_id = $1`,
         [run.runId],
       );
-      const states = counted.rows.map((row) => ({ stageId: row.stage_id, state: row.state as UnitState }));
+      const states = counted.rows.map((row) => ({ unitId: row.unit_id, stageId: row.stage_id, state: row.state as UnitState }));
+      if (scheduling !== undefined) {
+        const stage = stageOf(orchestrator, unit.stageId);
+        const groupInFlight = states.filter((row) => row.stageId === unit.stageId && (ADMITTED_STATES.includes(row.state) || row.state === 'retry_wait')
+          && stage.unitScheduling?.(row.unitId.slice(`${unit.stageId}/`.length)).group === scheduling.group).length;
+        if (groupInFlight >= scheduling.concurrency) return { admitted: false as const, why: 'producer-slots' as const };
+      }
       const inFlight = states.filter((row) => ADMITTED_STATES.includes(row.state)).length;
       const stageInFlight = states.filter((row) => row.stageId === unit.stageId && ADMITTED_STATES.includes(row.state)).length;
       if (inFlight >= orchestrator.limits.maxInFlight) return { admitted: false as const, why: 'run-slots' as const };

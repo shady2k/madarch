@@ -77,7 +77,7 @@ function fixture(agent: boolean) {
   const product = makeProduct(home, 'agent-fixture', repo, 'repo');
   const folder = join(product, 'plugins/probe-summary');
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
+  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: '*' }], reads: [], runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
@@ -89,7 +89,7 @@ kinds:
   probe.summary:
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     key: [id]
     fields:
       - { name: id, type: text, binding: "probe-summary@1.id" }
@@ -118,7 +118,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     manifest.deleteIn(['kinds', 'probe.summary']);
     for (const name of ['probe.a', 'probe.b']) manifest.setIn(['kinds', name], {
       template: 'templates/item-plain.liquid', source: 'graph',
-      'depends-on': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
+      'derives-from': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
       fields: [{ name: 'id', type: 'text', binding: { agent: 'Stable identity.' } }, { name: 'title', type: 'text', binding: { agent: 'The title.' } }],
     });
     manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, { name: 'probe.link', from: ['probe.a'], to: ['probe.b'], capability: 'agent-fill' }]);

@@ -6,5 +6,20 @@
     "name": "bun",
     "version": "1.4.2"
   },
-  "description": "The fixture whole-graph plugin: it reads the host's consistency records and answers one finding each (madarch-stm0.7.1)."
+  "description": "The fixture whole-graph plugin: it reads the host's consistency records and answers one finding each (madarch-stm0.7.1).",
+  "produces": [
+    {
+      "kind": "probe.finding",
+      "fields": "*"
+    },
+    {
+      "kind": "probe.opinion",
+      "fields": "*"
+    },
+    {
+      "kind": "probe.keyed",
+      "fields": "*"
+    }
+  ],
+  "reads": []
 }

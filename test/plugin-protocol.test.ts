@@ -215,7 +215,7 @@ describe("a plugin's closure and its one hash", () => {
 
   test('a plugin folder that carries its own SDK copy is refused', () => {
     const folder = scratch();
-    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'own-sdk', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version } })}\n`);
+    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'own-sdk', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*' }], reads: [], runtime: { name: 'bun', version: Bun.version } })}\n`);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 1;\n');
     mkdirSync(join(folder, 'node_modules', 'madarch-plugin-sdk'), { recursive: true });
     writeFileSync(join(folder, 'node_modules', 'madarch-plugin-sdk', 'index.ts'), 'export const y = 1;\n');
@@ -224,7 +224,7 @@ describe("a plugin's closure and its one hash", () => {
 
   test('a copy whose bytes moved after hashing is refused with the file named', async () => {
     const folder = scratch();
-    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'changing', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version } })}\n`);
+    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'changing', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*' }], reads: [], runtime: { name: 'bun', version: Bun.version } })}\n`);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 1;\n');
     const closure = closureOf(folder);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 2;\n');
@@ -263,7 +263,7 @@ describe("a plugin's closure and its one hash", () => {
 
   test('a manifest for another interpreter, a missing one and a symlinked file are refused', () => {
     const folder = scratch();
-    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'pinned', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: '9.9.9' } })}\n`);
+    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'pinned', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*' }], reads: [], runtime: { name: 'bun', version: '9.9.9' } })}\n`);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 1;\n');
     const pin = interpreterPinProblem(closureOf(folder));
     expect(pin?.code).toBe('interpreter-pin');
@@ -274,7 +274,7 @@ describe("a plugin's closure and its one hash", () => {
     expect(() => readPluginManifest(empty)).toThrow(/plugin.json/);
 
     const linked = scratch();
-    writeFileSync(join(linked, 'plugin.json'), `${JSON.stringify({ name: 'linked', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version } })}\n`);
+    writeFileSync(join(linked, 'plugin.json'), `${JSON.stringify({ name: 'linked', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*' }], reads: [], runtime: { name: 'bun', version: Bun.version } })}\n`);
     writeFileSync(join(linked, 'main.ts'), 'export const x = 1;\n');
     symlinkSync(join(linked, 'main.ts'), join(linked, 'linked.ts'));
     expect(() => closureOf(linked)).toThrow(/symbolic link/);

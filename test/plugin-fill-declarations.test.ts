@@ -1,0 +1,60 @@
+import { expect, test } from 'bun:test';
+import { parsePluginManifest } from '../src/plugin/closure.js';
+import { planFillDeclarations } from '../src/plugin/fill-declarations.js';
+
+const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
+function plugin(name: string, extra: Record<string, unknown> = {}) {
+  const text = JSON.stringify({ ...base, name, produces: [{ kind: 'note', fields: '*' }], reads: [], ...extra }, null, 2);
+  return { manifest: parsePluginManifest(text, `/product/${name}/plugin.json`), file: `/product/${name}/plugin.json`, text };
+}
+const kinds = [{ name: 'note', fields: ['title', 'body'], file: '/product/kinds.yaml', line: 4 }];
+test('plugin declarations refuse output-free plugins at the source line', () => {
+  expect(() => plugin('check', { produces: [] })).toThrow(/\/product\/check\/plugin.json:\d+: plugin check declares no output/);
+});
+test('declarations order readers and refiners without plugin categories', () => {
+  const a = plugin('writer');
+  const b = plugin('reader', { produces: [{ kind: 'note', fields: ['body'] }], reads: ['note'], refines: ['writer'] });
+  const plan = planFillDeclarations({ kinds, plugins: [b, a], selectedKinds: ['note'] });
+  expect(plan.order).toEqual(['writer', 'reader']);
+  expect(plan.predecessors.get('reader')).toEqual(['writer']);
+  expect(plan.lastProducer('note', 'body')).toBe('reader');
+});
+test('read ordering does not excuse unordered overlapping writers', () => {
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a'), plugin('b', { reads: ['note'] })] })).toThrow(/both produce note.title without a refinement relation.*other declaration \/product\/b\/plugin.json:\d+/);
+});
+test('wildcards expand from enabled producers and catalogue only', () => {
+  const plan = planFillDeclarations({ kinds, plugins: [plugin('specific'), plugin('general', { produces: [{ kind: '*', fields: '*' }], refines: ['*'] })] });
+  expect(plan.order).toEqual(['specific', 'general']);
+  expect(plan.lastProducer('note', 'title')).toBe('general');
+});
+test('cycles, missing outputs, invalid fields and disabled refiners refuse before execution', () => {
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { refines: ['b'] }), plugin('b', { refines: ['a'] })] })).toThrow(/fill declarations form a cycle/);
+  expect(() => planFillDeclarations({ kinds, plugins: [], selectedKinds: ['note'] })).toThrow('/product/kinds.yaml:4: selected kind note has no enabled producer');
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { produces: [{ kind: 'note', fields: ['missing'] }] })] })).toThrow(/names undeclared field note.missing/);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { refines: ['disabled'] })] })).toThrow(/refines unknown or disabled plugin disabled/);
+});
+test('invalid concurrency points at the actual JSON property', () => {
+  expect(() => parsePluginManifest('{\n "name":"a",\n "concurrency":0\n}', '/product/a/plugin.json')).toThrow('/product/a/plugin.json:3: plugin a concurrency must be a positive integer');
+});
+
+test('read cycles and unknown inputs retain their declaration locations', () => {
+  const extraKinds = [...kinds, { name: 'other', fields: ['title'], file: '/product/kinds.yaml', line: 9 }];
+  expect(() => planFillDeclarations({ kinds: extraKinds, plugins: [plugin('a', { reads: ['other'] }), plugin('b', { produces: [{ kind: 'other', fields: '*' }], reads: ['note'] })] })).toThrow(/fill declarations form a cycle/);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { reads: ['missing'] })] })).toThrow(/\/product\/a\/plugin.json:\d+: missing is not a declared kind/);
+});
+test('agent requirement applies only to selected plugins that request the host agent', () => {
+  const agent = plugin('agent', { agent: { prompt: 'Fill.', roots: ['product'] } });
+  expect(() => planFillDeclarations({ kinds, plugins: [agent], selectedKinds: ['note'], agentSelected: false })).toThrow(/requested an agent but none is selected/);
+  expect(planFillDeclarations({ kinds, plugins: [agent], selectedKinds: [], agentSelected: false }).order).toEqual([]);
+  expect(planFillDeclarations({ kinds, plugins: [plugin('plain')], agentSelected: false }).order).toEqual(['plain']);
+});
+
+test('readers consume the pre-refinement snapshot, not their own downstream refiners', () => {
+  const catalogue = [...kinds, { name: 'source', fields: ['text'], file: '/product/kinds.yaml', line: 8 }];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [
+    plugin('reader', { reads: ['source'] }),
+    plugin('review', { produces: [{ kind: '*', fields: '*' }], refines: ['reader'] }),
+  ], selectedKinds: ['note'] });
+  expect(plan.order).toEqual(['reader', 'review']);
+  expect(plan.predecessors.get('reader')).toEqual([]);
+});

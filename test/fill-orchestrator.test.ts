@@ -1632,3 +1632,28 @@ describe('the fill tables reference each other', () => {
     }
   }, 60_000);
 });
+
+
+test('declaration scheduling admits unrelated producers but waits for publication and producer slots', async () => {
+  const stage = fakeStage('declared', {
+    defaults: { ...DEFAULT_STAGE_DEFAULTS, concurrency: 4 },
+    plan: () => ({ units: [
+      { id: 'writer:a', scope: 'a' }, { id: 'writer:b', scope: 'b' },
+      { id: 'reader:c', scope: 'c' }, { id: 'unrelated:d', scope: 'd' },
+    ] }),
+    unitScheduling(id) { return { group: id.split(':')[0]!, concurrency: 1, after: id.startsWith('reader:') ? ['writer:a', 'writer:b'] : [] }; },
+  });
+  const opened = await world({ registry: new StageRegistry().register(stage) });
+  const started = await startRun(opened.orchestrator, { runId: 'declaration-scheduling' });
+  if (!started.ok) throw new Error(started.reason);
+  await planRun(opened.orchestrator, { runId: started.run.runId });
+  const admitted = await admitUnits(opened.orchestrator, { runId: started.run.runId });
+  expect(admitted.admitted.map((unit) => unit.unitId)).toEqual(['declared/writer:a', 'declared/unrelated:d']);
+  await workOnce(opened.orchestrator, { worker: 'scripted' });
+  const second = await admitUnits(opened.orchestrator, { runId: started.run.runId });
+  expect(second.admitted.map((unit) => unit.unitId)).toEqual(['declared/writer:b']);
+  await workOnce(opened.orchestrator, { worker: 'scripted' });
+  await workOnce(opened.orchestrator, { worker: 'scripted' });
+  const third = await admitUnits(opened.orchestrator, { runId: started.run.runId });
+  expect(third.admitted.map((unit) => unit.unitId)).toEqual(['declared/reader:c']);
+});
