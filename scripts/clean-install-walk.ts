@@ -51,6 +51,11 @@ const npxArgs = ['--yes', 'madarch'];
 const home = join(work, 'products');
 const env = { ...process.env, MADARCH_HOME: work, MADARCH_OWN_WIKI: 'off', GIT_AUTHOR_NAME: 'Madarch Clean Walk', GIT_AUTHOR_EMAIL: 'walk@example.invalid', GIT_COMMITTER_NAME: 'Madarch Clean Walk', GIT_COMMITTER_EMAIL: 'walk@example.invalid' };
 async function removeWork(): Promise<void> {
+  // Stop the home's background server after the foreground walk has ended too,
+  // on both success and failure, before deleting its files.
+  // Windows cannot unlink a running daemon's executable from the npm install.
+  const stopped = run(npx, [...npxArgs, 'stop', '--home', home], install, env);
+  if (stopped !== 0) throw new Error(`could not stop the walk's server before removing ${work} (exit ${stopped})`);
   // The product's own store server is a process of its own, and it outlives the daemon that started it: the walk's
   // scratch folder is named in its command line, so a walk stops what still names the folder before the folder goes
   // (measured: a `postgres -D <scratch>/…/pgdata` left after `madarch stop`). Windows has no `pkill`; there the runner

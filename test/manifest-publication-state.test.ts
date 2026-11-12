@@ -9,6 +9,8 @@ function fixture(folder: string) {
   const product = new Proxy({ folder }, {
     get(target, key) {
       if (key === 'folder') return target.folder;
+      if (key === 'status') return async () => ({ manifest: 'not-filled', fill: { state: 'idle' }, publication: manifestPublicationState(folder)?.status === 'failed' ? 'failed' : 'pending' });
+      if (key === 'startFill') return async () => ({ started: true, fill: { state: 'running' } });
       return () => { reads++; throw new Error('a pending reader must not open the graph or prepare schemas'); };
     },
   }) as unknown as KnowledgeProduct;
@@ -34,13 +36,30 @@ describe('startup manifest publication', () => {
     setManifestPublicationState(folder, { status: 'pending' });
     const { part, reads } = fixture(folder);
     for (const [name, handle] of Object.entries(part)) {
-      if (name === 'identity' || name === 'products') continue;
+      if (['identity', 'products', 'status', 'fill', 'fillSelected'].includes(name)) continue;
       const handled = await handle(new Request('http://localhost/api/catalog'));
       expect(handled.response.status).toBe(503);
       expect(handled.response.headers.get('retry-after')).toBe('1');
       expect(await handled.response.json()).toEqual({ publication: 'pending', message: expect.stringContaining('catalogue is being published') });
     }
     expect(reads()).toBe(0);
+  });
+
+  test('status is healthy and Fill is accepted during publication; failed publication rejects Fill', async () => {
+    const folder = '/tmp/publication-status-fill';
+    const { part, reads } = fixture(folder);
+    setManifestPublicationState(folder, { status: 'pending' });
+    const status = await part.status(new Request('http://localhost/api/status'));
+    expect(status.response.status).toBe(200);
+    expect(await status.response.json()).toEqual({ manifest: 'not-filled', fill: { state: 'idle' }, publication: 'pending' });
+    const fill = await part.fill(new Request('http://localhost/api/fill', { method: 'POST' }));
+    expect(fill.response.status).toBe(202);
+    expect(reads()).toBe(0);
+    setManifestPublicationState(folder, { status: 'failed', message: 'schema publication failed' });
+    const failed = await part.fill(new Request('http://localhost/api/fill', { method: 'POST' }));
+    expect(failed.response.status).toBe(503);
+    expect(await failed.response.json()).toEqual({ publication: 'failed', message: expect.stringContaining('schema publication failed') });
+    expect((await part.status(new Request('http://localhost/api/status'))).response.status).toBe(200);
   });
 
   test('failure is explicit; successful publication releases the reader', async () => {

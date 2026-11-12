@@ -1,7 +1,7 @@
 import { KLink } from './blocks.js';
 import { ShellSidebar, ShellMain, ShellFixed, ShellRow, ShellScroll, ShellDocument, ShellToolbar, ShellActions, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellTabs, ShellTab, ShellTabTrigger, ShellTabClose, ShellMenuButton, ShellError, ShellStatusButton, ShellStatusWrap, ShellStatusLabel, ShellStatusWords, ShellStatusCount, ShellStatusBody, ShellStatusLine, ShellStatusMessage, ShellStatusDot, ShellBrandMark, ShellProductMenu, ShellProductLink, ShellLanguageButton, ShellFillContent, ShellFillChoice, ShellHomeLink, ShellAnswersLink, ShellAnswersWords, ShellAnswersCount, ShellNavigationLoading, ShellToolbarLoading, ShellNavigationSheet } from '@/components/ui/shell.js';
 import { NavigationLink, NavigationLabel, NavigationCount, NavigationPending, NavigationScroll, NavigationSection, NavigationHeading, NavigationGroup, NavigationGroupTrigger, NavigationSubheading, NavigationFooter, ProductButton, BrandLink } from '@/components/ui/navigation.js';
-import { Stack, Text } from '@/components/ui/typography.js';
+import { Stack, Text, Paragraph } from '@/components/ui/typography.js';
 import { AuthoredPage } from './authored.js';
 /**
  * The knowledge wiki (decision 0029): the product chosen at the top left, the
@@ -635,7 +635,7 @@ export function KnowledgeApp(): ReactElement {
   }, [route]);
 
   if (error !== null && (status === null || publication !== undefined)) {
-    return <ShellError><p role={publication === 'pending' ? 'status' : 'alert'} data-testid="wiki-error" data-publication={publication}>{error}</p></ShellError>;
+    return <ShellError><Paragraph role={publication === 'pending' ? 'status' : 'alert'} data-testid="wiki-error" data-publication={publication}>{error}</Paragraph></ShellError>;
   }
   if (status === null) {
     return (
@@ -686,7 +686,8 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'fill') view = <FillPage status={status} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
-  else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
+  else if (route.name === 'catalogue') view = publication === undefined ? <CataloguePage version={version} />
+    : <Paragraph role={publication === 'pending' ? 'status' : 'alert'} data-publication={publication}>{publication === 'pending' ? 'Publishing the catalogue. Please wait.' : `The catalogue could not be published: ${status.publicationMessage ?? 'see the server diagnostics'}`}</Paragraph>;
   else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else if (route.name === 'run') view = <RunPage key={route.run ?? ''} run={route.run} version={version} />;

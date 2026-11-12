@@ -129,11 +129,11 @@ export function createKnowledgePart(
   prefix = '',
 ): KnowledgePart {
   const { json, refused, errorLog } = makers;
-  const guarded = (what: string, work: (request: Request) => Promise<Handled>, needsPublication = true) => async (request: Request): Promise<Handled> => {
+  const guarded = (what: string, work: (request: Request) => Promise<Handled>, needsPublication = true, allowPending = false) => async (request: Request): Promise<Handled> => {
     try {
       const publication = manifestPublicationState(product.folder);
       // Identity and product selection read no catalogue or schema and remain available during startup.
-      if (needsPublication && publication !== undefined && publication.status !== 'published') {
+      if (needsPublication && publication !== undefined && publication.status !== 'published' && !(allowPending && publication.status === 'pending')) {
         const response = json(503, {
           publication: publication.status,
           message: publication.status === 'pending'
@@ -225,7 +225,7 @@ export function createKnowledgePart(
       if ('message' in identity) throw new WikiReadError(identity.message);
       return { response: json(200, { id: identity.id, name: identity.name }) };
     }, false),
-    status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) })),
+    status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) }), false),
     catalog: guarded('read the entity catalogue', async (request) => {
       const catalog = await product.catalog();
       const kind = new URL(request.url).searchParams.get('kind');
@@ -377,7 +377,7 @@ export function createKnowledgePart(
       const started = await product.startFill({ ...(expectAgent === undefined ? {} : { expectAgent }), ...(language === undefined ? {} : { language }) });
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
-    }),
+    }, true, true),
     fillSelected: guarded('fill the selected entities', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
       if (own) return refused(409, { message: "madarch's own wiki is documentation: it has no code to read and no entities of a product to fill" });
@@ -390,7 +390,7 @@ export function createKnowledgePart(
       const started = await product.startFill({ targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill, order: targets.targets.order }) };
-    }),
+    }, true, true),
     pause: guarded('pause the fill', async (request) => {
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });

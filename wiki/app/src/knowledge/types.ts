@@ -501,6 +501,8 @@ export type AgentOffer = {
 };
 
 export type WikiStatus = {
+  publication?: 'pending' | 'failed' | 'done';
+  publicationMessage?: string;
   product: { name: string; id: string };
   manifest: 'ok' | 'not-filled' | 'no-manifest';
   manifestFile: string;
