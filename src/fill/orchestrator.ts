@@ -42,7 +42,8 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
-import { producerSucceeded, readProducerOutcomes, readProducerOutcomesIn } from './producer-outcomes.js';
+import { producerSucceeded } from './producer-outcomes.js';
+import { readProducerOutcomes, readProducerOutcomesIn } from '../graph/producer-outcomes.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';

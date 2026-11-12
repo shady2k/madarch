@@ -18,7 +18,7 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { runFill } from '../src/fill/run.js';
-import { readProducerOutcomes } from '../src/fill/producer-outcomes.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
 import { removedEdgeEnds, unresolvedReferences, unevidencedOpinions } from '../src/graph/index.js';
 import { parsePluginLock } from '../src/plugin/lock.js';

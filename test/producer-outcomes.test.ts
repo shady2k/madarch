@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { producerSucceeded, retainedProducerOutcomes, readProducerOutcomesIn } from '../src/fill/producer-outcomes.js';
+import { producerSucceeded, retainedProducerOutcomes } from '../src/fill/producer-outcomes.js';
+import { readProducerOutcomesIn } from '../src/graph/producer-outcomes.js';
 import type { SqlExecutor } from '../src/sql-driver.js';
 
 describe('observable producer completion', () => {

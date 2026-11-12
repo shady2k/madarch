@@ -10,7 +10,7 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { runFill } from '../src/fill/run.js';
-import { readProducerOutcomes } from '../src/fill/producer-outcomes.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { successfulPluginSnapshot } from '../src/graph/plugin-turns.js';
