@@ -202,6 +202,7 @@ export interface RepositoryTreeRead {
 export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean; readonly paths?: readonly string[] } = {}): Promise<RepositoryTreeRead> {
   const gaps: ReadGap[] = [];
   const entries: TreeEntry[] = [];
+  const pathspec = options.paths === undefined ? [] : ['--', ...options.paths.map(path => `:(literal)${path}`)];
   const treeSplit = byteSplit();
   const takeTree = (record: Buffer): void => {
     const held = treeRecordOf(record);
@@ -212,7 +213,7 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
     }
     entries.push(held.entry);
   };
-  await gitStream(pin.root, ['ls-tree', '-r', '-l', '-z', pin.commit], (chunk) => {
+  await gitStream(pin.root, ['ls-tree', '-r', '-l', '-z', pin.commit, ...pathspec], (chunk) => {
     for (const record of treeSplit.push(chunk)) takeTree(record);
   });
   for (const record of treeSplit.done()) takeTree(record);
@@ -235,7 +236,7 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   };
   const numstatRecords: Buffer[] = [];
   const numstatSplit = byteSplit();
-  if (options.fileFacts !== false) await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit], (chunk) => {
+  if (options.fileFacts !== false) await gitStream(pin.root, ['diff', '--numstat', '--no-renames', '-z', await emptyTreeOf(pin.root), pin.commit, ...pathspec], (chunk) => {
     for (const record of numstatSplit.push(chunk)) numstatRecords.push(record);
   });
   for (const record of numstatSplit.done()) numstatRecords.push(record);

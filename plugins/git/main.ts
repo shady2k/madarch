@@ -1,5 +1,5 @@
 import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 'madarch-plugin-sdk';
-import { readRepositoryHistory, type RepositoryAt } from './reader.js';
+import { readRepositoryHistory, shallowGapOf, type RepositoryAt } from './reader.js';
 
 /** The git plugin reads disk identities, then interprets history from pinned repository objects. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
@@ -21,8 +21,14 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
     // This read is a real declared dependency, not a scheduling hint alone.
     await context.graph.value('code.repository', repository.key, 'url');
-    const history = await readRepositoryHistory(pin);
     const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
+    if (unit.kind === 'code.repository') {
+      const gap = await shallowGapOf(pin);
+      vertices.push({ ...repository, values: { history_shallow: gap !== null }, evidence });
+      context.progress(vertices.length, undefined, pin.repository);
+      continue;
+    }
+    const history = await readRepositoryHistory(pin, { touched: unit.kind !== 'code.author', counts: unit.kind === 'code.commit' });
     for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit);
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
     const hashes = inputs.keys === undefined ? undefined : new Set(inputs.keys.map(key => key.hash));

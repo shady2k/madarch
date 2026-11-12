@@ -179,17 +179,17 @@ function entryWithoutNewline(record: Buffer): Buffer {
  * counts), so the two walks are one git call each, with the same format, joined by the commit and
  * the path. Both are git's own answers; nothing here parses source text.
  */
-export async function readRepositoryHistory(pin: RepositoryAt): Promise<{ repository: { name: string }; commits: readonly HistoryCommit[]; gaps: readonly RepositoryGap[] }> {
+export async function readRepositoryHistory(pin: RepositoryAt, options: { readonly touched?: boolean; readonly counts?: boolean } = {}): Promise<{ repository: { name: string }; commits: readonly HistoryCommit[]; gaps: readonly RepositoryGap[] }> {
   type Touched = HistoryCommit['touched'][number];
   const gaps: RepositoryGap[] = [];
   const shallow = await shallowGapOf(pin);
   if (shallow !== null) gaps.push(shallow);
   const statusParser = logStreams(gaps);
-  await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--name-status', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => statusParser.push(chunk));
+  await gitStream(pin.root, ['log', ...(options.touched === false ? [] : ['--diff-merges=first-parent', '--name-status', '-M']), '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => statusParser.push(chunk));
   const statuses = statusParser.done();
   // The counts stream repeats the headers the status stream already read: its own gaps are the status stream's.
   const countParser = logStreams([]);
-  await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--numstat', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => countParser.push(chunk));
+  if (options.touched !== false && options.counts !== false) await gitStream(pin.root, ['log', '--diff-merges=first-parent', '--numstat', '-M', '--use-mailmap', '-z', `--format=${LOG_FORMAT}`, pin.commit], (chunk) => countParser.push(chunk));
   const counts = countParser.done();
   const countByKey = new Map<string, { added: number | null; removed: number | null }>();
   /** The key a record names: the path's text, or a marker no touched row holds where the path is no text. */
