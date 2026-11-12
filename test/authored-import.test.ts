@@ -10,6 +10,7 @@ import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 
 const root = mkdtempSync(join(tmpdir(), 'authored-import-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -19,7 +20,7 @@ function fixture(): string {
   mkdirSync(join(folder, 'templates'));
   mkdirSync(join(folder, 'old'));
   writeFileSync(join(folder, 'templates/page.liquid'), '');
-  writeFileSync(join(folder, 'madarch/kinds.yaml'), `kinds:
+  writeFolderManifest(folder, `kinds:
   note:
     source: graph
     origin: person

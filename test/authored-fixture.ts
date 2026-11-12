@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { stringify } from 'yaml';
@@ -7,6 +7,7 @@ import { fillInProcess } from './fill-inline.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { prepareTestProduct } from './prepared-server.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 
 export const authoredEnv = gitEnv(SAMPLE_IDENTITY);
 export async function authoredFixture(home: string, name = 'authored', fill = true): Promise<string> {
@@ -14,7 +15,8 @@ export async function authoredFixture(home: string, name = 'authored', fill = tr
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   mkdirSync(join(draft.folder, 'templates'), { recursive: true });
   writeFileSync(join(draft.folder, 'templates', 'note.liquid'), '{{ entity.title }}');
-  writeFileSync(join(draft.folder, 'madarch', 'kinds.yaml'), stringify({
+  rmSync(join(draft.folder, 'madarch', 'kinds'), { recursive: true, force: true });
+  writeFolderManifest(draft.folder, stringify({
     kinds: { note: { source: 'graph', origin: 'person', template: 'templates/note.liquid', title: 'title', fields: [
       { name: 'title', type: 'text', producers: ['person'] },
       { name: 'count', type: 'integer', nullable: true, producers: ['person'] },
