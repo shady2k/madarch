@@ -172,7 +172,7 @@ try {
             previous = position;
             await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
             const tile = file.replace('.png', `-scroll-${tiles.length + 1}.png`);
-            await page.screenshot({ path: join(out, tile), fullPage: true });
+            await page.screenshot({ path: join(out, tile), fullPage: false });
             tiles.push(tile);
           }
         } catch (error) { errors.push(`screenshot: ${String(error)}`); }
