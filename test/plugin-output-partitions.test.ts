@@ -78,7 +78,9 @@ async function open() {
     if (result.state !== 'succeeded') {
       const generations = await owner.transaction('snapshot', async tx => await tx.query(
         'SELECT * FROM fill_unit_generation WHERE run_id=$1 ORDER BY unit_id,generation', [id]));
-      console.error('partition fill diagnostic', JSON.stringify({ id, product: f.product, result, generations: generations.rows }));
+      const events = await owner.transaction('snapshot', async tx => await tx.query(
+        'SELECT kind,summary FROM fill_event WHERE run_id=$1', [id]));
+      console.error('partition fill diagnostic', JSON.stringify({ id, product: f.product, result, generations: generations.rows, events: events.rows }));
     }
     return result;
   };
