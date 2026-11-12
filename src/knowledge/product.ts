@@ -12,7 +12,7 @@
  * the bytes the graph's spans were read from, and a restarted server still knows.
  */
 import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs.js';
-import { createRecordSchema } from '../graph/index.js';
+import { createOneGraphSchema } from '../graph/one-graph.js';
 import { hasGeneratedTable } from '../graph/tables.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
@@ -448,7 +448,7 @@ export class KnowledgeProduct {
         // and its files, and a missing relation would be a failed page, not an empty one. The contract is the empty one:
         // this read holds no manifest yet (the graph it would be read from is what this call creates), and the fill that
         // reads the product repository adds the kinds' tables from the manifest it read.
-        await createRecordSchema(owner, EMPTY_CONTRACT);
+        await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
           await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
