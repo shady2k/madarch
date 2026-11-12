@@ -395,6 +395,41 @@ export async function ensureVertex(executor: SqlExecutor, contract: GraphContrac
   return { nodeId: row.id, uid, created: false, revived: true };
 }
 
+/** Declare a publication's vertices together, retaining declaration event order. */
+async function declareVertices(executor: SqlExecutor, contract: GraphContract, drafts: readonly VertexDraft[], contextId: number, journal: Journal): Promise<Declared[]> {
+  const declared: Declared[] = [];
+  for (let at = 0; at < drafts.length; at += PUBLICATION_ROWS) {
+    const batch = drafts.slice(at, at + PUBLICATION_ROWS);
+    const prepared = batch.map(draft => {
+      const vertex = vertexOf(contract, draft.kind);
+      const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
+      const uid = vertex.key.length === 0 ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]);
+      return { draft, key, uid };
+    });
+    const entityIds = new Map<string, string>();
+    for (const item of prepared) if (!entityIds.has(item.draft.kind)) entityIds.set(item.draft.kind, await entityIdOf(executor, item.draft.kind, 'node'));
+    const made = await executor.query<{ id: string; uid: string }>(
+      `INSERT INTO node (entity_id, uid, key, context_id) SELECT x.entity_id, x.uid, x.key, $2::bigint
+       FROM jsonb_to_recordset($1::jsonb) AS x(entity_id bigint, uid uuid, key jsonb)
+       ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, uid::text AS uid`,
+      [JSON.stringify(prepared.map(item => ({ entity_id: entityIds.get(item.draft.kind), uid: item.uid, key: item.key }))), String(contextId)]);
+    const created = new Set(made.rows.map(row => row.uid));
+    const held = await executor.query<{ id: string; uid: string; removed: boolean }>(`SELECT id::text AS id, uid::text AS uid, removed FROM node WHERE uid = ANY($1::uuid[])`, [prepared.map(item => item.uid)]);
+    const byUid = new Map(held.rows.map(row => [row.uid, row]));
+    const removed = held.rows.filter(row => row.removed);
+    if (removed.length > 0) await executor.query(`UPDATE node SET removed = false WHERE id = ANY($1::bigint[])`, [removed.map(row => row.id)]);
+    const announced = new Set<string>();
+    for (const item of prepared) {
+      const row = byUid.get(item.uid);
+      if (row === undefined) throw new Error(`${WHERE}:1: declared node ${item.uid} is unavailable`);
+      if (!announced.has(item.uid) && (created.has(item.uid) || row.removed)) journal.declaredVertex(item.draft.kind, item.uid, row.id, item.key);
+      announced.add(item.uid);
+      declared.push({ draft: item.draft, nodeId: row.id, uid: item.uid });
+    }
+  }
+  return declared;
+}
+
 /** The tagged evidence list of one opinion: every place its values were read, once each, in the order stated. */
 export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft[] }): readonly EvidenceEntry[] {
   const places: EvidenceEntry[] = [];
@@ -446,64 +481,111 @@ function paramOf(value: unknown): unknown {
  * one its id — the row it names is the state, and replay drops it from there.
  */
 async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string, translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string }, selectedFields?: readonly string[]): Promise<boolean> {
-  const columns = fields;
-  const producer = saidBy.slice(0, saidBy.lastIndexOf('@') < 0 ? saidBy.length : saidBy.lastIndexOf('@'));
-  let stated = [...values.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field);
-  // A node opinion names its vertex by uid, which the row itself does not carry: the same statement reads it, so an
-  // event says its vertex even where the caller holds only the node's local id (codex, stage 2 review, item 3).
-  const ownerUid = (param: number): string => (owner === 'node_id' ? `, (SELECT uid::text FROM node WHERE id = $${String(param)}::bigint) AS owner_uid` : '');
-  const placeOf = (uid: unknown): { entity: string; node?: string; edge?: string } => ({
-    entity,
-    ...((nodeUid ?? uid) === undefined ? {} : { node: String(nodeUid ?? uid) }),
-    ...(edgeId === undefined ? {} : { edge: edgeId }),
-  });
-  const held = await executor.query<Record<string, unknown>>(
-    `SELECT "id"::text AS id, "said_by", ${columns.map((column) => `${quote(column, 'column')}, `).join('')}"evidence"${ownerUid(1)} FROM ${table}
-     WHERE ${quote(owner, 'column')} = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "lang" IS NOT DISTINCT FROM $3 AND "context_id" = $4::bigint AND "state" = 'open'
-     ORDER BY "id" DESC LIMIT 1`,
-    [ownerId, producer, lang, String(contextId)],
-  );
-  const open = held.rows[0];
-  if (selectedFields !== undefined) {
-    const selected = new Set(selectedFields);
-    values = new Map(columns.map((field) => [field, selected.has(field) ? values.get(field) ?? null : open?.[field] ?? null]));
-    if (open !== undefined && columns.some((field) => !selected.has(field) && open[field] != null)) {
-      evidence = [...(open['evidence'] as EvidenceEntry[] ?? []), ...evidence].filter((entry, index, entries) => entries.findIndex((other) => sameValue(entry, other)) === index);
-    }
-    stated = [...values.entries()].filter(([, value]) => value != null).map(([field]) => field);
-  }
-  if (open !== undefined) {
-    // One publication states the producer's whole opinion: every declared field counts, and an omitted field is null.
-    const same = columns.every((column) => sameColumn(open[column], values.get(column) ?? null));
-    if (same) {
-      if (sameValue(open['evidence'] ?? [], evidence)) return false;
-      await executor.query(`UPDATE ${table} SET "evidence" = $2::jsonb WHERE "id" = $1::bigint`, [String(open['id']), canonicalJson(evidence)]);
-      journal?.opinion({ id: String(open['id']), ...placeOf(open['owner_uid']), state: 're-evidenced', fields: stated, lang, said_by: String(open['said_by'] ?? saidBy), evidence });
-      return true;
-    }
-    await executor.query(`UPDATE ${table} SET "state" = 'closed' WHERE "id" = $1::bigint`, [String(open['id'])]);
-    journal?.opinion({ id: String(open['id']), ...placeOf(open['owner_uid']), state: 'closed', fields: stated, lang, said_by: String(open['said_by'] ?? saidBy) });
-  }
-  // A translation states the opinion it was translated from and the digest of its source beside its language
-  // (madarch-stm0.5); an opinion that is no translation states neither.
-  const insertColumns = [...columns, 'said_by', 'lang', 'evidence', 'translated_from', 'source_digest', 'context_id', owner];
-  const params: unknown[] = [...columns.map((column) => paramOf(values.get(column))), saidBy, lang, canonicalJson(evidence), translation?.translatedFrom ?? null, translation?.sourceDigest ?? null, String(contextId), ownerId];
-  const made = await executor.query<{ id: string; said_at: string; translated_from: string | null; source_digest: string | null; owner_uid?: string }>(
-    `INSERT INTO ${table} (${insertColumns.map((column) => quote(column, 'column')).join(', ')}) VALUES (${insertColumns.map((_, at) => `$${String(at + 1)}`).join(', ')})
-     RETURNING "id"::text AS id, to_char("said_at" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, "translated_from"::text AS translated_from, "source_digest"${ownerUid(insertColumns.length)}`,
-    params,
-  );
-  const row = made.rows[0];
-  journal?.opinion({
-    id: row?.id ?? '', ...placeOf(row?.owner_uid), state: 'opened', fields: stated, lang, said_by: saidBy,
-    values: Object.fromEntries(columns.map((column) => [column, values.get(column) ?? null])),
-    evidence, translated_from: row?.translated_from ?? null, source_digest: row?.source_digest ?? null,
-    context: contextId, said_at: row?.said_at ?? '',
-  });
-  return true;
+  return (await stateOpinions(executor, entity, table, owner, [{ ownerId, saidBy, values, evidence, lang, ...(nodeUid === undefined ? {} : { nodeUid }), ...(edgeId === undefined ? {} : { edgeId }), ...(translation === undefined ? {} : { translation }), ...(selectedFields === undefined ? {} : { selectedFields }) }], fields, contextId, journal))[0]!;
 }
 
+interface OpinionInput {
+  readonly ownerId: string;
+  readonly saidBy: string;
+  readonly values: ReadonlyMap<string, unknown>;
+  readonly evidence: readonly EvidenceEntry[];
+  readonly lang: string | null;
+  readonly nodeUid?: string;
+  readonly edgeId?: string;
+  readonly translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string };
+  readonly selectedFields?: readonly string[];
+}
 
+// The existing draft storage splits SQL writes into groups of 500; publication uses the same row bound.
+const PUBLICATION_ROWS = 500;
+
+function opinionIdentity(ownerId: string, saidBy: string, lang: string | null): string {
+  return JSON.stringify([ownerId, saidBy.slice(0, saidBy.lastIndexOf('@') < 0 ? saidBy.length : saidBy.lastIndexOf('@')), lang]);
+}
+
+/** Apply distinct opinion identities together; repeated identities start a new ordered batch. */
+async function stateOpinions(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', inputs: readonly OpinionInput[], fields: readonly string[], contextId: number, journal?: Journal): Promise<boolean[]> {
+  const results: boolean[] = [];
+  for (let at = 0; at < inputs.length;) {
+    const seen = new Set<string>();
+    let end = at;
+    while (end < inputs.length && end - at < PUBLICATION_ROWS) {
+      const input = inputs[end]!;
+      const identity = opinionIdentity(input.ownerId, input.saidBy, input.lang);
+      if (seen.has(identity)) break;
+      seen.add(identity);
+      end += 1;
+    }
+    const batch = inputs.slice(at, end);
+    const ownerUids = new Map<string, string>();
+    if (owner === 'node_id' && batch.some(input => input.nodeUid === undefined)) {
+      const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`, [batch.map(input => input.ownerId)]);
+      for (const node of nodes.rows) ownerUids.set(node.id, node.uid);
+    }
+    const held = await executor.query<Record<string, unknown>>(
+      `SELECT DISTINCT ON (o.${owner}, split_part(o.said_by, '@', 1), o.lang) o.*, o.id::text AS id, o.${owner}::text AS owner_id${owner === 'node_id' ? ', n.uid::text AS owner_uid' : ''}
+       FROM ${table} o ${owner === 'node_id' ? 'JOIN node n ON n.id = o.node_id' : ''}
+       WHERE o.${owner} = ANY($1::bigint[]) AND o.context_id = $2::bigint AND o.state = 'open'
+       ORDER BY o.${owner}, split_part(o.said_by, '@', 1), o.lang, o.id DESC`,
+      [batch.map(input => input.ownerId), String(contextId)],
+    );
+    const openByIdentity = new Map(held.rows.map(row => [JSON.stringify([String(row['owner_id']), String(row['said_by']).split('@')[0], row['lang'] as string | null]), row]));
+    const plans = batch.map(input => {
+      const open = openByIdentity.get(opinionIdentity(input.ownerId, input.saidBy, input.lang));
+      let values = input.values;
+      let evidence = input.evidence;
+      if (input.selectedFields !== undefined) {
+        const selected = new Set(input.selectedFields);
+        values = new Map(fields.map(field => [field, selected.has(field) ? values.get(field) ?? null : open?.[field] ?? null]));
+        if (open !== undefined && fields.some(field => !selected.has(field) && open[field] != null)) {
+          evidence = [...(open['evidence'] as EvidenceEntry[] ?? []), ...evidence].filter((entry, index, entries) => entries.findIndex(other => sameValue(entry, other)) === index);
+        }
+      }
+      const stated = [...values.entries()].filter(([, value]) => value != null).map(([field]) => field);
+      const same = open !== undefined && fields.every(field => sameColumn(open[field], values.get(field) ?? null));
+      const action = same ? sameValue(open['evidence'] ?? [], evidence) ? 'unchanged' : 're-evidenced' : 'opened';
+      return { input, open, values, evidence, stated, action };
+    });
+    const closing = plans.filter(plan => plan.action === 'opened' && plan.open !== undefined);
+    if (closing.length > 0) await executor.query(`UPDATE ${table} SET state = 'closed' WHERE id = ANY($1::bigint[])`, [closing.map(plan => String(plan.open!['id']))]);
+    const reEvidence = plans.filter(plan => plan.action === 're-evidenced');
+    if (reEvidence.length > 0) await executor.query(
+      `UPDATE ${table} o SET evidence = changed.evidence FROM jsonb_to_recordset($1::jsonb) AS changed(id bigint, evidence jsonb) WHERE o.id = changed.id`,
+      [JSON.stringify(reEvidence.map(plan => ({ id: String(plan.open!['id']), evidence: plan.evidence })))],
+    );
+    const opening = plans.filter(plan => plan.action === 'opened');
+    const madeByIdentity = new Map<string, Record<string, unknown>>();
+    if (opening.length > 0) {
+      const columns = [...fields, 'said_by', 'lang', 'evidence', 'translated_from', 'source_digest', 'context_id', owner];
+      const params: unknown[] = [];
+      const rows = opening.map(plan => {
+        const values = [...fields.map(field => paramOf(plan.values.get(field))), plan.input.saidBy, plan.input.lang, canonicalJson(plan.evidence), plan.input.translation?.translatedFrom ?? null, plan.input.translation?.sourceDigest ?? null, String(contextId), plan.input.ownerId];
+        return `(${values.map(value => { params.push(value); return `$${params.length}`; }).join(', ')})`;
+      });
+      const made = await executor.query<Record<string, unknown>>(
+        `INSERT INTO ${table} (${columns.map(column => quote(column, 'column')).join(', ')}) VALUES ${rows.join(', ')}
+         RETURNING id::text AS id, ${owner}::text AS owner_id, said_by, lang, to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, translated_from::text AS translated_from, source_digest`, params);
+      for (const row of made.rows) madeByIdentity.set(opinionIdentity(String(row['owner_id']), String(row['said_by']), row['lang'] as string | null), row);
+    }
+    for (const plan of plans) {
+      const { input, open, values, evidence, stated, action } = plan;
+      const place = { entity, ...(owner === 'node_id' ? { node: input.nodeUid ?? ownerUids.get(input.ownerId) ?? String(open?.['owner_uid'] ?? '') } : { edge: input.edgeId ?? input.ownerId }) };
+      if (action === 'unchanged') { results.push(false); continue; }
+      if (action === 're-evidenced') journal?.opinion({ id: String(open!['id']), ...place, state: 're-evidenced', fields: stated, lang: input.lang, said_by: String(open!['said_by']), evidence });
+      else {
+        if (open !== undefined) journal?.opinion({ id: String(open['id']), ...place, state: 'closed', fields: stated, lang: input.lang, said_by: String(open['said_by']) });
+        const row = madeByIdentity.get(opinionIdentity(input.ownerId, input.saidBy, input.lang))!;
+        journal?.opinion({ id: String(row['id']), ...place, state: 'opened', fields: stated, lang: input.lang, said_by: input.saidBy,
+          values: Object.fromEntries(fields.map(field => [field, values.get(field) ?? null])), evidence,
+          translated_from: row['translated_from'] as string | null, source_digest: row['source_digest'] as string | null,
+          context: contextId, said_at: String(row['said_at']) });
+      }
+      results.push(true);
+    }
+    at = end;
+  }
+  return results;
+}
 
 /**
  * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
@@ -761,14 +843,20 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
   for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
   for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;
-  const declared: Declared[] = [];
-  for (const draft of drafts.vertices) {
-    const made = await ensureVertex(executor, contract, draft, contextId, journal);
-    if (made.created || made.revived) written += 1;
-    declared.push({ draft, nodeId: made.nodeId, uid: made.uid });
-  }
-  for (const { draft, nodeId, uid } of declared) {
-    if (await publishOpinion(executor, contract, { ...draft, nodeId, uid }, contextId, journal)) written += 1;
+  const beforeDeclarations = journal.vertices.length;
+  const declared = await declareVertices(executor, contract, drafts.vertices, contextId, journal);
+  written += journal.vertices.length - beforeDeclarations;
+  for (let at = 0; at < declared.length;) {
+    const kind = vertexOf(contract, declared[at]!.draft.kind);
+    let end = at + 1;
+    while (end < declared.length && declared[end]!.draft.kind === kind.name) end += 1;
+    const fields = kind.fields.filter(field => !kind.key.includes(field.name)).map(field => field.name);
+    const inputs = declared.slice(at, end).map(({ draft, nodeId, uid }) => ({
+      ownerId: nodeId, nodeUid: uid, saidBy: `${draft.producer}@${draft.producerVersion}`, values: valuesOf(kind, draft),
+      evidence: evidenceList(draft), lang: draft.lang ?? null, ...(draft.selectedFields === undefined ? {} : { selectedFields: draft.selectedFields }),
+    }));
+    written += (await stateOpinions(executor, kind.name, kind.table, 'node_id', inputs, fields, contextId, journal)).filter(Boolean).length;
+    at = end;
   }
   // An edge whose ends do not stand is a reference no vertex answers: recorded, never invented. A published edge's
   // records go.
