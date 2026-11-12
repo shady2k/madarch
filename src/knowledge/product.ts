@@ -2824,7 +2824,7 @@ export class KnowledgeProduct {
 
   /** A person's answer: written into the question's file and committed with the person as author. */
   async answer(_slug: string, _text: string): Promise<Answered> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   private async marks(): Promise<PlannedMarks> {
@@ -2896,7 +2896,7 @@ export class KnowledgeProduct {
 
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
   async createTask(_input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async scopeImpact(scope: readonly TaskScope[]): Promise<TaskImpact> {
@@ -2908,7 +2908,7 @@ export class KnowledgeProduct {
 
   /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
   async closeTask(_id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async runTask(_id: string): Promise<{ ok: true; task: TaskRow; pages: readonly string[]; fill: FillState } | { ok: false; message: string }> {
@@ -2917,7 +2917,7 @@ export class KnowledgeProduct {
 
   /** A person's correction of a statement: a new file, committed with the person as author. */
   async correct(_statement: string, _reason: string): Promise<Corrected> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async problems(): Promise<ProblemListing> {
@@ -3141,7 +3141,7 @@ export class KnowledgeProduct {
    * A problem that names no place a person can change says why instead of opening an empty task.
    */
   async createProblemTask(_id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {

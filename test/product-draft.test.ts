@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { CONSTITUTION, createDraft, productsHome, whyNotADay } from '../src/product/draft.js';
 import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
+import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
 import { byCodePoint } from '../src/model/order.js';
 
 /**
@@ -159,7 +160,8 @@ describe('createDraft', () => {
       'AGENTS.md',
       'CLAUDE.md',
       'docs/.gitkeep',
-      'madarch/kinds.yaml',
+      'madarch/catalog.yaml',
+      ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`),
       'madarch/plugins.lock',
       'madarch/workflows.yaml',
       'model/.gitkeep',
