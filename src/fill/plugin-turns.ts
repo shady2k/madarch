@@ -31,7 +31,7 @@ import { canonicalKey } from '../plugin/results.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
-import { GIT_WIKI } from './stages/git-contract.js';
+import { GIT_WIKI, canonicalGitKind, canonicalGitEntityRef } from './stages/git-contract.js';
 import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
 
 /** The store one turn reads and writes, as the graph's own reads name it: the process's one owner, never a second. */
@@ -137,7 +137,8 @@ function evidenceDeclarations(manifest: KindsManifest): EvidenceDeclaration[] {
       if (kind === undefined) continue;
       const fields = vertex.fields.filter((field) => field.evidence === true && kind.fields?.some((declared) => declared.name === field.name) === true).map((field) => field.name);
       if (fields.length === 0) continue;
-      declarations.push({ kind: vertex.kind, table: generatedTableName(vertex.kind, 'vertex'), producer: plugin.id, fields, key: kind.key ?? [] });
+      const storageKind = canonicalGitKind(manifest, vertex.kind);
+      declarations.push({ kind: storageKind, table: generatedTableName(storageKind, 'vertex'), producer: plugin.id, fields, key: kind.key ?? [] });
     }
   }
   return declarations;
@@ -174,15 +175,18 @@ function draftEvidence(evidence: { readonly repository?: string; readonly commit
 
 /** One drafted vertex as the graph names the entity: `<kind>:<its key values in the contract's order, joined by /">`. */
 function entityIdOf(wiring: PluginTurnWiring, kind: string, key: import('../plugin/protocol.js').PluginKeyValues): string | undefined {
-  const vertex = wiring.contract.vertex.find((held) => held.name === kind);
+  const ref = canonicalGitEntityRef(wiring.manifest, { kind, key });
+  const vertex = wiring.contract.vertex.find((held) => held.name === ref.kind);
   if (vertex === undefined) return undefined;
-  const values = vertex.key.map((field) => String(key[field] ?? ''));
-  return `${kind}:${values.join('/')}`;
+  const values = vertex.key.map((field) => String(ref.key[field] ?? ''));
+  return `${ref.kind}:${values.join('/')}`;
 }
 
 /** One edge's identity inside one answer: its kind, both ends by kind and key, and its discriminator. */
-function edgeIdentity(kind: string, from: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, to: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, discriminator: string): string {
-  return JSON.stringify([kind, from.kind, canonicalKey(from.key), to.kind, canonicalKey(to.key), discriminator]);
+function edgeIdentity(manifest: KindsManifest, kind: string, from: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, to: { readonly kind: string; readonly key: import('../plugin/protocol.js').PluginKeyValues }, discriminator: string): string {
+  const canonicalFrom = canonicalGitEntityRef(manifest, from);
+  const canonicalTo = canonicalGitEntityRef(manifest, to);
+  return JSON.stringify([kind, canonicalFrom.kind, canonicalKey(canonicalFrom.key), canonicalTo.kind, canonicalKey(canonicalTo.key), discriminator]);
 }
 
 /**
@@ -199,9 +203,10 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
       return files;
     },
     value: async (kind, key, field, snapshot) => {
-      if (snapshot !== undefined) return await pluginSnapshotValue(wiring.owner, snapshot, kind, key, field);
+      const ref = canonicalGitEntityRef(wiring.manifest, { kind, key });
+      if (snapshot !== undefined) return await pluginSnapshotValue(wiring.owner, snapshot, ref.kind, ref.key, field);
       if (kind === GIT_WIKI.file && field === 'content') return await storedFileValueAnswerer(wiring.owner)(kind, key, field);
-      return await pluginGraphValue(wiring.owner, wiring.contract, kind, key, field);
+      return await pluginGraphValue(wiring.owner, wiring.contract, ref.kind, ref.key, field);
     },
     // The writer's consistency records (madarch-stm0.7.1, pieces 2 and 4), one bounded page at a time: the plugin asks
     // by name, and the store is read here, in the fill's own layer, never by the plugin.
@@ -366,11 +371,10 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           throw new Error(`${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}: plugin ${unit.plugin.id} answered undeclared output field ${vertex.kind}.${field}`);
         }
         const held = answered.get(vertex.kind) ?? new Set<string>();
-        held.add(canonicalKey(vertex.key));
+        held.add(canonicalKey(canonicalGitEntityRef(wiring.manifest, vertex).key));
         answered.set(vertex.kind, held);
         draft.write({ kind: 'vertex', evidence: vertex.kind, value: {
-          kind: vertex.kind,
-          key: vertex.key,
+          ...canonicalGitEntityRef(wiring.manifest, { kind: vertex.kind, key: vertex.key }),
           selectedFields: allowedFields,
           ...(vertex.values === undefined ? {} : { values: vertex.values }),
           ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
@@ -382,11 +386,11 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       for (const edge of only === undefined ? outcome.result.edges ?? [] : []) {
         if (!unitEdges.has(edge.kind)) continue;
         if (!edgeKinds.has(edge.kind)) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the edge kind ${JSON.stringify(edge.kind)}, and its contract declares ${[...edgeKinds].join(', ') || 'none'}`);
-        answeredEdges.add(edgeIdentity(edge.kind, edge.from, edge.to, edge.discriminator ?? ''));
+        answeredEdges.add(edgeIdentity(wiring.manifest, edge.kind, edge.from, edge.to, edge.discriminator ?? ''));
         draft.write({ kind: 'edge', evidence: edge.kind, value: {
           kind: edge.kind,
-          from: edge.from,
-          to: edge.to,
+          from: canonicalGitEntityRef(wiring.manifest, edge.from),
+          to: canonicalGitEntityRef(wiring.manifest, edge.to),
           ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
           ...(edge.values === undefined ? {} : { values: edge.values }),
           ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
@@ -404,16 +408,16 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         const removalKinds = [...vertexKinds].filter((kind) => selectedKinds.has(kind)).sort(byCodePoint);
         for (const kind of removalKinds) {
           const held = answered.get(kind) ?? new Set<string>();
-          for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
+          for (const entity of await producerEntities(wiring.owner, wiring.contract, canonicalGitKind(wiring.manifest, kind), unit.plugin.id)) {
             if (held.has(canonicalKey(entity.key))) continue;
-            draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: unit.plugin.id, selectedFields: allowedFields } });
+            draft.write({ kind: 'vertex-removal', evidence: kind, value: { ...canonicalGitEntityRef(wiring.manifest, { kind, key: entity.key }), producer: unit.plugin.id, selectedFields: allowedFields } });
           }
         }
         for (const kind of [...unitEdges].sort(byCodePoint)) {
           if (!wiring.contract.edge.some((edge) => edge.name === kind)) continue;
           for (const edge of await producerEdges(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
-            if (answeredEdges.has(edgeIdentity(kind, edge.from, edge.to, edge.discriminator))) continue;
-            draft.write({ kind: 'edge-removal', evidence: kind, value: { kind, from: edge.from, to: edge.to, ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: unit.plugin.id } });
+            if (answeredEdges.has(edgeIdentity(wiring.manifest, kind, edge.from, edge.to, edge.discriminator))) continue;
+            draft.write({ kind: 'edge-removal', evidence: kind, value: { kind, from: canonicalGitEntityRef(wiring.manifest, edge.from), to: canonicalGitEntityRef(wiring.manifest, edge.to), ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: unit.plugin.id } });
           }
         }
       }

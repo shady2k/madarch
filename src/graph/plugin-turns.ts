@@ -41,7 +41,7 @@ export async function graphFiles(owner: DatabaseOwner, contract: GraphContract):
 
 /** One entity a producer holds: its natural key values, and the file its open opinion was read in. */
 export interface ProducerEntity {
-  readonly key: Readonly<Record<string, string>>;
+  readonly key: import('../plugin/protocol.js').PluginKeyValues;
   readonly path: string | null;
 }
 
@@ -61,7 +61,7 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
       [producer],
     );
     const rows = found.rows.map((row) => ({
-      key: Object.fromEntries(vertex.key.map((column) => [column, String(row.key[column] ?? '')])),
+      key: Object.fromEntries(vertex.key.map((column) => [column, row.key[column] ?? ''])) as import('../plugin/protocol.js').PluginKeyValues,
       path: row.evidence.map((one) => one['path']).find((one): one is string => typeof one === 'string') ?? null,
     }));
     // One vertex one opinion: a producer may hold the same key once, so a repeated key stands once.
