@@ -97,10 +97,6 @@ function fills(plugin: PluginDecl, kind: KindDecl): boolean {
   return plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === kind.name) === true;
 }
 
-export function pluginKindsOf(manifest: KindsManifest): KindDecl[] {
-  return [...manifest.kinds.values()].filter((kind) => [...(manifest.plugins?.values() ?? [])].some((plugin) => fills(plugin, kind)));
-}
-
 function outputKindsOf(manifest: KindsManifest, plugin: PluginDecl): KindDecl[] {
   const rank = new Map(kindsInDependencyOrder(manifest).map((name, at) => [name, at] as const));
   return [...manifest.kinds.values()].filter((kind) => fills(plugin, kind))
