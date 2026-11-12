@@ -17,6 +17,7 @@ import { publishGraphDrafts } from '../src/graph/write.js';
 import { successfulPluginSnapshot } from '../src/graph/plugin-turns.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { retainTestStorePreparationOwner } from './prepared-server.js';
 
 let folder = '';
 afterAll(() => { if (folder) rmSync(folder, { recursive: true, force: true }); });
@@ -125,11 +126,12 @@ async extract(unit, context) {
     expect(await problems()).toEqual([]);
     expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));
     expect(await readProducerOutcomes(owner, { runId: 'bad' })).toEqual(history);
+    const releasePreparation = await retainTestStorePreparationOwner();
     const reader = new KnowledgeProduct({ productFolder: product, storeRoot });
     try {
       const status = await reader.status();
       expect(status.fill.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));
-    } finally { await reader.close(); }
+    } finally { await reader.close(); await releasePreparation(); }
     release = configure('bad'); await run('bad-again');
     expect((await problems()).map((row) => row.title)).toEqual(['Bad document']);
     release = configure('failed'); await run('failed');
