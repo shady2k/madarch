@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensurePostgresInstalled } from '../src/adapters/postgres-install.js';
+import { postgresBuildFor, postgresProgram } from '../src/adapters/postgres-builds.js';
 import type { PostgresBuild } from '../src/adapters/postgres-builds.js';
 
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
@@ -33,10 +34,10 @@ function scratch(): string {
 }
 
 /** A tar.gz holding `bin/` with the programs an install must find, as the release's own archive does. */
-function archiveOf(root: string): Buffer {
+function archiveOf(root: string, platform = 'linux-x64'): Buffer {
   const source = join(root, 'payload');
   mkdirSync(join(source, 'bin'), { recursive: true });
-  for (const program of ['initdb', 'pg_ctl', 'psql', 'pg_dump']) writeFileSync(join(source, 'bin', program), `#!/bin/sh\nexit 0\n`, { mode: 0o755 });
+  for (const program of ['initdb', 'pg_ctl', 'psql', 'pg_dump']) writeFileSync(join(source, 'bin', postgresProgram(program, platform)), `#!/bin/sh\nexit 0\n`, { mode: 0o755 });
   writeFileSync(join(source, 'PG_VERSION'), '18\n');
   const archive = join(root, 'payload.tar.gz');
   const packed = Bun.spawnSync(['tar', '-czf', archive, '-C', source, '.']);
@@ -82,7 +83,30 @@ function fixtureBuild(bytes: Buffer): PostgresBuild {
   return { platform: 'linux-arm64', target: 'fixture-target', sha256: sha256(bytes), bytes: bytes.length };
 }
 
+test('Windows x64 pins a PostgreSQL archive and executable filenames', () => {
+  const build = postgresBuildFor('win32-x64');
+  expect(build?.target).toBe('x86_64-pc-windows-msvc');
+  expect(build?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(postgresProgram('pg_ctl', 'win32')).toBe('pg_ctl.exe');
+  expect(postgresProgram('pg_ctl', 'linux')).toBe('pg_ctl');
+});
+
 describe('installing the pinned server', () => {
+  test('Windows archive installation checks .exe files and reuses its marker', async () => {
+    const root = scratch();
+    const bytes = archiveOf(root, 'win32');
+    const build = { ...fixtureBuild(bytes), platform: 'win32-x64' };
+    const served = serveArchive(bytes);
+    try {
+      const options = { build, uid: 1000, archiveUrl: () => served.url, env: { HOME: join(root, 'home') }, progress: () => undefined };
+      const installed = await ensurePostgresInstalled(options);
+      expect(existsSync(join(installed.bin, 'pg_ctl.exe'))).toBe(true);
+      expect(existsSync(join(installed.bin, 'initdb.exe'))).toBe(true);
+      expect((await ensurePostgresInstalled(options)).bin).toBe(installed.bin);
+      expect(served.requests).toBe(1);
+    } finally { served.stop(); }
+  }, 60_000);
+
   test.skipIf(isRoot)('verifies the archive, unpacks it whole, says the marker and reports its progress', async () => {
     const root = scratch();
     const bytes = archiveOf(root);

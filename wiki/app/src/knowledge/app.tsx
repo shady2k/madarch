@@ -613,7 +613,7 @@ export function KnowledgeApp(): ReactElement {
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const content = useRef<HTMLDivElement>(null);
-  const { status, error, version, refresh } = useWikiStatus();
+  const { status, error, publication, version, refresh } = useWikiStatus();
   const settings = useSettings();
   useEffect(() => {
     const controller = new AbortController();
@@ -634,8 +634,8 @@ export function KnowledgeApp(): ReactElement {
     if (route.name !== 'source' && route.name !== 'doc') content.current?.scrollTo?.(0, 0);
   }, [route]);
 
-  if (error !== null && status === null) {
-    return <ShellError><p role="alert" data-testid="wiki-error">{error}</p></ShellError>;
+  if (error !== null && (status === null || publication !== undefined)) {
+    return <ShellError><p role={publication === 'pending' ? 'status' : 'alert'} data-testid="wiki-error" data-publication={publication}>{error}</p></ShellError>;
   }
   if (status === null) {
     return (

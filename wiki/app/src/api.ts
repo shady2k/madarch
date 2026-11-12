@@ -7,6 +7,7 @@ import { appPath } from './app-base.js';
 export class RequestError extends Error {
   /** The status the server answered, when it answered at all; a failed request that never reached it carries none. */
   readonly status?: number;
+  publication?: 'pending' | 'failed';
   /** `compose` says the failure in the reader's own words, given the server's reason; without it the sentence is English. */
   constructor(what: string, reason: string, status?: number, compose?: (reason: string) => string) {
     super(compose === undefined ? `Could not ${what}: ${reason}` : compose(reason));
@@ -29,8 +30,10 @@ export async function readJson<T>(what: string, url: string, signal?: AbortSigna
   }
   if (!response.ok) {
     let reason = `the server answered ${response.status}`;
+    let publication: 'pending' | 'failed' | undefined;
     try {
       const body: unknown = await response.json();
+      if (body !== null && typeof body === 'object' && 'publication' in body && (body.publication === 'pending' || body.publication === 'failed')) publication = body.publication;
       if (
         body !== null &&
         typeof body === 'object' &&
@@ -46,7 +49,9 @@ export async function readJson<T>(what: string, url: string, signal?: AbortSigna
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
       // keep the status line as the reason
     }
-    throw new RequestError(what, reason, response.status, compose);
+    const failure = new RequestError(what, reason, response.status, compose);
+    failure.publication = publication;
+    throw failure;
   }
   try {
     return (await response.json()) as T;

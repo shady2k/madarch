@@ -26,6 +26,7 @@ import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
 import type { EntityRef } from '../knowledge/model.js';
 import type { DraftEnv } from '../product/home.js';
+import { manifestPublicationState } from '../product/manifest-publication-state.js';
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -128,8 +129,21 @@ export function createKnowledgePart(
   prefix = '',
 ): KnowledgePart {
   const { json, refused, errorLog } = makers;
-  const guarded = (what: string, work: (request: Request) => Promise<Handled>) => async (request: Request): Promise<Handled> => {
+  const guarded = (what: string, work: (request: Request) => Promise<Handled>, needsPublication = true) => async (request: Request): Promise<Handled> => {
     try {
+      const publication = manifestPublicationState(product.folder);
+      // Identity and product selection read no catalogue or schema and remain available during startup.
+      if (needsPublication && publication !== undefined && publication.status !== 'published') {
+        const response = json(503, {
+          publication: publication.status,
+          message: publication.status === 'pending'
+            ? 'The catalogue is being published. Please wait; no catalogue is available yet.'
+            : `The catalogue could not be published: ${publication.message}`,
+        });
+        response.headers.set('cache-control', 'no-store');
+        if (publication.status === 'pending') response.headers.set('retry-after', '1');
+        return { response };
+      }
       return await work(request);
     } catch (error) {
       if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }), ...('conflict' in error && error.conflict !== undefined ? { conflict: error.conflict as { field: string; current: unknown; author: string } } : {}) });
@@ -206,11 +220,11 @@ export function createKnowledgePart(
       if (answer.entity !== undefined && 'revision' in answer.entity) response.headers.set('ETag', `"${String(answer.entity.revision)}"`);
       return { response };
     }),
-    identity: guarded('read the product', async () => {
+    identity: guarded('read the product identity', async () => {
       const identity = product.product();
       if ('message' in identity) throw new WikiReadError(identity.message);
       return { response: json(200, { id: identity.id, name: identity.name }) };
-    }),
+    }, false),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) })),
     catalog: guarded('read the entity catalogue', async (request) => {
       const catalog = await product.catalog();
@@ -823,6 +837,6 @@ export function createKnowledgePart(
       const status = await product.status();
       return { response: new Response(llmsText(status.product.name, status.kinds, status.language, prefix), { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } }) };
     }),
-    products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
+    products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) }), false),
   };
 }

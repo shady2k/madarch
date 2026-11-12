@@ -63,6 +63,12 @@ async function untilFile(path: string): Promise<void> {
   throw new Error(`the child never wrote ${path}`);
 }
 
+test('Windows resolves the shared TCP endpoint and credential from the owned data directory', async () => {
+  const result = child('windows-endpoint', storeOf('windows endpoint with spaces'));
+  expect(await result.exited).toBe(0);
+  expect(JSON.parse(await new Response(result.stdout).text())).toEqual({ host: '127.0.0.1', port: 15432, password: 'private-test-password' });
+}, 30_000);
+
 test('one process opening a store twice runs one server, and the last hold stops it', async () => {
   const store = storeOf('twice');
   const first = await openCluster({ ...clusterPaths(store) });
@@ -91,11 +97,11 @@ test('a platform whose C library this build does not ask for refuses by name, an
   // What the Windows binary of CI run ddaefd9b failed at: a `dlopen` at the module's import, where no store is ever opened.
   // The child loads the module with this box's platform reported as another and opens a store: the module imports, and the
   // open refuses by name instead of loading a library the platform does not have.
-  const refusing = child('refuse-platform', storeOf('refused'), 'win32');
+  const refusing = child('refuse-platform', storeOf('refused'), 'freebsd');
   expect(await refusing.exited).toBe(0);
   const said = await new Response(refusing.stdout).text();
   expect(said).toContain('refused:');
-  expect(said).toContain('win32');
+  expect(said).toContain('freebsd');
   expect(said).toContain('flock(2)');
 }, 120_000);
 

@@ -11,7 +11,7 @@
  * unpacked.
  *
  * The build is theseus-rs/postgresql-binaries, the official community build of
- * PostgreSQL for the four platforms madarch is installed on. It carries
+ * PostgreSQL for the platforms madarch is installed on. It carries
  * PostgreSQL's own contrib extensions (btree_gist among them) and no pgvector;
  * `src/adapters/sql-vector-index.ts` says what needs that.
  */
@@ -39,7 +39,13 @@ const POSTGRES_BUILDS: readonly PostgresBuild[] = [
   { platform: 'darwin-x64', target: 'x86_64-apple-darwin', sha256: '4229812543e19c91864ebdf5d8f78883c5816d51d4cc5d065298260c1f64d37e', bytes: 92_085_423 },
   { platform: 'linux-arm64', target: 'aarch64-unknown-linux-gnu', sha256: '1ab47fa2f06ff70454309ad02e5d89c46488300d43977231481fd6b160b9d556', bytes: 39_898_635 },
   { platform: 'linux-x64', target: 'x86_64-unknown-linux-gnu', sha256: 'e84b02dd8d0ce5879fb697330a789231c8b8f8d958dae3ad4d90fecc710b1315', bytes: 40_484_450 },
+  { platform: 'win32-x64', target: 'x86_64-pc-windows-msvc', sha256: '0c0c845626ed77c605d716051c9e8df3368d07fbbd9f61ea39a4c5c0536fde7e', bytes: 48_696_865 },
 ] as const;
+
+/** The filename carried by the platform's archive, not a PATH lookup. */
+export function postgresProgram(program: string, platform: string = process.platform): string {
+  return platform.startsWith('win32') ? `${program}.exe` : program;
+}
 
 /** The platform key this process asks for: `linux-arm64` on this kind of machine. */
 export function platformKey(platform: string = process.platform, arch: string = process.arch): string {
