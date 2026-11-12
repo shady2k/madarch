@@ -25,6 +25,3 @@ export function fillRequirementsOf(manifest: KindsManifest, folder: string): (re
   }
 }
 
-export function fillRequirementOf(manifest: KindsManifest, folder: string, requested: readonly string[]): { requiresAgent?: true; fillPlanRefusal?: string } {
-  return fillRequirementsOf(manifest, folder)(requested);
-}

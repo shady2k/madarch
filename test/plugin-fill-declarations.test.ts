@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { parsePluginManifest } from '../src/plugin/closure.js';
 import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
-import { fillRequirementOf } from '../src/knowledge/fill-requirements.js';
+import { fillRequirementsOf } from '../src/knowledge/fill-requirements.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
@@ -119,11 +119,11 @@ test('catalogue requirement follows prerequisites and wildcard plugins, not unre
     ]),
     plugins: new Map(declarations.map((item) => [item.manifest.name, { id: item.manifest.name, declaration: item.manifest, declarationFile: item.file, declarationText: item.text }])),
   } as unknown as KindsManifest;
-  expect(fillRequirementOf(manifest, '/product', ['plain'])).toEqual({});
-  expect(fillRequirementOf(manifest, '/product', ['summary'])).toEqual({ requiresAgent: true });
-  expect(fillRequirementOf(manifest, '/product', ['plain', 'summary'])).toEqual({ requiresAgent: true });
+  expect(fillRequirementsOf(manifest, '/product')(['plain'])).toEqual({});
+  expect(fillRequirementsOf(manifest, '/product')(['summary'])).toEqual({ requiresAgent: true });
+  expect(fillRequirementsOf(manifest, '/product')(['plain', 'summary'])).toEqual({ requiresAgent: true });
   const general = plugin('general', { agent: { prompt: 'Fill.', roots: ['product'] }, produces: [{ kind: '*', fields: '*' }], refines: ['*'] });
   const withGeneral = { ...manifest, plugins: new Map<string, unknown>([...manifest.plugins!, ['general', { id: 'general', declaration: general.manifest, declarationFile: general.file, declarationText: general.text }]]) } as unknown as KindsManifest;
-  expect(fillRequirementOf(withGeneral, '/product', ['plain'])).toEqual({ requiresAgent: true });
-  expect(fillRequirementOf({ ...manifest, plugins: new Map() }, '/product', ['plain'])).toEqual({ fillPlanRefusal: '/product/madarch/kinds.yaml:12: selected kind plain has no enabled producer; enable its producer' });
+  expect(fillRequirementsOf(withGeneral, '/product')(['plain'])).toEqual({ requiresAgent: true });
+  expect(fillRequirementsOf({ ...manifest, plugins: new Map() }, '/product')(['plain'])).toEqual({ fillPlanRefusal: '/product/madarch/kinds.yaml:12: selected kind plain has no enabled producer; enable its producer' });
 });
