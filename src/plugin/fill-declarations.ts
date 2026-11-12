@@ -1,5 +1,6 @@
 /** Declaration-only fill validation. No plugin process or graph read is needed. */
 import { resolve } from 'node:path';
+import { byCodePoint } from '../model/order.js';
 import { ClosureRefusal, pluginManifestLine, type PluginManifest } from './closure.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 
@@ -118,7 +119,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     for (const prerequisite of kinds.get(kind)?.derivesFrom ?? []) for (const [producer, output] of outputs) {
       if (output.has(prerequisite) && !reachable(producer, plugin, refinements)) add(producer, prerequisite);
     }
-    return [...held.values()].sort((a, b) => `${a.plugin}:${a.kind}`.localeCompare(`${b.plugin}:${b.kind}`));
+    return [...held.values()].sort((a, b) => byCodePoint(`${a.plugin}:${a.kind}`, `${b.plugin}:${b.kind}`));
   };
   const visitedUnits = new Set<string>();
   const visitingUnits: string[] = [];
