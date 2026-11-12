@@ -14,9 +14,17 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { GROUP_SHORT_LABEL_LIMIT, parseKinds } from '../src/product/manifest/kinds.js';
+import { GROUP_SHORT_LABEL_LIMIT, parseCatalogYaml, parseKinds } from '../src/product/manifest/kinds.js';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
+import { parse as parseYaml } from 'yaml';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/catalog-starter.js';
+
+test('the native catalogue parser preserves every bundled declaration', () => {
+  for (const [path, text] of Object.entries(CATALOG_FILES)) {
+    expect({ path, value: parseCatalogYaml(text) }).toEqual({ path, value: parseYaml(text) });
+  }
+});
 
 const made: string[] = [];
 afterAll(() => {
