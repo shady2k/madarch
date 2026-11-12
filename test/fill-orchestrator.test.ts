@@ -263,6 +263,23 @@ test('concurrent tracked reads and progress keep their durable sequence allocati
   expect(afterBatch).toHaveLength(3);
   expect(afterBatch.find((read) => read.query === 'a')?.membership).toBe(readMembership([2]));
   expect(afterBatch.find((read) => read.query === 'a')?.seq).toBe(7);
+  const duplicates = await recordUnitReads(opened.owner, [3, 4, 5].map((value) => ({
+    unitId: unit.unitId, generation: unit.generation, query: 'a', rows: [value], at: NOW + 3,
+  })));
+  expect(duplicates.map((read) => read.seq)).toEqual([8, 9, 10]);
+  const afterDuplicates = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  expect(afterDuplicates).toHaveLength(3);
+  expect(afterDuplicates.find((read) => read.query === 'a')?.membership).toBe(readMembership([5]));
+  expect(afterDuplicates.find((read) => read.query === 'a')?.seq).toBe(10);
+  const nextRead = await recordUnitRead(opened.owner, { unitId: unit.unitId, generation: unit.generation, query: 'd', rows: ['d'], at: NOW + 4 });
+  expect(nextRead.seq).toBe(11);
+  const readBatches = await Promise.all([['e', 'f'], ['g', 'h', 'i']].map(async (queries) => await recordUnitReads(opened.owner, queries.map((query) => ({
+    unitId: unit.unitId, generation: unit.generation, query, rows: [query], at: NOW + 5,
+  })))));
+  for (const batch of readBatches) expect(batch.map((read) => read.seq)).toEqual(batch.map((_read, index) => batch[0]!.seq + index));
+  expect(readBatches.flat().map((read) => read.seq).sort((a, b) => a - b)).toEqual([12, 13, 14, 15, 16]);
+  const persistedReads = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  for (const read of readBatches.flat()) expect(persistedReads.find((held) => held.query === read.query)).toEqual(read);
   const events = await Promise.all(['a', 'b', 'c'].map(async (summary) => await appendProgress(opened.owner, {
     runId, at: NOW, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary,
   })));
@@ -274,6 +291,13 @@ test('concurrent tracked reads and progress keep their durable sequence allocati
   })));
   expect(eventBatch.map((event) => event.seq)).toEqual([last + 4, last + 5, last + 6]);
   expect((await readProgress(opened.owner, runId)).slice(-3)).toEqual([...eventBatch]);
+  const eventBatches = await Promise.all([['left-a', 'left-b'], ['right-a', 'right-b', 'right-c']].map(async (summaries) => await appendProgresses(opened.owner, summaries.map((summary) => ({
+    runId, at: NOW + 3, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary,
+  })))));
+  for (const batch of eventBatches) expect(batch.map((event) => event.seq)).toEqual(batch.map((_event, index) => batch[0]!.seq + index));
+  const allocatedEvents = eventBatches.flat().sort((a, b) => a.seq - b.seq);
+  expect(allocatedEvents.map((event) => event.seq)).toEqual([last + 7, last + 8, last + 9, last + 10, last + 11]);
+  expect((await readProgress(opened.owner, runId)).slice(-5)).toEqual(allocatedEvents);
 });
 
 test('a failed progress batch rolls back its events without rolling back committed tracked reads', async () => {
@@ -287,15 +311,16 @@ test('a failed progress batch rolls back its events without rolling back committ
     ...opened.owner,
     transaction: async (kind, work) => await opened.owner.transaction(kind, async (transaction) => await work({
       query: async (sql, values) => {
-        if (sql.includes('INSERT INTO fill_event') && ++inserts === 2) throw new Error('injected progress batch failure');
-        return await transaction.query(sql, values);
+        const result = await transaction.query(sql, values);
+        if (sql.includes('INSERT INTO fill_event') && ++inserts === 1) throw new Error('injected progress batch failure');
+        return result;
       },
     })),
   };
   await expect(appendProgresses(failing, reads.map((read) => ({
     runId, at: NOW, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary: read.query,
   })))).rejects.toThrow('injected progress batch failure');
-  expect(inserts).toBe(2);
+  expect(inserts).toBe(1);
   expect((await readUnitReads(opened.owner, unit.unitId, unit.generation)).map((read) => ({ query: read.query, membership: read.membership, seq: read.seq }))).toEqual([
     { query: 'a', membership: readMembership(['a']), seq: 1 },
     { query: 'b', membership: readMembership(['b']), seq: 2 },
