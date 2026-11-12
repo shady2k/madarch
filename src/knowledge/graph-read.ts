@@ -167,6 +167,10 @@ const ENTITY_SCOPE_EXPRESSION = `(CASE WHEN k.name = '${GIT_KINDS.repository}' T
          JOIN edge h2 ON h2.to_node = ae.to_node AND h2.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') AND h2.context_id = 1 WHERE ae.from_node = n.id AND ae.context_id = 1)
     ) END)::text`;
 
+const PRESENTATION_COLUMNS = `${ENTITY_SCOPE_EXPRESSION} AS scope,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe WHERE pe.from_node = n.id AND pe.context_id = 1 AND pe.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.parent}')) END AS parent_count,
+  CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT jsonb_build_object('name', sn.key->>'name', 'email', sn.key->>'email') FROM edge ae JOIN node sn ON sn.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}') ORDER BY ae.id LIMIT 1) END AS author`;
+
 /** A value with the keys of every object in code point order, so two equal values render equal. */
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -569,37 +573,23 @@ export class GraphReader {
    * Authored fields without declared writers show agreement or all distinct values. Every opinion keeps its id,
    * producer, language and evidence, including opinions superseded by a refinement.
    */
-  private async generatedEntities(tx: OuterTransaction, decl: GeneratedKindRead, rows: readonly Raw[]): Promise<GraphEntity[]> {
+  private async generatedEntities(tx: OuterTransaction, decl: GeneratedKindRead, rows: readonly Raw[], loadedOpinions?: readonly Raw[]): Promise<GraphEntity[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => String(row['node_id']));
     const opinionColumns = ['t.node_id::text AS node', 't.id::text AS opinion_id', 't.said_by', 't.lang', 't.evidence', ...decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`)];
-    const opinions = await tx.query<Raw>(
-      `SELECT ${opinionColumns.join(', ')} FROM ${decl.table} t WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id`,
+    const opinions = loadedOpinions === undefined ? await tx.query<Raw>(
+      `SELECT ${opinionColumns.join(', ')}, ${PRESENTATION_COLUMNS},
+         (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT place->>'repository' FROM jsonb_array_elements(t.evidence) place WHERE place->>'repository' IS NOT NULL LIMIT 1) LIMIT 1) AS evidence_scope
+       FROM ${decl.table} t JOIN node n ON n.id = t.node_id JOIN entity k ON k.id = n.entity_id WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id`,
       [`{${ids.join(',')}}`],
-    );
+    ) : { rows: loadedOpinions };
     const held = new Map<string, Raw[]>();
     for (const opinion of opinions.rows) {
       const list = held.get(String(opinion['node'])) ?? [];
       list.push(opinion);
       held.set(String(opinion['node']), list);
     }
-    const facts = await tx.query<Raw>(
-      `SELECT n.id::text AS node_id, ${ENTITY_SCOPE_EXPRESSION} AS scope,
-         CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT count(*)::int FROM edge pe WHERE pe.from_node = n.id AND pe.context_id = 1 AND pe.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.parent}')) END AS parent_count,
-         CASE WHEN k.name = '${GIT_KINDS.commit}' THEN (SELECT jsonb_build_object('name', sn.key->>'name', 'email', sn.key->>'email') FROM edge ae JOIN node sn ON sn.id = ae.from_node WHERE ae.to_node = n.id AND ae.context_id = 1 AND ae.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.authored}') ORDER BY ae.id LIMIT 1) END AS author
-       FROM node n JOIN entity k ON k.id = n.entity_id WHERE n.id = ANY($1::bigint[])`,
-      [`{${ids.join(',')}}`],
-    );
-    const nodeFacts = new Map(facts.rows.map((row) => [String(row['node_id']), row]));
-    const repositories = [...new Set(opinions.rows.flatMap((opinion) => evidencePlaces(opinion['evidence']).flatMap((place) => place.repository === null ? [] : [place.repository])))];
-    const repositoryNodes = new Map<string, string>();
-    if (repositories.length > 0) {
-      const found = await tx.query<{ name: string; node: string }>(
-        `SELECT n.key->>'name' AS name, n.id::text AS node FROM node n JOIN entity k ON k.id = n.entity_id WHERE k.name = $1 AND n.key->>'name' = ANY($2::text[]) AND n.context_id = 1 AND NOT n.removed`,
-        [GIT_KINDS.repository, `{${repositories.join(',')}}`],
-      );
-      for (const row of found.rows) repositoryNodes.set(row.name, row.node);
-    }
+    const nodeFacts = new Map(opinions.rows.map((row) => [String(row['node']), row]));
     return rows.map((row) => {
       const node = String(row['node_id']);
       const keyObject = (row['key'] ?? {}) as Record<string, unknown>;
@@ -662,7 +652,7 @@ export class GraphReader {
         : { path: place.path, lineStart: place.lineStart ?? 1, lineEnd: place.lineEnd ?? place.lineStart ?? 1, byteStart: 0, byteEnd: 0 };
       // The scope a place is read in is its repository's node: a page's source block and its links resolve the
       // repository from it, the way every other entity's place does.
-      const scope = String(nodeFacts.get(node)?.['scope'] ?? (place?.repository === null || place?.repository === undefined ? '' : repositoryNodes.get(place.repository) ?? ''));
+      const scope = String(nodeFacts.get(node)?.['scope'] ?? nodeFacts.get(node)?.['evidence_scope'] ?? '');
       return { key, kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
     });
   }
@@ -765,9 +755,19 @@ export class GraphReader {
   private async entitiesOfIds(tx: OuterTransaction, ids: readonly string[], scope: string | null = this.scope ?? null): Promise<Map<string, GraphEntity>> {
     const held = new Map<string, GraphEntity>();
     if (ids.length === 0) return held;
-    for (const decl of this.generated?.values() ?? []) {
-      const rows = await tx.query<Raw>(`${generatedSelect(decl)} AND n.id = ANY($1::bigint[]) ORDER BY node_id`, [`{${ids.join(',')}}`]);
-      for (const entity of await this.generatedEntities(tx, decl, rows.rows)) {
+    const declarations = [...this.generated?.values() ?? []];
+    if (declarations.length === 0) return held;
+    const parts = declarations.map((decl) => `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, ${quoteLiteral(decl.kind)} AS kind,
+      (SELECT jsonb_agg(to_jsonb(t) || jsonb_build_object('node', n.id::text, 'opinion_id', t.id::text, 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author, 'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT place->>'repository' FROM jsonb_array_elements(t.evidence) place WHERE place->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY t.id)
+       FROM ${decl.table} t WHERE t.node_id = n.id AND t.state = 'open' AND t.context_id = 1) AS opinions
+      FROM node n JOIN entity k ON k.id = n.entity_id
+      CROSS JOIN LATERAL (SELECT ${PRESENTATION_COLUMNS}) metadata
+      WHERE k.name = ${quoteLiteral(decl.kind)} AND n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`);
+    const found = await tx.query<Raw>(parts.join(' UNION ALL '), [`{${ids.join(',')}}`]);
+    for (const decl of declarations) {
+      const rows = found.rows.filter((row) => row['kind'] === decl.kind && Array.isArray(row['opinions']));
+      const opinions = rows.flatMap((row) => row['opinions'] as Raw[]);
+      for (const entity of await this.generatedEntities(tx, decl, rows, opinions)) {
         held.set(entity.nodeIds[0]!, scope === null ? entity : { ...entity, scope });
       }
     }
