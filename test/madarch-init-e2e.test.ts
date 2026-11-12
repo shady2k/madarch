@@ -117,7 +117,11 @@ describe('madarch init', () => {
     if (!manifest.present) throw new Error('init did not declare its fixture kinds');
     expect(manifest.manifest.findings).toEqual([]);
     const byCodePoint = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
-    const expectedKinds = [...manifest.manifest.kinds.keys()].sort(byCodePoint);
+    const catalog = manifest.manifest.catalog;
+    if (catalog === undefined) throw new Error('init did not declare its fixture catalogue');
+    expect(catalog.findings).toEqual([]);
+    // The navigation includes catalogue-only kinds, not just kinds with a page template.
+    const expectedKinds = [...catalog.kinds.keys()].sort(byCodePoint);
     const actualKinds = status.body.kinds as { kind: string; count: number }[];
     expect(actualKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
     expect(actualKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
