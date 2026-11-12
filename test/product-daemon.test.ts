@@ -7,7 +7,7 @@ import { startPreparedServer as startClientServer, activateTestProduct } from '.
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { ensureVertex, publishOpinion } from '../src/graph/write.js';
+import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
@@ -75,9 +75,11 @@ async function publishDocument(home: string, folder: string, markdown: string): 
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
   try {
     await owner.transaction('write', async (tx) => {
-      const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: `${folder} vision` } });
+      const journal = journalFor('fixture@1');
+      const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: `${folder} vision` } }, 1, journal);
       await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1',
-        values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } });
+        values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } }, 1, journal);
+      await writeJournal(tx, journal);
     });
   } finally { await owner.close(); }
 }

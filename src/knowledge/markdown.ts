@@ -2,7 +2,8 @@
 import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import type { Finding, KindsManifest } from '../product/manifest/kinds.js';
-import type { GraphReader } from './graph-read.js';
+import type { GraphReader, GeneratedKindRead } from './graph-read.js';
+import { GUIDE_OUTPUTS } from './guide-outputs.js';
 import type { PageStatement } from './index/page.js';
 
 export interface FoundLink { url: string; line: number; ground: boolean }
@@ -25,6 +26,14 @@ export interface MarkdownEntity {
   indexedStatements: PageStatement[];
   mentions: string[];
   digest: string;
+}
+
+/** Only generated contracts that can project a body can contribute ordinary knowledge pages. */
+export function pageOpinionKinds(manifest: KindsManifest, generated: ReadonlyMap<string, GeneratedKindRead>): KindsManifest {
+  return { ...manifest, kinds: new Map([...manifest.kinds].filter(([kind]) => {
+    const declared = generated.get(kind);
+    return !Object.hasOwn(GUIDE_OUTPUTS, kind) && declared !== undefined && (declared.columns.includes('body') || declared.key.includes('body'));
+  })) };
 }
 
 /** Every page opinion of a manifest kind, including all result pages, in code-point order. */

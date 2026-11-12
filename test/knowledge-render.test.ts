@@ -494,14 +494,14 @@ describe('what has a page', () => {
   test('the kinds are counted from the graph and from the Markdown, and listed in key order with a filter', async () => {
     const summaries = await kindSummaries(ctx);
     expect(summaries).toEqual([
-      { kind: 'product', source: 'markdown', single: true, page: true, count: 1, origins: ['agent'] },
-      { kind: 'domain', source: 'markdown', single: false, page: true, count: 1, origins: ['agent'] },
-      { kind: 'code.service', source: 'graph', single: false, page: true, count: 1, origins: ['code'] },
-      { kind: 'code.symbol', source: 'graph', single: false, page: true, count: 3, origins: ['code'] },
-      { kind: 'code.file', source: 'graph', single: false, page: true, count: 2, origins: ['code'] },
-      { kind: 'code.debt', source: 'graph', single: false, page: true, count: 1, origins: ['code'] },
-      { kind: 'code.database', source: 'graph', single: false, page: true, count: 1, origins: ['code'] },
-      { kind: 'doc.use-case', source: 'document', single: false, page: true, count: 0, origins: ['person'] },
+      { kind: 'product', source: 'markdown', page: true, single: true, count: 1, origins: ['agent'] },
+      { kind: 'domain', source: 'markdown', page: true, single: false, count: 1, origins: ['agent'] },
+      { kind: 'code.service', source: 'graph', page: true, single: false, count: 1, origins: ['code'] },
+      { kind: 'code.symbol', source: 'graph', page: true, single: false, count: 3, origins: ['code'] },
+      { kind: 'code.file', source: 'graph', page: true, single: false, count: 2, origins: ['code'] },
+      { kind: 'code.debt', source: 'graph', page: true, single: false, count: 1, origins: ['code'] },
+      { kind: 'code.database', source: 'graph', page: true, single: false, count: 1, origins: ['code'] },
+      { kind: 'doc.use-case', source: 'document', page: true, single: false, count: 0, origins: ['person'] },
     ]);
     const symbols = await listEntities(ctx, 'code.symbol', { limit: 2 });
     expect(symbols).toMatchObject({ total: 3, next: CHARGE });

@@ -1061,13 +1061,26 @@ export class GraphReader {
     const rendered = fields.length === 0 ? `n.uid::text` : `concat_ws('/', ${fields.join(', ')})`;
     const text = options.q === undefined || options.q.trim() === '' ? undefined : options.q.trim().toLowerCase();
     const after = options.after === undefined || options.after === '' ? null : (options.after.startsWith(`${decl.kind}:`) ? options.after.slice(decl.kind.length + 1) : options.after);
-    const where = `t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0) AND ($2::text IS NULL OR (${rendered}) > $2::text)`;
-    const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE ${where} ORDER BY (${rendered}) LIMIT $3::bigint`, [text ?? null, after, String(options.limit + 1)]);
-    const total = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)`, [text ?? null]);
-    const more = page.rows.length > options.limit;
-    const shown = more ? page.rows.slice(0, options.limit) : page.rows;
+    const page = await tx.query<Raw>(
+      `WITH matching AS MATERIALIZED (
+         SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key, (${rendered}) AS cursor
+         FROM ${decl.table} t JOIN node n ON n.id = t.node_id
+         WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed
+           AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)
+       ), total AS (SELECT count(*)::text AS n FROM matching)
+       SELECT page.node_id, page.uid, page.key, total.n FROM total
+       LEFT JOIN LATERAL (
+         SELECT * FROM matching WHERE $2::text IS NULL OR cursor > $2::text
+         ORDER BY cursor LIMIT $3::bigint
+       ) page ON true
+       ORDER BY page.cursor`,
+      [text ?? null, after, String(options.limit + 1)],
+    );
+    const rows = page.rows.filter((row) => row['node_id'] !== null);
+    const more = rows.length > options.limit;
+    const shown = more ? rows.slice(0, options.limit) : rows;
     const entities = await this.generatedEntities(tx, decl, shown);
-    return { rows: entities, next: more ? entities[entities.length - 1]?.key ?? null : null, total: Number(total.rows[0]?.n ?? '0') };
+    return { rows: entities, next: more ? entities[entities.length - 1]?.key ?? null : null, total: Number(page.rows[0]?.['n'] ?? '0') };
   }
 
   private async entitiesOfKinds(tx: OuterTransaction, graphKinds: readonly string[]): Promise<GraphEntity[]> {
@@ -1850,19 +1863,23 @@ export class GraphReader {
       const ids = `{${subject.nodeIds.join(',')}}`;
       const edgeRows = shape === 'author'
         ? await tx.query<Raw>(
-          `WITH authored AS (
+          `WITH authored AS MATERIALIZED (
              SELECT e.to_node AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.authored}' WHERE e.from_node = ANY($1::bigint[])
+           ), parents AS MATERIALIZED (
+             SELECT p.from_node AS id, count(*) AS n FROM edge p
+             JOIN entity pk ON pk.id = p.entity_id AND pk.name = '${GIT_KINDS.parent}'
+             WHERE p.from_node IN (SELECT id FROM authored) GROUP BY p.from_node
            ), touched AS (
              SELECT e.id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
-             WHERE e.from_node IN (SELECT id FROM authored)
-               AND (SELECT count(*) FROM edge p JOIN entity pk ON pk.id = p.entity_id AND pk.name = '${GIT_KINDS.parent}' WHERE p.from_node = e.from_node) <= 1
+             LEFT JOIN parents p ON p.id = e.from_node
+             WHERE e.from_node IN (SELECT id FROM authored) AND coalesce(p.n, 0) <= 1
            )
            SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
-                  e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk
+                  e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, NULL AS position, NULL AS walk
            FROM edge e JOIN entity rk ON rk.id = e.entity_id
-           LEFT JOIN LATERAL (SELECT o.change, o.added, o.removed FROM ${GIT_TABLES.touched} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) t ON true
-           LEFT JOIN LATERAL (SELECT o.position FROM ${GIT_TABLES.parent_position} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) pp ON true
-           LEFT JOIN LATERAL (SELECT o.walk FROM ${GIT_TABLES.history} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
+           LEFT JOIN (SELECT DISTINCT ON (o.edge_id) o.edge_id, o.change, o.added, o.removed
+             FROM ${GIT_TABLES.touched} o WHERE o.state = 'open' AND o.edge_id IN (SELECT id FROM touched)
+             ORDER BY o.edge_id, o.id DESC) t ON t.edge_id = e.id AND rk.name = '${GIT_KINDS.touched}'
            WHERE (rk.name = '${GIT_KINDS.authored}' AND e.from_node = ANY($1::bigint[]))
               OR (rk.name = '${GIT_KINDS.touched}' AND e.id IN (SELECT id FROM touched))`,
           [ids],
@@ -1887,6 +1904,25 @@ export class GraphReader {
              SELECT id, n FROM coupled_all ORDER BY n DESC FETCH FIRST $2 ROWS WITH TIES
            ), included AS (
              SELECT id FROM focus UNION SELECT id FROM coupled
+           ), identities AS (
+             SELECT id FROM included
+             UNION
+             SELECT CASE WHEN e.from_node = f.id THEN e.to_node ELSE e.from_node END
+             FROM identities f JOIN edge e ON e.from_node = f.id OR e.to_node = f.id
+             JOIN entity rk ON rk.id = e.entity_id AND rk.name = '${GIT_KINDS.renamedFrom}'
+           ), ancestors AS (
+             SELECT id FROM identities
+             UNION
+             SELECT e.from_node FROM ancestors a JOIN edge e ON e.to_node = a.id
+             JOIN entity rk ON rk.id = e.entity_id AND rk.name = '${GIT_KINDS.contains}'
+           ), imports AS (
+             SELECT e.id, e.from_node, e.to_node FROM edge e JOIN entity rk ON rk.id = e.entity_id AND rk.name = 'imports'
+             WHERE e.from_node IN (SELECT id FROM ancestors) OR e.to_node IN (SELECT id FROM ancestors)
+           ), members AS (
+             SELECT from_node AS id FROM imports UNION SELECT to_node FROM imports
+             UNION
+             SELECT e.to_node FROM members m JOIN edge e ON e.from_node = m.id
+             JOIN entity rk ON rk.id = e.entity_id AND rk.name = '${GIT_KINDS.contains}'
            )
            SELECT e.id::text AS id, rk.name AS relation, e.from_node::text AS from_node, e.to_node::text AS to_node,
                   e.discriminator, t.change, t.added::text AS added, t.removed::text AS removed, pp.position, h.walk,
@@ -1897,14 +1933,17 @@ export class GraphReader {
            LEFT JOIN LATERAL (SELECT o.walk FROM ${GIT_TABLES.history} o WHERE o.edge_id = e.id AND o.state = 'open' ORDER BY o.id DESC LIMIT 1) h ON true
            WHERE (rk.name = '${GIT_KINDS.touched}' AND e.to_node IN (SELECT id FROM included) AND e.from_node IN (SELECT id FROM focus_commits))
               OR (rk.name = '${GIT_KINDS.authored}' AND e.to_node IN (SELECT id FROM focus_commits))
-              OR rk.name IN ('${GIT_KINDS.renamedFrom}', '${GIT_KINDS.contains}', 'imports')`,
+              OR (rk.name = '${GIT_KINDS.renamedFrom}' AND e.from_node IN (SELECT id FROM identities))
+              OR (rk.name = '${GIT_KINDS.contains}' AND e.from_node IN (SELECT id FROM members))
+              OR e.id IN (SELECT id FROM imports)`,
           [ids, limit],
         );
       const nodeIds = new Set<string>(subject.nodeIds);
       for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
-      const entityRows = await tx.query<Raw>(`${entitySelectSql(subject.scope === '' ? null : subject.scope, 'plain')} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
-      const entities = entityRows.rows.map((row) => entityOf(row));
-      const byId = new Map(entityRows.rows.map((row) => [String(row['node_id']), entityOf(row)]));
+      // Path history needs the commits' subject and clock, not their complete changed-path lists.
+      const entityRows = await tx.query<Raw>(`${entitySelectSql(subject.scope === '' ? null : subject.scope, shape === 'path' ? 'values' : 'plain', new Set([GIT_KINDS.commit]))} WHERE n.id = ANY($1::bigint[]) ORDER BY n.id`, [`{${[...nodeIds].join(',')}}`]);
+      const entities = entityRows.rows.map((row) => entityOf(row, shape !== 'path'));
+      const byId = new Map(entityRows.rows.map((row, index) => [String(row['node_id']), entities[index]!]));
       const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];
       return {
         entities,

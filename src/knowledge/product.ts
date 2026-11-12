@@ -40,7 +40,7 @@ import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
 import { withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
-import { graphMarkdownEntities, type MarkdownEntity } from './markdown.js';
+import { graphMarkdownEntities, pageOpinionKinds, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, CatalogView, ChangedPage, DocumentListing, DocumentPage, FillErrorView, FillRunView, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, RepositoryFactsView, SearchView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../obs/trace-report.js';
@@ -75,7 +75,7 @@ import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
 import { scopeWords, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
-import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
+import { groundsOfScope, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
 import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { graphKnowledgePages, type IndexedPage } from './index/index.js';
 import { StoredProductFiles } from '../plugin/product-source.js';
@@ -104,14 +104,6 @@ function graphKindsOf(manifest: KindsManifest): { declared: ReadonlySet<string>;
   const contract = graphContractOf(manifest);
   // Vertices and edges both: a read asks whether the product declares an edge kind too (history, touched).
   return { declared: new Set([...contract.vertex.map((kind) => kind.name), ...contract.edge.map((kind) => kind.name)]), generated: declaredKindReads(manifest), edges: declaredEdgeReads(manifest) };
-}
-
-/** Only generated contracts that can project a body can contribute ordinary knowledge pages. */
-function pageOpinionKinds(manifest: KindsManifest, generated: ReadonlyMap<string, GeneratedKindRead>): KindsManifest {
-  return { ...manifest, kinds: new Map([...manifest.kinds].filter(([kind]) => {
-    const declared = generated.get(kind);
-    return !Object.hasOwn(GUIDE_OUTPUTS, kind) && declared !== undefined && (declared.columns.includes('body') || declared.key.includes('body'));
-  })) };
 }
 
 /** The most terms one listing of a glossary kind reads; a larger glossary is cut rather than read whole. */
@@ -336,7 +328,7 @@ export class KnowledgeProduct {
       const owner = await this.open();
       await this.followStoreFill();
       const read = await this.manifestRead(this.options.productFolder);
-      if (!read.present) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no manifest yet. Open the catalogue, select its kinds and press Fill first.`);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: the graph has no permitted fill yet. Open the catalogue, select its kinds and press Fill first.`);
       if (read.manifest.findings.length > 0) {
         const first = read.manifest.findings[0]!;
         throw new LoopRefusal(409, `${resolve(this.folder, first.file)}:${first.line}: ${first.message}`);
@@ -362,8 +354,9 @@ export class KnowledgeProduct {
   async importAuthored() {
     return await withSpan('authored.import', {}, async () => {
       const owner = await this.open();
+      await this.followStoreFill();
       const read = await this.manifestRead(this.folder);
-      if (!read.present) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
+      if (!read.present || (this.pins.size === 0 && !await hasSuccessfulFill(owner))) throw new LoopRefusal(409, `${join(this.folder, KINDS_FILE)}:1: open the catalogue and press Fill first.`);
       const identity = this.product();
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
       const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
@@ -1829,18 +1822,6 @@ export class KnowledgeProduct {
     };
   }
 
-  /** The planned-change marks, read once per graph revision: a fill that stores the tasks again makes them read again. */
-  private marksMemo: { key: string; marks: PlannedMarks } | undefined;
-
-  /**
-   * What the planned-change marks depend on: the graph revision, the writer's plan and this process's own revision, all of
-   * them counts rather than files — a read of a page never stamps the checkout (madarch-hsqs stage C).
-   */
-  private async marksKey(): Promise<string> {
-    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
-    return `${await this.graphRevision()}|${String(this.revision)}|${plan}`;
-  }
-
   /** The graph revision the answers stand on: the store's publication stamp, or '' before the store is open. */
   private async graphRevision(): Promise<string> {
     const owner = this.reader?.owner;
@@ -2574,11 +2555,6 @@ export class KnowledgeProduct {
     return (await graphKnowledgePages(context.ctx.graph, pageOpinionKinds(context.manifest, graphKindsOf(context.manifest).generated))).pages;
   }
 
-  /** The file each page of the product is written in: what a task's statement scope names when a commit closes it. */
-  private async pageFiles(): Promise<Map<string, string>> {
-    return new Map((await this.indexPages()).map((page) => [page.id, page.file] as const));
-  }
-
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
   async block(id: string, held: string, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
     const result = await this.page(id, lang, { only: held, ...(history === undefined ? {} : { history }) });
@@ -2838,26 +2814,7 @@ export class KnowledgeProduct {
   }
 
   private async marks(): Promise<PlannedMarks> {
-    const key = await this.marksKey();
-    const held = this.marksMemo;
-    if (held !== undefined && held.key === key) return held.marks;
-    const product = this.product();
-    if ('message' in product) return NO_MARKS;
-    const owner = await this.open();
-    const repositories = this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }));
-    const files = await this.productFiles();
-    const read = await this.manifestFrom(product.folder);
-    if (!read.present) return NO_MARKS;
-    const marks = await plannedMarks({
-      owner, productFolder: this.options.productFolder, files, manifest: read.manifest,
-      // The product's own repository closes a task as a code repository does: its documents are in it.
-      repositories: [{ name: '', path: product.folder }, ...repositories],
-      // The product repository's own Markdown, as the graph holds it: a path here belongs to the product, not to a code repository.
-      productFiles: files.paths().filter((path) => path.endsWith('.md')),
-      pageFiles: await this.pageFiles(),
-    });
-    this.marksMemo = { key, marks };
-    return marks;
+    return await plannedMarks();
   }
 
   private async loopManifest(): Promise<KindsManifest> {

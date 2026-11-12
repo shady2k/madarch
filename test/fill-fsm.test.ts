@@ -474,8 +474,8 @@ interface RunExpectation {
 }
 
 const RUN_EXPECTED: readonly RunExpectation[] = [
+  { from: 'created', event: 'fail', to: 'failed', guards: ['initialization-failure-named'], actions: ['record-failure', 'emit-progress'] },
   { from: 'created', event: 'plan', to: 'planning', guards: ['configuration-resolved'], actions: ['snapshot-configuration', 'emit-progress'] },
-  { from: 'created', event: 'fail', to: 'failed', cause: 'initialization-failed', guards: ['initialization-failure-named'], actions: ['record-failure', 'emit-progress'] },
   { from: 'planning', event: 'start', to: 'running', guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] },
   { from: 'planning', event: 'block', to: 'blocked', guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] },
   { from: 'planning', event: 'fail', to: 'failed', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] },
@@ -510,7 +510,9 @@ function runEventFor(expectation: RunExpectation): RunEvent {
     case 'complete': return { type: 'complete', at, evidence: settled };
     case 'complete-partial': return { type: 'complete-partial', at, evidence: { ...settled, coverageMet: false } };
     case 'block': return { type: 'block', at, starvationPath: 'synthesis → claims → inventory (disabled)' };
-    case 'fail': return { type: 'fail', at, cause: expectation.cause ?? 'budget-exhausted', detail: 'the run could not proceed' };
+    case 'fail': return expectation.from === 'created'
+      ? { type: 'fail', at, cause: 'initialization-failed', detail: 'the product manifest could not be loaded' }
+      : { type: 'fail', at, cause: 'budget-exhausted', detail: 'the run spent its token budget' };
     case 'pause': return { type: 'pause', at };
     case 'drain': return { type: 'drain', at, evidence: settled };
     case 'resume': return { type: 'resume', at };
@@ -542,6 +544,20 @@ describe('run machine: every allowed transition, from decision 0027', () => {
       expect(result.effects).toEqual(expectation.actions.filter((name) => runMachine.spec.actions[name]!.kind === 'effect'));
     },
   );
+
+  test('an initialization failure names its reason and cannot report a budget failure before planning', () => {
+    const failures: readonly RunEvent[] = [
+      { type: 'fail', at: 10, cause: 'initialization-failed', detail: ' ' },
+      { type: 'fail', at: 10, cause: 'budget-exhausted', detail: 'no planning took place' },
+    ];
+    for (const event of failures) {
+      const result = runMachine.step({ state: 'created', context: runContextIn('created') }, event);
+      expect(result.ok).toBe(false);
+      if (result.ok) continue;
+      expect(result.refusal.code).toBe('fill-run/guard-refused');
+      expect(result.refusal.guard).toBe('initialization-failure-named');
+    }
+  });
 
   test('every state and event pair the decision does not allow is refused with a named reason', () => {
     let refused = 0;

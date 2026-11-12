@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { PageModel } from '../src/knowledge/model.js';
+import { termBlock } from '../src/knowledge/blocks.js';
 import { entityAddress } from '../src/knowledge/resolve.js';
 import { pageFileAt, pageFileDocument, pageFileMarkdown } from '../src/knowledge/page-files.js';
 
@@ -21,10 +22,12 @@ const home = { state: 'ok' as const, target: 'madarch:domain:home', kind: 'domai
 
 describe('a page written for an agent keeps every address it holds', () => {
   test('term exports keep definition and counted usage source links at the product mount', () => {
-    const model = page({ blocks: [{ type: 'term', title: 'Definition', definition: 'A run.', synonyms: [], code: [],
-      definedIn: '[glossary.md:3](/src?path=glossary.md&line=3)',
-      usages: [{ location: '[src/run.ts:7](/src?path=src%2Frun.ts&line=7)', count: 2 }], usageCount: 2, ambiguous: null,
-    }] });
+    const term = termBlock({ ownRepository: 'own', repositories: [] }, { source: 'graph', entity: {
+      key: 'doc.term:Run', kind: 'doc.term', label: 'Run', nodeIds: [], scope: '',
+      properties: { definition: 'A run.', synonyms: [], code: [], usages: [{ repository: 'own', path: 'src/run.ts', lineStart: 7, lineEnd: 7, count: 2 }] },
+      evidence: [{ field: 'definition', repository: 'own', path: 'glossary.md', lineStart: 3, lineEnd: 3, commit: null }],
+    } }, {}, '', 1);
+    const model = page({ blocks: [term] });
     const written = pageFileMarkdown(model, prefix);
     expect(written).toContain('[glossary.md:3](/products/shop/src?path=glossary.md&line=3)');
     expect(written).toContain('[src/run.ts:7](/products/shop/src?path=src%2Frun.ts&line=7) (2)');

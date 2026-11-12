@@ -40,7 +40,7 @@ export interface CollectInput {
 /** One draft as the page's row, with its stable id. */
 function problemOf(draft: ProblemDraft): Problem {
   return {
-    id: problemId(draft.rule, draft.identity),
+    id: problemId(draft.rule, draft.identity), identity: draft.identity,
     section: draft.section, rule: draft.rule, kind: draft.kind, sonar: draft.sonar, severity: draft.severity,
     fixer: draft.fixer, closed: draft.closed,
     page: draft.page, pageTitle: draft.pageTitle, statement: draft.statement, sentence: draft.sentence,

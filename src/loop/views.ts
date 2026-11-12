@@ -8,6 +8,8 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { changedGrounds, graphKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
+import { pageOpinionKinds } from '../knowledge/markdown.js';
+import { declaredKindReads } from '../fill/stages/plugin-contract.js';
 import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
 import type { ProductFileSource } from '../plugin/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
@@ -68,6 +70,8 @@ type Fixer = 'agent' | 'person';
 export interface Problem {
   /** The problem's stable id: its rule and the place it names, never its position in the list. */
   readonly id: string;
+  /** The original finding key used with the rule to form the stable id. */
+  readonly identity: string;
   /** The section of the Problems page the problem belongs to. */
   readonly section: ProblemSection;
   /** The rule that found it (`wiki.broken-link`, `security.sql-input`, ...); the manifest tunes rules by this id. */
@@ -251,7 +255,7 @@ function wikiProblem(
   const place = fields.place ?? placeOfWiki(fields.page, fields.file, fields.line);
   const entity = fields.entity ?? (fields.page === null ? null : { label: fields.pageTitle ?? fields.page, href: entityAddress(fields.page), key: fields.page });
   return {
-    id: problemId(rule.id, identity), section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
+    id: problemId(rule.id, identity), identity, section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
     fixer: fields.fixer, closed: fields.closed,
     page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
     target: fields.target, reason: fields.reason, ...(fields.textKey === undefined ? {} : { textKey: fields.textKey, textArgs: fields.textArgs }), file: fields.file, line: fields.line,
@@ -267,7 +271,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   const out: Problem[] = [];
   const notes: ProblemNote[] = [];
   const add = (problem: Problem | undefined): void => { if (problem !== undefined) out.push(problem); };
-  const read = await graphKnowledgePages(input.graph, input.manifest);
+  const read = await graphKnowledgePages(input.graph, pageOpinionKinds(input.manifest, declaredKindReads(input.manifest)));
   const pages = read.pages.filter(isPage);
   const byId = new Map(pages.map((page) => [page.id, page] as const));
   const none = { page: null, pageTitle: null, statement: null, sentence: null, target: null, by: null, at: null, line: null, closed: false } as const;

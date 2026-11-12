@@ -276,7 +276,7 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
   const homePage = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name);
   // The first step is the product's home, linked at the root address; a product with no name falls back to its home page.
   if (ctx.productName !== undefined && ctx.productName !== '') push({ id: 'home', kind: 'product', label: ctx.productName, href: HOME_ADDRESS });
-  else if (homePage !== undefined) push(refOfMarkdown(ctx, homePage));
+  else if (homePage !== undefined) push({ ...refOfMarkdown(ctx, homePage), href: HOME_ADDRESS });
   if (subject.source === 'markdown') {
     if (homePage === undefined || subject.entity.id !== homePage.id) push(refOfMarkdown(ctx, subject.entity));
     return parts;

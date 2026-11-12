@@ -6,19 +6,20 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
-import { makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
-import { DEFAULT_THRESHOLDS } from '../src/problems/types.js';
+import { commitProduct, makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
+import { manifestWithRepo } from '../src/product/manifest.js';
+import { parse, stringify } from 'yaml';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
-const LARGE_FILES = 120;
+const EMPTY_REPOSITORIES = 120;
 
 let work: string;
 let home: string;
@@ -38,20 +39,37 @@ beforeAll(async () => {
   mkdirSync(join(repository, 'src'), { recursive: true });
   git(repository, 'init', '--quiet', '--initial-branch=main');
   writeFileSync(join(repository, 'README.md'), '# A repository\n');
-  // The repository-tree producer publishes real file facts with line counts for the large-file rule.
-  for (let i = 0; i < LARGE_FILES; i += 1) {
-    const name = `large-${String(i).padStart(3, '0')}.txt`;
-    writeFileSync(join(repository, 'src', name), 'one recorded line\n'.repeat(DEFAULT_THRESHOLDS.largeFileLines + 1));
-  }
   git(repository, 'add', '.');
   git(repository, 'commit', '--quiet', '-m', 'First');
   folder = makeProduct(home, 'shop', repository);
   withoutPluginTurns(folder);
+  // A declared, present repository with no commit is a native graph-context finding, not a retired Markdown read.
+  const workspace = join(folder, 'workspace.yaml');
+  let workspaceText = readFileSync(workspace, 'utf8');
+  for (let i = 0; i < EMPTY_REPOSITORIES; i += 1) {
+    const name = `empty-${String(i).padStart(3, '0')}`;
+    const empty = join(folder, 'repos', name);
+    mkdirSync(empty);
+    git(empty, 'init', '--quiet', '--initial-branch=main');
+    workspaceText = manifestWithRepo(workspaceText, { name, linked: true });
+  }
+  writeFileSync(workspace, workspaceText);
+  // Pagination needs repository facts and one rule, not the starter catalogue's hundreds of planned kinds.
+  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+  const starter = parse(readFileSync(kindsFile, 'utf8'));
+  const kinds = Object.fromEntries(['code.repository', 'code.directory', 'code.file', 'code.commit'].map((name) => {
+    const kind = starter.kinds[name];
+    return [name, { template: kind.template, source: 'graph', capability: 'git' }];
+  }));
+  writeFileSync(kindsFile, stringify({ language: 'en', kinds, problems: { rules: {
+    'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'],
+  } } }));
+  commitProduct(folder, 'Declare empty repositories for paged problems');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  // The Problems page judges line counts stored by the repository-tree producer, never the source files directly.
+  // The Problems page reads the graph: one pass of the files producer in this process stores the product repository.
   await fillInProcess(folder, home, join(work, 'store'));
   await get('/api/status');
 }, 300_000);
@@ -65,9 +83,9 @@ describe('the Problems page in levels', () => {
   test('the categories count every rule, and the status count is their open sum', async () => {
     const categories = await get('/api/problems');
     expect(categories.status).toBe(200);
-    expect(categories.body.categories.some((category: { rule: string }) => category.rule === 'large-file')).toBe(true);
-    const largeFiles = categories.body.categories.find((category: { rule: string }) => category.rule === 'large-file');
-    expect(largeFiles.count).toBeGreaterThanOrEqual(LARGE_FILES);
+    expect(categories.body.categories.some((category: { rule: string }) => category.rule === 'wiki.unreadable-file')).toBe(true);
+    const unreadable = categories.body.categories.find((category: { rule: string }) => category.rule === 'wiki.unreadable-file');
+    expect(unreadable.count).toBeGreaterThanOrEqual(EMPTY_REPOSITORIES);
     const openSum = categories.body.categories.reduce((sum: number, category: { open: number }) => sum + category.open, 0);
     // The listing is collected beside the first status answer; its next poll carries the count of exactly these inputs.
     let problemsOpen: number | undefined;
@@ -84,13 +102,13 @@ describe('the Problems page in levels', () => {
 
   test('the sources of a category are pages, and walking every page counts the category', async () => {
     const categories = (await get('/api/problems')).body;
-    const category = categories.categories.find((one: { rule: string }) => one.rule === 'large-file');
+    const category = categories.categories.find((one: { rule: string }) => one.rule === 'wiki.unreadable-file');
     let after: string | undefined;
     let pages = 0;
     let sources = 0;
     let items = 0;
     for (;;) {
-      const path = `/api/problems?rule=${encodeURIComponent('large-file')}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`;
+      const path = `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}${after === undefined ? '' : `&after=${encodeURIComponent(after)}`}`;
       const page = await get(path);
       expect(page.status).toBe(200);
       expect(page.body.sources.length).toBeLessThanOrEqual(100);
@@ -99,7 +117,7 @@ describe('the Problems page in levels', () => {
         sources += source.count;
         let cursor: string | undefined;
         for (;;) {
-          const itemsPath = `/api/problems?rule=${encodeURIComponent('large-file')}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`;
+          const itemsPath = `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(source.key)}${cursor === undefined ? '' : `&after=${encodeURIComponent(cursor)}`}`;
           const listed = await get(itemsPath);
           expect(listed.status).toBe(200);
           expect(listed.body.problems.length).toBeLessThanOrEqual(100);

@@ -2,8 +2,8 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { StartedServer } from '../src/server/http.js';
-import { startPreparedServer as startServer, retainTestStorePreparationOwner } from './prepared-server.js';
+import { startServer, type StartedServer } from '../src/server/http.js';
+import { activateTestProduct, retainTestStorePreparationOwner } from './prepared-server.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf } from '../src/product/store.js';
 import { authoredEnv, authoredFixture } from './authored-fixture.js';
@@ -13,19 +13,27 @@ let server: StartedServer;
 let base: string;
 let home: string;
 let folder: string;
-let closePreparation: (() => Promise<void>) | undefined;
+let closePreparationOwner: (() => Promise<void>) | undefined;
 beforeAll(async () => {
+  closePreparationOwner = await retainTestStorePreparationOwner();
   work = mkdtempSync(join(tmpdir(), 'authored-http-'));
   home = join(work, 'products');
-  closePreparation = await retainTestStorePreparationOwner();
   folder = await authoredFixture(home);
-  await authoredFixture(home, 'empty', false);
+  const empty = await authoredFixture(home, 'empty', false);
+  await activateTestProduct(folder, home);
+  await activateTestProduct(empty, home);
   const app = join(work, 'app');
   mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
   server = await startServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: () => {} });
   base = `${server.url}/products/authored/api/authored?kind=note`;
 }, 60000);
-afterAll(async () => { await server?.stop(); await closePreparation?.(); if (work) rmSync(work, { recursive: true, force: true }); });
+afterAll(async () => {
+  try { await server?.stop(); } finally {
+    try { await closePreparationOwner?.(); } finally {
+      if (work) rmSync(work, { recursive: true, force: true });
+    }
+  }
+});
 const send = (method: string, body: unknown, uid = '') => fetch(base + (uid ? `&uid=${encodeURIComponent(uid)}` : ''), { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 test('HTTP authors a kind from its contract, errors at the field, refuses cross-site and keeps history on delete', async () => {

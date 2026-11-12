@@ -6,7 +6,7 @@
  * not about which kind a page shows.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
@@ -17,44 +17,37 @@ import { renderPage } from '../src/knowledge/render.js';
 import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { workingTreeFiles } from '../src/plugin/product-files.js';
-import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { readKinds } from '../src/product/manifest/kinds.js';
-import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { generatedTableName } from '../src/graph/contract.js';
+import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+
+const templateContract = {
+  vertex: [{ name: 'template', table: generatedTableName('template', 'vertex'), key: ['path'], capability: 'fixture', fields: [{ name: 'path', type: 'text' as const }, { name: 'template_parts', type: 'json' as const }] }],
+  edge: [], dictionary: [],
+};
+const contract = { ...GIT_CONTRACT, vertex: [...GIT_CONTRACT.vertex, ...templateContract.vertex] };
+const templates = new Map([['template', { kind: 'template', table: templateContract.vertex[0]!.table, key: ['path'], columns: ['template_parts'], types: { template_parts: 'json' as const } }]]);
+const graph = (database: DatabaseOwner, transaction?: OuterTransaction): GraphReader => new GraphReader(database, () => at, undefined, transaction, undefined, templates);
 
 const at = '2026-02-04T00:00:00.000Z';
 const id = 'code.author:walk@example.test';
 let owner: DatabaseOwner;
-let templateFolder = '';
 
 beforeAll(async () => {
-  templateFolder = mkdtempSync(join(tmpdir(), 'page-snapshot-template-'));
-  mkdirSync(join(templateFolder, 'madarch'));
-  writeFileSync(join(templateFolder, 'madarch', 'kinds.yaml'), `kinds:
-  template:
-    source: graph
-    template: author.md
-    key: [path]
-    fields:
-      - { name: path, type: text, binding: { agent: "Fixture template path." } }
-      - { name: template_parts, type: json, binding: { agent: "Fixture structured template parts." } }
-`);
-  const read = readKinds(templateFolder);
-  if (!read.present) throw new Error('the snapshot fixture manifest is absent');
-  const templateContract = graphContractOf(read.manifest);
-  owner = await createTestDatabaseOwner({ graphContract: { ...GIT_CONTRACT, vertex: [...GIT_CONTRACT.vertex, ...templateContract.vertex] } });
-  await publishFixtureTemplate(owner, templateFolder, 'author.md', [
-    { type: 'attribute', name: 'name', line: 1 },
-    { type: 'text', text: ' <', line: 1 },
-    { type: 'attribute', name: 'email', line: 1 },
-    { type: 'text', text: '>\n', line: 1 },
-  ]);
+  owner = await createTestDatabaseOwner({ graphContract: contract });
   await owner.transaction('write', async (tx) => {
     const node = await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id`, ['signature', JSON.stringify({ name: 'Walk', email: 'walk@example.test' })]);
     await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, said_by) VALUES ($1::bigint, 'git-history@1')`, [node.rows[0]!.id]);
+    const journal = journalFor('fixture@1');
+    const template = await ensureVertex(tx, contract, { kind: 'template', key: { path: 'author.md' } }, 1, journal);
+    await publishOpinion(tx, contract, {
+      kind: 'template', nodeId: template.nodeId, producer: 'fixture', producerVersion: '1',
+      values: { template_parts: [{ type: 'attribute', name: 'name', line: 1 }, { type: 'text', text: ' <', line: 1 }, { type: 'attribute', name: 'email', line: 1 }, { type: 'text', text: '>\n', line: 1 }] },
+    }, 1, journal);
+    await writeJournal(tx, journal);
   });
 });
 
-afterAll(async () => { await owner.close(); rmSync(templateFolder, { recursive: true, force: true }); });
+afterAll(async () => { await owner.close(); });
 
 function context(folder: string, graph: GraphReader): RenderContext {
   return {
@@ -77,7 +70,7 @@ function productFixture(folder: string, openOwner: DatabaseOwner) {
   (product as unknown as { fill: { state: string } }).fill = { state: 'running' };
   seam.validAt = () => at;
   seam.plannedForPage = async () => ({ entity: null, statements: [] });
-  seam.context = async (_history, snapshot) => ({ ctx: context(folder, new GraphReader(openOwner, () => snapshot!.validAt, undefined, snapshot!.transaction)) });
+  seam.context = async (_history, snapshot) => ({ ctx: context(folder, graph(openOwner, snapshot!.transaction)) });
   return { product };
 }
 
@@ -93,11 +86,13 @@ test('ordinary page shares exactly one transaction and retains the unbatched ren
         return typeof value === 'function' ? value.bind(target) : value;
       },
     });
-    const baseline = await renderPage(context(folder, new GraphReader(counted, () => at)), id);
+    const baseline = await renderPage(context(folder, graph(counted)), id);
     expect(baseline.ok).toBe(true);
     const before = transactions;
     const product = productFixture(folder, counted);
     const actual = await product.product.page(id);
+    if (!baseline.ok || !actual.ok) throw new Error('both snapshot and standalone pages must render');
+    expect(actual.page).toEqual({ ...baseline.page, planned: { entity: null, statements: [] }, historyNavigation: [] });
     expect(actual.ok).toBe(true);
     expect(transactions - before).toBe(1);
   } finally { rmSync(folder, { recursive: true, force: true }); }

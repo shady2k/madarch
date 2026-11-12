@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { entityCommand } from '../src/product/entity-cli.js';
 import { mcpCommand } from '../src/mcp/cli.js';
-import { retainTestStorePreparationOwner } from './prepared-server.js';
+import { activateTestProduct, retainTestStorePreparationOwner } from './prepared-server.js';
 
 import { authoredFixture, authoredEnv as env } from './authored-fixture.js';
 let root: string;
 let home: string;
 let folder: string;
-let closePreparation: (() => Promise<void>) | undefined;
+let closePreparationOwner: (() => Promise<void>) | undefined;
 const cli = async (...args: string[]) => {
   let out = ''; let error = '';
   const exit = await entityCommand([...args, '--product', folder, '--home', home, '--json'], { env,
@@ -19,12 +19,17 @@ const cli = async (...args: string[]) => {
   return { exit, body: JSON.parse(out), error };
 };
 beforeAll(async () => {
+  closePreparationOwner = await retainTestStorePreparationOwner();
   root = mkdtempSync(join(tmpdir(), 'madarch-entity-surfaces-'));
   home = join(root, 'products');
-  closePreparation = await retainTestStorePreparationOwner();
   folder = await authoredFixture(home, 'notes');
+  await activateTestProduct(folder, home);
 }, 120_000);
-afterAll(async () => { await closePreparation?.(); if (root) rmSync(root, { recursive: true, force: true }); });
+afterAll(async () => {
+  try { await closePreparationOwner?.(); } finally {
+    if (root) rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('entity CLI creates, reads, updates, lists and deletes with stable uid and typed fields', async () => {
   const created = await cli('create', 'note', '--title', 'A note', '--field', 'count=3', '--words', '  original words  ');

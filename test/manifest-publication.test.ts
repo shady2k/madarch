@@ -60,6 +60,10 @@ test('publishes complete metadata and declaration evidence without repository co
     expect(await publishValidatedManifests(owner, edited)).toBeGreaterThan(0);
     const declaration = await owner.run((tx) => tx.query<{ declaration: unknown }>(`SELECT declaration FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
     expect(declaration.rows[0]!.declaration).toEqual({ changed: true });
+    expect(await publishValidatedManifests(owner, edited)).toBe(0);
+    // An older matching opinion is closed history, not proof that the latest declaration is unchanged.
+    expect(await publishValidatedManifests(owner, regrounded)).toBeGreaterThan(0);
+    expect(await publishValidatedManifests(owner, regrounded)).toBe(0);
     await createRecordSchema(owner, EMPTY_CONTRACT);
     expect((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.size).toBe(1);
     const contents = await owner.run((tx) => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM file_entry'));

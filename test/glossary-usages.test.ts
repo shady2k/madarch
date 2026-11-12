@@ -18,9 +18,9 @@ test('mentions count whole names, aliases and code names once, outside every def
     { repository: 'own', path: 'glossary.md', lineStart: 5, lineEnd: 5, count: 1 },
   ]);
   expect(termUsages({ ownRepository: 'own', repositories: ['app'] }, usages)).toEqual([
-    { location: '[app/z.ts:1](/src?repo=app&path=z.ts&line=1)', count: 2 },
-    { location: '[glossary.md:3](/src?path=glossary.md&line=3)', count: 5 },
-    { location: '[glossary.md:5](/src?path=glossary.md&line=5)', count: 1 },
+    { location: '[app/z.ts:1](/src?repo=app&path=z.ts&line=1)', locationLink: { label: 'app/z.ts:1', href: '/src?repo=app&path=z.ts&line=1' }, count: 2 },
+    { location: '[glossary.md:3](/src?path=glossary.md&line=3)', locationLink: { label: 'glossary.md:3', href: '/src?path=glossary.md&line=3' }, count: 5 },
+    { location: '[glossary.md:5](/src?path=glossary.md&line=5)', locationLink: { label: 'glossary.md:5', href: '/src?path=glossary.md&line=5' }, count: 1 },
   ]);
 });
 
@@ -71,5 +71,5 @@ test('the term block keeps definition evidence separate from counted usages', ()
     properties: { definition: 'The run.', synonyms: [], code: [], usages: [{ repository: 'app', path: 'source.ts', lineStart: 2, lineEnd: 2, count: 3 }] },
     evidence: [{ field: 'definition', repository: 'own', path: 'docs/glossary.md', lineStart: 3, lineEnd: 5, commit: null }],
   } }, {}, '', 1);
-  expect(block).toEqual({ type: 'term', title: 'Definition', definition: 'The run.', synonyms: [], code: [], definedIn: '[docs/glossary.md:3-5](/src?path=docs%2Fglossary.md&line=3)', usages: [{ location: '[app/source.ts:2](/src?repo=app&path=source.ts&line=2)', count: 3 }], usageCount: 3, ambiguous: null });
+  expect(block).toEqual({ type: 'term', title: 'Definition', definition: 'The run.', synonyms: [], code: [], definedIn: '[docs/glossary.md:3-5](/src?path=docs%2Fglossary.md&line=3)', definedInLink: { label: 'docs/glossary.md:3-5', href: '/src?path=docs%2Fglossary.md&line=3' }, usages: [{ location: '[app/source.ts:2](/src?repo=app&path=source.ts&line=2)', locationLink: { label: 'app/source.ts:2', href: '/src?repo=app&path=source.ts&line=2' }, count: 3 }], usageCount: 3, ambiguous: null });
 });
