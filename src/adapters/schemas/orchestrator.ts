@@ -63,6 +63,10 @@ const SCHEMA: readonly string[] = [
     summary text NOT NULL,
     PRIMARY KEY (run_id, seq)
   )`,
+  `CREATE INDEX IF NOT EXISTS fill_event_unit_failure ON fill_event (unit_id, generation, seq DESC)
+    WHERE kind IN ('unit-failed', 'unit-blocked', 'unit-cancelled')`,
+  `CREATE INDEX IF NOT EXISTS fill_event_inherited_unit ON fill_event (run_id, unit_id, generation)
+    WHERE kind = 'unit-inherited'`,
   `CREATE TABLE IF NOT EXISTS fill_unit_read (
     unit_id text NOT NULL,
     generation integer NOT NULL,
