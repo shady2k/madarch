@@ -17,6 +17,7 @@ import { KIND_USAGE_RUNS, readKindUsage, recordAgentUsage, type AgentUsageRecord
 import { connectAcpAgent, type AcpConnection, type AcpSession } from '../src/fill/acp.js';
 import { AgentMeter, AgentRunBudget } from '../src/fill/agent-meter.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { SCHEMA_REVISION } from '../src/adapters/schemas/graph-definition.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { closeTrace, openTrace } from '../src/obs/trace.js';
 import { readTraceSpans, renderTraceReport, traceReportOf } from '../src/obs/trace-report.js';
@@ -215,10 +216,12 @@ describe('the spend in the store\'s mechanism tables', () => {
     const owner = await createTestDatabaseOwner();
     owners.push(owner);
     await createOneGraphSchema(owner);
+    const before = await owner.run(async (tx) => await tx.query<{ name: string; stamp: string }>("SELECT name, stamp FROM madarch_meta.schema_stamp WHERE name LIKE 'one-graph%' ORDER BY name"));
     await recordAgentUsage(owner, [row()]);
     const stamps = await owner.run(async (tx) => await tx.query<{ name: string; stamp: string }>('SELECT name, stamp FROM madarch_meta.schema_stamp ORDER BY name'));
     expect(stamps.rows.map((entry) => entry.name)).toContain('agent-usage');
-    expect(stamps.rows.find((entry) => entry.name === 'one-graph-revision')?.stamp).toBe('5');
+    expect(stamps.rows.find((entry) => entry.name === 'one-graph-revision')?.stamp).toBe(String(SCHEMA_REVISION));
+    expect(stamps.rows.filter((entry) => entry.name.startsWith('one-graph'))).toEqual(before.rows);
     const tables = await owner.run(async (tx) => await tx.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'agent_usage'"));
     expect(tables.rows.length).toBe(1);
   });
