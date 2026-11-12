@@ -10,12 +10,14 @@ const owner = await createDatabaseOwner({ store, connectOnly: true });
   const details = block('properties', { title: 'Details', 'title-ru': 'Сведения' });
   const relations = block('relations', { title: 'Relations', 'title-ru': 'Связи' });
   const source = block('source', { title: 'Source', 'title-ru': 'Исходный текст' });
+  const history = block('history', { title: 'History', 'title-ru': 'История' });
+  const folder = block('folder', { title: 'Files and folders', 'title-ru': 'Файлы и папки' });
   const layouts: Record<string, readonly TemplatePart[]> = {
     file: [block('file-page')],
-    directory: [details, block('folder'), relations],
-    repository: [block('treemap'), block('repository'), block('files'), block('history'), block('folder'), relations],
-    commit: [details, block('history'), relations],
-    author: [details, block('history'), relations],
+    directory: [details, folder, relations],
+    repository: [block('treemap', { title: 'Repository map', 'title-ru': 'Карта репозитория' }), block('repository', { title: 'Repository', 'title-ru': 'Репозиторий' }), block('files', { title: 'Files', 'title-ru': 'Файлы' }), history, folder, relations],
+    commit: [details, history, relations],
+    author: [details, history, relations],
     database: [details, block('children', { kind: 'code.table', relation: 'code.contains', title: 'Tables', 'title-ru': 'Таблицы' }), block('er'), relations],
     table: [details, source, block('children', { kind: 'code.column', relation: 'code.has-column', title: 'Columns', 'title-ru': 'Столбцы', limit: '200' }), block('children', { kind: 'code.index', relation: 'code.has-index', title: 'Indexes', 'title-ru': 'Индексы' }), block('er'), relations],
     term: [block('term', { title: 'Definition', 'title-ru': 'Определение', field: 'definition', synonyms: 'synonyms', code: 'code' })],
