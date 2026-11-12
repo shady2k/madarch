@@ -6,12 +6,17 @@ import { join } from 'node:path';
 import type { RepositoryPin } from './repository-snapshot.js';
 import { sandboxInputPath } from './sandbox.js';
 import { filesystemInputSnapshotPath } from './filesystem-inputs.js';
+import { withSpan } from '../obs/trace.js';
 
 function git(args: readonly string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', [...args], { encoding: 'utf8' }, (error, stdout, stderr) => {
-      if (error !== null) reject(new Error(`repository input: ${stderr.trim() || error.message}`));
-      else resolve(stdout.trim());
+  return withSpan('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': process.cwd() }, async (span) => {
+    return await new Promise<string>((resolve, reject) => {
+      execFile('git', [...args], { encoding: 'utf8' }, (error, stdout, stderr) => {
+        span.setAttribute('process.outputBytes', Buffer.byteLength(stdout));
+        span.setAttribute('process.exitCode', error === null ? 0 : typeof error.code === 'number' ? error.code : -1);
+        if (error !== null) reject(new Error(`repository input: ${stderr.trim() || error.message}`));
+        else resolve(stdout.trim());
+      });
     });
   });
 }
