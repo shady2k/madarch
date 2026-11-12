@@ -14,7 +14,10 @@ import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
-import { fillInProcess } from './fill-inline.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { runFill } from '../src/fill/run.js';
+import { closureOf } from '../src/plugin/closure.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
@@ -28,7 +31,7 @@ let app = '';
 let server: StartedServer | undefined;
 const errors: string[] = [];
 
-/** A native fixture declaring only the named code kinds and references within that set. */
+/** An ordinary disk fixture declaring only the named code kinds and references within that set. */
 function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
@@ -43,7 +46,20 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
     }
   }
   manifest.edges = (manifest.edges ?? []).filter((edge) => edge.from.every((kind) => declared.includes(kind)) && edge.to.every((kind) => declared.includes(kind)));
-  manifest.plugins = [];
+  const pluginFolder = join(draft.folder, 'plugins', 'disk');
+  const declarationFile = join(pluginFolder, 'plugin.json');
+  const declaration = JSON.parse(readFileSync(declarationFile, 'utf8'));
+  declaration.produces = declaration.produces.filter((output: { kind: string }) => kinds.includes(output.kind));
+  writeFileSync(declarationFile, JSON.stringify(declaration, null, 2));
+  const contractFile = join(pluginFolder, 'contract.json');
+  const contract = JSON.parse(readFileSync(contractFile, 'utf8'));
+  contract.outputs.vertices = contract.outputs.vertices.filter((output: { kind: string }) => kinds.includes(output.kind));
+  contract.outputs.edges = [];
+  writeFileSync(contractFile, JSON.stringify(contract, null, 2));
+  manifest.plugins = [{ id: 'disk', version: 1, path: 'plugins/disk' }];
+  writeFileSync(join(draft.folder, 'madarch', 'plugins.lock'), stringify({ plugins: [{
+    id: 'disk', version: declaration.version, path: 'plugins/disk', closure: closureOf(pluginFolder).hash,
+  }] }));
   writeFileSync(file, stringify(manifest));
   writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
@@ -53,6 +69,19 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   git(draft.folder, 'add', '-A');
   git(draft.folder, 'commit', '-qm', `the manifest declares ${kinds.join(', ')} and no other code kind`);
   return draft.folder;
+}
+
+/** Trust the fixture's explicitly narrowed disk closure, not a native producer exception. */
+async function fillInProcess(product: string, productHome: string) {
+  const store = productStoreFolder(product, knowledgeRootOf(productHome));
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
+  try {
+    await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
+    return await runFill({ product, home: productHome, store, database: owner,
+      releaseHashes: [closureOf(join(product, 'plugins', 'disk')).hash],
+      prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+    });
+  } finally { await owner.close(); }
 }
 
 async function publishPageTemplate(product: string, path: string): Promise<void> {
