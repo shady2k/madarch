@@ -297,3 +297,23 @@ The coordinator released the source hold for a generic `files(pattern, snapshot?
 implementation that reads actual captured root partition references, with no
 latest-value fallback. Runtime/graph implementation and rerun evidence remain
 pending. No successful after timing or acceptance result is available.
+
+
+## Snapshot read validation and glossary six diagnostic
+
+The coordinator reports pure snapshot tests green: 29 cases / 88 assertions in
+7.43 seconds, `/tmp/m28-pure-snapshots-third.log`. Root check ten passed all six
+checks with the existing 18 architecture baseline findings unchanged.
+
+The sixth glossary run was focused on its first case: one failure, five filtered,
+272.56 seconds, `/tmp/m28-glossary-sixth-first.log`. Git's explicit earlier file
+read now passed. The new failure occurred in git commit's latest `graph.files`
+read: an optional undefined second argument serialized as null, causing a
+`snapshot.runId` crash. Runtime repair is to omit trailing undefined arguments
+from serialization, including the existing fourth-argument `value` pitfall;
+implementation/rerun evidence is pending. No latest-value substitution for an
+earlier read is authorized by that transport repair.
+
+The enumeration assertion added in `ce85d0a2` has not yet been PostgreSQL-validated.
+A focused named-earlier regression is next before another full glossary run.
+No successful after timing, whole-suite green or acceptance is established.
