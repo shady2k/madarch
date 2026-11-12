@@ -153,3 +153,36 @@ test('aliases resolve only inside their own file and report the alias line', () 
   expect(read.manifest.findings.find((one) => one.message.includes('Unresolved alias'))).toMatchObject({ file: '/aliases/madarch/kinds/code/structure/a.yaml', line: 2 });
   expect(read.manifest.findings.some((one) => one.file.endsWith('/b.yaml') && one.message.includes('source'))).toBe(true);
 });
+
+test('prototype-named kinds are retained', () => {
+  const read = readKindsFrom(source({
+    'madarch/catalog.yaml': metadata,
+    'madarch/kinds/code/structure/__proto__.yaml': 'source: graph\ntemplate: templates/a.liquid\n',
+    'templates/a.liquid': '# Template',
+  }), '/prototype');
+  if (!read.present) throw new Error('manifest must be read');
+  expect(read.manifest.kinds.has('__proto__')).toBe(true);
+});
+
+test('duplicate kind files still report their own malformed YAML', () => {
+  const read = readKindsFrom(source({
+    'madarch/catalog.yaml': metadata,
+    'madarch/kinds/code/structure/item.yaml': 'source: graph\ntemplate: templates/a.liquid\n',
+    'madarch/kinds/other/structure/item.yaml': 'source: [\n',
+    'templates/a.liquid': '# Template',
+  }), '/duplicates');
+  if (!read.present) throw new Error('manifest must be read');
+  const findings = read.manifest.findings.filter((one) => one.file.endsWith('/other/structure/item.yaml'));
+  expect(findings.some((one) => one.message.includes('already declared'))).toBe(true);
+  expect(findings.some((one) => one.line === 2 && !one.message.includes('already declared'))).toBe(true);
+});
+
+test('alias expansion failure identifies the alias that exceeds the limit', () => {
+  const aliases = Array.from({ length: 101 }, () => '  - *value').join('\n');
+  const read = readKindsFrom(source({
+    'madarch/catalog.yaml': metadata,
+    'madarch/kinds/code/structure/item.yaml': `anchor: &value test\nitems:\n${aliases}\n`,
+  }), '/alias-limit');
+  if (!read.present) throw new Error('manifest must be read');
+  expect(read.manifest.findings.find((one) => one.message.includes('Excessive alias count'))).toMatchObject({ file: '/alias-limit/madarch/kinds/code/structure/item.yaml', line: 102 });
+});

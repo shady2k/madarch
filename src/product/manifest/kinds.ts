@@ -915,17 +915,32 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
       return undefined;
     }
     let aliasError = false;
+    let failureLine: number | undefined;
+    const restoreAliases: (() => void)[] = [];
     visit(doc, (_key, node) => {
-      if (isAlias(node) && !node.resolve(doc)) {
+      if (!isAlias(node)) return;
+      if (!node.resolve(doc)) {
         aliasError = true;
         findings.push({ file: full, source: full, line: lines.linePos(node.range?.[0] ?? 0).line, message: `Unresolved alias (the anchor must be set before the alias): ${node.source}` });
       }
+      const original = node.toJSON;
+      node.toJSON = function (...args) {
+        try { return original.apply(this, args); } catch (error) {
+          failureLine ??= lines.linePos(node.range?.[0] ?? 0).line;
+          throw error;
+        }
+      };
+      restoreAliases.push(() => { node.toJSON = original; });
     });
-    if (aliasError) return undefined;
     let value: unknown;
-    try { value = doc.toJS(); } catch (error) {
-      findings.push({ file: full, source: full, line: 1, message: error instanceof Error ? error.message : String(error) });
+    try {
+      if (aliasError) return undefined;
+      value = doc.toJS();
+    } catch (error) {
+      findings.push({ file: full, source: full, line: failureLine ?? 1, message: error instanceof Error ? error.message : String(error) });
       return undefined;
+    } finally {
+      for (const restore of restoreAliases) restore();
     }
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       findings.push({ file: full, source: full, line: 1, message: 'the declaration is a YAML mapping' });
@@ -946,7 +961,7 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
   const metadata = readDocument(metadataPath) ?? {};
   const rawGroups = metadata['groups'];
   const groups = rawGroups !== null && typeof rawGroups === 'object' && !Array.isArray(rawGroups) ? rawGroups as Record<string, { parent?: unknown }> : {};
-  const kinds: Record<string, unknown> = {};
+  const kinds: Record<string, unknown> = Object.create(null);
   for (const path of paths) {
     const full = join(productFolder, path);
     const segments = path.slice(kindsFolder.length + 1).split('/');
@@ -956,11 +971,11 @@ export function readKindsFolderFrom(files: KindsFileSource, productFolder: strin
       continue;
     }
     const name = leaf.slice(0, -'.yaml'.length);
+    const value = readDocument(path);
     if (kindFiles.has(name)) {
       findings.push({ file: full, source: full, line: 1, message: `kind "${name}" is already declared in ${join(productFolder, kindFiles.get(name)!)}` });
       continue;
     }
-    const value = readDocument(path);
     if (value === undefined) continue;
     kindFiles.set(name, path);
     const subgroup = segments[1]!;
