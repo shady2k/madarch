@@ -12,6 +12,7 @@
  */
 import { installOwnWiki, ownWikiOff } from './own-wiki.js';
 import { readPinnedGraphContract } from './fill-stages.js';
+import { assertFillGitVersion } from '../fill/git-version.js';
 import { validateProductManifests } from '../graph/manifest-publication.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
@@ -843,6 +844,7 @@ function productHomeOf(named: string | undefined): string {
  * the database it opened before it returns, whether the run succeeded or not.
  */
 async function fillStagesCommand(parsed: Parsed, home: string | undefined): Promise<number> {
+  assertFillGitVersion();
   const { runFill } = await import('../fill/run.js');
   const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
   const { createDatabaseOwner } = await import('../adapters/database-owner.js');
@@ -1027,6 +1029,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   }
   let run;
   try {
+    assertFillGitVersion();
     await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder));
     run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {

@@ -6,7 +6,7 @@
  * box: git 2.43.0 answers every one of them, and the fill's own tests run them.
  *
  * A fill refuses an older git by name before it reads anything, stating the version found and the one it needs. The
- * check is one `git --version` per run.
+ * run checks `git --version`; CLI fills also check before reading the pinned schema contract.
  */
 import { execFileSync } from 'node:child_process';
 

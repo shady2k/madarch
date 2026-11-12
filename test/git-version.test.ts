@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FILL_GIT_MIN_TEXT, gitVersionRefusal } from '../src/fill/git-version.js';
@@ -26,7 +26,7 @@ beforeAll(() => {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'one'], { cwd: PRODUCT, env: GIT_ENV });
   // A git that is older than the fill reads, and answers nothing else.
   mkdirSync(FAKE, { recursive: true });
-  writeFileSync(join(FAKE, 'git'), '#!/bin/sh\necho "git version 2.39.5"\nexit 0\n');
+  writeFileSync(join(FAKE, 'git'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$GIT_CALLS"\necho "git version 2.39.5"\nexit 0\n`);
   chmodSync(join(FAKE, 'git'), 0o755);
 }, 120_000);
 
@@ -45,14 +45,19 @@ describe('the git version a fill reads', () => {
     expect(gitVersionRefusal('not git at all')).toContain('is no git this fill can read');
   }, 60_000);
 
-  test('a fill on an older git refuses before it publishes, and names both versions', () => {
-    const run = spawnSync(process.execPath, [join(PROJECT, 'scripts', 'madarch.ts'), 'fill-stages', '--product', PRODUCT, '--home', HOME], {
+  test.each(['fill-stages', 'fill'])('%s on an older git refuses before it publishes, and names both versions', (command) => {
+    const calls = join(ROOT, `git-calls-${command}`);
+    const home = join(ROOT, `home-${command}`);
+    const run = spawnSync(process.execPath, [join(PROJECT, 'scripts', 'madarch.ts'), command, '--product', PRODUCT, '--home', home], {
       cwd: PROJECT,
-      env: { ...process.env, PATH: FAKE },
+      env: { ...process.env, PATH: FAKE, GIT_CALLS: calls },
       encoding: 'utf8',
     });
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('git 2.40 or newer');
     expect(run.stderr).toContain('2.39.5');
+    // Refuse before schema preparation reads a pinned manifest or any repository tree.
+    expect(readFileSync(calls, 'utf8').trim().split('\n')).toEqual(['--version']);
+    expect(existsSync(join(home, '.madarch'))).toBe(false);
   }, 300_000);
 });
