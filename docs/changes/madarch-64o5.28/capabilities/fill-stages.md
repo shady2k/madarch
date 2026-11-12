@@ -323,8 +323,8 @@ file is the product's manifest, `workspace.yaml` (decision 0021).
   plugins example has not been migrated. This proposal does not establish that
   the entire fill engine has completed the declaration-only migration.
 - Explicit selection of a native prerequisite kind without an enabled plugin
-  producer is refused as having no enabled producer. The ordinary wildcard
-  general agent can cover it when enabled and selected with a runnable agent.
+  producer is refused as having no enabled producer. The ordinary general-agent unclaimed declaration can cover it when enabled,
+  actually planned for a gap, and supplied with a runnable agent.
 - A full run without explicit targets uses the union of declared plugin outputs
   for plugin work while preserving native foundational stages. No hardcoded
   source-kind exception is introduced into the plugin declaration scheduler.
@@ -338,136 +338,105 @@ file is the product's manifest, `workspace.yaml` (decision 0021).
   not judged by derivation: they say what a publication replaces and what it
   rechecks, which is the orchestrator's publication step (madarch-tzte.19.5).
 
-## Requirement: plugin-declarations — Plugins declare output, input and refinement
+## Requirement: plugin-declarations — Output-specific declarations define fill
 
-Each kind shall declare `derives-from`, replacing `depends-on`, as its prerequisite
-kind IDs. Each enabled plugin shall declare nonempty `produces` entries naming a
-kind and either all fields or explicit declared fields, plus `reads`. Optional
-`refines` names earlier producers and optional positive `concurrency` limits its
-own simultaneous work. Wildcard output expands against the product catalogue.
-The engine shall not classify plugins by handler type or numeric stage order.
-The complete manifest syntax is in `../contract.md` of this change.
+The normative syntax and all twelve rules are in `../contract.md`. Kind
+`derives-from` lists required kinds. Enabled ordinary plugins declare nonempty
+produces entries with kind/fields, output-specific reads/refines and optional
+unclaimed coverage; optional concurrency limits simultaneous units. General-agent
+availability is separate from planned participation. Expand the declarations
+before admission; refuse unknown references, invalid fields, unordered overlaps,
+missing executable work and cycles with absolute source paths and 1-based lines.
 
-### Scenario: declare-input-output
-- Given: summary derives from source and its plugin produces summary while reading source
-- When: the product declarations are loaded
-- Then: those declarations alone identify the prerequisites and producers
+### Scenario: output-specific-inputs
+- Given: one plugin produces A from X and B from Y
+- When: A is selected
+- Then: its plan includes A and X, not B or Y; B's closure cannot validate A's illegal reads
 
 ### Scenario: output-required
-- Given: an enabled checking plugin declares no output
-- When: startup validates the plugin declarations
-- Then: it refuses at the plugin manifest filename and line, asking for output including Problem records for checks
+- Given: a checking plugin declares no output
+- When: declarations are validated
+- Then: refuse with the manifest location and correction to declare Problem output
 
-### Scenario: invalid-declaration
-- Given: declarations name an unknown kind, unknown field, unknown refinement target or nonpositive concurrency
-- When: startup validates them before accepting a fill
-- Then: it refuses naming the invalid declaration's filename and source line rather than queueing work
+## Requirement: plugin-order — Required versions complete successfully
 
-## Requirement: plugin-order — Declared reads and refinement order the work
+Output-specific reads are validated against that output's prerequisite closure.
+The plugin-kind unit dependency graph orders successful prerequisite producers
+and declared refinements. There is no implicit exemption for later refiners.
+Only explicit earlier reads name and consume an exact immutable producer version;
+unsupported snapshot access refuses before admission. Access APIs and the agent
+bridge enforce those declared reads and selected output fields. Catalogue service
+availability never grants undeclared access. Facts retain source, evidence and
+run/version identity; refinement order, not arrival time, resolves the opinion.
 
-A reader shall follow every other producer of the kind it reads, except producers
-explicitly downstream of that reader in its direct or transitive refinement
-chain. Reads consume the prerequisite/base opinion, not the reader's own later
-refinement. Refinement shall order the earlier producer before the refining plugin. Overlapping field writers
-must have a refinement relation; read ordering alone does not resolve conflicting
-opinions. Startup shall refuse cycles and unordered overlapping writers before
-running plugins, naming involved plugins and declaration filenames and lines.
-Unrelated ready work may run in parallel within each plugin's concurrency limit.
-Facts retain their plugin source and evidence; the displayed field comes from
-the last producer in its refinement chain, not completion order.
+### Scenario: earlier-version-is-explicit
+- Given: Summary requires Source and a downstream refiner also writes Source
+- When: normal latest-version dependencies form a cycle
+- Then: refuse; an explicit earlier read is accepted only with its named immutable snapshot
 
-### Scenario: read-order
-- Given: disk produces files and git reads files to produce history
-- When: fill work is planned
-- Then: disk precedes git without a numeric priority
+### Scenario: upstream-failure
+- Given: a required producer fails or abstains
+- When: its dependant becomes otherwise ready
+- Then: it remains blocked with the upstream reason, not run against stale material
 
-### Scenario: downstream-refiner-read
-- Given: a base plugin reads source and general-agent produces source while explicitly refining that base plugin
-- When: producer read edges are derived
-- Then: no reverse read edge from general-agent to the base plugin is added, and the base precedes its refiner
+### Scenario: scoped-execution
+- Given: a plugin produces Files and dependent Summaries
+- When: only Files are selected and the plugin attempts Summary output or an undeclared catalogue read
+- Then: fail the invocation with context, rather than leak or silently discard the access
 
-### Scenario: conflicting-writers
-- Given: two enabled plugins produce the same field with no refinement relation
-- When: a fill is requested
-- Then: startup refuses naming both plugins, files and lines before executing either
+### Scenario: replace-retract
+- Given: a check previously published a Problem
+- When: it successfully publishes an empty result in its selected producer scope
+- Then: retract its old Problem, preserve evidence/history and other producers; failed or abstained reruns do not retract
 
-### Scenario: cycle-refusal
-- Given: enabled plugin reads or refinements form a cycle
-- When: a fill is requested
-- Then: startup refuses with the cycle path before launching any plugin
+## Requirement: plugin-selection — Selection is exactly prerequisite closure
 
-### Scenario: refine-with-sources
-- Given: a dedicated plugin and a later declared refining plugin publish the same field
-- When: the page is read after publication
-- Then: it shows the refining opinion and preserves both facts' sources and evidence
-
-### Scenario: independent-work
-- Given: two ready plugins have no dependency relation and each permits concurrent work
-- When: their units are scheduled
-- Then: they may run in parallel without an engine-defined plugin ranking
-
-## Requirement: plugin-selection — Selection follows prerequisites, never dependants
-
-Wiki and CLI shall use the same prerequisite selection function: requested kinds
-and their transitive `derives-from` prerequisites only. Unknown prerequisites and
-cycles are refused by the engine rather than silently dropping work. A selected
-kind without a runnable producer shall be refused before acceptance. The ordinary
-general agent plugin declares wildcard production and refines other producers,
-so a kind without a dedicated producer still has a declared filler.
+Wiki and CLI use the same requested-plus-transitive-prerequisites selection,
+never dependants. Selected output scope is enforced even for a multi-output
+plugin. Authored input is satisfied by an ordinary successful input plugin,
+not a native-kind exception or arbitrary pre-existing catalogue rows. Every
+planned plugin/kind reports completed, unchanged, empty, abstained or failed
+with produced count and run/version linkage; failure/abstention include a reason.
+Zero-Problem checks are explicit successful empty outcomes.
 
 ### Scenario: selection-direction
-- Given: summary derives from source and report derives from summary
-- When: summary is selected in the wiki or CLI
-- Then: source and summary are selected, and report is not selected
+- Given: Summary derives from Source and Report derives from Summary
+- When: Summary is selected
+- Then: select Source and Summary only
 
-### Scenario: transitive-selection
-- Given: report derives from summary which derives from source
-- When: report is selected
-- Then: report, summary and source are selected once each
+### Scenario: authored-tracker
+- Given: authored Requirements have an ordinary input plugin and checks produce Problems
+- When: the input plugin reports success and checks find no Problems
+- Then: no generating agent is needed and empty Problem output is explicit success
 
-### Scenario: cross-plugin-prerequisite-completion
-- Given: summary derives from source and different plugins produce the two kinds
-- When: a selected summary fill runs
-- Then: base/earlier source-kind producer units complete before the derived summary-kind unit runs, not merely before it is planned; producers explicitly downstream of that unit's plugin in the refinement chain are not prerequisites
+## Requirement: plugin-agent-admission — Only actual requests require an agent
 
-### Scenario: same-plugin-kind-prerequisite
-- Given: summary derives from source and plugin P produces both kinds
-- When: P's summary unit is scheduled
-- Then: it waits for P's source unit to complete; only the identical plugin-and-kind unit is excluded as self
+Default general-agent unclaimed coverage subtracts configured producer claims
+before execution, never judges runtime values and never activates on omission.
+Explicit per-kind/field configuration can opt into overlap and named refinement.
+Only actual planned agent requests require selection, with actionable prestart
+refusal and the same required-field behavior in the wiki. Fixtures retain valid
+typed kinds and use scripted adapters for any exercised agent requests.
 
-### Scenario: downstream-refiner-kind-prerequisite
-- Given: summary derives from source and plugin Q directly or transitively refines summary's producer P while also producing source
-- When: unit prerequisites are derived for P's summary unit
-- Then: it waits for source's base/earlier producers but not Q's later refinement, consuming the prerequisite version before its own later refiners without a plugin-category exception
+### Scenario: capability-without-work
+- Given: deterministic declarations cover all selected fields of 2,603 indexed files and general-agent capability is available
+- When: declarations expand and the fill runs
+- Then: no agent invocation, selection or token budget is required; explicit overlap schedules only its configured refinement
 
-### Scenario: unavailable-producer
-- Given: the selected kind has no enabled runnable producer
-- When: a fill is requested
-- Then: it is refused with the kind and declaration location rather than accepted with zero work
+### Scenario: claimed-but-omitted
+- Given: a wildcard producer claims a description but emits none
+- When: its invocation completes
+- Then: report an explicit per-kind outcome, never silently activate an agent or infer declaration completeness
 
-## Requirement: plugin-agent-admission — An agent is required only when the plan needs it
+### Scenario: hidden-prerequisite
+- Given: Summary reads Policy but derives only from Document
+- When: declarations validate
+- Then: refuse at the source location; after Policy is added, select and successfully complete its fresh version before Summary
 
-The engine shall plan from enabled plugins before deciding whether an agent is
-required. If any planned plugin requests an agent and none is selected, the
-server shall refuse before acceptance, queueing or execution, naming the
-requesting plugin's absolute manifest filename and 1-based line and explaining
-how to select an agent in the wiki or with `--agent`. It shall not accept a
-no-agent mode or a waiting-for-agent state. A product enabling only
-deterministic plugins shall run without an agent. Fixtures shall declare only
-exercised plugins, preserving valid kinds and typed fields; agent-requesting
-scenarios shall use scripted fixtures, never real agents or models.
+### Scenario: missing-planned-agent
+- Given: an actual planned plugin requests an agent and none is selected
+- When: fill admission runs
+- Then: refuse before acceptance/queueing/execution with manifest location and how to choose an agent
 
-### Scenario: deterministic-only-agentless
-- Given: a product enables only deterministic plugins producing the selected kind and its prerequisites, and no agent is selected
-- When: the server plans and admits the fill
-- Then: the fill can start without an agent and runs the declared producers
-
-### Scenario: planned-agent-missing
-- Given: an enabled planned plugin requests an agent and none is selected
-- When: the server receives the fill request
-- Then: it refuses before acceptance, queueing or starting any work, naming the plugin's absolute manifest filename and 1-based source line and how to choose an agent
-
-### Scenario: scripted-agent-request
-- Given: a fixture declares the exercised agent-requesting plugin and valid typed kinds, and selects a scripted agent
-- When: the planned fill runs
-- Then: the plugin receives the scripted agent without invoking any real agent or model
+All eight review-section-1 regression scenarios are mapped explicitly in the
+contract. These scenarios are required acceptance behavior, not passing results.

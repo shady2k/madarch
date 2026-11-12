@@ -1,128 +1,227 @@
 # Declaration-driven fill contract
 
-## Kind manifest
+This is the revised normative contract for madarch-64o5.28 and .30, following
+`/tmp/codex28-answer.md` section 4. It specifies required behavior, not evidence
+that implementation or checks are complete. Historical failures in change.md
+remain evidence until independently resolved. The owner's quoted “Да, ок”
+authorizes this task; it is not a tooling receipt or completed process approval.
 
-Each kind declares `derives-from`, a list of kind IDs required to fill it.
-An empty list declares no prerequisites. This replaces `depends-on`; there
-is one interpretation, not parallel legacy and new dependency graphs.
-Kind descriptions remain the source of meaning; only plugins interpret data.
-The starter-kind dependency drafting belongs to the kinds-as-files work.
+## 1. Plugins interpret data
+
+Only plugins interpret content. Every plugin may request the host agent service;
+there are no engine agent/deterministic categories, numeric priorities or content
+quality heuristics. Agent ID and token cap are invocation inputs. Tests use only
+scripted adapters, never real models. Existing bounds and timeouts stay unchanged.
+
+## 2. Availability is not participation
+
+Every declared kind supports configured general-agent filling, including fields
+normally written by another plugin. Availability alone never schedules an agent.
+The ordinary general-agent plugin supplies configurable output declarations; it
+is not a mandatory final phase or a hidden runtime fallback.
+
+## 3. Product configuration determines the plan
+
+Resolve enabled product plugins and expand declarations before admission. Only
+actual planned invocations requesting an agent require a selected runnable agent.
+Refuse a missing agent before acceptance, queueing or execution, naming its
+absolute manifest path, 1-based line and how to choose --agent or a wiki agent.
+The wiki uses the same plan, marks the selector required only when necessary,
+and disables Run with an actionable reason when missing. No no-agent option or
+waiting-for-agent state is introduced. Disabled/omitted executable stages cannot
+admit plugin work. Fixtures retain valid kinds, typed fields and provider identity.
+
+## 4. Kind prerequisites
+
+`derives-from` is the required kind list, replacing `depends-on`. Users author
+it for user-defined kinds. An empty list means no prerequisites. Required kinds
+must be satisfied in this run; stale catalogue material is not successful work.
 
 ```yaml
 kinds:
   document.summary:
-    description: A summary grounded in the product documents.
-    derives-from: [document.source]
-    template: templates/summary.md
-    source: graph
+    description: A grounded document summary.
+    derives-from: [document.source, policy]
+    agent:                         # optional explicit overlapping output
+      fields: [description]
+      refines: [summary-plugin]
 ```
 
-## Plugin manifest
+The optional kind `agent` configuration expands into ordinary general-agent
+output entries. `fields` is `"*" or a nonempty declared field list; `refines`
+names enabled producers of overlapping fields. Configuration replaces gap
+coverage for those fields only, leaving other gap fields available. It is
+inspectable before execution and never changes kind selection.
 
-A plugin's plugin.json uses the same declaration represented below as YAML
-for readability. Existing name/version/entry/runtime and agent rights remain.
-`produces` is a nonempty list: each entry names a kind and either `fields: "*"`
-(the whole entity) or a nonempty list of field names. `reads` lists input
-kinds. `refines` lists plugin names whose overlapping output this plugin
-refines. `concurrency` is an optional positive integer limiting that plugin's
-simultaneous units; no numeric order or global parallelism field is accepted.
-A wildcard kind `"*"` in produces means every kind declared by this product;
-it is expanded before validation. No plugin category or handler type exists.
+## 5. Exact prerequisite selection
+
+CLI and wiki select exactly requested kinds plus their transitive
+`derives-from` prerequisites, once each. They never select dependants. Both use
+the same engine closure and expanded plan. Plugin execution is not permission
+to publish all its outputs when only a subset is selected.
+
+## 6. Output-specific declarations
+
+A plugin.json retains name/version/entry/runtime and service rights. `produces`
+is nonempty. Each entry owns `kind`, `fields`, `reads`, `refines`, and optional
+`coverage`, plus optional `satisfaction: authored`. There is no plugin-wide reads/refines fallback. Omitted reads and
+refines mean empty lists. Multiple output entries do not split the plugin into
+new plugins. Optional plugin `concurrency` is a positive simultaneous-unit limit,
+not an ordering rule. Checks produce the catalogue's Problem kind.
+
+```yaml
+name: summary-plugin
+produces:
+  - kind: document.summary
+    fields: [description]
+    reads: [document.source, policy]
+    refines: []
+  - kind: audit.note
+    fields: [description]
+    reads: [audit.source]
+    refines: []
+concurrency: 1
+```
+
+A string read requires the current successful version of that input kind.
+The only earlier-version form is explicit and names the exact producer:
+
+```yaml
+reads:
+  - {kind: document.source, version: earlier, producer: source-index}
+```
+
+A refinement target is scoped to its output entry's kind and fields, not all
+other outputs of either plugin. Wildcard kind `"*"` expands only over
+product-declared kinds in the pinned manifest; `fields: "*"` expands declared
+fields. Catalogue-only kinds do not become outputs.
+
+## 7. Declaration gaps and explicit overlap
+
+`coverage: gaps` subtracts fields claimed by other configured declared outputs
+before ordering; absent coverage means ordinary declared output. The ordinary
+general-agent wildcard uses `coverage: gaps`, with no universal refinement:
 
 ```yaml
 name: general-agent
-version: 1.0.0
-entry: index.ts
-runtime: {name: bun, version: 1.4.2}
 produces:
-  - {kind: "*", fields: "*"}
-reads: []
-refines: [document-index]
-concurrency: 1
-agent:
-  prompt: Fill the selected kind from its description and declared inputs.
-  catalogue: true
-  roots: [product]
+  - {kind: "*", fields: "*", reads: [], refines: [], coverage: gaps}
 ```
 
-The packaged general agent plugin declares wildcard output and refinement of
-all other enabled producers (expanded from the product's enabled plugin set,
-not a hardcoded engine list). `refines: ["*"]` is the manifest form for that
-expansion, excluding itself. It is an ordinary plugin, available for every
-kind including one without another producer. Agent ID and token cap are run
-inputs offered through the existing host agent service to every plugin that
-requests it, never a marker that divides plugins. Tests use scripted agents.
-Checks declare output of the catalogue's Problem kind, not output-free runs.
+Expansion supplies prerequisite reads for generated general-agent entries from
+the relevant kind's declared prerequisites. A gap means no configured producer
+claims that field/kind, not that a runtime value appears inadequate. An explicit
+kind agent configuration compiles the requested field overlap and refinement
+relations into ordinary declarations. A complementary description field needs
+no refinement unless another producer also claims description. A producer that
+omits a claimed field does not trigger an agent; it reports an explicit outcome.
+Two gap declarations still claiming the same field are unordered overlap unless
+explicitly refined. The plan exposes the expanded fields, reads and refinement
+edges before execution; the engine never judges content to choose a producer.
 
-Resolve the plan from the product's enabled plugins before deciding whether an
-agent is required. Only a planned plugin requesting an agent makes selection
-mandatory. A product enabling only deterministic plugins can run without an
-agent. A missing required agent is refused before acceptance, queueing or start,
-with the requesting plugin's absolute manifest filename, 1-based line and how to
-choose an agent; it is not a no-agent mode or a waiting state. The wiki marks
-the field required only when the plan needs it, disables Run with an actionable
-reason while the required selection is missing, and offers no no-agent option.
+## 8. Expand and validate before execution
 
-Fixtures declare only exercised plugins and keep valid kinds and typed fields.
-Agent-requesting scenarios choose scripted fixtures; no real agent/model runs
-are required. Deterministic-only fixture declarations do not bypass a planned
-plugin's request for an agent.
+Refuse unknown kinds, fields, producers, earlier-version targets and refinement
+targets; invalid concurrency/cap; missing output; missing runnable producer;
+reads outside the output's prerequisite closure; unordered overlapping writers;
+and dependency/refinement cycles. All refusals name the absolute declaring
+filename, 1-based line, output/field and actionable correction. Related conflicts
+name both locations. Read order alone does not authorize overlapping writers.
+Declaring fields is not proof they were filled; startup proves consistency only.
+Unavailable earlier-version snapshot support is a prestart refusal, never a
+silent substitution of current or stale catalogue values.
 
-For fixture-only narrowing, an excluded plugin binding becomes passive
-`producers: [same-id]` metadata. Keep every typed field, kind and provider
-identity; enabled plugin bindings and agent bindings remain unchanged. A graph
-kind's input-selector terms for an excluded provider are also omitted when
-there is no active binding. This changes the fixture's exercised plugin scope,
-not the kind's field contract or its assertions, and does not introduce a
-production engine exception.
+## 9. Enforced invocation access and output scope
 
-## Startup validation and refusal messages
+Validate every output's reads against that output kind's own transitive
+prerequisite closure, not the union of a plugin's outputs. Explicit earlier
+reads may additionally name the same output kind being refined; the named
+producer must provide that kind in the refinement chain. A Problem check must
+represent checked kinds in Problem's prerequisites; otherwise refuse and explain
+the required correction. This may conservatively broaden Problem selection.
 
-Validate before accepting or queueing a fill. Every refusal begins with the
-absolute manifest filename and 1-based source line; related declarations
-include their own filenames and lines. JSON and YAML locations are retained.
-No accepted run may silently have zero work for a selected kind.
+Invoke plugins with enforced selected kind/field scopes. Catalogue reads,
+graph/value/files APIs, and the agent bridge all enforce the same declared
+input scope. `catalogue: true` grants service availability, not unlimited reads.
+Broad queries must filter to authorized kinds or refuse before reading.
+Undeclared reads or writes outside selected declared output scope fail the
+invocation with context; silently discarding forbidden writes is not enforcement.
 
-- Missing/empty produces: `plugin.json:line: plugin NAME declares no output; declare produces, including Problem records for checks`.
-- Unknown kind/input: `file:line: KIND is not a declared kind in produces, reads or derives-from`.
-- Invalid field: `file:line: plugin NAME names undeclared field KIND.FIELD`.
-- Unknown refinement target: `file:line: plugin NAME refines unknown or disabled plugin OTHER`.
-- Overlapping unordered writers: `file:line: plugins A and B both produce KIND.FIELD without a refinement relation; declare which refines which or disable one; other declaration OTHERFILE:line`.
-- Cycle: `file:line: fill declarations form a cycle: A -> B -> A`.
-- Invalid concurrency: `file:line: plugin NAME concurrency must be a positive integer`.
-- Missing runnable producer: `file:line: selected kind KIND has no enabled producer; enable its producer`.
-- Missing required agent: `file:line: plugin NAME requested an agent but none is selected; choose --agent or select one in the wiki`.
-- Invalid cap: `file:line: token cap must be a positive integer`.
+## 10. Successful dependencies and explicit earlier versions
 
-## Ordering, facts and selection
+Units are plugin-and-kind scoped. Validate cycles on this unit graph; a coarse
+plugin-only graph must not reject a valid multi-output unit DAG. Every required upstream producer unit must
+complete successfully before its consumer starts, including another kind of
+the same plugin. Readiness is not mere terminal status or planning completion.
+Only the identical current unit is excluded as self. No automatic exemption
+removes dependencies on downstream refiners. Normal reads retain all required
+producers and therefore reject a real cycle. Explicit earlier reads retain the
+named producer dependency and consume its immutable run/version snapshot;
+only later versions of that particular input are excluded. They never use a
+later overwritten value. Refinement orders named earlier producers first.
+Unrelated ready units may run concurrently within declared limits.
 
-Expand kind wildcards against the kinds declared by the product in the pinned
-manifest. Catalogue-only kinds are not declared outputs. A plugin reading a kind
-runs after every producer of that kind, except its own production and producers
-explicitly downstream of that reader in the direct or transitive refinement
-chain. Reads consume the prerequisite/base opinion, not that reader's own later
-refinement. This prevents the ordinary wildcard refiner from creating a reverse
-read edge to every base producer. Refinement adds an edge from the refined
-producer to the refining producer. Unrelated read cycles and contradictory
-refinement declarations remain startup errors. Order follows
-only these declarations; ready unrelated plugins may run in parallel subject
-to their concurrency limits. Refuse cycles before any plugin is launched.
-Two overlapping writers must be comparable in the refinement chain, even if
-a read dependency happens to order their execution. Preserve every fact's
-plugin source and evidence; the page resolves a field to the last producer in
-its declared refinement chain, never arrival time or an engine type ranking.
+## 11. Facts, resolution and lifecycle
 
-A wiki or CLI selection contains the requested kinds and their transitive
-`derives-from` prerequisites only. Never add kinds that depend on the selected
-ones. Both entry points use the same engine selection function and plan.
-For a unit produced by plugin P, `derives-from` prerequisites wait for their
-base/earlier producer units to complete, including units from other plugins and
-prerequisite-kind units produced by P itself. Only the identical current unit
-(same plugin and kind) is excluded as self, not another kind's unit of P.
-As with `reads`, a producer Q that directly or transitively refines P is not a
-prerequisite of P's unit: the derived unit consumes the prerequisite version
-available before its own later refinements, rather than waiting for that future
-opinion. This is a refinement-chain rule for any plugin, not an agent category
-exception. Other prerequisite dependencies remain required; genuine dependency
-cycles are refused. Refinement is an intentional second opinion, not a no-output
-fallback path.
+Preserve plugin source, evidence and run/version identity for every fact,
+including retained and superseded opinions. Existing run linkage and unit
+generation may supply identity; a duplicate version column is not required.
+Resolve a field by its declared refinement chain, never arrival time, engine
+category or numeric priority. Facts of unrelated producers are not deleted.
+
+Successful completed/empty publication atomically replaces that producer's
+selected output scope: changed facts replace older versions, and omitted facts
+or fields retract previous opinions from that scope. A zero-Problem check
+therefore clears its old Problems. An unchanged outcome preserves equivalent
+facts while recording successful verification of the current run/version.
+Abstention/failure does not retract previous successful facts or publish partial
+replacement. A partial invocation is non-success (abstained or failed with a
+reason), never successful upstream completion or an authoritative retraction. Retained facts remain attributable to their previous successful
+run, not falsely relabelled as current. Out-of-scope kinds/fields and other
+producers' facts remain untouched. A later selected partial-field run replaces
+only its declared selected fields, not the whole entity.
+
+## 12. Authored satisfaction and observable outcomes
+
+An output may declare `satisfaction: authored`. Authored material satisfies a
+prerequisite through an enabled ordinary plugin
+that observes/publishes the authored version and explicitly reports success.
+A kind does not need a generating agent when this authored-input producer
+satisfies it. Merely finding catalogue rows, a native-kind exception, or a
+special engine content interpreter does not satisfy it.
+
+Every planned plugin/kind reports one outcome with plugin, kind, produced count
+and run/version linkage: `completed`, `unchanged`, `empty`, `abstained`, or
+`failed`. Abstained and failed require a reason. Completed means successful
+publication; unchanged means successful equivalent verification; empty means
+successful authoritative zero-result publication, including zero Problems.
+Those three satisfy an upstream dependency. Abstained and failed do not; their
+dependants cannot execute as if inputs succeeded. Expose blocked dependants and
+their upstream reason. No omitted result or zero-unit plan is implicit success.
+Outcome reporting describes actual work, not declared coverage. A selected
+kind can finish explicitly empty without pretending it contains entities.
+
+## Required regression scenarios (review section 1)
+
+These are acceptance scenarios, not yet passing-test claims. Each must use
+scripted adapters where an agent is exercised; no timeout/bound is increased.
+
+| ID | Scenario and required assertion | Rules |
+| --- | --- | --- |
+| S1 | Index 2,603 files with deterministic declarations covering all selected fields; general-agent capability is available but no agent invocation/selection/token budget is required. Add explicit per-field overlap and assert only that configured refinement is scheduled. | 2, 3, 7 |
+| S2 | A wildcard producer omits description or returns no entities; assert explicit per-kind completed/unchanged/empty/abstained/failed outcome as appropriate, never silent success or secretly activated agent. | 7, 8, 12 |
+| S3 | Summary reads Policy but derives only from Document; refuse with source locations. Add Policy prerequisite and assert selection and successful fresh Policy completion precede Summary. | 4, 5, 9, 10 |
+| S4 | One plugin produces A from X and B from Y; selecting A includes X, not B or Y. Validate A's reads against A's own closure, so B cannot hide an illegal read. | 5, 6, 9 |
+| S5 | P produces Summary from Source and Q refines P's Source; ordinary required latest Source retains dependency and refuses a cycle. Explicit earlier named producer enables only a real immutable earlier snapshot, never latest substitution. Failed/abstained upstream blocks consumer. | 6, 8, 10 |
+| S6 | Tracker authored Requirements feed Problems checks without a generating agent; an ordinary authored-input plugin reports successful satisfaction. Zero Problems is explicit empty success. | 1, 3, 12 |
+| S7 | A plugin produces Files and dependent Summaries; selecting Files prevents Summary output. Attempted unselected writes and undeclared catalogue/agent reads fail rather than leak or silently discard. | 5, 9 |
+| S8 | A check first publishes a Problem and then passes; successful empty replacement retracts its old Problem while preserving evidence/version history and other producers. Failed/abstained reruns preserve prior good facts; partial-field replacement touches only its scope. | 11, 12 |
+
+## Evidence boundary
+
+This contract supersedes the earlier universal-agent scheduling and implicit
+earlier-refinement exemptions. It does not claim implementation is complete,
+that process approval receipts exist, or that historical failures are repaired.
+The existing native-stage migration limitation and unresolved schema-key,
+performance/list, glossary journal and child-role shutdown observations remain
+in change.md. No PostgreSQL or heavy checks were run to author this contract.

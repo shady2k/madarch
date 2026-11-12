@@ -14,14 +14,14 @@ the final refinement opinion. The manifest contract is `contract.md`.
 ## Out of scope
 
 Drafting prerequisite declarations for the remaining starter catalogue kinds;
-real agent or model execution; owner review or approval of the contract.
+real agent or model execution; fabrication of owner process-approval receipts.
 
 ## Rationale
 
 Kinds declare the data needed to fill them. Plugins are indivisible producers,
 not engine-defined agent or deterministic categories. Invalid work must be
-refused before an accepted run can silently do nothing. Owner approval remains
-required and is not asserted by this record.
+refused before an accepted run can silently do nothing. The owner's quoted “Да, ок” authorizes the task; no tooling approval receipt
+is asserted by this record.
 
 ## Changes to requirements
 
@@ -79,6 +79,24 @@ The earlier deferred no-agent status below is superseded, not its historical
 observations. In particular, neither this decision nor a fixture correction
 proves the cause of or repair of the earlier prepared-server setup timeout.
 This decision is not owner process approval or a full-suite-green claim.
+
+### Review-section-4 contract revision (contract first)
+
+The revised madarch-64o5.28 `contract.md` specifies all twelve final rules and
+maps all eight section-1 scenarios S1–S8. It supersedes universal agent execution,
+plugin-wide reads, and automatic earlier-refinement dependency exemptions.
+Outputs own reads/refines; unclaimed coverage is declaration-only; explicit
+per-kind/field agent configuration enables overlap. Access and selected scopes
+are enforced. Required inputs must succeed; earlier reads name an immutable
+producer version. Authored satisfaction uses an ordinary plugin. Observable
+outcomes and producer-scoped replacement/retraction retain evidence/run identity.
+
+This is the required contract-first revision, not implementation evidence.
+The capabilities in this change follow that normative contract. No PostgreSQL,
+heavy check, real model, timeout increase or bound increase was used to write it.
+Historical acceptance observations below are retained, including unresolved
+failures and the native-stage migration limitation. They are not proof of this
+revision, an all-green result, or a process-approval receipt.
 
 ## Acceptance evidence
 

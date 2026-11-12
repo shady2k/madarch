@@ -11,9 +11,9 @@ prerequisite selection contract of madarch-64o5.28, without plugin categories.
 ## Requirement: execution — Every selected kind reaches its declared producers
 
 Selective fill shall execute the plugins producing every selected kind and its
-prerequisites. The general agent plugin is an ordinary wildcard producer that
-refines the other producers and fills a kind with no dedicated producer from its
-description. The server shall validate that work is runnable before accepting a
+prerequisites. The general agent plugin is available for every kind, but its ordinary
+unclaimed declarations schedule only fields without configured producer claims.
+Explicit kind/field configuration enables overlapping named refinement. The server shall validate that work is runnable before accepting a
 request; an accepted run must not silently skip a selected kind. Tests use a
 scripted fixture, never a real agent or model.
 
@@ -23,7 +23,7 @@ scripted fixture, never a real agent or model.
 - Then: the general agent plugin fills it rather than returning success with no work
 
 ### Scenario: producer-and-refiner
-- Given: a selected kind has a dedicated producer and the general agent plugin enabled
+- Given: a selected kind has a dedicated producer and explicit general-agent field/refinement configuration
 - When: its selective fill runs
 - Then: the dedicated producer runs before the general agent refinement under the declared ordering
 
@@ -40,7 +40,7 @@ scripted fixture, never a real agent or model.
 ### Scenario: cross-plugin-prerequisite-completion
 - Given: a selected kind derives from another kind produced by a different plugin
 - When: their selective fill runs
-- Then: base/earlier prerequisite-kind producer units complete before the derived-kind unit starts, even across plugin boundaries; producers directly or transitively refining that derived unit's plugin are not prerequisites, so it consumes the prerequisite version before its own later refinements
+- Then: required prerequisite-kind producer units complete successfully before the derived-kind unit starts, including across plugin boundaries; earlier-version consumption requires an explicit named producer snapshot, never an implicit refinement exemption
 
 ## Requirement: run-options — Any plugin can request the chosen agent and cap
 
@@ -129,3 +129,26 @@ its dependants. Server validation remains authoritative for runnable work.
 - Validation precedes run acceptance so missing producers or agents cannot create silent no-op success.
 - Existing UI-kit controls and named links are reused; count links keep their numeral and destination title.
 - Scripted fixtures exercise agent requests without spending real model tokens.
+
+## Required lifecycle and access behavior
+
+The twelve normative rules and eight review regression scenarios in
+`../../madarch-64o5.28/contract.md` apply to this execution path. Invocation
+outputs are restricted to selected declared kinds/fields. Catalogue and agent
+reads are restricted per output. Forbidden accesses fail; catalogue permission
+does not bypass scope. Authored prerequisites can be satisfied by ordinary
+successful input plugins. Outcomes are completed, unchanged, empty, abstained
+or failed per plugin/kind, with current run/version linkage; zero Problems is
+successful empty output. Successful authoritative scope replacement retracts
+old producer opinions; failed/abstained work retains previous good facts without
+claiming they are current. Required consumers start only after upstream success.
+
+### Scenario: no-compulsory-agent
+- Given: configured deterministic producers cover all selected fields and general-agent capability is available
+- When: setup previews the expanded plan
+- Then: no agent request is scheduled and selection is not required merely for capability availability
+
+### Scenario: output-scope-is-enforced
+- Given: a plugin can produce Files and Summaries but only Files is selected
+- When: it attempts a Summary emission
+- Then: the invocation fails with scope context rather than writing unselected output

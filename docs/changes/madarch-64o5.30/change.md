@@ -7,8 +7,8 @@ Kind: behavior
 
 ## Intent
 
-Fill every selected kind through its declared producers, including general-agent
-as filler and refiner, and offer the selected agent and token cap to any plugin.
+Fill every selected kind through its declared producers, including configured general-agent
+gap filling and explicit field refinement, and offer the selected agent and token cap to any plugin.
 Show producer names rather than engine-defined plugin categories.
 
 ## Out of scope
@@ -20,8 +20,8 @@ specified in madarch-64o5.28; drafting starter-kind prerequisites; owner approva
 
 Previously the wiki disabled agent and cap inputs and the selective server path
 could accept a kind without running a producer. Any plugin may request an agent;
-Page templates must not be accepted and silently ignored. The owner has not
-approved this proposal and no approval is asserted here.
+Page templates must not be accepted and silently ignored. The owner's quoted “Да, ок” authorizes the task; no tooling process-approval
+receipt is asserted here.
 
 ## Changes to requirements
 
@@ -79,6 +79,24 @@ The earlier deferred no-agent status below is superseded, not its historical
 observations. In particular, neither this decision nor a fixture correction
 proves the cause of or repair of the earlier prepared-server setup timeout.
 This decision is not owner process approval or a full-suite-green claim.
+
+### Review-section-4 contract revision (contract first)
+
+The revised madarch-64o5.28 `contract.md` specifies all twelve final rules and
+maps all eight section-1 scenarios S1–S8. It supersedes universal agent execution,
+plugin-wide reads, and automatic earlier-refinement dependency exemptions.
+Outputs own reads/refines; unclaimed coverage is declaration-only; explicit
+per-kind/field agent configuration enables overlap. Access and selected scopes
+are enforced. Required inputs must succeed; earlier reads name an immutable
+producer version. Authored satisfaction uses an ordinary plugin. Observable
+outcomes and producer-scoped replacement/retraction retain evidence/run identity.
+
+This is the required contract-first revision, not implementation evidence.
+The capabilities in this change follow that normative contract. No PostgreSQL,
+heavy check, real model, timeout increase or bound increase was used to write it.
+Historical acceptance observations below are retained, including unresolved
+failures and the native-stage migration limitation. They are not proof of this
+revision, an all-green result, or a process-approval receipt.
 
 ## Acceptance evidence
 
