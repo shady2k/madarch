@@ -8,6 +8,7 @@ import { seedStarterSet } from '../src/knowledge/seed.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { runFill } from '../src/fill/run.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
@@ -80,6 +81,10 @@ async extract(unit, context) {
     return hash;
   };
   let release = configure('bad');
+  const declared = readKinds(product);
+  expect(declared.present).toBe(true);
+  if (!declared.present) throw new Error('lifecycle kinds missing');
+  expect(declared.manifest.findings).toEqual([]);
   const storeRoot = join(folder, 'store');
   const store = productStoreFolder(product, storeRoot);
   const owner = await createTestDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
