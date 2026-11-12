@@ -827,6 +827,9 @@ export interface WikiStatus {
   product: { name: string; id: string };
   /** `no-manifest` when `madarch/kinds.yaml` is absent. */
   manifest: 'ok' | 'not-filled' | 'no-manifest';
+  /** Startup catalogue publication is separate from a fill and never opens a store for a poll. */
+  publication?: 'pending' | 'done' | 'failed';
+  publicationMessage?: string;
   manifestFile: string;
   /** The language the product's pages are written in; English when the manifest names none. */
   language: string;

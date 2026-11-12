@@ -93,7 +93,7 @@ import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
-import { manifestPublicationState } from '../product/manifest-publication-state.js';
+import { manifestPublicationState, waitForManifestPublication } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
 
 /**
@@ -269,6 +269,8 @@ export class KnowledgeProduct {
   private fillQueue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
+  /** Closing cancels only the wait, not the daemon-owned publication. */
+  private readonly publicationWait = new AbortController();
   /** The fill the store is running now, as its host controls it; undefined between runs. */
   private fillRun: KnowledgeFillRun | undefined;
   /** The run id of the fill under way: the trace it writes is read by that id, never as "the newest file". */
@@ -829,6 +831,8 @@ export class KnowledgeProduct {
       await Promise.race([this.running, new Promise<void>((resolve) => setTimeout(resolve, 10_000))]);
       if (this.running !== undefined) return { started: false, message: 'the previous fill of this product is still closing its store; press again in a moment', fill: this.fill };
     }
+    const publication = manifestPublicationState(this.folder);
+    if (publication?.status === 'failed') return { started: false, message: `The catalogue could not be published: ${publication.message}`, fill: this.fill };
     const product = this.product();
     if ('message' in product) return { started: false, message: product.message, fill: this.fill };
     // Starting a fill is a write path: its own reading of the product is the working tree the files producer is about to
@@ -920,13 +924,25 @@ export class KnowledgeProduct {
     // The store opens before the press answers (madarch-8bdc.2.5): a page asked while the fill starts is answered from a
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
-    await this.open().catch(() => undefined);
+    if (publication?.status !== 'pending') await this.open().catch(() => undefined);
     this.notify();
     const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
-    this.running = (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId, press)).finally(() => {
+    this.running = (async () => {
+      try {
+        const ready = await waitForManifestPublication(this.folder, this.publicationWait.signal);
+        if (this.closed) return;
+        if (ready?.status === 'failed') throw new Error(`The catalogue could not be published: ${ready.message}`);
+        await (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId, press));
+      } catch (error) {
+        if (this.closed) return;
+        this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+        if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
+        this.notify();
+      }
+    })().finally(() => {
       // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
       this.clearActiveFill();
       this.running = undefined;
@@ -1875,6 +1891,10 @@ export class KnowledgeProduct {
     // A folder that is no product is answered with the file it lacks, and nothing is written into it to stamp a key.
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    const publication = manifestPublicationState(this.folder);
+    if (publication !== undefined && publication.status !== 'published') {
+      return { ...await this.unpublishedStatus(product), publication: publication.status === 'failed' ? 'failed' : 'pending', ...(publication.status === 'failed' ? { publicationMessage: publication.message } : {}) };
+    }
     // Establish an existing cold store's publication before capturing the body's memo key.
     // An unfilled product still opens no store merely to answer a poll.
     if (this.reader === undefined && existsSync(storeDatabasePath(this.storeFolder()))) await this.open();
@@ -2009,10 +2029,10 @@ export class KnowledgeProduct {
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined, followed = false): Promise<WikiStatus> {
     try {
-      return await this.statusLiveNow(body, ctx, followed);
+      return { ...await this.statusLiveNow(body, ctx, followed), publication: 'done' };
     } catch {
       // The store could not be read for this answer: the fill state is this process's own and is answered regardless.
-      return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
+      return { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent(), publication: 'done' };
     }
   }
 
@@ -2307,6 +2327,19 @@ export class KnowledgeProduct {
     return this.runViewOf(runId);
   }
 
+  /** A complete status before publication, built only from local product files. */
+  private async unpublishedStatus(product: ProductIdentity, file = join(product.folder, KINDS_FILE)): Promise<WikiStatus> {
+    return {
+      product: { name: product.name, id: product.id },
+      manifest: existsSync(file) ? 'not-filled' : 'no-manifest', manifestFile: file,
+      language: 'en', findingCount: 0, kinds: [], groups: [],
+      repositories: this.repositories().map((repo) => ({ name: repo.name, filled: false })),
+      filled: false, incomplete: false, fill: this.fill, writer: this.writer,
+      bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
+      chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: await this.loopCounts(),
+    };
+  }
+
   private async statusNow(): Promise<StatusRead> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
@@ -2322,8 +2355,7 @@ export class KnowledgeProduct {
       // Three states, never mixed: the file is absent (`no-manifest`), it stands in the repository but no fill has read
       // it into the graph yet (`not-filled`), or the graph holds it (`ok`). The presence is read from the folder and
       // nothing is written: the graph changes only when the person presses Fill.
-      const stands = existsSync(context.file);
-      return { body: { ...common, manifest: stands ? 'not-filled' : 'no-manifest', manifestFile: context.file, language: 'en', findingCount: 0, kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() }, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: await this.loopCounts() }, ctx: undefined };
+      return { body: await this.unpublishedStatus(product, context.file), ctx: undefined };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -3166,6 +3198,7 @@ export class KnowledgeProduct {
   /** Stops a running fill at its next commit and closes the store. */
   async close(): Promise<void> {
     this.closed = true;
+    this.publicationWait.abort();
     if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
     await this.fillRun?.control('stop').catch(() => undefined);
