@@ -2,7 +2,7 @@ import { InlineCode } from '@/components/ui/inline-content.js';
 import { Breadcrumb } from '@/components/ui/breadcrumb.js';
 import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
@@ -19,6 +19,7 @@ import { TableOfContents } from '@/components/ui/table-of-contents.js';
 import { Fragment, useContext, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { appPath } from '../app-base.js';
+import { navigateTo } from '../hold.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
@@ -366,41 +367,8 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
       </Card>
     );
   }
-  if (status.filled) {
-    // The code is read. With no pages yet, point the reader to the fill choices.
-    const offered = (status.home === null || (status.kinds.find((kind) => kind.kind === 'domain')?.count ?? 0) === 0) && status.writer.state === 'idle';
-    if (!offered) return null;
-    return (
-      <Card className="mb-8" data-testid="fill-card" data-state="offer">
-        <CardHeader>
-          <CardTitle>{t('knowledge.writer.offerTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.writer.offerDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
-        </CardContent>
-      </Card>
-    );
-  }
-  // A product created and not filled yet holds its own Git checkout: Fill reads that repository, so it is offered even
-  // when no other repository is connected (madarch-64o5.3).
-  const ownCheckout = status.manifest === 'not-filled' && status.repositories.length === 0;
-  const connected = status.repositories.length > 0 || ownCheckout;
-  return (
-    <Card className="mb-8" data-testid="fill-card" data-state="empty">
-      <CardHeader>
-        <CardTitle>{t('knowledge.emptyTitle')}</CardTitle>
-        <CardDescription>{ownCheckout ? t('knowledge.notFilledFill') : connected ? t('knowledge.emptyConnected', { repositories: status.repositories.map((repo) => repo.name).join(', ') }) : t('knowledge.emptyNoRepository')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {connected ? (
-          <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
-        ) : (
-          <Preformatted className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></Preformatted>
-        )}
-      </CardContent>
-    </Card>
-  );
+  if (status.filled) return null;
+  return <PrefillCard status={status} />;
 }
 
 /**
@@ -408,86 +376,43 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
  * card linking to the fill choices. The words are the engine's own and say nothing about this product.
  */
 export function Overview({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
+  useTabTitle(status.product.name);
+  return <PageSection data-testid="overview"><PageHeader className="mb-6"><PageTitle>{status.product.name}</PageTitle></PageHeader><FillCard status={status} refresh={refresh} /></PageSection>;
+}
+
+function PrefillCard({ status }: { status: WikiStatus }): ReactElement {
   const { t } = useTranslation();
+  return (
+      <Card className="mb-8" data-testid="prefill-card">
+        <CardHeader>
+          <CardTitle>{t('knowledge.prefill.created')}</CardTitle>
+          <CardDescription>{t(status.repositories.length > 0 ? 'knowledge.prefill.connected' : 'knowledge.prefill.noCode')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Paragraph>{t('knowledge.prefill.empty')}</Paragraph>
+          <Button variant="default" size="default" data-testid="prefill-open" onClick={() => navigateTo(appPath(WIKI_FILL))}>{t('knowledge.prefill.open')}</Button>
+        </CardContent>
+      </Card>
+  );
+}
+
+/** The empty product's next step opens the consent surface; it never starts a run. */
+function PrefillHome({ status }: { status: WikiStatus }): ReactElement {
   useTabTitle(status.product.name);
   return (
-    <PageSection data-testid="overview">
-      <PageHeader className="mb-6">
-        <PageTitle>{status.product.name}</PageTitle>
-        <Paragraph className="text-secondary" data-testid="home-intro">{t('knowledge.homeIntro.summary')}</Paragraph>
-      </PageHeader>
-      <PageSection className="mb-8" data-testid="home-guidance">
-        <SectionTitle className="mt-0">{t('knowledge.homeIntro.canTitle')}</SectionTitle>
-        <BulletList>
-          <ListItem>{t('knowledge.homeIntro.canStart')}</ListItem>
-          <ListItem>{t('knowledge.homeIntro.canOpen')}</ListItem>
-          <ListItem>{t('knowledge.homeIntro.canAsk')}</ListItem>
-        </BulletList>
-        <SectionTitle>{t('knowledge.homeIntro.howTitle')}</SectionTitle>
-        <Paragraph>{t('knowledge.homeIntro.howRead')}</Paragraph>
-        <Paragraph>{t('knowledge.homeIntro.howStages')}</Paragraph>
-        <Paragraph className="mb-0">{t('knowledge.homeIntro.howAgent')}</Paragraph>
-      </PageSection>
-      <FillCard status={status} refresh={refresh} />
+    <PageSection data-testid={status.manifest === 'not-filled' ? 'not-filled' : 'no-manifest'}>
+      <PageHeader className="mb-6"><PageTitle>{status.product.name}</PageTitle></PageHeader>
+      <PrefillCard status={status} />
     </PageSection>
   );
 }
 
-/** The guide every product without a starter set needs: the file in the repository the release is published from. */
-const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
-
-/** A product with no kinds manifest: what the file is and where it comes from, and the guide that writes one. */
 export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
-  useTabTitle(status.product.name);
-  return (
-    <PageSection data-testid="no-manifest">
-      <PageHeader className="mb-6">
-        <PageTitle>{status.product.name}</PageTitle>
-      </PageHeader>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('knowledge.noManifestTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.noManifest', { file: status.manifestFile })}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Paragraph>{t('knowledge.noManifestScratch', { file: status.manifestFile })}</Paragraph>
-          <Paragraph className="mb-0">
-            <TextLink href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.noManifestGuide')}</TextLink>
-          </Paragraph>
-        </CardContent>
-      </Card>
-    </PageSection>
-  );
+  return <PrefillHome status={status} />;
 }
 
-/**
- * A product whose manifest stands in its repository and whose graph no fill has read yet: the newcomer's first page.
- * It says what happened, that nothing is read yet, and the next step — Fill is offered and never started here.
- */
-export function NewHome({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
-  useTabTitle(status.product.name);
-  return (
-    <PageSection data-testid="not-filled">
-      <PageHeader className="mb-6">
-        <PageTitle>{status.product.name}</PageTitle>
-      </PageHeader>
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>{t('knowledge.notFilledTitle')}</CardTitle>
-          <CardDescription>{t('knowledge.notFilledWhat', { file: status.manifestFile })}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Paragraph>{t('knowledge.notFilledNext')}</Paragraph>
-          <Paragraph className="mb-0">
-            <TextLink href={MANIFESTS_GUIDE} target="_blank" rel="noreferrer" data-testid="manifests-guide">{t('knowledge.notFilledGuide')}</TextLink>
-          </Paragraph>
-        </CardContent>
-      </Card>
-      <FillCard status={status} refresh={refresh} />
-    </PageSection>
-  );
+export function NewHome({ status }: { status: WikiStatus; refresh: () => void }): ReactElement {
+  return <PrefillHome status={status} />;
 }
 
 /** The sources a filter keeps: those whose title or path holds the words, in any case. */

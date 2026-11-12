@@ -699,7 +699,7 @@ describe('the statement view', () => {
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
     await until(() => container.querySelector('[data-testid=web-place]') !== null, 'the web link');
     const link = container.querySelector('[data-testid=web-place]') as HTMLAnchorElement;
-    expect(link.textContent).toBe('Open in GitHub');
+    expect(link.textContent).toBe('GitHub');
     expect(link.getAttribute('href')).toBe(`${PAGE_HOST}/blob/abc/a.ts#L4-L6`);
     rendered?.unmount();
     document.body.innerHTML = '';

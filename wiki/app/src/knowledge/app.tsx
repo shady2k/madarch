@@ -236,6 +236,9 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <BookOpenIcon aria-hidden="true" size={16} />
           <NavigationLabel>{t('knowledge.glossary.title')}</NavigationLabel>
         </NavigationLink>
+        <NavigationLink href={appPath(WIKI_FILL)} active={route.name === 'fill'} aria-current={route.name === 'fill' ? 'page' : undefined} data-testid="nav-fill" {...pick(WIKI_FILL)}>
+          <NavigationLabel>{t('navigation.fill')}</NavigationLabel>
+        </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
