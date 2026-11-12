@@ -1,0 +1,25 @@
+id: archimate.course-of-action
+definition: A chosen approach that works towards a goal over time.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - realises
+  in:
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Course of action
+    many: Courses of action
+  ru:
+    one: Курс действий
+    many: Курсы действий
+description:
+  en: A chosen approach that works towards a goal over time.
+  ru: Выбранный подход, ведущий к цели во времени.

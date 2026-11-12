@@ -1,0 +1,31 @@
+id: manifest.accounting
+definition: 'The shared part of an authored kind that keeps its lifecycle step records: each step''s duration, tokens, cost,
+  model and outcome.'
+sources:
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
+- https://openai.github.io/openai-agents-python/tracing/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  - contains
+  in:
+  - defines
+  - partOf
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Accounting
+    many: Accounting
+  ru:
+    one: Учёт
+    many: Учёт
+description:
+  en: The per-step records of duration, tokens, cost, model and outcome a kind keeps.
+  ru: 'Записи по шагам: длительность, токены, стоимость, модель и результат.'

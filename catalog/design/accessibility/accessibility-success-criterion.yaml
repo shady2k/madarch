@@ -1,0 +1,25 @@
+id: wcag.success-criterion
+definition: A numbered criterion of WCAG that a screen or a component is judged against, at a level A, AA or AAA.
+sources:
+- https://www.w3.org/TR/WCAG22/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Success criterion
+    many: Success criteria
+  ru:
+    one: Критерий успеха
+    many: Критерии успеха
+description:
+  en: A numbered criterion of WCAG that a screen or a component is judged against, at a level A, AA or AAA.
+  ru: Нумерованный критерий WCAG, по которому судят экран или компонент, уровня A, AA или AAA.

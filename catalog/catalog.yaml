@@ -1,0 +1,521 @@
+# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).
+# Each kind names where its entities come from and the template that draws them:
+#   source: markdown  the entity is a Markdown file of this repository (a folder of them, or one file)
+#   source: graph     the entity is a node of the graph the fill builds from the code repositories
+#   source: document  the entity is a section of a Markdown document of this or a code repository that opens with an
+#                     identifier (`identifier: UC` takes UC-1, UC-2 ...), a bold term of a glossary (`terms: [...]`), or
+#                     that stands under a heading this manifest declares (`headings: [Qualities]` takes the list items
+#                     under `## Qualities`, numbered or not)
+# A document kind may also say what its sections mean: `semantics` names the general kind of a passage (scenario, actor,
+# rule, quality, decision, procedure, term), which the classifier's answer is shown as, and `structure` names the
+# sections it holds (`structure: [Status, Context, Decision, Consequences]`), which a section without them is a finding
+# for. `documents.expect` lists the kinds the documents must hold: one no document section is read as is a finding too,
+# so the wiki says what the documents lack.
+# A kind with `file:` is one page; the first such kind is the home page.
+# `group` puts the kind in a group of the navigation and the catalogue; `labels` and `description` name and explain
+# the kind in each interface language (en, ru); `origin` says how its entities came to be (agent, person, code, history).
+# `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.
+# `card: true` says a ground on one of the kind's entities shows a card of it — its facts, what it is related to
+# and the way to its page — instead of the code it was read from; a kind without it keeps the code excerpt.
+# `history` names the shape of the story the history block tells of the kind's entities: repositories (the
+# product's whole history), author, path, membership (the files a container holds), commit or task. A kind
+# without it gets no history page.
+# The views, listings and places of a kind are its declaration's too, so no screen of the wiki holds a kind of its
+# own. `views` lists the views a page of the kind may draw of its entities: c4-component (its modules) and state (the
+# state machines in its code). `er` says how the ER view reads its entities: tables (the tables the entity holds) or
+# links (the entity as one table and the tables its foreign keys reach). `sequence` says how the
+# end-to-end chain a page draws starts at its entities: route (at the entity) or symbol (at the route that reaches
+# it); a kind without it starts no chain. `system` says the part its entities play in the system view: container
+# (drawn as a box, read as the implementation a domain names, and the folder a treemap covers), data-store or
+# channel. `definition-block` says what the definition block finds in its entities: contract (the file it reads),
+# operation or channel (a row of it). `listing` says the form of its listing page: operations (what declares,
+# serves and calls each one), the plain table of names and places without it. `nav` says where the kind stands in
+# the navigation: own-page (its entities stand at a place of their own) or loop (the loop keeps its place); a
+# kind without it is a page among the pages by kind.
+# `documents.exclude` lists Markdown files that are not product documents (the files that steer a coding agent).
+# `roles` says, per role a reader can read as (product, analyst, architect, developer, operations, tester), which blocks of a
+# template stand open on a page and which groups lead the navigation. A block a role does not open stays on the page, collapsed:
+# one page serves every role. A role left out, and the role "everything", open every block in the order above.
+# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it
+# "Also called", "In code", "Used in" and "Ambiguous" (decision 0031).
+# `problems.rules` declares every rule the Problems page runs: the engine's predicate it keys to, the kind of
+# finding it makes, its Sonar kind and severity (blocker, critical, major, minor, info), the section it belongs to,
+# what the page offers on it and its label in each interface language. A rule may carry `params` (the marker a
+# debt rule reads, the secret names a product declares) and `enabled`. The engine keeps only the predicates: a rule
+# is run because this manifest declares it, and switching it off here is what stops it. The thresholds say when a
+# file is large or a hotspot.
+# A group is { en: <its name>, ru: <its name> }, and may name the group it is a sub-area of (`parent`) and say it
+# opens on the menu by itself (`open: true`); a group without a parent is an area and a group with one is a subgroup.
+# `catalog` declares the schema of the entity catalog (decision 0033, items 8 to 10) and every kind below declares
+# its row: its concept `id` (one concept has one kind), its subgroup (`group`), its `definition`, the `sources` it was
+# taken from as addresses a person can read, the ways it is `acquisition` (an extractor's mark, or document,
+# conversation, agent-from-graph, live-system, not-implemented), its implementation `status`, the
+# `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member
+# or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.
+groups:
+  strategy: { en: "Strategy and business motivation", ru: "Стратегия и мотивация бизнеса", short: { en: "Strategy", ru: "Стратегия" }, open: true }
+  discovery: { en: "Discovery and user research", ru: "Исследование и изучение пользователей", short: { en: "Discovery", ru: "Исследование" } }
+  requirements: { en: "Requirements and assurance", ru: "Требования и обоснование соответствия", short: { en: "Requirements", ru: "Требования" }, open: true }
+  rd: { en: "Research and development", ru: "Исследования и разработка", short: { en: "R&D", ru: "НИОКР" }, open: true }
+  documentation: { en: "Documentation and support", ru: "Документация и поддержка", short: { en: "Documentation", ru: "Документация" }, open: true }
+  design: { en: "Design, frontend and localisation", ru: "Дизайн, фронтенд и локализация", short: { en: "Design", ru: "Дизайн" } }
+  architecture: { en: "Architecture and its description", ru: "Архитектура и её описание", short: { en: "Architecture", ru: "Архитектура" } }
+  code: { en: "Code and interfaces", ru: "Код и интерфейсы", short: { en: "Code", ru: "Код" } }
+  information: { en: "Information flows and categories", ru: "Информационные потоки и категории", short: { en: "Information", ru: "Информация" } }
+  data: { en: "Data and its quality", ru: "Данные и их качество", short: { en: "Data", ru: "Данные" } }
+  messaging: { en: "Messaging, caches, storage and notifications", ru: "Обмен сообщениями, кэши, хранилища и уведомления", short: { en: "Messaging", ru: "Сообщения" } }
+  testing: { en: "Testing and verification", ru: "Тестирование и проверка", short: { en: "Testing", ru: "Тесты" } }
+  review: { en: "Code review", ru: "Ревью кода", short: { en: "Code review", ru: "Ревью" } }
+  delivery: { en: "Build, delivery and releases", ru: "Сборка, доставка и релизы", short: { en: "Delivery", ru: "Доставка" } }
+  infrastructure: { en: "Infrastructure", ru: "Инфраструктура", short: { en: "Infrastructure", ru: "Инфраструктура" } }
+  operations: { en: "Operations", ru: "Эксплуатация", short: { en: "Operations", ru: "Эксплуатация" } }
+  resilience: { en: "Resilience and continuity", ru: "Устойчивость и непрерывность", short: { en: "Resilience", ru: "Устойчивость" } }
+  security: { en: "Security", ru: "Безопасность", short: { en: "Security", ru: "Безопасность" } }
+  privacy: { en: "Privacy and compliance", ru: "Приватность и соответствие", short: { en: "Privacy", ru: "Приватность" } }
+  costs: { en: "Costs", ru: "Затраты", short: { en: "Costs", ru: "Затраты" } }
+  suppliers: { en: "Suppliers and agreements", ru: "Поставщики и соглашения", short: { en: "Suppliers", ru: "Поставщики" } }
+  ml: { en: "Machine learning life cycle", ru: "Жизненный цикл машинного обучения", short: { en: "Machine learning", ru: "ML" } }
+  organisation: { en: "Organisation and ownership", ru: "Организация и ответственность", short: { en: "Organisation", ru: "Организация" } }
+  history: { en: "History", ru: "История", short: { en: "History", ru: "История" } }
+  work: { en: "Work", ru: "Работа", short: { en: "Work", ru: "Работа" } }
+  common: { en: "Common", ru: "Общие", short: { en: "Common", ru: "Общие" } }
+  automation: { en: "Process automation", ru: "Автоматизация процессов", short: { en: "Automation", ru: "Автоматизация" } }
+  decommissioning: { en: "Decommissioning", ru: "Вывод из эксплуатации", short: { en: "Retirement", ru: "Вывод" } }
+  product: { en: "Product and its actors", ru: "Продукт и его действующие лица", short: { en: "Product", ru: "Продукт" }, parent: strategy }
+  strategy.direction: { en: "Direction", ru: "Направление", short: { en: "Direction", ru: "Направление" }, parent: strategy }
+  strategy.capability: { en: "Capabilities and value", ru: "Возможности и ценность", short: { en: "Capabilities", ru: "Возможности" }, parent: strategy }
+  strategy.planning: { en: "Planning", ru: "Планирование", short: { en: "Planning", ru: "Планирование" }, parent: strategy }
+  discovery.research: { en: "Research", ru: "Исследование", short: { en: "Research", ru: "Исследование" }, parent: discovery }
+  discovery.journey: { en: "Journeys", ru: "Пути пользователя", short: { en: "Journeys", ru: "Пути" }, parent: discovery }
+  discovery.assessment: { en: "Usability assessment", ru: "Оценка удобства", short: { en: "Usability", ru: "Удобство" }, parent: discovery }
+  requirements.statement: { en: "Statements", ru: "Утверждения", short: { en: "Statements", ru: "Утверждения" }, parent: requirements }
+  requirements.quality: { en: "Quality and assurance", ru: "Качество и обоснование", short: { en: "Quality", ru: "Качество" }, parent: requirements }
+  requirements.change: { en: "Changes", ru: "Изменения", short: { en: "Changes", ru: "Изменения" }, parent: requirements }
+  requirements.document: { en: "Requirement documents", ru: "Документы требований", short: { en: "Documents", ru: "Документы" }, parent: requirements }
+  rd.decision: { en: "Decisions", ru: "Решения", short: { en: "Decisions", ru: "Решения" }, parent: rd }
+  rd.investigation: { en: "Investigation", ru: "Исследование", short: { en: "Investigation", ru: "Поиск" }, parent: rd }
+  rd.risk: { en: "Risk and debt", ru: "Риски и долг", short: { en: "Risk and debt", ru: "Риски и долг" }, parent: rd }
+  design.tokens: { en: "Design tokens", ru: "Токены дизайна", short: { en: "Tokens", ru: "Токены" }, parent: design }
+  design.system: { en: "Design system", ru: "Дизайн-система", short: { en: "Design system", ru: "Дизайн-система" }, parent: design }
+  design.screen: { en: "Screens and styles", ru: "Экраны и стили", short: { en: "Screens", ru: "Экраны" }, parent: design }
+  design.accessibility: { en: "Accessibility", ru: "Доступность", short: { en: "Accessibility", ru: "Доступность" }, parent: design }
+  design.localisation: { en: "Localisation", ru: "Локализация", short: { en: "Localisation", ru: "Локализация" }, parent: design }
+  architecture.element: { en: "Elements", ru: "Элементы", short: { en: "Elements", ru: "Элементы" }, parent: architecture }
+  architecture.deployment: { en: "Deployment", ru: "Развёртывание", short: { en: "Deployment", ru: "Развёртывание" }, parent: architecture }
+  architecture.description: { en: "Description", ru: "Описание", short: { en: "Description", ru: "Описание" }, parent: architecture }
+  architecture.domain-model: { en: "Domain model", ru: "Модель предметной области", short: { en: "Domain model", ru: "Модель домена" }, parent: architecture }
+  architecture.behaviour: { en: "Behaviour", ru: "Поведение", short: { en: "Behaviour", ru: "Поведение" }, parent: architecture }
+  architecture.technology: { en: "Technologies", ru: "Технологии", short: { en: "Technologies", ru: "Технологии" }, parent: architecture }
+  architecture.external: { en: "External systems", ru: "Внешние системы", short: { en: "External systems", ru: "Внешние системы" }, parent: architecture }
+  code.structure: { en: "Structure", ru: "Устройство", short: { en: "Structure", ru: "Устройство" }, parent: code }
+  code.analysis: { en: "Analysis", ru: "Анализ", short: { en: "Analysis", ru: "Анализ" }, parent: code }
+  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: code }
+  code.schema: { en: "Schemas and protocols", ru: "Схемы и протоколы", short: { en: "Schemas", ru: "Схемы" }, parent: code }
+  information.flow: { en: "Flows", ru: "Потоки", short: { en: "Flows", ru: "Потоки" }, parent: information }
+  information.category: { en: "Categories", ru: "Категории", short: { en: "Categories", ru: "Категории" }, parent: information }
+  data.storage: { en: "Storage", ru: "Хранилища", short: { en: "Storage", ru: "Хранилища" }, parent: data }
+  data.model: { en: "Model and catalog", ru: "Модель и каталог", short: { en: "Model and catalog", ru: "Модель" }, parent: data }
+  data.job: { en: "Jobs and quality", ru: "Задания и качество", short: { en: "Jobs and quality", ru: "Задания" }, parent: data }
+  data.provenance: { en: "Provenance", ru: "Происхождение", short: { en: "Provenance", ru: "Происхождение" }, parent: data }
+  messaging.messaging: { en: "Messaging", ru: "Обмен сообщениями", short: { en: "Messaging", ru: "Сообщения" }, parent: messaging }
+  messaging.cache: { en: "Caches", ru: "Кэши", short: { en: "Caches", ru: "Кэши" }, parent: messaging }
+  messaging.storage: { en: "Storage services", ru: "Сервисы хранения", short: { en: "Storage", ru: "Хранилища" }, parent: messaging }
+  messaging.notification: { en: "Notifications", ru: "Уведомления", short: { en: "Notifications", ru: "Уведомления" }, parent: messaging }
+  testing.case: { en: "Cases and conditions", ru: "Тесты и условия", short: { en: "Cases", ru: "Случаи" }, parent: testing }
+  testing.run: { en: "Runs and results", ru: "Прогоны и результаты", short: { en: "Runs", ru: "Прогоны" }, parent: testing }
+  testing.plan: { en: "Planning", ru: "Планирование", short: { en: "Planning", ru: "Планирование" }, parent: testing }
+  testing.verification: { en: "Verification and performance", ru: "Проверка и производительность", short: { en: "Verification", ru: "Проверка" }, parent: testing }
+  testing.defect: { en: "Defects", ru: "Дефекты", short: { en: "Defects", ru: "Дефекты" }, parent: testing }
+  review.review: { en: "Review", ru: "Ревью", short: { en: "Review", ru: "Ревью" }, parent: review }
+  delivery.pipeline: { en: "Pipelines", ru: "Конвейеры", short: { en: "Pipelines", ru: "Конвейеры" }, parent: delivery }
+  delivery.build: { en: "Build", ru: "Сборка", short: { en: "Build", ru: "Сборка" }, parent: delivery }
+  delivery.release: { en: "Releases and rollouts", ru: "Релизы и раскатки", short: { en: "Releases", ru: "Релизы" }, parent: delivery }
+  delivery.gitops: { en: "GitOps", ru: "GitOps", short: { en: "GitOps", ru: "GitOps" }, parent: delivery }
+  delivery.flags: { en: "Feature flags", ru: "Флаги возможностей", short: { en: "Feature flags", ru: "Флаги" }, parent: delivery }
+  delivery.supply-chain: { en: "Supply chain", ru: "Цепочка поставки", short: { en: "Supply chain", ru: "Поставка" }, parent: delivery }
+  infrastructure.compute: { en: "Compute", ru: "Вычисления", short: { en: "Compute", ru: "Вычисления" }, parent: infrastructure }
+  infrastructure.orchestration: { en: "Kubernetes objects", ru: "Объекты Kubernetes", short: { en: "Kubernetes", ru: "Kubernetes" }, parent: infrastructure }
+  infrastructure.network: { en: "Network", ru: "Сеть", short: { en: "Network", ru: "Сеть" }, parent: infrastructure }
+  infrastructure.iac: { en: "Infrastructure as code", ru: "Инфраструктура как код", short: { en: "IaC", ru: "IaC" }, parent: infrastructure }
+  operations.slo: { en: "Service levels", ru: "Уровни сервиса", short: { en: "Service levels", ru: "Уровни" }, parent: operations }
+  operations.observability: { en: "Observability", ru: "Наблюдаемость", short: { en: "Observability", ru: "Наблюдаемость" }, parent: operations }
+  operations.runtime: { en: "Health checks", ru: "Проверки здоровья", short: { en: "Health checks", ru: "Проверки" }, parent: operations }
+  operations.configuration: { en: "Configuration", ru: "Настройка", short: { en: "Configuration", ru: "Настройка" }, parent: operations }
+  operations.dependencies: { en: "Dependencies", ru: "Зависимости", short: { en: "Dependencies", ru: "Зависимости" }, parent: operations }
+  operations.alerting: { en: "Alerting", ru: "Оповещения", short: { en: "Alerting", ru: "Оповещения" }, parent: operations }
+  operations.incident: { en: "Incidents", ru: "Инциденты", short: { en: "Incidents", ru: "Инциденты" }, parent: operations }
+  operations.jobs: { en: "Scheduled jobs", ru: "Плановые задания", short: { en: "Scheduled jobs", ru: "Задания" }, parent: operations }
+  operations.change: { en: "Maintenance and changes", ru: "Обслуживание и изменения", short: { en: "Maintenance", ru: "Обслуживание" }, parent: operations }
+  resilience.impact: { en: "Impact", ru: "Воздействие", short: { en: "Impact", ru: "Воздействие" }, parent: resilience }
+  resilience.plan: { en: "Plans", ru: "Планы", short: { en: "Plans", ru: "Планы" }, parent: resilience }
+  resilience.recovery: { en: "Backups and recovery", ru: "Резервные копии и восстановление", short: { en: "Backups", ru: "Резервные копии" }, parent: resilience }
+  resilience.drill: { en: "Drills", ru: "Учения", short: { en: "Drills", ru: "Учения" }, parent: resilience }
+  security.threat: { en: "Threats", ru: "Угрозы", short: { en: "Threats", ru: "Угрозы" }, parent: security }
+  security.intelligence: { en: "Threat intelligence", ru: "Разведка угроз", short: { en: "Intelligence", ru: "Разведка" }, parent: security }
+  security.vulnerability: { en: "Vulnerabilities and findings", ru: "Уязвимости и находки", short: { en: "Vulnerabilities", ru: "Уязвимости" }, parent: security }
+  security.supply: { en: "Software supply", ru: "Программная поставка", short: { en: "Supply", ru: "Поставка" }, parent: security }
+  security.access: { en: "Access", ru: "Доступ", short: { en: "Access", ru: "Доступ" }, parent: security }
+  security.control: { en: "Controls", ru: "Меры защиты", short: { en: "Controls", ru: "Меры" }, parent: security }
+  security.assessment: { en: "Assessments", ru: "Оценки", short: { en: "Assessments", ru: "Оценки" }, parent: security }
+  security.disclosure: { en: "Disclosure", ru: "Раскрытие", short: { en: "Disclosure", ru: "Раскрытие" }, parent: security }
+  security.audit: { en: "Audit", ru: "Аудит", short: { en: "Audit", ru: "Аудит" }, parent: security }
+  security.crypto: { en: "Cryptography", ru: "Криптография", short: { en: "Cryptography", ru: "Криптография" }, parent: security }
+  security.secret: { en: "Secrets", ru: "Секреты", short: { en: "Secrets", ru: "Секреты" }, parent: security }
+  privacy.processing: { en: "Processing", ru: "Обработка", short: { en: "Processing", ru: "Обработка" }, parent: privacy }
+  privacy.compliance: { en: "Compliance records", ru: "Записи соответствия", short: { en: "Compliance", ru: "Соответствие" }, parent: privacy }
+  costs.cost: { en: "Costs", ru: "Затраты", short: { en: "Costs", ru: "Затраты" }, parent: costs }
+  costs.plan: { en: "Budgets", ru: "Бюджеты", short: { en: "Budgets", ru: "Бюджеты" }, parent: costs }
+  suppliers.supplier: { en: "Suppliers", ru: "Поставщики", short: { en: "Suppliers", ru: "Поставщики" }, parent: suppliers }
+  suppliers.agreement: { en: "Agreements", ru: "Соглашения", short: { en: "Agreements", ru: "Соглашения" }, parent: suppliers }
+  ml.model: { en: "Models and runs", ru: "Модели и прогоны", short: { en: "Models", ru: "Модели" }, parent: ml }
+  ml.risk: { en: "AI risk", ru: "Риски ИИ", short: { en: "AI risk", ru: "Риски ИИ" }, parent: ml }
+  documentation.document: { en: "Documents", ru: "Документы", short: { en: "Documents", ru: "Документы" }, parent: documentation }
+  documentation.support: { en: "Support", ru: "Поддержка", short: { en: "Support", ru: "Поддержка" }, parent: documentation }
+  documentation.newcomer: { en: "Newcomer", ru: "Новичку", short: { en: "Newcomer", ru: "Новичку" }, parent: documentation }
+  documentation.feedback: { en: "Feedback loop", ru: "Обратная связь", short: { en: "Feedback", ru: "Отзывы" }, parent: documentation }
+  organisation.unit: { en: "Units", ru: "Подразделения", short: { en: "Units", ru: "Подразделения" }, parent: organisation }
+  organisation.membership: { en: "People and roles", ru: "Люди и роли", short: { en: "People", ru: "Люди" }, parent: organisation }
+  organisation.ownership: { en: "Ownership", ru: "Ответственность", short: { en: "Ownership", ru: "Ответственность" }, parent: organisation }
+  history.work: { en: "Commits and changes", ru: "Коммиты и изменения", short: { en: "Commits", ru: "Коммиты" }, parent: history }
+  history.repository: { en: "Repositories", ru: "Репозитории", short: { en: "Repositories", ru: "Репозитории" }, parent: history }
+  work.planning: { en: "Planning", ru: "Планирование", short: { en: "Planning", ru: "Планирование" }, parent: work }
+  work.execution: { en: "Execution", ru: "Исполнение", short: { en: "Execution", ru: "Исполнение" }, parent: work }
+  work.coordination: { en: "Coordination", ru: "Координация", short: { en: "Coordination", ru: "Координация" }, parent: work }
+  work.sync: { en: "Sync", ru: "Синхронизация", short: { en: "Sync", ru: "Синхронизация" }, parent: work }
+  common.attachment: { en: "Attached records", ru: "Приложенные записи", short: { en: "Attached", ru: "Записи" }, parent: common }
+  common.schema: { en: "Schema", ru: "Схема", short: { en: "Schema", ru: "Схема" }, parent: common }
+  automation.process: { en: "Processes", ru: "Процессы", short: { en: "Processes", ru: "Процессы" }, parent: automation }
+  decommissioning.plan: { en: "Retirement", ru: "Вывод", short: { en: "Retirement", ru: "Вывод" }, parent: decommissioning }
+  infrastructure.network-names: { en: "Names and addresses", ru: "Имена и адреса", short: { en: "Names", ru: "Имена" }, parent: infrastructure }
+properties:
+  task: { en: "Repair task", ru: "Задача исправления", format: "text" }
+  quarantine_reason: { en: "Reason", ru: "Причина", format: "text" }
+  since: { en: "Quarantined since commit", ru: "Коммит введения карантина", format: "text" }
+  latest_result: { en: "Latest quarantine CI result", ru: "Последний результат CI карантина", format: "text" }
+  correction_reason: { en: "Reason", ru: "Причина", format: "text" }
+  dismissal_reason: { en: "Reason", ru: "Причина", format: "text" }
+  statement: { en: "Statement", ru: "Утверждение", format: "text" }
+  sides: { en: "What the sources say", ru: "Что говорят источники", format: "text" }
+  why: { en: "Why it matters", ru: "Почему это важно", format: "text" }
+  question: { en: "Question", ru: "Вопрос", format: "text" }
+  answer: { en: "Answer", ru: "Ответ", format: "text" }
+  problem: { en: "Problem", ru: "Проблема", format: "text" }
+  grounds: { en: "Grounds", ru: "Основания", format: "text" }
+  closed_by: { en: "Closing commit", ru: "Закрывающий коммит", format: "text" }
+  closed_at: { en: "Closed at", ru: "Время закрытия", format: "text" }
+  rule: { en: "Rule", ru: "Правило", format: "text" }
+  identity: { en: "Identity", ru: "Идентификатор", format: "text" }
+  place: { en: "Place", ru: "Место", format: "text" }
+  status: { en: "Status", ru: "Статус", format: "text" }
+  about: { en: "About", ru: "О чём", format: "list" }
+  asked_in: { en: "Asked on", ru: "Страница вопроса", format: "text" }
+  asked_at: { en: "Asked at", ru: "Время вопроса", format: "date" }
+  resolved_by: { en: "Used by pages", ru: "Учтено на страницах", format: "list" }
+  resolved_at: { en: "Resolved at", ru: "Время разрешения", format: "date" }
+  written_at: { en: "Written from", ru: "Основания записи", format: "list" }
+  by: { en: "Corrected by", ru: "Автор поправки", format: "text" }
+  at: { en: "Corrected at", ru: "Время поправки", format: "date" }
+  language: { en: "Language", ru: "Язык", format: "text" }
+  frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" }
+  infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" }
+  testFramework: { en: "Test framework", ru: "Тестовый фреймворк", format: "text" }
+  ecosystem: { en: "Ecosystem", ru: "Экосистема", format: "text" }
+  name: { en: "Name", ru: "Имя", format: "text" }
+  version: { en: "Version", ru: "Версия", format: "text" }
+  external: { en: "External", ru: "Внешняя", format: "boolean" }
+  hasTests: { en: "Has tests", ru: "Есть тесты", format: "boolean" }
+  sourceFiles: { en: "Source files", ru: "Исходные файлы", format: "number" }
+  testFiles: { en: "Test files", ru: "Тестовые файлы", format: "number" }
+  tests: { en: "Tests", ru: "Тесты", format: "list" }
+  versionStatus: { en: "Version status", ru: "Состояние версии", format: "text" }
+  standardLibrary: { en: "Standard library", ru: "Стандартная библиотека", format: "boolean" }
+  role: { en: "Role", ru: "Роль", format: "text" }
+  kind: { en: "Kind", ru: "Вид", format: "text" }
+  files: { en: "Files", ru: "Файлы", format: "number" }
+  parsedFiles: { en: "Parsed files", ru: "Разобранные файлы", format: "number" }
+  packageName: { en: "Package name", ru: "Имя пакета", format: "text" }
+  symbolKind: { en: "Symbol kind", ru: "Вид символа", format: "text" }
+  qualifiedName: { en: "Qualified name", ru: "Полное имя", format: "text" }
+  typeText: { en: "Type", ru: "Тип", format: "text" }
+  value: { en: "Value", ru: "Значение", format: "code" }
+  exported: { en: "Exported", ru: "Экспортируется", format: "boolean" }
+  abstract: { en: "Abstract", ru: "Абстрактный", format: "boolean" }
+  inline: { en: "Inline", ru: "Встроенный", format: "boolean" }
+  test: { en: "Test", ru: "Тест", format: "commands" }
+  deadExport: { en: "Unused export", ru: "Неиспользуемый экспорт", format: "boolean" }
+  entryPoint: { en: "Entry point", ru: "Точка входа", format: "text" }
+  entryPoints: { en: "Entry points", ru: "Точки входа", format: "list" }
+  file: { en: "File", ru: "Файл", format: "path" }
+  service: { en: "Service", ru: "Сервис", format: "text" }
+  symbol: { en: "Symbol", ru: "Символ", format: "text" }
+  starts: { en: "Starts", ru: "Запускает", format: "list" }
+  level: { en: "Level", ru: "Уровень", format: "text" }
+  size: { en: "Size", ru: "Размер", format: "number" }
+  marker: { en: "Marker", ru: "Маркер", format: "text" }
+  text: { en: "Text", ru: "Текст", format: "text" }
+  path: { en: "Path", ru: "Путь", format: "path" }
+  line: { en: "Line", ru: "Строка", format: "number" }
+  lines: { en: "Lines", ru: "Строк", format: "number" }
+  mode: { en: "Mode", ru: "Режим", format: "text" }
+  blob: { en: "Blob", ru: "Blob", format: "code" }
+  bytes: { en: "Bytes", ru: "Байт", format: "number" }
+  form: { en: "Form", ru: "Форма", format: "text" }
+  candidates: { en: "Languages", ru: "Языки", format: "list" }
+  author: { en: "Author", ru: "Автор", format: "text" }
+  authorEmail: { en: "Author email", ru: "Почта автора", format: "text" }
+  source: { en: "Source", ru: "Источник", format: "text" }
+  readBy: { en: "Read by", ru: "Читает", format: "text" }
+  function: { en: "Function", ru: "Функция", format: "text" }
+  callee: { en: "Callee", ru: "Вызываемый", format: "text" }
+  method: { en: "Method", ru: "Метод", format: "text" }
+  authGroup: { en: "Authentication group", ru: "Группа авторизации", format: "boolean" }
+  authAlgorithm: { en: "Authentication algorithm", ru: "Алгоритм авторизации", format: "text" }
+  handler: { en: "Handler", ru: "Обработчик", format: "text" }
+  handlerPath: { en: "Handler file", ru: "Файл обработчика", format: "path" }
+  operationId: { en: "Operation id", ru: "Идентификатор операции", format: "text" }
+  public: { en: "Public", ru: "Публичная", format: "boolean" }
+  package: { en: "Package", ru: "Пакет", format: "text" }
+  input: { en: "Input", ru: "Входные данные", format: "text" }
+  output: { en: "Output", ru: "Результат", format: "text" }
+  rpc: { en: "RPC", ru: "RPC", format: "text" }
+  servers: { en: "Servers", ru: "Серверы", format: "list" }
+  summary: { en: "Summary", ru: "Кратко", format: "text" }
+  format: { en: "Format", ru: "Формат", format: "text" }
+  specVersion: { en: "Specification version", ru: "Версия спецификации", format: "text" }
+  protocol: { en: "Protocol", ru: "Протокол", format: "text" }
+  contract: { en: "Contract", ru: "Контракт", format: "text" }
+  description: { en: "Description", ru: "Описание", format: "text" }
+  consumerStatus: { en: "Consumer status", ru: "Состояние потребителя", format: "text" }
+  consumerFound: { en: "Consumer found", ru: "Потребитель найден", format: "boolean" }
+  channel: { en: "Channel", ru: "Канал", format: "text" }
+  eventTypes: { en: "Event types", ru: "Типы событий", format: "list" }
+  database: { en: "Database", ru: "База данных", format: "text" }
+  schema: { en: "Schema", ru: "Схема", format: "text" }
+  unsupported: { en: "Unsupported SQL", ru: "Неподдерживаемый SQL", format: "text" }
+  evidenceKind: { en: "Evidence", ru: "Основание", format: "text" }
+  type: { en: "Type", ru: "Тип", format: "text" }
+  nullable: { en: "Nullable", ru: "Допускает NULL", format: "boolean" }
+  default: { en: "Default", ru: "Значение по умолчанию", format: "code" }
+  primary_key: { en: "Primary key", ru: "Первичный ключ", format: "boolean" }
+  unique: { en: "Unique", ru: "Уникальный", format: "boolean" }
+  check: { en: "Check", ru: "Проверка", format: "code" }
+  columns: { en: "Columns", ru: "Столбцы", format: "list" }
+  where: { en: "Condition", ru: "Условие", format: "code" }
+  ordinal: { en: "Order", ru: "Порядок", format: "number" }
+  required: { en: "Required", ru: "Обязательна", format: "boolean" }
+  scope: { en: "Scope", ru: "Область", format: "text" }
+  exact: { en: "Exact version", ru: "Точная версия", format: "boolean" }
+  module: { en: "Module", ru: "Модуль", format: "text" }
+  goVersion: { en: "Go version", ru: "Версия Go", format: "text" }
+  private: { en: "Private", ru: "Приватный", format: "boolean" }
+  scripts: { en: "Scripts", ru: "Сценарии", format: "scripts" }
+  lockfileVersion: { en: "Lock file version", ru: "Версия файла блокировки", format: "number" }
+  modules: { en: "Modules", ru: "Модули", format: "number" }
+  packages: { en: "Packages", ru: "Пакеты", format: "number" }
+  devOnlyPackages: { en: "Development packages", ru: "Пакеты для разработки", format: "number" }
+  baseImages: { en: "Base images", ru: "Базовые образы", format: "list" }
+  exposes: { en: "Exposes", ru: "Открывает порты", format: "list" }
+  command: { en: "Command", ru: "Команда", format: "commands" }
+  repository: { en: "Repository", ru: "Репозиторий", format: "text" }
+  tag: { en: "Tag", ru: "Тег", format: "text" }
+  image: { en: "Image", ru: "Образ", format: "text" }
+  build: { en: "Build", ru: "Сборка", format: "build", fields: { context: { en: "Build context", ru: "Контекст сборки", format: "path" }, dockerfile: { en: "Dockerfile", ru: "Dockerfile", format: "path" } } }
+  ports: { en: "Ports", ru: "Порты", format: "ports" }
+  dependsOn: { en: "Depends on", ru: "Зависит от", format: "list" }
+  environment: { en: "Environment", ru: "Окружение", format: "list" }
+  containerPorts: { en: "Container ports", ru: "Порты контейнера", format: "list" }
+  envFrom: { en: "Environment from", ru: "Окружение из", format: "list" }
+  replicas: { en: "Replicas", ru: "Реплики", format: "number" }
+  probePath: { en: "Probe path", ru: "Путь проверки", format: "text" }
+  probePaths: { en: "Probe paths", ru: "Пути проверки", format: "list" }
+  on: { en: "On", ru: "События", format: "list" }
+  workingDirectory: { en: "Working directory", ru: "Рабочая папка", format: "path" }
+  steps: { en: "Steps", ru: "Шаги", format: "commands" }
+  uses: { en: "Uses", ru: "Использует", format: "list" }
+  phony: { en: "Phony", ru: "Фиктивная цель", format: "boolean" }
+  recipe: { en: "Recipe", ru: "Рецепт", format: "commands" }
+  binary: { en: "Binary", ru: "Программа", format: "text" }
+  port: { en: "Port", ru: "Порт", format: "number" }
+  statusOk: { en: "Healthy on success", ru: "Успех означает здоровье", format: "boolean" }
+  metricType: { en: "Metric type", ru: "Тип метрики", format: "text" }
+  help: { en: "Help", ru: "Описание", format: "text" }
+  labels: { en: "Labels", ru: "Метки", format: "list" }
+  library: { en: "Library", ru: "Библиотека", format: "text" }
+  definitionFormat: { en: "Definition format", ru: "Формат описания", format: "text" }
+  technology: { en: "Technology", ru: "Технология", format: "text" }
+  addresses: { en: "Addresses", ru: "Адреса", format: "list" }
+  probeType: { en: "Probe type", ru: "Тип пробы", format: "text" }
+  container: { en: "Container", ru: "Контейнер", format: "text" }
+  resolvedPort: { en: "Resolved port", ru: "Найденный порт", format: "number" }
+  scheme: { en: "Scheme", ru: "Схема", format: "text" }
+  host: { en: "Host", ru: "Хост", format: "text" }
+  initialDelaySeconds: { en: "Initial delay", ru: "Начальная задержка", format: "text" }
+  periodSeconds: { en: "Period", ru: "Период", format: "text" }
+  timeoutSeconds: { en: "Timeout", ru: "Таймаут", format: "text" }
+  successThreshold: { en: "Success threshold", ru: "Порог успеха", format: "number" }
+  failureThreshold: { en: "Failure threshold", ru: "Порог отказа", format: "number" }
+  terminationGracePeriodSeconds: { en: "Termination grace", ru: "Время на остановку", format: "text" }
+  transport: { en: "Transport", ru: "Транспорт", format: "text" }
+  interval: { en: "Interval", ru: "Интервал", format: "text" }
+  retries: { en: "Retries", ru: "Повторы", format: "number" }
+  disable: { en: "Disabled", ru: "Отключена", format: "boolean" }
+  startPeriod: { en: "Start period", ru: "Период запуска", format: "text" }
+  startInterval: { en: "Start interval", ru: "Интервал запуска", format: "text" }
+  heading: { en: "Heading", ru: "Заголовок", format: "text" }
+  folder: { en: "Folder", ru: "Папка", format: "path" }
+  purpose: { en: "Purpose", ru: "Назначение", format: "text" }
+  order: { en: "Order", ru: "Порядок", format: "number" }
+  tools: { en: "Tools", ru: "Инструменты", format: "list" }
+  symptom: { en: "Symptom", ru: "Симптом", format: "text" }
+  fix: { en: "Fix", ru: "Исправление", format: "text" }
+  testKind: { en: "Test kind", ru: "Вид теста", format: "text" }
+  skipped: { en: "Skipped", ru: "Пропущен", format: "boolean" }
+  skipReason: { en: "Skip reason", ru: "Причина пропуска", format: "text" }
+  cases: { en: "Cases", ru: "Случаи", format: "number" }
+  suite: { en: "Suite", ru: "Набор", format: "list" }
+  subject: { en: "Subject", ru: "Тема", format: "text" }
+  authoredAt: { en: "Authored", ru: "Создан", format: "date" }
+  committedAt: { en: "Committed", ru: "Зафиксирован", format: "date" }
+  merge: { en: "Merge commit", ru: "Коммит слияния", format: "boolean" }
+  mergedBranch: { en: "Merged branch", ru: "Слитая ветка", format: "text" }
+  commit: { en: "Commit", ru: "Коммит", format: "text" }
+  commitCount: { en: "Commits", ru: "Коммитов", format: "number" }
+  authors: { en: "Authors", ru: "Авторы", format: "list" }
+  parsed: { en: "Parsed", ru: "Разобран", format: "boolean" }
+  identifier: { en: "Identifier", ru: "Идентификатор", format: "text" }
+  document: { en: "Document", ru: "Документ", format: "path" }
+  framework: { en: "Framework", ru: "Фреймворк", format: "text" }
+  json: { en: "JSON logs", ru: "Журнал JSON", format: "boolean" }
+  middleware: { en: "Middleware", ru: "Промежуточные обработчики", format: "list" }
+  model: { en: "Model", ru: "Модель", format: "text" }
+  timeout: { en: "Timeout", ru: "Таймаут", format: "text" }
+documents:
+  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, "**/AGENTS.md", "**/CLAUDE.md", "**/GEMINI.md"]
+  expect: []
+  ignore: [code, html, thematicBreak, definition]
+roles:
+  product: { lead: [strategy, discovery, requirements, rd], open: [stated, implementedby, linkedfrom, related, properties] }
+  analyst: { lead: [strategy, requirements, data, contracts, information], open: [stated, implementedby, linkedfrom, related, properties, er, sequence, children] }
+  architect: { lead: [architecture, code, contracts, data, infrastructure, security, common], open: [graph, related, sequence, er, stated, implementedby, linkedfrom, properties, children] }
+  developer: { lead: [code, contracts, data, testing, delivery, review, history, work], open: [source, callers, callees, sequence, graph, related, history, properties, children, er, stated] }
+  operations: { lead: [operations, infrastructure, messaging, resilience], open: [properties, related, history, children, source, er, stated] }
+  tester: { lead: [testing, requirements, strategy], open: [stated, implementedby, linkedfrom, related, properties, callers, children] }
+  designer: { lead: [design, requirements, discovery], open: [stated, implementedby, linkedfrom, related, properties, children] }
+  security-engineer: { lead: [security, privacy, architecture, delivery], open: [properties, related, graph, children, source, stated] }
+  platform-devops: { lead: [infrastructure, delivery, operations, messaging, automation, decommissioning], open: [properties, related, history, children, source, er, stated] }
+  product-lead: { lead: [strategy, costs, suppliers, documentation, organisation, ml, work, common], open: [stated, implementedby, linkedfrom, related, properties] }
+problems:
+  thresholds:
+    largeFileLines: 600
+    hotspotLines: 200
+    hotspotCommits: 10
+    hotspotScore: 10000
+  rules:
+    dependency.cycle: { predicate: dependency-cycle, kind: dependency-cycle, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Dependency cycle", ru: "Цикл зависимостей" } }
+    security.sql-input: { predicate: sql-input, kind: sql-input, sonar: vulnerability, severity: blocker, section: code, action: task, enabled: true, label: { en: "Untrusted input reaches SQL", ru: "Внешние данные попадают в SQL" } }
+    security.export-route: { predicate: route-outside-auth, kind: route-outside-auth, sonar: vulnerability, severity: critical, section: code, action: task, enabled: true, label: { en: "Route outside the auth group", ru: "Маршрут вне группы авторизации" } }
+    large-file: { predicate: large-file, kind: large-file, sonar: code-smell, severity: minor, section: code, action: task, enabled: true, label: { en: "Large file", ru: "Большой файл" } }
+    hotspot: { predicate: change-hotspot, kind: change-hotspot, sonar: code-smell, severity: major, section: code, action: task, enabled: true, label: { en: "Change hotspot", ru: "Горячая точка изменений" } }
+    dead-export: { predicate: dead-export, kind: dead-export, sonar: code-smell, severity: minor, section: code, action: task, enabled: true, label: { en: "Exported but unused", ru: "Экспорт без использования" } }
+    debt.todo: { predicate: debt, kind: debt-todo, sonar: code-smell, severity: info, section: code, action: task, enabled: true, params: { marker: "TODO" }, label: { en: "TODO", ru: "TODO" } }
+    debt.fixme: { predicate: debt, kind: debt-fixme, sonar: code-smell, severity: minor, section: code, action: task, enabled: true, params: { marker: "FIXME" }, label: { en: "FIXME", ru: "FIXME" } }
+    config.required-dev-value: { predicate: config-development-value, kind: config-development-value, sonar: vulnerability, severity: critical, section: code, action: task, enabled: true, params: { secrets: [], developmentValues: [] }, label: { en: "Required setting has a checked-in value", ru: "Обязательная настройка задана в репозитории" } }
+    dependency.declared-unused: { predicate: dependency-declared-unused, kind: dependency-declared-unused, sonar: code-smell, severity: minor, section: code, action: task, enabled: true, label: { en: "Dependency declared but unused", ru: "Зависимость объявлена, но не используется" } }
+    dependency.used-undeclared: { predicate: dependency-used-undeclared, kind: dependency-used-undeclared, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Dependency used but undeclared", ru: "Зависимость используется, но не объявлена" } }
+    contract.operation-without-route: { predicate: operation-without-route, kind: operation-without-route, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: "Contract operation is not implemented", ru: "Операция контракта не реализована" } }
+    contract.route-without-operation: { predicate: route-without-operation, kind: route-without-operation, sonar: bug, severity: minor, section: code, action: task, enabled: true, label: { en: "Route is not in the contract", ru: "Маршрута нет в контракте" } }
+    document.contradiction: { predicate: document-contradiction, kind: document-contradiction, sonar: bug, severity: major, section: documents, action: task, enabled: true, label: { en: "Contradiction", ru: "Противоречие" } }
+    document.stale: { predicate: document-stale, kind: document-stale, sonar: bug, severity: major, section: documents, action: task, enabled: true, label: { en: "Stale statement", ru: "Устаревшее утверждение" } }
+    document.undocumented: { predicate: document-undocumented, kind: document-undocumented, sonar: code-smell, severity: major, section: documents, action: task, enabled: true, label: { en: "Undocumented behaviour", ru: "Неописанное поведение" } }
+    document.ambiguous-term: { predicate: document-ambiguous, kind: document-ambiguous, sonar: code-smell, severity: minor, section: documents, action: task, enabled: true, label: { en: "Ambiguous term", ru: "Неоднозначный термин" } }
+    wiki.correction: { predicate: wiki, kind: correction, sonar: bug, severity: major, section: wiki, action: task, enabled: true, label: { en: "Correction", ru: "Исправление" } }
+    wiki.ground-removed: { predicate: wiki, kind: ground-removed, sonar: bug, severity: major, section: wiki, action: task, enabled: true, label: { en: "Ground removed", ru: "Основание исчезло" } }
+    wiki.broken-link: { predicate: wiki, kind: broken-link, sonar: bug, severity: major, section: wiki, action: task, enabled: true, label: { en: "Broken link", ru: "Ссылка никуда не ведёт" } }
+    wiki.unreadable-file: { predicate: wiki, kind: unreadable-file, sonar: bug, severity: major, section: wiki, action: task, enabled: true, label: { en: "Unreadable file", ru: "Файл не читается" } }
+    wiki.unplaced: { predicate: wiki, kind: unplaced, sonar: code-smell, severity: minor, section: wiki, action: task, enabled: true, label: { en: "Unplaced finding", ru: "Находка без места" } }
+    wiki.manifest: { predicate: wiki, kind: manifest, sonar: bug, severity: major, section: wiki, action: task, enabled: true, label: { en: "Manifest finding", ru: "Замечание к манифесту" } }
+catalog:
+  subgroup-kind-bound: 12
+  attributes: [version, coverage, rto, rpo, token-count, translation-state, severity, level, type, status, count, size, duration, score, sunset-date, error-budget]
+  origin-marks: [document, conversation, agent-from-graph, live-system, not-implemented]
+  extractor-mark: extractor
+  statuses: [implemented, partial, not-implemented]
+  template-policies: [page, member, none]
+  relations:
+    affects: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    allocates:
+    appliesTo:
+    approves:
+    assigns:
+    c4.uses: "https://c4model.com/abstractions"
+    childOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    configures: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    constrains:
+    consumesApi: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    contains: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    defines:
+    dependsOn: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    derivesFrom:
+    documents:
+    evidences:
+    fixedBy:
+    fixedIn: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    foundBy: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    generates: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    grants:
+    handles:
+    hasAcceptanceCriterion:
+    hasDeclaredLicense: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasDependencyManifest: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasDistributionArtifact: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasDocumentation: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasHost: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasInput: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasMember: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    hasOutput: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasPart: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    hasRequirement: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasTest: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    hasTestCase: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    implements:
+    linksTo:
+    measures:
+    memberOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    mitigates:
+    monitors:
+    ownedBy: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    parentOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    partOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    providesApi: "https://backstage.io/docs/features/software-catalog/well-known-relations"
+    publishes:
+    quarantines:
+    realises:
+    refines:
+    replicates:
+    restores:
+    reviews:
+    routesTo:
+    satisfies:
+    subscribes:
+    supersedes:
+    threatens:
+    triggers:
+    uses:
+    usesTool: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+    verifies:
+# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and
+# the capability that fills them. A kind with a capability takes that capability's contract for its fields.
+edges:
+  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
+  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
+  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }
+  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }
+  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }
+  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }
+  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }
+  - { name: quarantines, from: [code.test-quarantine], to: [code.test-case], capability: test-quarantine }
+  - { name: fixedBy, from: [code.test-quarantine], to: [task], capability: test-quarantine }
+  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }
+  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }
+  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }
+  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }

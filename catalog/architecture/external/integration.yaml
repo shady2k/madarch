@@ -1,0 +1,25 @@
+id: practice.integration
+definition: A configured link between two systems, with the protocol and the data it carries.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Integration
+    many: Integrations
+  ru:
+    one: Интеграция
+    many: Интеграции
+description:
+  en: A configured link between two systems, with the protocol and the data it carries.
+  ru: Настроенная связь двух систем с протоколом и данными, которые она передаёт.

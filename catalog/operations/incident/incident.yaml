@@ -1,0 +1,25 @@
+id: sre.incident
+definition: An unplanned event that harms or may harm the service, with its impact and its timeline.
+sources:
+- https://sre.google/workbook/postmortem-culture/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Incident
+    many: Incidents
+  ru:
+    one: Инцидент
+    many: Инциденты
+description:
+  en: An unplanned event that harms or may harm the service, with its impact and its timeline.
+  ru: Незапланированное событие, которое вредит сервису или может навредить, с его влиянием и хронологией.

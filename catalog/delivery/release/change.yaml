@@ -1,0 +1,26 @@
+id: otel.vcs-change
+definition: A proposed or merged change to the product, from its first commit until it runs in production.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+- https://dora.dev/guides/dora-metrics/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Change
+    many: Changes
+  ru:
+    one: Изменение
+    many: Изменения
+description:
+  en: A proposed or merged change to the product, from its first commit until it runs in production.
+  ru: Предложенное или слитое изменение продукта от первого коммита до работы в производстве.

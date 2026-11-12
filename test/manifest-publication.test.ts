@@ -8,6 +8,7 @@ import { createRecordSchema } from '../src/graph/records.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
@@ -17,7 +18,7 @@ function fixture(): string {
   mkdirSync(join(folder, 'madarch'));
   mkdirSync(join(folder, 'templates'));
   writeFileSync(join(folder, 'templates', 'term.md'), '# Term');
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `kinds:
+  writeFolderManifest(folder, `kinds:
   term:
     source: document
     template: templates/term.md
@@ -43,8 +44,8 @@ test('publishes complete metadata and declaration evidence without repository co
     expect([...manifest!.kinds.keys()]).toEqual(['term']);
     expect([...manifest!.workflows!.workflows.keys()]).toEqual(['future']);
     const rows = await owner.run((tx) => tx.query<{ evidence: { path: string; line_start: number; commit_or_digest: string }[] }>(`SELECT evidence FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
-    expect(rows.rows[0]!.evidence[0]!.path).toBe('madarch/kinds.yaml');
-    expect(rows.rows[0]!.evidence[0]!.line_start).toBe(2);
+    expect(rows.rows[0]!.evidence[0]!.path).toBe('madarch/kinds/fixture/fixture/term.yaml');
+    expect(rows.rows[0]!.evidence[0]!.line_start).toBe(1);
     expect(rows.rows[0]!.evidence[0]!.commit_or_digest).toHaveLength(40);
     let queries = 0;
     const counted = { ...owner, transaction: async <T>(kind: Parameters<typeof owner.transaction>[0], work: Parameters<typeof owner.transaction<T>>[1]): Promise<T> => owner.transaction(kind, async (tx) => work({ ...tx, query: async (...args: Parameters<typeof tx.query>) => { queries++; return tx.query(...args); } } as typeof tx)) };
@@ -79,18 +80,19 @@ test('reports all invalid declarations with full paths and retains the last vali
   try {
     await createRecordSchema(owner, EMPTY_CONTRACT);
     await watch.refresh(folder);
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds:\n  bad: { source: unknown, template: missing.md }\n');
+    writeFolderManifest(folder, 'kinds:\n  bad: { source: unknown, template: missing.md }\n');
     writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  broken: { status: wrong, stages: [unknown] }\n');
     const read = validateProductManifests(folder);
     expect(read.ok).toBe(false);
     if (read.ok) throw new Error('invalid manifests accepted');
-    expect(read.findings.some((one) => one.file === join(folder, 'madarch', 'kinds.yaml'))).toBe(true);
+    expect(read.findings.some((one) => one.file === join(folder, 'madarch/kinds/fixture/fixture/bad.yaml'))).toBe(true);
     expect(read.findings.some((one) => one.file === join(folder, 'madarch', 'workflows.yaml'))).toBe(true);
     expect(read.findings.every((one) => one.line > 0)).toBe(true);
     await watch.refresh(folder);
     expect(reports.length).toBeGreaterThan(1);
     expect([...((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.keys())]).toEqual(['term']);
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: {}\n');
+    rmSync(join(folder, 'madarch/kinds'), { recursive: true, force: true });
+    writeFolderManifest(folder, 'kinds: {}\n');
     writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
     await watch.refresh(folder);
     expect((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.size).toBe(0);
@@ -130,13 +132,13 @@ test('filesystem watcher publishes a valid edit and refuses invalid edits withou
 
 test('malformed kinds still reports workflow and lock diagnostics, and no commit is refused', () => {
   const folder = fixture();
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), 'kinds: [');
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), 'groups: [');
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows: [');
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), 'plugins: [');
   const invalid = validateProductManifests(folder);
   expect(invalid.ok).toBe(false);
   if (invalid.ok) throw new Error('invalid manifests accepted');
-  for (const name of ['kinds.yaml', 'workflows.yaml', 'plugins.lock']) expect(invalid.findings.some((one) => one.file === join(folder, 'madarch', name))).toBe(true);
+  for (const name of ['catalog.yaml', 'workflows.yaml', 'plugins.lock']) expect(invalid.findings.some((one) => one.file === join(folder, 'madarch', name))).toBe(true);
   const fresh = fixture();
   rmSync(join(fresh, '.git'), { recursive: true });
   const noCommit = validateProductManifests(fresh);
@@ -147,7 +149,8 @@ test('malformed kinds still reports workflow and lock diagnostics, and no commit
 
 test('an absent kinds manifest is valid without publishing a catalogue, but invalid declarations still refuse', () => {
   const folder = fixture();
-  rmSync(join(folder, 'madarch', 'kinds.yaml'));
+  rmSync(join(folder, 'madarch', 'catalog.yaml'));
+  rmSync(join(folder, 'madarch/kinds'), { recursive: true, force: true });
   expect(validateProductManifests(folder)).toEqual({ ok: true, value: undefined });
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows: [');
   const invalid = validateProductManifests(folder);
@@ -159,7 +162,7 @@ test('an absent kinds manifest is valid without publishing a catalogue, but inva
 test('named plugin manifests use the existing plugin validator for missing and malformed files', () => {
   const folder = fixture();
   mkdirSync(join(folder, 'plugins', 'words'), { recursive: true });
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `plugins:
+  writeFolderManifest(folder, `plugins:
   - id: words
     version: "1"
     path: plugins/words

@@ -1,0 +1,25 @@
+id: gdpr.special-category-data
+definition: Personal data of the kinds the GDPR treats as specially protected, such as health or beliefs.
+sources:
+- https://gdpr-info.eu/art-9-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Special-category data
+    many: Special-category data
+  ru:
+    one: Особые категории данных
+    many: Особые категории данных
+description:
+  en: Personal data of the kinds the GDPR treats as specially protected, such as health or beliefs.
+  ru: 'Персональные данные, которые GDPR считает особо защищёнными: здоровье или убеждения.'

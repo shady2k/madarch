@@ -1,0 +1,25 @@
+id: storybook.story
+definition: One rendered state of a component, as Storybook's Component Story Format declares it.
+sources:
+- https://storybook.js.org/docs/api/csf
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Story
+    many: Stories
+  ru:
+    one: История компонента
+    many: Истории компонентов
+description:
+  en: One rendered state of a component, as Storybook's Component Story Format declares it.
+  ru: Одно отрисованное состояние компонента, как его объявляет Component Story Format в Storybook.

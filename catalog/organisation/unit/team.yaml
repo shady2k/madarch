@@ -1,0 +1,27 @@
+id: practice.team
+definition: A group of people who work together and answer for a part of the product.
+sources:
+- https://www.w3.org/TR/vocab-org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasMember
+  - parentOf
+  in:
+  - memberOf
+  - childOf
+template-policy: none
+labels:
+  en:
+    one: Team
+    many: Teams
+  ru:
+    one: Команда
+    many: Команды
+description:
+  en: A group of people who work together and answer for a part of the product.
+  ru: Группа людей, которые работают вместе и отвечают за часть продукта.

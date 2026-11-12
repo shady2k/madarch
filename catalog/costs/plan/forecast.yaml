@@ -1,0 +1,25 @@
+id: practice.forecast
+definition: What the costs are expected to be, computed from the spend so far.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Cost forecast
+    many: Cost forecasts
+  ru:
+    one: Прогноз затрат
+    many: Прогнозы затрат
+description:
+  en: What the costs are expected to be, computed from the spend so far.
+  ru: Ожидаемые затраты, вычисленные по уже понесённым.

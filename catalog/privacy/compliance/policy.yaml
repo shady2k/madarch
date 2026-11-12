@@ -1,0 +1,25 @@
+id: oscal.policy
+definition: An organisational rule that says what must be done, and who may deviate from it.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Policy
+    many: Policies
+  ru:
+    one: Правило
+    many: Правила
+description:
+  en: An organisational rule that says what must be done, and who may deviate from it.
+  ru: Правило организации о том, что должно быть сделано и кто может от него отступить.

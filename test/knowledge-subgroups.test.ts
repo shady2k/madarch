@@ -9,9 +9,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseKinds } from '../src/product/manifest/kinds.js';
-import { STARTER_FILES, GROUPS } from '../src/knowledge/seed.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { GROUPS } from './catalog-data-fixture.js';
 import { starterKinds, starterManifestText } from './knowledge-fixture.js';
-import { CATALOG_KINDS } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_KINDS } from '../src/knowledge/catalog-starter.js';
 
 const folder = mkdtempSync(join(tmpdir(), 'madarch-subgroups-'));
 for (const starter of STARTER_FILES) {

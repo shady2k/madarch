@@ -1,0 +1,25 @@
+id: practice.scheduled-job
+definition: Work the system runs on a timetable rather than in response to a request.
+sources:
+- https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - triggers
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Scheduled job
+    many: Scheduled jobs
+  ru:
+    one: Задача по расписанию
+    many: Задачи по расписанию
+description:
+  en: Work the system runs on a timetable rather than in response to a request.
+  ru: Работа, которую система выполняет по расписанию, а не в ответ на запрос.

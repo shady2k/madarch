@@ -1,0 +1,25 @@
+id: opengitops.reconciliation
+definition: The repeated act of comparing the desired state in Git with the live state and correcting the difference.
+sources:
+- https://opengitops.dev/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: GitOps reconciliation
+    many: GitOps reconciliations
+  ru:
+    one: Согласование GitOps
+    many: Согласования GitOps
+description:
+  en: The repeated act of comparing the desired state in Git with the live state and correcting the difference.
+  ru: Повторяемое сравнение желаемого состояния в Git с живым и исправление расхождения.

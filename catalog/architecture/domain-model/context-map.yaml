@@ -1,0 +1,25 @@
+id: ddd.context-map
+definition: The map of the bounded contexts and the relationships between them.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Context map
+    many: Context maps
+  ru:
+    one: Карта контекстов
+    many: Карты контекстов
+description:
+  en: The map of the bounded contexts and the relationships between them.
+  ru: Карта ограниченных контекстов и связей между ними.

@@ -1,0 +1,25 @@
+id: nist-ai-rmf.ai-system
+definition: A system that uses a model to make or support decisions, as the NIST AI risk framework treats it.
+sources:
+- https://www.nist.gov/itl/ai-risk-management-framework
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: AI system
+    many: AI systems
+  ru:
+    one: Система ИИ
+    many: Системы ИИ
+description:
+  en: A system that uses a model to make or support decisions, as the NIST AI risk framework treats it.
+  ru: Система, которая использует модель для решений или их поддержки, как её понимает рамка рисков NIST AI.

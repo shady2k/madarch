@@ -1,0 +1,25 @@
+id: practice.supplier-assessment
+definition: The check of a supplier's security and its dependability, with what it found.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/161/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Supplier assessment
+    many: Supplier assessments
+  ru:
+    one: Оценка поставщика
+    many: Оценки поставщиков
+description:
+  en: The check of a supplier's security and its dependability, with what it found.
+  ru: Проверка безопасности и надёжности поставщика с её находками.

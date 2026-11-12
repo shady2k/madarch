@@ -1,0 +1,47 @@
+id: practice.database
+definition: A database a service owns, with its tables and its migrations.
+sources:
+- https://www.postgresql.org/docs/
+acquisition:
+- extractor data-model
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - dependsOn
+template-policy: page
+template: templates/database.liquid
+source: graph
+fields:
+- name: name
+  type: text
+  binding: db-schema@1.name
+- name: repository
+  type: text
+  binding: db-schema@1.repository
+key:
+- name
+depends-on:
+- code.repository
+- code.file
+terms:
+- '**/*.ts'
+- '**/*.tsx'
+card: true
+er: tables
+system: data-store
+details:
+- service
+- path
+- evidenceKind
+labels:
+  en:
+    one: Database
+    many: Databases
+  ru:
+    one: База данных
+    many: Базы данных
+description:
+  en: A database a service owns, with its tables and migrations.
+  ru: База данных сервиса, её таблицы и миграции.

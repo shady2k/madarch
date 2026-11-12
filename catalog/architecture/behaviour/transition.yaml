@@ -1,0 +1,26 @@
+id: uml.transition
+definition: A change from one state to another, with the event that triggers it.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - triggers
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Transition
+    many: Transitions
+  ru:
+    one: Переход
+    many: Переходы
+description:
+  en: A change from one state to another, with the event that triggers it.
+  ru: Смена одного состояния на другое с событием, которое её вызывает.

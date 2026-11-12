@@ -1,0 +1,12 @@
+order: 0
+id: everything
+title:
+  en: Everything
+  ru: Всё
+description:
+  en: 'The whole starter catalogue: code, history, documents, the work loop and the
+    data model, with the plugins that read them.'
+  ru: 'Весь стартовый каталог: код, история, документы, рабочий цикл и модель данных,
+    с плагинами, которые их читают.'
+kinds: all
+default: true

@@ -1,0 +1,27 @@
+id: practice.release
+definition: A version of the product made available to its users, with the changes it carries.
+sources:
+- https://helm.sh/docs/topics/charts/
+- https://dora.dev/guides/dora-metrics/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  - hasDistributionArtifact
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Release
+    many: Releases
+  ru:
+    one: Выпуск
+    many: Выпуски
+description:
+  en: A version of the product made available to its users, with the changes it carries.
+  ru: Версия продукта, сделанная доступной пользователям, с её изменениями.

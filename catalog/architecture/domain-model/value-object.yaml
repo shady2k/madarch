@@ -1,0 +1,25 @@
+id: ddd.value-object
+definition: A domain value defined by its attributes, without an identity of its own.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Value object
+    many: Value objects
+  ru:
+    one: Объект-значение
+    many: Объекты-значения
+description:
+  en: A domain value defined by its attributes, without an identity of its own.
+  ru: Значение предметной области, определяемое своими атрибутами и не имеющее собственной идентичности.

@@ -1,0 +1,25 @@
+id: practice.support-request
+definition: A question or a problem a person raises with the support of the product.
+sources:
+- https://www.atlassian.com/software/jira/service-management
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Support request
+    many: Support requests
+  ru:
+    one: Обращение в поддержку
+    many: Обращения в поддержку
+description:
+  en: A question or a problem a person raises with the support of the product.
+  ru: Вопрос или проблема, с которыми человек обращается в поддержку продукта.

@@ -1,0 +1,25 @@
+id: dcat.distribution
+definition: One accessible form of a dataset, such as a file, an API or a stream, with its media type and address.
+sources:
+- https://www.w3.org/TR/vocab-dcat-3/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Distribution
+    many: Distributions
+  ru:
+    one: Распространение
+    many: Распространения
+description:
+  en: One accessible form of a dataset, such as a file, an API or a stream, with its media type and address.
+  ru: 'Одна доступная форма набора данных: файл, API или поток, с типом носителя и адресом.'

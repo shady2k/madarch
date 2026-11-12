@@ -1,0 +1,25 @@
+id: openfeature.variant
+definition: One value a feature flag can take, chosen by its rules.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Flag variant
+    many: Flag variants
+  ru:
+    one: Вариант флага
+    many: Варианты флага
+description:
+  en: One value a feature flag can take, chosen by its rules.
+  ru: Одно значение, которое может принимать флаг функции, выбранное его правилами.

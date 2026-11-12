@@ -1,0 +1,25 @@
+id: istqb.failure
+definition: An event in which the product does not meet its requirements or its expected result.
+sources:
+- https://glossary.istqb.org/en_US/term/failure
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - foundBy
+template-policy: none
+labels:
+  en:
+    one: Failure
+    many: Failures
+  ru:
+    one: Сбой
+    many: Сбои
+description:
+  en: An event in which the product does not meet its requirements or its expected result.
+  ru: Событие, в котором продукт не отвечает своим требованиям или ожидаемому результату.

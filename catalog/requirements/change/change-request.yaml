@@ -1,0 +1,25 @@
+id: practice.change-request
+definition: A request to change the product, with the reason and the scope it touches.
+sources:
+- https://glossary.istqb.org/en_US/term/change-request
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Change request
+    many: Change requests
+  ru:
+    one: Запрос на изменение
+    many: Запросы на изменение
+description:
+  en: A request to change the product, with the reason and the scope it touches.
+  ru: Просьба изменить продукт с причиной и затронутой областью.

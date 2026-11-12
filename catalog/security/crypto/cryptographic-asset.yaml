@@ -1,0 +1,25 @@
+id: cyclonedx.crypto-asset
+definition: A cryptographic algorithm, key or protocol the product relies on, with the properties it is judged by.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Cryptographic asset
+    many: Cryptographic assets
+  ru:
+    one: Криптографический актив
+    many: Криптографические активы
+description:
+  en: A cryptographic algorithm, key or protocol the product relies on, with the properties it is judged by.
+  ru: Алгоритм, ключ или протокол, на который опирается продукт, с оцениваемыми свойствами.

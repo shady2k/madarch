@@ -1,0 +1,25 @@
+id: prov.activity
+definition: Something that happened and produced or changed data, as PROV-O defines an activity.
+sources:
+- https://www.w3.org/TR/prov-o/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Provenance activity
+    many: Provenance activities
+  ru:
+    one: Действие происхождения
+    many: Действия происхождения
+description:
+  en: Something that happened and produced or changed data, as PROV-O defines an activity.
+  ru: То, что произошло и создало или изменило данные, как действие в PROV-O.

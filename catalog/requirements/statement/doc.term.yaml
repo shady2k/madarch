@@ -1,0 +1,51 @@
+id: practice.glossary-term
+definition: A word of the product's own language, defined once in a glossary.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - defines
+  in:
+  - uses
+template-policy: page
+template: templates/term.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+depends-on:
+- code.file
+origin: person
+listing: glossary
+nav: own-page
+labels:
+  en:
+    one: Glossary term
+    many: Glossary terms
+  ru:
+    one: Термин
+    many: Термины
+description:
+  en: A term of the product's language, defined in a glossary.
+  ru: Слово из языка продукта с определением из глоссария.

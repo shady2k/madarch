@@ -1,0 +1,31 @@
+id: practice.entry-point
+definition: Where a process of the system starts running.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- file
+- language
+- service
+- symbol
+- starts
+labels:
+  en:
+    one: Entry point
+    many: Entry points
+  ru:
+    one: Точка входа
+    many: Точки входа
+description:
+  en: Where a process of the system starts running.
+  ru: Место, где начинает работать процесс системы.

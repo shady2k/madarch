@@ -1,0 +1,25 @@
+id: opengitops.application
+definition: A deployed application whose desired state is kept in Git and reconciled into the cluster.
+sources:
+- https://opengitops.dev/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: GitOps application
+    many: GitOps applications
+  ru:
+    one: Приложение GitOps
+    many: Приложения GitOps
+description:
+  en: A deployed application whose desired state is kept in Git and reconciled into the cluster.
+  ru: Развёрнутое приложение, желаемое состояние которого хранится в Git и приводится в кластер.

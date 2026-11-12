@@ -1,0 +1,25 @@
+id: scim.directory
+definition: The accounts and groups a service keeps in step with an identity provider over SCIM.
+sources:
+- https://www.rfc-editor.org/rfc/rfc7644.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: SCIM directory
+    many: SCIM directories
+  ru:
+    one: Каталог SCIM
+    many: Каталоги SCIM
+description:
+  en: The accounts and groups a service keeps in step with an identity provider over SCIM.
+  ru: Учётные записи и группы, которые сервис держит в согласии с поставщиком идентичности по SCIM.

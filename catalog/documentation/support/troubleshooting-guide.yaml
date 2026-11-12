@@ -1,0 +1,25 @@
+id: practice.troubleshooting-guide
+definition: The symptoms of a known failure and what resolves each of them.
+sources:
+- https://diataxis.fr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Troubleshooting guide
+    many: Troubleshooting guides
+  ru:
+    one: Руководство по устранению неполадок
+    many: Руководства по устранению неполадок
+description:
+  en: The symptoms of a known failure and what resolves each of them.
+  ru: Признаки известного сбоя и то, что каждый из них устраняет.

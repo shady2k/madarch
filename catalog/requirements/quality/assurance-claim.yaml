@@ -1,0 +1,26 @@
+id: sacm.claim
+definition: A proposition an assurance case argues for, supported by argument and evidence.
+sources:
+- https://www.omg.org/spec/SACM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  - refines
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Assurance claim
+    many: Assurance claims
+  ru:
+    one: Утверждение обеспечения
+    many: Утверждения обеспечения
+description:
+  en: A proposition an assurance case argues for, supported by argument and evidence.
+  ru: Положение, которое обосновывает дело обеспечения, подкреплённое рассуждением и доказательствами.

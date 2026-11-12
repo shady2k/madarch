@@ -1,0 +1,25 @@
+id: practice.iam-role
+definition: A named set of permissions a subject can be given, in a cloud or an application.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/207/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - grants
+  in:
+  - grants
+template-policy: none
+labels:
+  en:
+    one: IAM role
+    many: IAM roles
+  ru:
+    one: Роль IAM
+    many: Роли IAM
+description:
+  en: A named set of permissions a subject can be given, in a cloud or an application.
+  ru: Именованный набор прав, который можно дать субъекту в облаке или приложении.

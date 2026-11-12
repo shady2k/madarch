@@ -1,0 +1,29 @@
+id: practice.desired-deployment
+definition: The state a deployment asks an environment to hold, as its manifests and its GitOps source state it, beside the
+  deployment that asked and the state observed.
+sources:
+- https://kubernetes.io/docs/concepts/architecture/controller/
+- https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Desired deployment
+    many: Desired deployments
+  ru:
+    one: Желаемое развёртывание
+    many: Желаемые развёртывания
+description:
+  en: The state a deployment asks an environment to hold, as its manifests and its GitOps source state it, beside the deployment
+    that asked and the state observed.
+  ru: Состояние, которое развёртывание требует от среды, как его задают манифесты и источник GitOps, рядом с самим развёртыванием
+    и наблюдаемым состоянием.

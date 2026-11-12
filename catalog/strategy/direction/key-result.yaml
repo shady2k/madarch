@@ -1,0 +1,25 @@
+id: practice.key-result
+definition: A measurable result that tells whether an objective was reached.
+sources:
+- https://www.whatmatters.com/faqs/okr-meaning-definition-example
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Key result
+    many: Key results
+  ru:
+    one: Ключевой результат
+    many: Ключевые результаты
+description:
+  en: A measurable result that tells whether an objective was reached.
+  ru: Измеримый результат, который говорит, достигнута ли цель.

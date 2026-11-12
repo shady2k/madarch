@@ -1,0 +1,25 @@
+id: practice.mutation-report
+definition: The record of which mutants a test suite killed and which survived.
+sources:
+- https://stryker-mutator.io/docs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Mutation report
+    many: Mutation reports
+  ru:
+    one: Отчёт о мутациях
+    many: Отчёты о мутациях
+description:
+  en: The record of which mutants a test suite killed and which survived.
+  ru: Запись того, каких мутантов набор тестов убил, а какие выжили.

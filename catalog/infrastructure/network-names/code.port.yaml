@@ -1,0 +1,28 @@
+id: practice.network-port
+definition: A network port a service listens on or publishes.
+sources:
+- https://www.rfc-editor.org/rfc/rfc6335.html
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - appliesTo
+  in:
+  - appliesTo
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+details:
+- port
+- service
+labels:
+  en:
+    one: Port
+    many: Ports
+  ru:
+    one: Порт
+    many: Порты
+description:
+  en: A network port a service listens on or publishes.
+  ru: Сетевой порт, который сервис слушает или публикует.

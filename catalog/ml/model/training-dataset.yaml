@@ -1,0 +1,25 @@
+id: practice.training-dataset
+definition: The data a model was trained on, with its source and its licence.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Dataset/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Training dataset
+    many: Training datasets
+  ru:
+    one: Обучающий набор
+    many: Обучающие наборы
+description:
+  en: The data a model was trained on, with its source and its licence.
+  ru: Данные, на которых обучена модель, с их источником и лицензией.

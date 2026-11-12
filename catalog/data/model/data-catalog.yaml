@@ -1,0 +1,25 @@
+id: dcat.catalog
+definition: 'A curated collection of dataset records, as a DCAT catalog is: the datasets one publisher describes together.'
+sources:
+- https://www.w3.org/TR/vocab-dcat-3/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Data catalog
+    many: Data catalogs
+  ru:
+    one: Каталог данных
+    many: Каталоги данных
+description:
+  en: 'A curated collection of dataset records, as a DCAT catalog is: the datasets one publisher describes together.'
+  ru: 'Собранная коллекция записей наборов данных, как каталог DCAT: наборы, которые один издатель описывает вместе.'

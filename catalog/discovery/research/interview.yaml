@@ -1,0 +1,25 @@
+id: practice.interview
+definition: A recorded conversation with a person that yields research findings.
+sources:
+- https://www.nngroup.com/articles/user-interviews/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Interview
+    many: Interviews
+  ru:
+    one: Интервью
+    many: Интервью
+description:
+  en: A recorded conversation with a person that yields research findings.
+  ru: Записанный разговор с человеком, дающий результаты исследования.

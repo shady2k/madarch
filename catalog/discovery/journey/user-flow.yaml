@@ -1,0 +1,25 @@
+id: practice.user-flow
+definition: The steps a person takes through the product to reach one outcome.
+sources:
+- https://www.nngroup.com/articles/journey-mapping-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: User flow
+    many: User flows
+  ru:
+    one: Пользовательский путь
+    many: Пользовательские пути
+description:
+  en: The steps a person takes through the product to reach one outcome.
+  ru: Шаги, которые человек проходит по продукту, чтобы достичь результата.

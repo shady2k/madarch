@@ -1,0 +1,25 @@
+id: uml.state-machine
+definition: The states a thing can be in and the transitions between them, as UML state machines define them.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: State machine
+    many: State machines
+  ru:
+    one: Конечный автомат
+    many: Конечные автоматы
+description:
+  en: The states a thing can be in and the transitions between them, as UML state machines define them.
+  ru: Состояния, в которых может находиться объект, и переходы между ними, как их определяет UML.

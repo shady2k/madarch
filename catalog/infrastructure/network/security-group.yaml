@@ -1,0 +1,25 @@
+id: practice.security-group
+definition: A named set of firewall rules attached to the resources of one cloud network.
+sources:
+- https://www.rfc-editor.org/rfc/rfc4949.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: Security group
+    many: Security groups
+  ru:
+    one: Группа безопасности
+    many: Группы безопасности
+description:
+  en: A named set of firewall rules attached to the resources of one cloud network.
+  ru: Именованный набор правил брандмауэра, привязанный к ресурсам одной облачной сети.

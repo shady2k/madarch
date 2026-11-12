@@ -1,0 +1,25 @@
+id: practice.design-frame
+definition: A frame or artboard in a design tool that specifies a screen or a component.
+sources:
+- https://www.nngroup.com/articles/design-systems-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Design frame
+    many: Design frames
+  ru:
+    one: Макет
+    many: Макеты
+description:
+  en: A frame or artboard in a design tool that specifies a screen or a component.
+  ru: Фрейм или артборд в инструменте дизайна, который задаёт экран или компонент.

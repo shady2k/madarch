@@ -1,0 +1,25 @@
+id: ddd.domain-service
+definition: An operation of the domain that belongs to no entity or value object.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Domain service
+    many: Domain services
+  ru:
+    one: Служба предметной области
+    many: Службы предметной области
+description:
+  en: An operation of the domain that belongs to no entity or value object.
+  ru: Операция предметной области, не принадлежащая ни сущности, ни объекту-значению.

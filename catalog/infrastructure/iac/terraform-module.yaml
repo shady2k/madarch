@@ -1,0 +1,25 @@
+id: terraform.module
+definition: A reusable group of Terraform resources with its inputs and outputs.
+sources:
+- https://developer.hashicorp.com/terraform/language/modules
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Terraform module
+    many: Terraform modules
+  ru:
+    one: Модуль Terraform
+    many: Модули Terraform
+description:
+  en: A reusable group of Terraform resources with its inputs and outputs.
+  ru: Многоразовая группа ресурсов Terraform с её входами и выходами.

@@ -1,0 +1,26 @@
+id: practice.link
+definition: A typed connection between two entities with its own id, attributes and history; its type is declared in the manifest.
+sources:
+- https://doc.anytype.io/anytype/create/links
+- https://support.atlassian.com/jira-software-cloud/docs/link-issues/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - linksTo
+  in:
+  - linksTo
+template-policy: none
+labels:
+  en:
+    one: Link
+    many: Links
+  ru:
+    one: Связь
+    many: Связи
+description:
+  en: A typed connection between two entities, with its own id, attributes and history.
+  ru: Типизированная связь между двумя сущностями со своим идентификатором, атрибутами и историей.

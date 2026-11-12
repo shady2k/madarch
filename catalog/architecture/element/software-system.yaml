@@ -1,0 +1,26 @@
+id: c4.software-system
+definition: A system that delivers value to its users, described from outside, as C4 defines it.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Software system
+    many: Software systems
+  ru:
+    one: Программная система
+    many: Программные системы
+description:
+  en: A system that delivers value to its users, described from outside, as C4 defines it.
+  ru: Система, приносящая пользу пользователям и описанная снаружи, как её определяет C4.

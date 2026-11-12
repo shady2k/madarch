@@ -1,0 +1,28 @@
+id: manifest.link-types
+definition: 'A declared kind of link between entities: its name, the kinds it may join and the labels it shows at each end;
+  its id is its key under link-types.'
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/link-issues/
+- https://doc.anytype.io/anytype/create/links
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  - constrains
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Link type
+    many: Link types
+  ru:
+    one: Тип связи
+    many: Типы связей
+description:
+  en: A declared kind of link, its ends and the labels each end shows.
+  ru: Объявленный тип связи, её концы и подписи, которые показывает каждый конец.

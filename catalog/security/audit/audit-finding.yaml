@@ -1,0 +1,25 @@
+id: practice.audit-finding
+definition: One conclusion of an audit, with the evidence and the requirement it rests on.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/53/a/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Audit finding
+    many: Audit findings
+  ru:
+    one: Находка аудита
+    many: Находки аудита
+description:
+  en: One conclusion of an audit, with the evidence and the requirement it rests on.
+  ru: Один вывод аудита с доказательством и требованием, на которых он держится.

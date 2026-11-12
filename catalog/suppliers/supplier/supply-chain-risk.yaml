@@ -1,0 +1,25 @@
+id: practice.supply-chain-risk
+definition: A risk that comes from a supplier or from the chain of suppliers behind it.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/161/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - threatens
+  in:
+  - threatens
+template-policy: none
+labels:
+  en:
+    one: Supply-chain risk
+    many: Supply-chain risks
+  ru:
+    one: Риск цепочки поставок
+    many: Риски цепочки поставок
+description:
+  en: A risk that comes from a supplier or from the chain of suppliers behind it.
+  ru: Риск, который идёт от поставщика или от цепочки поставщиков за ним.

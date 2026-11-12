@@ -1,0 +1,25 @@
+id: practice.survey
+definition: A set of questions put to many people, whose answers are evidence for a decision.
+sources:
+- https://www.nngroup.com/articles/which-ux-research-methods/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Survey
+    many: Surveys
+  ru:
+    one: Опрос
+    many: Опросы
+description:
+  en: A set of questions put to many people, whose answers are evidence for a decision.
+  ru: Набор вопросов многим людям, чьи ответы служат доказательством для решения.

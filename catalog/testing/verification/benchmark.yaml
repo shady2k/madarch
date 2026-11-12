@@ -1,0 +1,25 @@
+id: practice.benchmark
+definition: A repeatable measurement of the product's speed or cost, kept so a change can be compared.
+sources:
+- https://web.dev/articles/vitals
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Benchmark
+    many: Benchmarks
+  ru:
+    one: Замер
+    many: Замеры
+description:
+  en: A repeatable measurement of the product's speed or cost, kept so a change can be compared.
+  ru: Повторяемое измерение скорости или стоимости продукта, хранимое для сравнения изменений.

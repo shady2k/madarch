@@ -1,0 +1,25 @@
+id: practice.bug-bounty-program
+definition: An arrangement in which outside researchers are paid for the vulnerabilities they report.
+sources:
+- https://www.hackerone.com/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Bug bounty programme
+    many: Bug bounty programmes
+  ru:
+    one: Программа поиска уязвимостей
+    many: Программы поиска уязвимостей
+description:
+  en: An arrangement in which outside researchers are paid for the vulnerabilities they report.
+  ru: Договорённость, по которой внешним исследователям платят за сообщённые уязвимости.

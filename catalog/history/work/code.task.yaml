@@ -1,0 +1,27 @@
+id: practice.tracker-task
+definition: A tracker task that commit messages name, with the commits that name it.
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- extractor history
+status: implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: page
+template: templates/history-task.liquid
+source: graph
+origin: history
+history: task
+labels:
+  en:
+    one: Task
+    many: Tasks
+  ru:
+    one: Задача
+    many: Задачи
+description:
+  en: A tracker task that commit messages name.
+  ru: Задача трекера, которую называют сообщения коммитов.

@@ -1,0 +1,25 @@
+id: practice.release-notes
+definition: What one release changes for the people who use the product.
+sources:
+- https://keepachangelog.com/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Release notes
+    many: Release notes
+  ru:
+    one: Заметки о выпуске
+    many: Заметки о выпуске
+description:
+  en: What one release changes for the people who use the product.
+  ru: Что один выпуск меняет для людей, которые пользуются продуктом.

@@ -1,0 +1,25 @@
+id: practice.dns-record
+definition: A record in a DNS zone that maps a name to an address or to another name.
+sources:
+- https://www.rfc-editor.org/rfc/rfc1035.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: DNS record
+    many: DNS records
+  ru:
+    one: Запись DNS
+    many: Записи DNS
+description:
+  en: A record in a DNS zone that maps a name to an address or to another name.
+  ru: Запись в зоне DNS, которая сопоставляет имя адресу или другому имени.

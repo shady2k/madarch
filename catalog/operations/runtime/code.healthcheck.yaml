@@ -1,0 +1,34 @@
+id: practice.compose-healthcheck
+definition: A configured compose healthcheck command and its timing.
+sources:
+- https://docs.docker.com/compose/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - monitors
+  in:
+  - monitors
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- service
+- test
+- interval
+- timeout
+- retries
+- disable
+- startPeriod
+- startInterval
+labels:
+  en:
+    one: Healthcheck
+    many: Healthchecks
+  ru:
+    one: Проверка состояния
+    many: Проверки состояния
+description:
+  en: A configured compose healthcheck command and its timing.
+  ru: Команда проверки состояния compose и её интервалы.

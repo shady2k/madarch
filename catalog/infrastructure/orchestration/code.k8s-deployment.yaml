@@ -1,0 +1,32 @@
+id: kubernetes.deployment
+definition: 'A Kubernetes Deployment: the image it runs, its replicas and its probes.'
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- image
+- replicas
+- containerPorts
+- probePath
+- probePaths
+- envFrom
+labels:
+  en:
+    one: Kubernetes deployment
+    many: Kubernetes deployments
+  ru:
+    one: Развёртывание Kubernetes
+    many: Развёртывания Kubernetes
+description:
+  en: 'A Kubernetes Deployment: image, replicas and probes.'
+  ru: 'Развёртывание Kubernetes: образ, число реплик и проверки.'

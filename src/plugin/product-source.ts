@@ -11,7 +11,7 @@
 import { contentsOf } from './stored-text.js';
 import type { GraphReader } from '../knowledge/graph-read.js';
 import type { ProductFileSource } from './product-files.js';
-import { KINDS_FILE } from '../product/manifest/kinds.js';
+import { KINDS_FILE, KINDS_FOLDER } from '../product/manifest/kinds.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { PLUGINS_LOCK_FILE } from './lock.js';
 
@@ -82,13 +82,15 @@ export class StoredProductFiles implements ProductFileSource {
   }
 
   /**
-   * Fetches what reading the manifest reads: `madarch/kinds.yaml`, `madarch/workflows.yaml`, the plugin lock and every
+   * Fetches what reading the manifest reads: `madarch/catalog.yaml`, `madarch/kinds/`, `madarch/workflows.yaml`, the plugin lock and every
    * plugin contract the tree holds. A plugin's folder is the manifest's own declaration, so the contract files are found
    * by their name in the index and never by a guess at the folder.
    */
   async ensureManifest(): Promise<void> {
     await this.ensure([
       KINDS_FILE,
+      'madarch/kinds.yaml',
+      ...this.filesBelow(KINDS_FOLDER),
       WORKFLOWS_FILE,
       PLUGINS_LOCK_FILE,
       ...this.paths().filter((path) => path.endsWith('/contract.json') || path.endsWith('/plugin.json')),

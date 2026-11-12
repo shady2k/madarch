@@ -1,0 +1,25 @@
+id: nist800-34.backup-policy
+definition: How often a backup is taken, how long it is kept and where it is stored.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Backup policy
+    many: Backup policies
+  ru:
+    one: Политика резервного копирования
+    many: Политики резервного копирования
+description:
+  en: How often a backup is taken, how long it is kept and where it is stored.
+  ru: Как часто делают резервную копию, сколько её хранят и где.

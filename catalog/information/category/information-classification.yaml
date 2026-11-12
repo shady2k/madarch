@@ -1,0 +1,25 @@
+id: practice.information-classification
+definition: The level a piece of information is classified at, which decides who may see it.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Classification level
+    many: Classification levels
+  ru:
+    one: Уровень секретности
+    many: Уровни секретности
+description:
+  en: The level a piece of information is classified at, which decides who may see it.
+  ru: Уровень, к которому отнесена информация и который определяет, кому её можно показывать.

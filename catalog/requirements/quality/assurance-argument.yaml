@@ -1,0 +1,25 @@
+id: sacm.argument
+definition: The reasoning that links an assurance claim to its evidence.
+sources:
+- https://www.omg.org/spec/SACM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Assurance argument
+    many: Assurance arguments
+  ru:
+    one: Аргумент обеспечения
+    many: Аргументы обеспечения
+description:
+  en: The reasoning that links an assurance claim to its evidence.
+  ru: Рассуждение, которое связывает утверждение обеспечения с его доказательствами.

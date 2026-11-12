@@ -1,0 +1,25 @@
+id: nist800-34.failover
+definition: The move of a service from its failed place to its standby, and how it is decided.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - restores
+  in:
+  - restores
+template-policy: none
+labels:
+  en:
+    one: Failover
+    many: Failovers
+  ru:
+    one: Переключение при отказе
+    many: Переключения при отказе
+description:
+  en: The move of a service from its failed place to its standby, and how it is decided.
+  ru: Переход сервиса с отказавшего места на резервное и то, как это решают.

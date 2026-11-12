@@ -1,0 +1,25 @@
+id: madr.decision-driver
+definition: A force or concern a decision was made against, as MADR records it.
+sources:
+- https://adr.github.io/madr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Decision driver
+    many: Decision drivers
+  ru:
+    one: Движущая сила решения
+    many: Движущие силы решения
+description:
+  en: A force or concern a decision was made against, as MADR records it.
+  ru: Сила или забота, против которой принято решение, как записывает MADR.

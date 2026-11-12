@@ -1,0 +1,25 @@
+id: istqb.test-charter
+definition: The mission statement that guides one exploratory test session.
+sources:
+- https://glossary.istqb.org/en_US/term/test-charter
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Test charter
+    many: Test charters
+  ru:
+    one: Миссия тестовой сессии
+    many: Миссии тестовых сессий
+description:
+  en: The mission statement that guides one exploratory test session.
+  ru: Формулировка миссии, которая ведёт одну сессию исследовательского тестирования.

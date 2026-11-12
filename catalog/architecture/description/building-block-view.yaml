@@ -1,0 +1,25 @@
+id: arc42.building-block-view
+definition: arc42's view of the system's static building blocks and their relations.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Building-block view
+    many: Building-block views
+  ru:
+    one: Представление строительных блоков
+    many: Представления строительных блоков
+description:
+  en: arc42's view of the system's static building blocks and their relations.
+  ru: Представление arc42 статических строительных блоков системы и связей между ними.

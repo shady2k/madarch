@@ -1,7 +1,9 @@
 /**
  * The product's entity kinds (decision 0029, "Manifests and templates live in
  * the product repository"): `madarch/kinds.yaml` in the product repository
- * declares which kinds the wiki shows, where each kind's entities come from
+ * is the retired layout. `madarch/catalog.yaml` holds metadata and
+ * `madarch/kinds/<group>/<subgroup>/<kind>.yaml` declares each kind,
+ * including where its entities come from
  * (the graph, or Markdown files in the product repository) and the template
  * that shows them. The engine holds no kind of its own: nothing here names a
  * kind, a folder or a template, and a product without the file has no pages.
@@ -33,7 +35,10 @@
  */
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { LineCounter, parseDocument, type Document } from 'yaml';
+import { LineCounter, parse, parseDocument, stringify, type Document } from 'yaml';
+
+/** Decode repository-owned catalogue YAML in the manifest layer. */
+export function parseCatalogYaml(text: string): unknown { return parse(text); }
 import { lineForPath } from '../../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from '../../knowledge/catalog.js';
 import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
@@ -44,12 +49,16 @@ import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettin
 import { Value } from 'typebox/value';
 import { PluginContractFile, type PluginContractDeclaration } from '../../plugin/protocol.js';
 import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
-import { workingTreeFiles, type ProductFileRead } from '../../plugin/product-files.js';
+import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
 import { byCodePoint } from '../../model/order.js';
 
 /** The manifest's place in the product repository. */
-export const KINDS_FILE = 'madarch/kinds.yaml';
+export const KINDS_FILE = 'madarch/catalog.yaml';
+export const KINDS_FOLDER = 'madarch/kinds';
+const LEGACY_KINDS_FILE = 'madarch/kinds.yaml';
+
+export type KindsFileSource = ProductFileRead & Pick<ProductFileSource, 'filesBelow'>;
 
 /** One problem in a product file the wiki reads: where it is and what it is. */
 /** What kind of problem a finding is, for the Problems page: a file that cannot be read. */
@@ -498,6 +507,8 @@ export interface KindsManifest {
   /** The reader-facing labels and value formats of the properties the kinds show. */
   properties: ReadonlyMap<string, PropertyDecl>;
   kinds: ReadonlyMap<string, KindDecl>;
+  /** Source paths of folder declarations, keyed by kind name. */
+  kindFiles?: ReadonlyMap<string, string>;
   /** The edge kinds the manifest declares, by name. */
   edges?: ReadonlyMap<string, EdgeDecl>;
   /** The plugins the product holds, by id (decision 0035, item 11). */
@@ -838,21 +849,151 @@ function withWorkflows(manifest: KindsManifest, files: ProductFileRead, productF
   };
 }
 
-/** Reads `madarch/kinds.yaml` of a product folder's working tree; absent when the product holds none. */
+/** Reads catalogue metadata and kind declarations of a product working tree; absent when neither exists. */
 export function readKinds(productFolder: string): KindsRead {
   return readKindsFrom(workingTreeFiles(productFolder), productFolder);
 }
 
 /**
- * Reads `madarch/kinds.yaml` and the declaration files beside it from a source of the product repository's files: the
+ * Reads the metadata and folder declarations from a source of the product repository's files: the
  * fill's working tree, or the graph's stored text for a reader of the wiki. Nothing is read from a checkout here.
  */
-export function readKindsFrom(files: ProductFileRead, productFolder: string): KindsRead {
-  const file = join(productFolder, KINDS_FILE);
-  if (!files.has(KINDS_FILE)) return { present: false, file };
-  const text = files.text(KINDS_FILE);
-  if (text === undefined) return { present: true, manifest: nothing(file, [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }]) };
-  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder, files), files, productFolder) };
+export function readKindsFrom(files: KindsFileSource, productFolder: string): KindsRead {
+  if (files.has(LEGACY_KINDS_FILE)) {
+    const file = join(productFolder, LEGACY_KINDS_FILE);
+    return { present: true, manifest: nothing(file, [{ file, source: file, line: 1, message: 'the legacy madarch/kinds.yaml layout is not supported: migrate metadata to madarch/catalog.yaml and kind declarations to madarch/kinds/<group>/<subgroup>/<kind>.yaml' }]) };
+  }
+  const read = readKindsFolderFrom(files, productFolder);
+  return read.present ? { present: true, manifest: withWorkflows(read.manifest, files, productFolder) } : read;
+}
+
+/** Reads a folder catalogue through the same validator as product declarations, retaining each source line. */
+export function readKindsFolderFrom(files: KindsFileSource, productFolder: string, metadataPath = KINDS_FILE, kindsFolder = KINDS_FOLDER): KindsRead {
+  const file = join(productFolder, metadataPath);
+  const paths = files.filesBelow(kindsFolder).filter((path) => path !== metadataPath).sort(byCodePoint);
+  if (!files.has(metadataPath) && paths.length === 0) return { present: false, file };
+  const findings: Finding[] = [];
+  const locations: { file: string; line: number }[] = [];
+  const composite: string[] = [];
+  const kindFiles = new Map<string, string>();
+  const append = (text: string, path: string, indent = ''): void => {
+    for (const [index, line] of text.replace(/\n$/, '').split('\n').entries()) {
+      composite.push(indent + line);
+      locations.push({ file: join(productFolder, path), line: index + 1 });
+    }
+  };
+  const documentText = (path: string): string | undefined => {
+    const full = join(productFolder, path);
+    const text = files.has(path) ? files.text(path) : undefined;
+    if (text === undefined) {
+      findings.push({ file: full, source: full, line: 1, message: 'the file cannot be read: the source holds no text of it' });
+      return undefined;
+    }
+    const { doc } = parsedManifest(text, full);
+    if (doc.errors.length > 0) {
+      for (const error of doc.errors) findings.push({ file: full, source: full, line: error.linePos?.[0].line ?? 1, message: error.message.split('\n')[0] ?? error.message });
+      return undefined;
+    }
+    const value: unknown = doc.toJS();
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      findings.push({ file: full, source: full, line: 1, message: 'the declaration is a YAML mapping' });
+      return undefined;
+    }
+    for (const key of ['kinds', ...(path === metadataPath ? [] : ['name', 'group'])]) {
+      if (Object.hasOwn(value, key)) {
+        const { lines } = parsedManifest(text, full);
+        findings.push({ file: full, source: full, line: lineForPath(doc, lines, [key]), message: `"${key}" is not declared here: kind names and groups come from the folder layout` });
+        return undefined;
+      }
+    }
+    // Document markers cannot be indented into the enclosing kind mapping.
+    return text.replace(/^(?:---|\.\.\.)(?:[ \t]*(?:#.*)?)?$/gm, '');
+  };
+  const metadata = documentText(metadataPath);
+  if (metadata !== undefined) {
+    const { doc, lines } = parsedManifest(metadata, file);
+    if ((doc.contents as { flow?: boolean } | null)?.flow === true) {
+      const value = doc.toJS() as Record<string, unknown>;
+      const written = stringify(value, { lineWidth: 0 });
+      const normalizedLines = new LineCounter();
+      const normalized = parseDocument(written, { lineCounter: normalizedLines });
+      const before = locations.length;
+      if (Object.keys(value).length > 0) append(written, metadataPath);
+      const mapPaths = (held: unknown, path: (string | number)[]): void => {
+        const generatedLine = lineForPath(normalized, normalizedLines, path);
+        const originalLine = lineForPath(doc, lines, path);
+        if (locations[before + generatedLine - 1] !== undefined) locations[before + generatedLine - 1]!.line = originalLine;
+        if (Array.isArray(held)) held.forEach((entry, index) => mapPaths(entry, [...path, index]));
+        else if (held !== null && typeof held === 'object') for (const [key, entry] of Object.entries(held)) mapPaths(entry, [...path, key]);
+      };
+      mapPaths(value, []);
+    } else append(metadata, metadataPath);
+  }
+  const rawGroups: unknown = metadata === undefined ? undefined : parsedManifest(metadata, file).doc.toJS()?.groups;
+  const groups = rawGroups !== null && typeof rawGroups === 'object' && !Array.isArray(rawGroups) ? rawGroups as Record<string, { parent?: unknown }> : {};
+  composite.push('kinds:'); locations.push({ file, line: 1 });
+  for (const path of paths) {
+    const full = join(productFolder, path);
+    const suffix = path.slice(kindsFolder.length + 1);
+    const segments = suffix.split('/');
+    const leaf = segments.at(-1)!;
+    if (segments.length !== 3 || !leaf.endsWith('.yaml') || leaf === '.yaml' || segments.some((segment) => segment === '')) {
+      findings.push({ file: full, source: full, line: 1, message: 'a kind declaration lives at <group>/<subgroup>/<kind>.yaml' });
+      continue;
+    }
+    const name = leaf.slice(0, -'.yaml'.length);
+    if (kindFiles.has(name)) {
+      findings.push({ file: full, source: full, line: 1, message: `kind "${name}" is already declared in ${join(productFolder, kindFiles.get(name)!)}` });
+      continue;
+    }
+    const text = documentText(path);
+    if (text === undefined) continue;
+    kindFiles.set(name, path);
+    composite.push(`  ${JSON.stringify(name)}:`); locations.push({ file: full, line: 1 });
+    const joinedGroup = segments.slice(0, -1).join('.');
+    const subgroup = segments[1]!;
+    const group = JSON.stringify(groups[subgroup]?.parent === segments[0] ? subgroup : joinedGroup);
+    const { doc } = parsedManifest(text, full);
+    if ((doc.contents as { flow?: boolean } | null)?.flow === true) {
+      const offset = doc.contents!.range![0];
+      append(text.slice(0, offset + 1) + `group: ${group}, ` + text.slice(offset + 1), path, '    ');
+    } else {
+      composite.push(`    group: ${group}`); locations.push({ file: full, line: 1 });
+      append(text, path, '    ');
+    }
+  }
+  if (kindFiles.size === 0) { composite[composite.indexOf('kinds:')] = 'kinds: {}'; }
+  const manifest = parseKinds(composite.join('\n') + '\n', file, productFolder, files);
+  const location = (line: number) => locations[line - 1] ?? { file, line: 1 };
+  const remap = (finding: Finding): Finding => finding.file === file
+    ? { ...finding, ...location(finding.line), source: location(finding.line).file }
+    : finding;
+  // Declaration locations are used by publication as well as diagnostics.
+  const remapLines = (value: unknown): void => {
+    if (value instanceof Map) { for (const entry of value.values()) remapLines(entry); }
+    else if (Array.isArray(value)) { for (const entry of value) remapLines(entry); }
+    else if (value !== null && typeof value === 'object') {
+      for (const [key, held] of Object.entries(value)) {
+        if (key === 'line' && typeof held === 'number') (value as { line: number }).line = location(held).line;
+        else remapLines(held);
+      }
+    }
+  };
+  const mapped = manifest.findings.map(remap);
+  const catalogMapped = manifest.catalog?.findings.map(remap);
+  remapLines(manifest.kinds);
+  remapLines(manifest.groups);
+  remapLines(manifest.properties);
+  remapLines(manifest.expect);
+  remapLines(manifest.roles);
+  remapLines(manifest.edges);
+  remapLines(manifest.plugins);
+  if (manifest.catalog !== undefined) {
+    remapLines(manifest.catalog.kinds);
+    remapLines(manifest.catalog.schema);
+    manifest.catalog = { ...manifest.catalog, findings: catalogMapped ?? [] };
+  }
+  return { present: true, manifest: { ...manifest, kindFiles, findings: [...findings, ...mapped] } };
 }
 
 /**
