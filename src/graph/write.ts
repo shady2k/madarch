@@ -146,13 +146,6 @@ export class Journal {
   }
 }
 
-/**
- * How many events one journal row carries before the writer writes what it holds and opens another: a pass whose entry
- * grows with the repository keeps each row a couple of megabytes, and every row of one publication is written in that
- * publication's transaction (codex, stage 2 review, item 7). One event is 240-800 bytes of entry on this repository,
- * and a pass journals a batch of up to 500 edges at once, so 4 000 events keep a row under ~3.5 MB.
- */
-export const JOURNAL_ENTRY_EVENTS = 4_000;
 
 /**
  * The journal entry a transaction is building, bound to that transaction object: every writer call inside the
@@ -206,17 +199,6 @@ export async function writeJournal(executor: SqlExecutor, journal: Journal): Pro
     [journal.author, journal.machine, journal.session, journal.words, text],
   ));
   return true;
-}
-
-/**
- * Writes the entry when it holds `JOURNAL_ENTRY_EVENTS` or more, and empties it so the pass goes on in a new row of the
- * same transaction. A pass calls it between its write batches; a run whose entry never grows writes one row, as before.
- */
-export async function flushJournalIfFull(executor: SqlExecutor, journal: Journal, events = JOURNAL_ENTRY_EVENTS): Promise<boolean> {
-  if (journal.count() < events) return false;
-  const wrote = await writeJournal(executor, journal);
-  journal.drain();
-  return wrote;
 }
 
 /** A table, column or key name: the shape a generated table carries. */

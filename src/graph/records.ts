@@ -502,11 +502,6 @@ export async function repositoryFileIndex(owner: DatabaseOwner, repository: stri
   }));
 }
 
-/** The agreed published text, or null for absent, binary or contested content. */
-export async function storedFileText(owner: DatabaseOwner, repository: string, path: string): Promise<string | null> {
-  return (await storedFileTexts(owner, repository, [path])).get(path) ?? null;
-}
-
 /** Every repository the store holds, in code point order of the names. */
 export async function listRepositories(owner: DatabaseOwner, declared?: ReadonlySet<string>): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {
   // A product that declares no repository kind has no repository table: its contract answers no repository, and the
