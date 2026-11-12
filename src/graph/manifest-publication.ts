@@ -1,5 +1,6 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
 import { isAbsolute, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
@@ -92,18 +93,16 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
     const wanted = new Set(validated.vertices.map((one) => JSON.stringify([one.kind, one.key.name])));
     const removals: VertexRemovalDraft[] = held.rows.filter((one) => !wanted.has(JSON.stringify([one.kind, one.name]))).map((one) => ({ kind: one.kind, key: { name: one.name }, producer: 'manifest' }));
     // Compare the complete opinion, including its grounds, before replaying declarations through the writer.
-    const unchanged = await tx.query<{ kind: string; name: string }>(`WITH wanted AS (
-      SELECT * FROM jsonb_to_recordset($1::jsonb) AS w(kind text, name text, declaration jsonb, evidence jsonb)
-    ) ${MANIFEST_CONTRACT.vertex.map((kind) => `SELECT w.kind, w.name FROM wanted w
-      JOIN entity e ON e.name = w.kind
-      JOIN node n ON n.entity_id = e.id AND n.key = jsonb_build_object('name', w.name) AND n.context_id = 1 AND NOT n.removed
-      JOIN (SELECT DISTINCT ON (p.node_id) p.node_id, p.declaration, p.evidence FROM "${kind.table}" p
+    const published = await tx.query<{ kind: string; name: string; declaration: unknown; evidence: unknown }>(MANIFEST_CONTRACT.vertex.map((kind) => `SELECT '${kind.name}' AS kind, n.key->>'name' AS name, p.declaration, p.evidence
+      FROM (SELECT DISTINCT ON (p.node_id) p.node_id, p.declaration, p.evidence FROM "${kind.table}" p
         WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
-        ORDER BY p.node_id, p.id DESC) p ON p.node_id = n.id
-      WHERE w.kind = '${kind.name}' AND p.declaration = w.declaration AND p.evidence = w.evidence`).join(' UNION ALL ')}`,
-      [JSON.stringify(validated.vertices.map((one) => ({ kind: one.kind, name: one.key.name, declaration: one.values?.declaration, evidence: evidenceList(one) })))],
-    );
-    const same = new Set(unchanged.rows.map((one) => JSON.stringify([one.kind, one.name])));
+        ORDER BY p.node_id, p.id DESC) p
+      JOIN node n ON n.id = p.node_id AND n.context_id = 1 AND NOT n.removed`).join(' UNION ALL '));
+    const current = new Map(published.rows.map((one) => [JSON.stringify([one.kind, one.name]), one]));
+    const same = new Set(validated.vertices.filter((one) => {
+      const held = current.get(JSON.stringify([one.kind, one.key.name]));
+      return held !== undefined && isDeepStrictEqual(held.declaration, one.values?.declaration) && isDeepStrictEqual(held.evidence, evidenceList(one));
+    }).map((one) => JSON.stringify([one.kind, one.key.name])));
     const vertices = validated.vertices.filter((one) => !same.has(JSON.stringify([one.kind, one.key.name])));
     return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
   });
