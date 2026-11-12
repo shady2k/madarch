@@ -35,7 +35,7 @@ import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfEntity, addressOfJournal, addressOfKind, addressOfStatement, WIKI_DOCS, WIKI_FILL, WIKI_PROBLEMS } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
-import { fillWithOf } from './producers.js';
+import { pluginNames } from './producers.js';
 import { areaOf } from './catalog-area.js';
 import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
@@ -660,14 +660,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
       id: sectionId(subgroup.key), label: subgroup.name, children: kindContents(subgroup.kinds),
     }))],
   }));
-  const producerWords = (kind: CatalogKindView): string => {
-    if ((kind.plugins ?? []).length > 0) return t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') });
-    if (kind.producer === 'extract') return t('knowledge.catalogueStage.extract');
-    if (kind.producer === 'documents') return t('knowledge.catalogueStage.documents');
-    if (kind.producer === 'history') return t('knowledge.catalogueStage.history');
-    if (fillWithOf(kind) === 'person') return t('knowledge.catalogueByPerson');
-    return t('knowledge.catalogueByAgent');
-  };
+  const producerWords = (kind: CatalogKindView): string => pluginNames(kind).join(', ') || t('knowledge.catalogueNoPlugin');
   const stateOf = (kind: CatalogKindView): string => kind.turn === 'failed' || kind.turn === 'blocked' || kind.turn === 'cancelled' ? 'failed' : kind.state;
   const totals = (kinds: CatalogKindView[]): ReactElement => <>{t('knowledge.catalogueKinds', { count: kinds.length })}, {t('knowledge.catalogueEntities', { count: kinds.reduce((sum, kind) => sum + kind.count, 0) })}</>;
   const table = (rows: CatalogKindView[]): ReactElement => (
@@ -692,10 +685,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             </TableCell>
             <TableCell className="align-top">{kind.descriptions?.[language] ?? <Text className="text-muted">–</Text>}<KindSources kind={kind} compact /></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
-              {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)}>{kind.count}</KLink> : kind.count}
+              {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)} title={nameOf(kind)}>{kind.count}</KLink> : kind.count}
               {kind.statements !== undefined && <Text className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</Text>}
             </TableCell>
-            <TableCell className="align-top" data-testid="catalogue-stage" data-stage={fillWithOf(kind)}>{producerWords(kind)}</TableCell>
+            <TableCell className="align-top" data-testid="catalogue-stage">{producerWords(kind)}</TableCell>
             <TableCell className="align-top" data-testid="catalogue-states">
               <Badge variant={stateOf(kind) === 'never' ? 'outline' : 'solid'} data-testid="catalogue-state" data-state={stateOf(kind)}>{t(`knowledge.catalogueState.${stateOf(kind)}`)}</Badge>
             </TableCell>

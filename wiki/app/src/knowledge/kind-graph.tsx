@@ -11,7 +11,7 @@ import type { CatalogKindView, CatalogView } from './types.js';
 /** One entity of the graph: the kind, its dependencies and the depths it stands at. */
 export interface GraphNode {
   readonly kind: CatalogKindView;
-  readonly dependsOn: readonly string[];
+  readonly derivesFrom: readonly string[];
   readonly depth: number;
 }
 
@@ -34,7 +34,7 @@ export function graphLayers(kinds: readonly CatalogKindView[]): { nodes: GraphNo
     }
     active.push(kind);
     let deepest = 0;
-    for (const dependency of byKind.get(kind)?.dependsOn ?? []) {
+    for (const dependency of byKind.get(kind)?.derivesFrom ?? []) {
       if (!byKind.has(dependency)) continue;
       deepest = Math.max(deepest, visit(dependency) + 1);
     }
@@ -42,7 +42,7 @@ export function graphLayers(kinds: readonly CatalogKindView[]): { nodes: GraphNo
     depth.set(kind, deepest);
     return deepest;
   };
-  const nodes = kinds.map((kind) => ({ kind, dependsOn: kind.dependsOn ?? [], depth: visit(kind.kind) }))
+  const nodes = kinds.map((kind) => ({ kind, derivesFrom: kind.derivesFrom ?? [], depth: visit(kind.kind) }))
     .sort((left, right) => left.depth - right.depth || (left.kind.kind < right.kind.kind ? -1 : left.kind.kind > right.kind.kind ? 1 : 0));
   const count = nodes.reduce((sum, node) => Math.max(sum, node.depth + 1), 0);
   const layers: string[][] = Array.from({ length: count }, () => []);
@@ -90,7 +90,7 @@ export function relatedKinds(kinds: readonly CatalogKindView[], chosen: string |
   const related = new Set<string>();
   if (chosen === null || !byKind.has(chosen)) return related;
   const dependents = new Map<string, string[]>();
-  for (const kind of kinds) for (const dependency of kind.dependsOn ?? []) {
+  for (const kind of kinds) for (const dependency of kind.derivesFrom ?? []) {
     const held = dependents.get(dependency) ?? [];
     held.push(kind.kind);
     dependents.set(dependency, held);
@@ -106,7 +106,7 @@ export function relatedKinds(kinds: readonly CatalogKindView[], chosen: string |
       pending.push(...neighbors(id));
     }
   };
-  walk((id) => byKind.get(id)?.dependsOn ?? []);
+  walk((id) => byKind.get(id)?.derivesFrom ?? []);
   walk((id) => dependents.get(id) ?? []);
   return related;
 }
@@ -144,7 +144,7 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
       <GraphViewport ref={viewport} data-testid="dependencies-graph">
         <GraphCanvas width={width} height={height}>
           <GraphEdges width={width} height={height}>
-            {nodes.flatMap((node) => node.dependsOn.flatMap((dependency) => {
+            {nodes.flatMap((node) => node.derivesFrom.flatMap((dependency) => {
               const from = place.get(dependency);
               const to = place.get(node.kind.kind);
               if (from === undefined || to === undefined) return [];

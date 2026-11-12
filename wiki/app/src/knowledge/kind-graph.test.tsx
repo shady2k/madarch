@@ -44,8 +44,8 @@ const CATALOG: CatalogView = {
   product: { name: 'shop', id: 'p1' }, language: 'en', groups: [], findings: [],
   kinds: [
     kind({ kind: 'code.file', count: 12, labels: { en: { one: 'File', many: 'Files' } }, plugins: ['files'] }),
-    kind({ kind: 'doc.term', count: 3, state: 'partial', dependsOn: ['code.file'], plugins: ['glossary'], labels: { en: { one: 'Term', many: 'Terms' } } }),
-    kind({ kind: 'doc.use-case', count: 0, state: 'never', dependsOn: ['code.file'], labels: { en: { one: 'Use case', many: 'Use cases' } } }),
+    kind({ kind: 'doc.term', count: 3, state: 'partial', derivesFrom: ['code.file'], plugins: ['glossary'], labels: { en: { one: 'Term', many: 'Terms' } } }),
+    kind({ kind: 'doc.use-case', count: 0, state: 'never', derivesFrom: ['code.file'], labels: { en: { one: 'Use case', many: 'Use cases' } } }),
   ],
 };
 
@@ -83,7 +83,7 @@ describe('the shared kind graph', () => {
   });
 
   test('a chosen kind highlights dependencies and dependents without changing navigation', async () => {
-    const catalog = { ...CATALOG, kinds: [...CATALOG.kinds, kind({ kind: 'root', dependsOn: ['doc.term'] })] };
+    const catalog = { ...CATALOG, kinds: [...CATALOG.kinds, kind({ kind: 'root', derivesFrom: ['doc.term'] })] };
     const graph = into(createElement(KindGraph, { catalog, chosen: 'doc.term' }));
     await until(() => graph.querySelector('[data-testid="dependency-node"]') !== null, 'the graph');
     const chosen = graph.querySelector('[data-kind="doc.term"]')!;
@@ -106,16 +106,16 @@ describe('the shared kind graph', () => {
   });
 
   test('layers follow longest chains, missing kinds are retained as dependencies, and cycles stay visible', async () => {
-    expect(graphLayers([kind({ kind: 'a' }), kind({ kind: 'b', dependsOn: ['a'] }), kind({ kind: 'c', dependsOn: ['b'] })]).layers).toEqual([['a'], ['b'], ['c']]);
-    const kinds = [kind({ kind: 'a', dependsOn: ['b'] }), kind({ kind: 'b', dependsOn: ['a'] })];
+    expect(graphLayers([kind({ kind: 'a' }), kind({ kind: 'b', derivesFrom: ['a'] }), kind({ kind: 'c', derivesFrom: ['b'] })]).layers).toEqual([['a'], ['b'], ['c']]);
+    const kinds = [kind({ kind: 'a', derivesFrom: ['b'] }), kind({ kind: 'b', derivesFrom: ['a'] })];
     expect(graphLayers(kinds).cycles).toEqual(['a -> b -> a']);
     const graph = into(createElement(KindGraph, { catalog: { ...CATALOG, kinds } }));
     await until(() => graph.querySelector('[role="alert"]') !== null, 'the cycle');
     expect(graph.querySelector('[role="alert"]')!.textContent).toContain('a -> b -> a');
     expect(graph.querySelectorAll('[data-testid="dependency-node"]')).toHaveLength(2);
     expect([...relatedKinds(kinds, 'a')].sort()).toEqual(['a', 'b']);
-    const missing = graphLayers([kind({ kind: 'a', dependsOn: ['missing'] })]);
-    expect(missing.nodes[0]!.dependsOn).toEqual(['missing']);
+    const missing = graphLayers([kind({ kind: 'a', derivesFrom: ['missing'] })]);
+    expect(missing.nodes[0]!.derivesFrom).toEqual(['missing']);
     expect(missing.layers).toEqual([['a']]);
     expect([...relatedKinds(kinds, null)]).toEqual([]);
   });

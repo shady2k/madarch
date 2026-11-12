@@ -1,16 +1,13 @@
+import { prerequisiteClosure } from '../../../../src/knowledge/fill-selection.js';
 import type { CatalogKindView } from './types.js';
 
 export function addedByDependency(kinds: readonly CatalogKindView[], checked: ReadonlySet<string>): Map<string, string> {
-  const byKind = new Map(kinds.map((kind) => [kind.kind, kind] as const));
   const added = new Map<string, string>();
-  const visit = (from: string, kind: string): void => {
-    for (const dependency of byKind.get(kind)?.dependsOn ?? []) {
-      if (checked.has(dependency) || added.has(dependency)) continue;
-      added.set(dependency, from);
-      visit(from, dependency);
+  for (const requested of [...checked].sort()) {
+    for (const kind of prerequisiteClosure(kinds, [requested])) {
+      if (!checked.has(kind) && !added.has(kind)) added.set(kind, requested);
     }
-  };
-  for (const kind of [...checked].sort()) if (byKind.has(kind)) visit(kind, kind);
+  }
   return added;
 }
 

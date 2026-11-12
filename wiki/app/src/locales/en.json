@@ -310,14 +310,6 @@
       "running": "Running",
       "failed": "Failed"
     },
-    "catalogueByPlugin": "Its plugin: {{plugins}}",
-    "catalogueByAgent": "agent",
-    "catalogueByPerson": "a person",
-    "catalogueStage": {
-      "extract": "code extraction",
-      "documents": "the documents stage",
-      "history": "the history stage"
-    },
     "more": "Show more",
     "sourceMissing": "The source cannot be shown",
     "productRepository": "product repository",
@@ -465,7 +457,7 @@
     "catalogueColKind": "Kind",
     "catalogueColAbout": "What it is",
     "catalogueColCount": "Records",
-    "catalogueColStage": "Filled by",
+    "catalogueColStage": "Plugins",
     "catalogueEmptyGroup": "No kinds yet",
     "searchPlaceholder": "Search pages and entities",
     "searchLabel": "Search the wiki",
@@ -1052,17 +1044,14 @@
       "dependency": "Dependency",
       "independent": "Independent kinds ({{count}})",
       "agent": "Agent",
-      "noAgent": "No agent — own producers only",
+      "noAgent": "No agent selected",
       "cap": "Token cap (optional)",
       "count": "{{selected}} selected · {{dependencies}} dependencies",
       "starting": "Starting…",
       "run": "Run",
       "unknown": "Estimate unknown for {{count}} kinds.",
       "estimate": "About {{tokens}} tokens · {{seconds}} seconds",
-      "needsAgent": "{{kind}} needs an agent and will wait without one.",
-      "needsPerson": "{{kind}} is filled by a person.",
-      "invalidCap": "Enter a positive whole-number token cap.",
-      "unsupported": "Selected runs currently support own producers only. Agent execution and token caps are not supported yet."
+      "invalidCap": "Enter a positive whole-number token cap."
     },
     "kindDetails": {"unavailable": "The kind declaration is unavailable. Records are shown below.", "fields": "Fields", "relations": "Relations", "noFields": "No fields are declared.", "noRelations": "No relations are declared.", "records": "Records"},
     "kindSources": {
@@ -1077,7 +1066,8 @@
       "relations": "Dependencies",
       "choose": "Show dependencies and dependents of {{kind}}",
       "contents": "On this page"
-    }
+    },
+    "catalogueNoPlugin": "No enabled producer plugin"
   },
   "loop": {
     "questionsTitle": "Questions",

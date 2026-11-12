@@ -47,12 +47,12 @@ const CATALOG: CatalogView = {
     kind('doc.term', {
       labels: { en: { one: 'Term', many: 'Terms' } }, descriptions: { en: 'A word with one agreed meaning.' },
       sources: ['https://example.test/standard'],
-      pluginFolders: ['plugins/glossary'],
-      dependsOn: ['code.file'], state: 'partial', turn: 'failed',
+      plugins: ['glossary'],
+      derivesFrom: ['code.file'], state: 'partial', turn: 'failed',
       fields: [{ name: 'definition', type: 'text' }, { name: 'parent', type: 'text', nullable: true, reference: 'doc.term' }],
       relations: [{ direction: 'out', name: 'defined_in', kind: 'code.file' }, { direction: 'in', name: 'uses', kind: 'doc.rule' }],
     }),
-    kind('doc.rule', { dependsOn: ['doc.term'] }),
+    kind('doc.rule', { derivesFrom: ['doc.term'] }),
     kind('unrelated'),
   ],
 };
@@ -82,7 +82,7 @@ test('the kind page combines its declaration, both relation directions, focused 
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('text | null');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="out"]')!.textContent).toContain('defined_in →');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="in"]')!.textContent).toContain('← uses');
-  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('plugins/glossary');
+  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('glossary');
   expect(page.querySelector('[data-testid="kind-state"]')!.textContent).toBe('Failed');
   expect([...page.querySelectorAll('[data-testid="dependency-node"]')].map((node) => node.getAttribute('data-kind'))).toEqual(['code.file', 'doc.term', 'doc.rule']);
   expect(page.querySelector('[data-testid="dependency-node"][data-kind="doc.term"]')!.getAttribute('data-chosen')).toBe('true');
@@ -101,12 +101,12 @@ test('records remain usable when the catalogue is unavailable', async () => {
 });
 
 test('a catalogue-only kind shows details without inventing fields or targets', async () => {
-  stub({ ...CATALOG, kinds: [kind('member', { page: false, fillWith: 'person', fields: [], relations: [{ direction: 'out', name: 'contains' }] })] });
+  stub({ ...CATALOG, kinds: [kind('member', { page: false, fields: [], relations: [{ direction: 'out', name: 'contains' }] })] });
   const page = into(createElement(KindDetails, { kind: 'member', version: 0 }));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'member declaration');
   expect(page.querySelector('h1')).toBeNull();
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('No fields are declared.');
   expect(page.querySelector('[data-testid="kind-relations"]')!.textContent).toContain('contains →');
   expect(page.querySelector('[data-testid="kind-relations"] a')).toBeNull();
-  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('a person');
+  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('No enabled producer plugin');
 });

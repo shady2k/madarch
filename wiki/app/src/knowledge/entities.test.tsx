@@ -523,14 +523,14 @@ describe('the catalogue', () => {
     language: 'en',
     groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }, { group: 'history', labels: { en: 'History', ru: 'История' } }],
     kinds: [
-      kind({ kind: 'code.file', count: 115, statements: 9, page: true, producer: 'extract', filled: true, descriptions: { en: 'A file of a code repository.', ru: 'Файл репозитория кода.' }, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } } }),
-      kind({ kind: 'code.commit', area: 'history', count: 72, page: true, producer: 'history', filled: true, descriptions: { en: 'A change.', ru: 'Изменение.' }, labels: { en: { one: 'Commit', many: 'Commits' }, ru: { one: 'Коммит', many: 'Коммиты' } } }),
+      kind({ kind: 'code.file', count: 115, statements: 9, page: true, plugins: ['code'], filled: true, descriptions: { en: 'A file of a code repository.', ru: 'Файл репозитория кода.' }, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } } }),
+      kind({ kind: 'code.commit', area: 'history', count: 72, page: true, plugins: ['history'], filled: true, descriptions: { en: 'A change.', ru: 'Изменение.' }, labels: { en: { one: 'Commit', many: 'Commits' }, ru: { one: 'Коммит', many: 'Коммиты' } } }),
       kind({ kind: 'domain', area: 'code', count: 0, descriptions: { en: 'A part of the business.', ru: 'Часть бизнеса.' }, labels: { en: { one: 'Domain', many: 'Domains' }, ru: { one: 'Домен', many: 'Домены' } } }),
     ],
     findings: [],
   };
 
-  test('every declared kind is in its group with what it is, how many there are, whether a stage fills it and a link to its details, in the reader\'s language', async () => {
+  test('every declared kind is in its group with what it is, how many there are, its declared plugins and a link to its details, in the reader\'s language', async () => {
     answer(full);
     const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
@@ -542,20 +542,18 @@ describe('the catalogue', () => {
     expect(row.querySelector('a')!.textContent).toBe('Files');
     expect(row.textContent).toContain('A file of a code repository.');
     expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('1159 statements');
-    // The column names who fills the kind: the plugin its fields bind, the built-in pass that reads it, a person, or
-    // the agent (the owner, 2026-11-10).
-    expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('code extraction');
-    expect(row.querySelector('[data-testid=catalogue-stage]')!.getAttribute('data-stage')).toBe('own');
-    expect(container.querySelector('[data-kind="code.commit"] [data-testid=catalogue-stage]')!.textContent).toBe('the history stage');
+    // Plugin names stay as declared; the app infers no producer category.
+    expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('code');
+    expect(container.querySelector('[data-kind="code.commit"] [data-testid=catalogue-stage]')!.textContent).toBe('history');
     // Empty catalogue-only kinds also have declaration details.
     const empty = container.querySelector('[data-kind="domain"]')!;
     expect(empty.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('0');
-    expect(empty.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('agent');
+    expect(empty.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('No enabled producer plugin');
     expect(empty.querySelector('a')!.getAttribute('href')).toBe('/kind/domain');
     expect(empty.getAttribute('data-filled')).toBe('false');
   });
 
-  test('in Russian the names, the descriptions and the stage words are Russian', async () => {
+  test('in Russian the names and descriptions are translated while plugin names are unchanged', async () => {
     answer(full);
     await setWikiLanguage('ru');
     try {
@@ -563,7 +561,7 @@ describe('the catalogue', () => {
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
       expect(container.querySelector('h1')!.textContent).toBe('Каталог сущностей');
       expect(container.querySelector('[data-kind="code.file"]')!.textContent).toContain('Файл репозитория кода.');
-      expect(container.querySelector('[data-kind="code.file"] [data-testid=catalogue-stage]')!.textContent).toBe('извлечение из кода');
+      expect(container.querySelector('[data-kind="code.file"] [data-testid=catalogue-stage]')!.textContent).toBe('code');
       expect(container.querySelector('[data-group=history] h2')!.textContent).toContain('История');
     } finally {
       await setWikiLanguage('en');
@@ -587,11 +585,11 @@ describe('the catalogue', () => {
     }
   });
 
-  test('a page a person writes says so and is not counted as a stage', async () => {
-    answer({ ...full, kinds: [kind({ kind: 'correction', labels: { en: { one: 'Correction', many: 'Corrections' } }, descriptions: { en: 'A note that a statement is wrong.' }, page: true, producer: 'person', filled: false, count: 2 })] });
+  test('a kind without an enabled producer names that absence without inferring a category', async () => {
+    answer({ ...full, kinds: [kind({ kind: 'correction', labels: { en: { one: 'Correction', many: 'Corrections' } }, descriptions: { en: 'A note that a statement is wrong.' }, page: true, plugins: [], filled: false, count: 2 })] });
     const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
-    expect(container.querySelector('[data-kind="correction"] [data-testid=catalogue-stage]')!.textContent).toBe('a person');
+    expect(container.querySelector('[data-kind="correction"] [data-testid=catalogue-stage]')!.textContent).toBe('No enabled producer plugin');
     expect(container.querySelector('[data-kind="correction"]')!.getAttribute('data-filled')).toBe('false');
   });
 
