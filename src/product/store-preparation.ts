@@ -9,6 +9,7 @@ export interface PreparationRequest {
   readonly database?: string;
   readonly contract?: GraphContract;
   readonly histories?: boolean;
+  readonly reset?: boolean;
   readonly rename?: { readonly from: string; readonly to: string };
 }
 const ADDRESS = 'MADARCH_STORE_OWNER_URL';
@@ -17,6 +18,9 @@ const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
 /** Ask the owning process; a role without its owner refuses instead of creating schemas itself. */
 export async function requestStorePreparation(store: string, contract?: GraphContract): Promise<void> {
   await request({ store, ...(contract === undefined ? {} : { contract }) });
+}
+export async function requestStoreReset(store: string, contract: GraphContract): Promise<void> {
+  await request({ store, contract, reset: true });
 }
 export async function requestHistoryPreparation(store: string, database?: string): Promise<void> {
   await request({ store, ...(database === undefined ? { histories: true } : { database }) });
@@ -45,12 +49,12 @@ export function publishStoreOwner(home: string): () => void {
 async function request(body: PreparationRequest): Promise<void> {
   const url = process.env[ADDRESS];
   const token = process.env[TOKEN];
-  if (url === undefined || token === undefined) throw new Error(`the store ${resolve(body.store)} needs its owning madarch process for schema preparation (src/product/store-preparation.ts)`);
+  if (url === undefined || token === undefined) throw new Error(`${resolve(body.store)}:1: the store needs its owning madarch process for schema preparation (src/product/store-preparation.ts)`);
   await sendRequest(body, url, token);
 }
 async function sendRequest(body: PreparationRequest, url: string, token: string): Promise<void> {
   const response = await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  if (!response.ok) throw new Error(`the store owner refused ${resolve(body.store)}: ${await response.text()} (src/product/store-preparation.ts)`);
+  if (!response.ok) throw new Error(`${resolve(body.store)}:1: the store owner refused: ${await response.text()} (src/product/store-preparation.ts)`);
 }
 
 export async function withStorePreparationOwner<T>(work: () => Promise<T>): Promise<T> {

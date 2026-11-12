@@ -1182,7 +1182,7 @@ async function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined =
 export function describeReset(name: string, plan: ResetPlan): string[] {
   return [
     `Starting ${name} over removes:`,
-    `  - the product's graph store, which the next fill builds again from the code${plan.store.length === 0 ? ' (there is none now)' : ''}`,
+    `  - the product's graph data, which the next fill builds again from the code${plan.store.length === 0 ? ' (there is none now)' : ''}`,
     ...(plan.agentPages.length === 0 ? ['  - no page: the agent has written none'] : [`  - the ${plan.agentPages.length} page${plan.agentPages.length === 1 ? '' : 's'} the agent wrote: ${plan.agentPages.join(', ')}`]),
     `  - ${plan.unansweredQuestions.length} unanswered agent question${plan.unansweredQuestions.length === 1 ? '' : 's'}${plan.unansweredQuestions.length === 0 ? '' : `: ${plan.unansweredQuestions.join(', ')}`}`,
     `${plan.keptAnswers.length} answers stay${plan.keptAnswers.length === 0 ? '' : `: ${plan.keptAnswers.join(', ')}`}. People's corrections stay too.`,
@@ -1197,7 +1197,7 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
   const listed = listProducts({ home: root });
   const names = listed.outcome === 'listed' ? listed.products.map((entry) => basename(entry.folder)) : [];
   if (name === undefined || !names.includes(name)) {
-    console.error(`madarch reset <product>: ${name === undefined ? 'name the product' : `no product "${name}" in ${root}`}; the products are ${names.length === 0 ? '(none)' : names.join(', ')}`);
+    console.error(`${root}:1: madarch reset <product>: ${name === undefined ? 'name the product' : `no product "${name}" in ${root}`}; the products are ${names.length === 0 ? '(none)' : names.join(', ')}`);
     return 2;
   }
   const folder = join(root, name);
@@ -1208,47 +1208,44 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
   }
   const server = daemonUrl({ home: root });
   const asServer = server === undefined ? undefined : `${server}/products/${encodeURIComponent(name)}${API.reset}`;
-  let plan: ResetPlan;
-  try {
-    if (asServer !== undefined) {
-      const answer = await fetch(asServer);
-      if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
-      plan = (await answer.json()) as ResetPlan;
-    } else {
-      const { KnowledgeProduct } = await import('../knowledge/product.js');
-      const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(root) });
-      try {
-        plan = await product.resetPlan();
-      } finally {
-        await product.close();
+  const execute = async (): Promise<number> => {
+    const { KnowledgeProduct } = await import('../knowledge/product.js');
+    const product = asServer === undefined ? new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(root) }) : undefined;
+    try {
+      let plan: ResetPlan;
+      if (asServer !== undefined) {
+        const answer = await fetch(asServer);
+        if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
+        plan = await answer.json() as ResetPlan;
+      } else {
+        plan = await product!.resetPlan();
       }
-    }
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    return 1;
-  }
-  for (const line of describeReset(name, plan)) console.log(line);
-  if (!yes) {
-    process.stderr.write('proceed? [y/N] ');
-    const { answeredFromStdin } = await import('./upgrade.js');
-    const answer = answeredFromStdin()();
-    if (!/^(y|yes)$/i.test(answer.trim())) {
-      console.error(`nothing was removed: the answer was ${JSON.stringify(answer)}, yes is y or yes`);
-      return 2;
-    }
-  }
+      for (const line of describeReset(name, plan)) console.log(line);
+      if (!yes) {
+        process.stderr.write('proceed? [y/N] ');
+        const { answeredFromStdin } = await import('./upgrade.js');
+        const answer = answeredFromStdin()();
+        if (!/^(y|yes)$/i.test(answer.trim())) {
+          console.error(`${folder}:1: nothing was removed: the answer was ${JSON.stringify(answer)}, yes is y or yes`);
+          return 2;
+        }
+      }
+      if (asServer !== undefined) {
+        const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
+        if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
+      } else {
+        const done = await product!.reset(plan);
+        if (!done.ok) throw new Error(done.message);
+      }
+      console.log(`Done. ${name} reads as an empty product: open its wiki and press the button to fill it again.`);
+      return 0;
+    } finally { await product?.close(); }
+  };
   try {
-    if (asServer !== undefined) {
-      const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
-      if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
-    } else {
-      const { applyReset } = await import('../knowledge/reset.js');
-      applyReset(folder, plan);
-    }
+    return asServer === undefined ? await withStorePreparationOwner(execute) : await execute();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(/^\/[^\n]*:\d+:/.test(message) ? message : `${folder}:1: ${message}`);
     return 1;
   }
-  console.log(`Done. ${name} reads as an empty product: open its wiki and press the button to fill it again.`);
-  return 0;
 }
