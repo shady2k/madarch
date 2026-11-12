@@ -59,6 +59,10 @@ export const PluginManifest = Type.Object(
       refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
       coverage: Type.Optional(Type.Literal('gaps')),
     }, { additionalProperties: false }), { minItems: 1 }),
+    tools: Type.Optional(Type.Array(Type.Object({
+      name: Type.String({ pattern: '^[a-z][a-z0-9-]*$' }),
+      sha256: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+    }, { additionalProperties: false }))),
     concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     description: Type.Optional(Type.String({ minLength: 1 })),
     agent: Type.Optional(Type.Object({

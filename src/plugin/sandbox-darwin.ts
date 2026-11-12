@@ -18,6 +18,7 @@ import { STDERR_LOG_BYTES, type SandboxProcess, type StderrLog } from './sandbox
 
 /** Where a refusal stands. */
 import { pluginInvocation } from './invocation.js';
+import type { SandboxTool } from './tools.js';
 
 const WHERE = 'src/plugin/sandbox-darwin.ts';
 
@@ -30,6 +31,8 @@ export interface DarwinSandboxSpec {
   readonly closureFolder: string;
   /** The repository a plugin that declared the `filesystem` right reads; absent, it reads no folder but its closure. */
   readonly repository?: string;
+  readonly filesystemInputs?: readonly { readonly name: string; readonly folder: string }[];
+  readonly tools?: readonly SandboxTool[];
   readonly workFolder: string;
   readonly runtime: string;
   readonly entry: string;
@@ -38,6 +41,7 @@ export interface DarwinSandboxSpec {
 
 /** The deny-by-default profile: the closure and the repository may be read, /tmp written, and nothing else. */
 export function darwinProfile(spec: DarwinSandboxSpec): string {
+  if ((spec.tools?.length ?? 0) > 0) throw new Error(`${WHERE}:1: pinned executable tools are not supported by the macOS sandbox`);
   return [
     '(version 1)',
     '(deny default)',
@@ -46,7 +50,7 @@ export function darwinProfile(spec: DarwinSandboxSpec): string {
     '(allow sysctl-read)',
     '(allow mach-lookup (global-name "com.apple.system.logger"))',
     '(allow signal (target self))',
-    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library"))`,
+    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} ${(spec.filesystemInputs ?? []).map((input) => `(subpath "${input.folder}")`).join(' ')} (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library"))`,
     '(allow file-read-metadata)',
     `(allow file-write* (subpath "${spec.workFolder}") (subpath "/private/tmp"))`,
     '(allow file-write-data (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))',

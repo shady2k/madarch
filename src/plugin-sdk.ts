@@ -194,8 +194,8 @@ export interface VertexKindDeclaration {
 /** One edge kind a plugin declares it produces. */
 export interface EdgeKindDeclaration {
   readonly kind: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from: string | readonly string[];
+  readonly to: string | readonly string[];
   readonly fields?: readonly FieldDeclaration[];
 }
 

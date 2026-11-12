@@ -14,6 +14,8 @@
  * every decision of the host leaves a span and a log line.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
+import { snapshotTools, type TrustedTool } from './tools.js';
+import { releaseTools } from './release-tools.js';
 import { PluginAgentBridge, type PluginAgentOptions, type PluginAgentReport } from './agent.js';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
@@ -199,6 +201,10 @@ export interface PluginHostOptions {
   readonly closure?: Closure;
   /** The repository snapshot a plugin that declared the `filesystem` right may read, bound read-only. */
   readonly repository: string;
+  /** Explicit read-only filesystem inputs; callers supply isolated pinned snapshots. */
+  readonly filesystemInputs?: readonly { readonly name: string; readonly folder: string }[];
+  /** Approved executable pins. A manifest declaration alone never grants trust. */
+  readonly tools?: Readonly<Record<string, TrustedTool>>;
   /** The graph a plugin that declared the `graph` right reads through its queries; absent, every query is refused. */
   readonly graph?: GraphAnswerer;
   /** Host-owned ACP adapter, environment, confined connector and optional catalogue outputs. */
@@ -334,9 +340,13 @@ export class PluginHost {
     // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
     // the files producer alone reads the source tree (decision 0035, item 9).
     const readsRepository = this.contractRights?.filesystem === true;
+    const tools = snapshotTools(closure.manifest.tools, this.options.tools ?? releaseTools(platform), workFolder);
+    if ((this.options.filesystemInputs?.length ?? 0) > 0 && !readsRepository) throw new ClosureRefusal('plugin-filesystem', `${WHERE}:1: filesystem inputs require the declared filesystem right`, WHERE);
     const spec: SandboxSpec = {
       closureFolder: snapshot.folder,
-      ...(readsRepository ? { repository: this.options.repository } : {}),
+      tools,
+      filesystemInputs: this.options.filesystemInputs ?? [],
+      ...(readsRepository && (this.options.filesystemInputs?.length ?? 0) === 0 ? { repository: this.options.repository } : {}),
       workFolder,
       runtime: process.execPath,
       entry: closure.manifest.entry,

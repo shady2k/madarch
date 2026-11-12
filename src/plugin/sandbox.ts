@@ -25,6 +25,7 @@ import { runtimeSandbox, type RuntimeSandbox } from './elf-runtime.js';
 import { PluginCgroup, cgroupParent, checkCgroupDelegation, checkUserNamespaces, type CgroupCounters, type CgroupLimits, type SetupProblem } from './cgroup.js';
 import { refusedCallNames, seccompFilter } from './seccomp.js';
 import { log } from '../obs/log.js';
+import type { SandboxTool } from './tools.js';
 
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/sandbox.ts';
@@ -44,6 +45,8 @@ export interface SandboxSpec {
    * right is given one (decision 0035, item 9); a plugin that reads the graph sees no folder at all.
    */
   readonly repository?: string;
+  readonly filesystemInputs?: readonly { readonly name: string; readonly folder: string }[];
+  readonly tools?: readonly SandboxTool[];
   /** The host's folder for this run: the stderr log, the seccomp filter and the cgroup's name hang here. */
   readonly workFolder: string;
   /** The runtime's path on the host: the Bun this process runs on. */
@@ -143,11 +146,25 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   for (const folder of runtime.mounts) if (bindable(folder)) args.push('--ro-bind', folder, folder);
   args.push('--ro-bind', spec.closureFolder, '/plugin');
   if (spec.repository !== undefined) args.push('--ro-bind', spec.repository, '/repo');
+  for (const input of spec.filesystemInputs ?? []) {
+    const target = sandboxInputPath(input.name, input.folder, {}, 'linux');
+    args.push('--ro-bind', input.folder, target);
+  }
+  for (const tool of spec.tools ?? []) {
+    args.push('--ro-bind', tool.executable, `/tools/${tool.name}`);
+    const dependencies = runtimeSandbox(tool.executable, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
+    if (dependencies.refusal !== undefined || dependencies.problems.length > 0) throw new ClosureRefusal('plugin-tool', `${WHERE}:1: cannot resolve tool ${tool.name}: ${dependencies.refusal ?? dependencies.problems.join('; ')}`, WHERE);
+    for (const folder of dependencies.mounts) if (bindable(folder)) args.push('--ro-bind', folder, folder);
+    args.push('--setenv', `MADARCH_TOOL_${tool.name.replaceAll('-', '_').toUpperCase()}`, `/tools/${tool.name}`);
+  }
   args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp');
   args.push('--remount-ro', '/');
   args.push('--chdir', '/plugin');
   args.push('--setenv', 'PATH', '/runtime', '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--setenv', 'LANG', 'C.UTF-8');
-  for (const [name, value] of Object.entries(spec.environment ?? {}).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) args.push('--setenv', name, value);
+  for (const [name, value] of Object.entries(spec.environment ?? {}).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
+    if (name.startsWith('MADARCH_TOOL_')) throw new Error(`${WHERE}:1: executable tool environment is host-owned`);
+    args.push('--setenv', name, value);
+  }
   // The two variables a nix-ld shim reads, from the host's own environment: the shim needs them to find a loader and
   // its libraries inside the sandbox, and the environment is otherwise cleared.
   for (const [name, value] of Object.entries(runtime.environment).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) args.push('--setenv', name, value);
@@ -159,12 +176,24 @@ export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: str
   return args;
 }
 
+/** The path a declared filesystem input has in the selected sandbox. */
+export function sandboxInputPath(name: string, folder: string, env: Readonly<Record<string, string | undefined>> = process.env, platform = process.platform): string {
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`${WHERE}:1: invalid filesystem input name ${JSON.stringify(name)}`);
+  return env['MADARCH_PLUGIN_SANDBOX'] === 'off' || platform.startsWith('darwin') ? folder : `/inputs/${name}`;
+}
+
 /** Whether this process has already warned about explicitly unconfined plugins. */
 let warnedUnconfined = false;
 
 /** The single launch choice for every plugin host; no sandbox failure changes this choice. */
 export async function startPluginProcess(spec: SandboxSpec): Promise<SandboxProcess> {
   const env = spec.env ?? process.env;
+  const inputNames = new Set<string>();
+  for (const input of spec.filesystemInputs ?? []) {
+    sandboxInputPath(input.name, input.folder, env);
+    if (inputNames.has(input.name)) throw new Error(`${WHERE}:1: duplicate filesystem input ${input.name}`);
+    inputNames.add(input.name);
+  }
   const mode = env['MADARCH_PLUGIN_SANDBOX'];
   if (mode !== undefined && mode !== 'off') {
     throw new Error(`${fileURLToPath(import.meta.url)}:170: MADARCH_PLUGIN_SANDBOX=${JSON.stringify(mode)} is refused: accepted forms are unset (sandbox on) or off`);
@@ -194,6 +223,7 @@ async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
     const value = hostEnv[name];
     if (value !== undefined) env[name] = value;
   }
+  for (const tool of spec.tools ?? []) env[`MADARCH_TOOL_${tool.name.replaceAll('-', '_').toUpperCase()}`] = tool.executable;
   const child = spawn(spec.runtime, pluginInvocation(spec.runtime, join(spec.closureFolder, spec.entry)), {
     cwd: spec.closureFolder, env, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
   });

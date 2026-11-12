@@ -153,8 +153,8 @@ export const PluginVertexKindDeclaration = Type.Object(
 export const PluginEdgeKindDeclaration = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
-    from: Type.String({ minLength: 1, description: 'The vertex kind its ends start at.' }),
-    to: Type.String({ minLength: 1, description: 'The vertex kind its ends go to.' }),
+    from: Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })], { description: 'The allowed vertex kinds its ends start at.' }),
+    to: Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })], { description: 'The allowed vertex kinds its ends go to.' }),
     fields: Type.Optional(Type.Array(PluginFieldDeclaration)),
   },
   { additionalProperties: false, description: 'One edge kind the plugin produces: its name, the kinds of its ends and its fields.' },
