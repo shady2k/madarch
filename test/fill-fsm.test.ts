@@ -470,10 +470,12 @@ interface RunExpectation {
   readonly to: RunState;
   readonly guards: readonly string[];
   readonly actions: readonly string[];
+  readonly cause?: Extract<RunEvent, { type: 'fail' }>['cause'];
 }
 
 const RUN_EXPECTED: readonly RunExpectation[] = [
   { from: 'created', event: 'plan', to: 'planning', guards: ['configuration-resolved'], actions: ['snapshot-configuration', 'emit-progress'] },
+  { from: 'created', event: 'fail', to: 'failed', cause: 'initialization-failed', guards: ['initialization-failure-named'], actions: ['record-failure', 'emit-progress'] },
   { from: 'planning', event: 'start', to: 'running', guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] },
   { from: 'planning', event: 'block', to: 'blocked', guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] },
   { from: 'planning', event: 'fail', to: 'failed', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] },
@@ -508,7 +510,7 @@ function runEventFor(expectation: RunExpectation): RunEvent {
     case 'complete': return { type: 'complete', at, evidence: settled };
     case 'complete-partial': return { type: 'complete-partial', at, evidence: { ...settled, coverageMet: false } };
     case 'block': return { type: 'block', at, starvationPath: 'synthesis → claims → inventory (disabled)' };
-    case 'fail': return { type: 'fail', at, cause: 'budget-exhausted', detail: 'the run spent its token budget' };
+    case 'fail': return { type: 'fail', at, cause: expectation.cause ?? 'budget-exhausted', detail: 'the run could not proceed' };
     case 'pause': return { type: 'pause', at };
     case 'drain': return { type: 'drain', at, evidence: settled };
     case 'resume': return { type: 'resume', at };
@@ -583,6 +585,14 @@ describe('run machine: every allowed transition, from decision 0027', () => {
     expect(failed.ok).toBe(true);
     if (!failed.ok) return;
     expect(failed.state).toBe('failed');
+  });
+
+  test('an initialization failure names its cause before the run can end', () => {
+    const result = runMachine.step({ state: 'created', context: runContextIn('created') }, { type: 'fail', at: 10, cause: 'initialization-failed', detail: ' ' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.refusal.code).toBe('fill-run/guard-refused');
+    expect(result.refusal.guard).toBe('initialization-failure-named');
   });
 
   test('a block without a starvation path is refused at planning and while running', () => {
