@@ -165,7 +165,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
       expect(run.units.some((unit) => unit.unitId === 'plugin-turns/agent-fill:probe.summary')).toBe(true);
-      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string; producer: string }>(`SELECT title,producer FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open' ORDER BY producer`));
+      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string; producer: string }>(`SELECT title,split_part(said_by, '@', 1) AS producer FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open' ORDER BY producer`));
       expect(rows.rows).toEqual([{ title: 'Alpha and Beta', producer: 'agent-fill' }, { title: 'Alpha and Beta', producer: 'probe-summary' }]);
     } finally { await owner.close(); }
   }, 120_000);
