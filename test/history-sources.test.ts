@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { type Clock, type CompiledElement, type CompiledInterface, type CompiledModel, type CompiledRelation, type CompiledZone, type HistoryStore, type ReadModel } from './api.js';
 import { createTestHistory } from './test-database.js';
 
@@ -13,9 +13,18 @@ function fakeClock(initial: number): Clock & { set(t: number): void } {
   };
 }
 
+const openHistories = new Set<HistoryStore>();
+
 async function history(clock: Clock): Promise<HistoryStore> {
-  return await createTestHistory({ clock });
+  const instance = await createTestHistory({ clock });
+  openHistories.add(instance);
+  return instance;
 }
+
+afterEach(async () => {
+  await Promise.all([...openHistories].map((instance) => instance.close()));
+  openHistories.clear();
+});
 
 async function readModel(h: HistoryStore, input?: Parameters<HistoryStore['read']>[0]): Promise<ReadModel> {
   const result = await h.read(input);
