@@ -24,4 +24,3 @@ export function fillRequirementsOf(manifest: KindsManifest, folder: string): (re
     return () => ({ fillPlanRefusal });
   }
 }
-
