@@ -6,7 +6,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
   if (!Array.isArray(inputs?.repositories)) throw new Error('git needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
-  const files = await context.graph.files('**/*');
+  const files = unit.kind === 'code.repository' ? [] : await context.graph.files('**/*');
   const known = new Set(files.map(file => `${String(file.key['repository'])}\0${String(file.key['path'])}`));
   const authors = new Set<string>();
   for (const pin of inputs.repositories) {

@@ -19,7 +19,6 @@
         "history_shallow"
       ],
       "reads": [
-        "code.file",
         {
           "kind": "code.repository",
           "version": "earlier",
