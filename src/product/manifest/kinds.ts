@@ -39,7 +39,7 @@ import { LineCounter, parseDocument, stringify, type Document } from 'yaml';
 
 /** Decode repository-owned catalogue YAML in the manifest layer. */
 export function parseCatalogYaml(text: string): unknown { return Bun.YAML.parse(text); }
-import { lineForPath } from '../../model/yaml-position.js';
+import { lineForPath, lineLocator } from '../../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from '../../knowledge/catalog.js';
 import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from '../../knowledge/semantics.js';
@@ -1186,7 +1186,7 @@ function jsonLine(text: string, segment: number): number {
 export function parseKinds(text: string, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
   const findings: Finding[] = [];
   const { doc, lines } = parsedManifest(text, file);
-  const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
+  const at = lineLocator(doc, lines);
   for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
   if (doc.errors.length > 0) return nothing(file, findings);
   const root: unknown = doc.toJS();
