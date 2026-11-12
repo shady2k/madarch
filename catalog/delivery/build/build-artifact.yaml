@@ -1,0 +1,27 @@
+id: slsa.subject
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: What a build produced, named by its digest so it can be verified.
+sources:
+- https://slsa.dev/spec/v1.0/provenance
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out: []
+  in:
+  - hasOutput
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Build artifact
+    many: Build artifacts
+  ru:
+    one: Артефакт сборки
+    many: Артефакты сборки
+description:
+  en: What a build produced, named by its digest so it can be verified.
+  ru: То, что создала сборка, названное дайджестом, чтобы его можно было проверить.
