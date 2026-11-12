@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
-import { annotateSpan, withSpan } from '../obs/trace.js';
+import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
 import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
@@ -348,7 +348,7 @@ export class PluginHost {
     const spec: SandboxSpec = {
       closureFolder: snapshot.folder,
       tools,
-      filesystemInputs: snapshotFilesystemInputs(this.options.filesystemInputs ?? [], this.options.workRoot),
+      filesystemInputs: withSpanSync('plugin.filesystem-inputs', { 'madarch.plugin.hash': closure.hash }, () => snapshotFilesystemInputs(this.options.filesystemInputs ?? [], this.options.workRoot)),
       ...(readsRepository && (this.options.filesystemInputs?.length ?? 0) === 0 ? { repository: this.options.repository } : {}),
       workFolder,
       runtime: process.execPath,

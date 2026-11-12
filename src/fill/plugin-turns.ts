@@ -493,7 +493,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
     } finally {
       signal?.removeEventListener('abort', cancel);
-      await session.close();
+      await withSpan('plugin.close', { 'madarch.plugin.id': unit.plugin.id }, async () => await session.close());
     }
     // The unit's spend goes to the store whatever the unit published: a bound that crossed is the unit's end, and the
     // rows say what it spent before it stopped.
@@ -508,7 +508,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
     throw error;
   } finally {
-    rmSync(workRoot, { recursive: true, force: true });
+    withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => rmSync(workRoot, { recursive: true, force: true }));
   }
 }
 
