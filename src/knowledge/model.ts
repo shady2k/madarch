@@ -14,6 +14,7 @@ import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
 import type { FilesMap, FilesMapArea, FilesMapColour, FilesMapEngine, FilesMapWindow } from './files-map.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
+import type { ProducerRunOutcome } from '../fill/producer-outcomes.js';
 
 /**
  * A passage of a product document as the document reading used to name it: the page id, its kind, the line and the
@@ -718,6 +719,8 @@ export interface FillState {
   progress?: FillProgressView;
   /** The counts the run published: the end state's numbers. */
   counts?: RepositoryCounts;
+  /** The current run's published producer results and failed attempts, including successful zero-result checks. */
+  outcomes?: readonly ProducerRunOutcome[];
   /** The newest run's trace, once the store holds one: its time and its steps (items 2 and 4). */
   run?: FillRunView;
   /** Why the run failed, with the file, the line and the path it stands at. */

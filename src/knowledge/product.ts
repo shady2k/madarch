@@ -35,6 +35,7 @@ import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { askRunControl, readFillEnd } from '../fill/orchestrator-store.js';
+import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { hasSuccessfulFill, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
@@ -272,7 +273,7 @@ export class KnowledgeProduct {
   /** The run id of the fill under way: the trace it writes is read by that id, never as "the newest file". */
   private fillRunId: string | undefined;
   /** What the last finished run's trace and the store's counts say: the end state's numbers. */
-  private fillExtras: { counts?: FillState['counts']; run?: FillRunView; error?: FillErrorView } = {};
+  private fillExtras: { counts?: FillState['counts']; run?: FillRunView; outcomes?: FillState['outcomes']; error?: FillErrorView } = {};
   /** A person asked for a stop: the run ends now, and the page in progress stays as it was before the run. */
   private stopAsked = false;
   /** The pause kept beside the store was read into this product's state; one read is enough for the life of the process. */
@@ -2201,9 +2202,12 @@ export class KnowledgeProduct {
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
     if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
     const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
+    const runId = this.fillRunId ?? run?.runId;
+    const outcomes = runId === undefined ? undefined : await readProducerOutcomes(await this.open(), { runId });
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
       ...(run === null ? {} : { run }),
+      ...(outcomes === undefined ? {} : { outcomes }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
     const filled = await hasSuccessfulFill(await this.open());
