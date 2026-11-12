@@ -135,35 +135,41 @@ describe('the catalogue as a browse-only view', () => {
     }
   });
 
-  test('Table and Graph show the same kinds and navigation links under a shared filter', async () => {
+  test('Graph starts with full purpose counts and selects a kind neighbourhood independently of table filtering', async () => {
     await setWikiLanguage('en');
-    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'doc.use-case' ? { ...kind, page: false } : kind) });
+    stub([], CATALOG);
     const page = into(createElement(CataloguePage, { version: 0 }));
     await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'table kinds');
-    const kinds = [...page.querySelectorAll('[data-kind]')].map((row) => row.getAttribute('data-kind')).sort();
+    const address = window.location.href;
     const kindLinks = (): (string | null)[] => [...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')]
       .map((row) => row.querySelector('a')?.getAttribute('href') ?? null).sort();
     expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
-    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
-    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-testid="kind-graph"]') !== null, 'graph kinds');
-    expect([...page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')].map((row) => row.getAttribute('data-kind')).sort()).toEqual(kinds);
-    expect(kindLinks()).toEqual(['/kind/code.file', '/kind/doc.term', '/kind/doc.use-case']);
-    expect(localeKeyIn(renderedText(page))).toBeUndefined();
-    const address = window.location.href;
     const input = page.querySelector('input[type="search"]') as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
     input.focus();
     setter.call(input, 'Source files');
     input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 's' }));
-    await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered graph');
+    await until(() => page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]').length === 1, 'filtered table');
     expect(kindLinks()).toEqual(['/kind/code.file']);
     const filteredContents = [...page.querySelectorAll<HTMLAnchorElement>('[data-testid="catalogue-contents"] a')];
     expect(filteredContents.map((link) => link.getAttribute('href'))).toEqual(['#catalogue-section-code', '#catalogue-kind-code.file']);
+    const graphTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Graph')!;
+    graphTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await until(() => page.querySelector('[data-testid="dependency-section"]') !== null, 'graph sections');
+    expect(page.querySelectorAll('[data-testid="dependency-node"]')).toHaveLength(0);
+    expect(page.querySelectorAll('[data-testid="dependency-section"]')).toHaveLength(2);
+    expect(page.querySelector('[data-section="requirements"]')!.textContent).toContain('2 kinds');
+    const section = page.querySelector('[data-testid="dependency-section"][data-section="code"]')!;
+    (section.querySelector('button') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="dependency-node"][data-kind="code.file"]') !== null, 'section kinds');
+    (page.querySelector('[data-testid="dependency-node"][data-kind="code.file"] button') as HTMLButtonElement).click();
+    await until(() => page.querySelector('[data-testid="graph-two-steps"]') !== null, 'kind neighbourhood');
+    expect(page.querySelectorAll('[data-testid="dependency-section"]')).toHaveLength(0);
+    expect(page.querySelector('[data-testid="dependency-link-code.file"]')!.getAttribute('href')).toBe('/kind/code.file');
+    expect(localeKeyIn(renderedText(page))).toBeUndefined();
     const tableTab = [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === 'Table')!;
     tableTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table');
-    expect(page.querySelectorAll('[role="tabpanel"][data-state="active"] [data-kind]')).toHaveLength(1);
+    await until(() => page.querySelector('[role="tabpanel"][data-state="active"] [data-kind="code.file"]') !== null, 'filtered table restored');
     expect(kindLinks()).toEqual(['/kind/code.file']);
     expect(window.location.href).toBe(address);
   });

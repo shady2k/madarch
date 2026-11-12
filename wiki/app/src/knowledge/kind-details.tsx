@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge.js';
 import { getCatalog, getCatalogKind } from './api.js';
 import { KLink } from './blocks.js';
-import { KindGraph, relatedKinds, graphStateOf } from './kind-graph.js';
+import { KindGraph, graphStateOf } from './kind-graph.js';
 import { KindSources } from './kind-sources.js';
 import { useRead } from './live.js';
 import { fillWithOf } from './producers.js';
@@ -20,7 +20,6 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
   const detail = useRead<CatalogKindView>(`kind-declaration\0${kind}\0${language}`, version, (signal) => getCatalogKind(kind, signal));
   const chosen = detail.data;
   if (catalog === null || chosen === null) return read.error === null && detail.error === null ? <Paragraph role="status">{t('knowledge.loading')}</Paragraph> : <Paragraph className="mb-6 text-small text-muted" role="status" data-testid="kind-details-unavailable">{t('knowledge.kindDetails.unavailable')}</Paragraph>;
-  const related = relatedKinds(catalog.kinds, kind);
   const description = chosen.descriptions?.[language] ?? chosen.descriptions?.['en'];
   const producer = (chosen.pluginFolders ?? []).length > 0 ? chosen.pluginFolders!.join(', ')
     : (chosen.plugins ?? []).length > 0 ? t('knowledge.catalogueByPlugin', { plugins: chosen.plugins!.join(', ') })
@@ -62,7 +61,7 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
     </PageSection>
     <PageSection>
       <SectionTitle>{t('knowledge.catalogueViews.relations')}</SectionTitle>
-      <KindGraph catalog={{ ...catalog, kinds: catalog.kinds.filter((entry) => related.has(entry.kind)) }} chosen={kind} highlighted={new Set([kind])} />
+      <KindGraph catalog={catalog} chosen={kind} highlighted={new Set([kind])} />
     </PageSection>
   </Stack>;
 }

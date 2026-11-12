@@ -733,7 +733,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </PageSection>
       ))}
         </TabsContent>
-        <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
+        <TabsContent value="graph"><KindGraph catalog={data} /></TabsContent>
       </Tabs>
       </Stack>
       <ContentsSidebar data-testid="catalogue-contents">

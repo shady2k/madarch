@@ -59,6 +59,11 @@
   },
   "knowledge": {
     "dependencies": {
+      "search": "Find a kind",
+      "overview": "All sections",
+      "oneStep": "1 step",
+      "twoSteps": "2 steps",
+
       "title": "Dependency graph",
       "intro": "The entities that take part in a dependency, one column per depth in the dependency order their declarations give: an entity stands after the entities it needs. The state is what the last fill left: filled, partial, or never filled. The entities that take part in no dependency are grouped by section below.",
       "count": "{{kinds}} entities in {{layers}} columns.",
