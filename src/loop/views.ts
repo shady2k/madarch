@@ -68,6 +68,8 @@ type Fixer = 'agent' | 'person';
 export interface Problem {
   /** The problem's stable id: its rule and the place it names, never its position in the list. */
   readonly id: string;
+  /** The original finding key used with the rule to form the stable id. */
+  readonly identity: string;
   /** The section of the Problems page the problem belongs to. */
   readonly section: ProblemSection;
   /** The rule that found it (`wiki.broken-link`, `security.sql-input`, ...); the manifest tunes rules by this id. */
@@ -251,7 +253,7 @@ function wikiProblem(
   const place = fields.place ?? placeOfWiki(fields.page, fields.file, fields.line);
   const entity = fields.entity ?? (fields.page === null ? null : { label: fields.pageTitle ?? fields.page, href: entityAddress(fields.page), key: fields.page });
   return {
-    id: problemId(rule.id, identity), section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
+    id: problemId(rule.id, identity), identity, section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
     fixer: fields.fixer, closed: fields.closed,
     page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
     target: fields.target, reason: fields.reason, ...(fields.textKey === undefined ? {} : { textKey: fields.textKey, textArgs: fields.textArgs }), file: fields.file, line: fields.line,
