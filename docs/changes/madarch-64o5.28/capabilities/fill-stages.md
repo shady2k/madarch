@@ -318,17 +318,6 @@ file is the product's manifest, `workspace.yaml` (decision 0021).
 
 ## Coverage limits
 
-- Only fake stages exist today: the fill's own stages (the deterministic
-  stages 0–7 and the agent stages 8–13 of decision 0026) are not declared here.
-- Planning a stage's units, executing one and validating a draft are declared
-  by the stage contract and not exercised by this capability: the orchestrator
-  (madarch-tzte.19.5) and the crash-injection suite (madarch-tzte.19.6) own them.
-- A consume's `scope` and `freshness` and a produce's `scope` are declared and
-  not judged by derivation: they say what a publication replaces and what it
-  rechecks, which is the orchestrator's publication step (madarch-tzte.19.5).
-
-## Coverage limits for declaration-driven plugin fill
-
 - The plugin scheduler derives its ordering from declarations, but repository-tree
   and history remain native foundational stages. The owner's disk/git-as-ordinary-
   plugins example has not been migrated. This proposal does not establish that
@@ -339,6 +328,15 @@ file is the product's manifest, `workspace.yaml` (decision 0021).
 - A full run without explicit targets uses the union of declared plugin outputs
   for plugin work while preserving native foundational stages. No hardcoded
   source-kind exception is introduced into the plugin declaration scheduler.
+
+- Only fake stages exist today: the fill's own stages (the deterministic
+  stages 0–7 and the agent stages 8–13 of decision 0026) are not declared here.
+- Planning a stage's units, executing one and validating a draft are declared
+  by the stage contract and not exercised by this capability: the orchestrator
+  (madarch-tzte.19.5) and the crash-injection suite (madarch-tzte.19.6) own them.
+- A consume's `scope` and `freshness` and a produce's `scope` are declared and
+  not judged by derivation: they say what a publication replaces and what it
+  rechecks, which is the orchestrator's publication step (madarch-tzte.19.5).
 
 ## Requirement: plugin-declarations — Plugins declare output, input and refinement
 
