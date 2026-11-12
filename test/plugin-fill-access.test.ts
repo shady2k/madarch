@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import { pluginInvocationAccess } from '../src/plugin/fill-access.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
-import { valueFromPluginSnapshot } from '../src/graph/plugin-turns.js';
 import { trackedPluginAnswerer, pluginGraphAnswerer } from '../src/fill/plugin-turns.js';
 
 function setup(output: string, reads: string[], fields = ['text']) {
@@ -54,17 +53,21 @@ test('catalogue:true does not let a scripted agent read undeclared files', async
 });
 
 test('explicit earlier read freezes producer generation and never reads later replacement', async () => {
-  const saved = [{ kind: 'vertex', value: { kind: 'Source', key: { id: 'x' }, values: { text: 'original' }, producer: 'base', producerVersion: 'v1' } }];
+  const saved = [{ kind: 'Source', key: { id: 'x' }, values: { text: 'original' } }];
+  const savedValue = (kind: string, key: { readonly id?: string }, field: string): unknown => {
+    const vertex = saved.find(vertex => vertex.kind === kind && vertex.key.id === key.id);
+    return (vertex?.values as Readonly<Record<string, unknown>> | undefined)?.[field] ?? null;
+  };
   let seen: unknown;
   const snapshot = { runId: 'run', unitId: 'plugin-turns/base:Source', generation: 1 };
   const access = pluginInvocationAccess({ files: async () => [], value: async (kind, key, field, token) => {
     seen = token;
-    return valueFromPluginSnapshot(saved, kind, key, field);
+    return savedValue(kind, key, field);
   } }, { location: '/product/plugin.json:7', plugin: 'summary', output: 'Summary', fields: ['text'], reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }], snapshots: new Map([['Source', snapshot]]), catalogueKinds: ['Source'], fileKind: 'File', edges: [] });
   expect(await access.graph.value('Source', { id: 'x' }, 'text')).toBe('original');
   expect(seen).toEqual(snapshot);
-  expect(valueFromPluginSnapshot(saved, 'Source', { id: 'missing' }, 'text')).toBeNull();
-  expect(valueFromPluginSnapshot(saved, 'Source', { id: 'x' }, 'omitted')).toBeNull();
+  expect(savedValue('Source', { id: 'missing' }, 'text')).toBeNull();
+  expect(savedValue('Source', { id: 'x' }, 'omitted')).toBeNull();
 });
 
 test('earlier file enumeration forwards the exact named snapshot and refuses missing snapshots', async () => {
