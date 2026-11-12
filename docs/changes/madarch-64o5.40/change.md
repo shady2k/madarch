@@ -414,3 +414,64 @@ The successful 298.543051-second after integration timing remains valid for its
 pre-optimization source. It is not final-source performance evidence for these
 new commits; a fresh after run is needed to measure their actual effect. The
 unequal-total-workload caveat and unresolved whole-suite acceptance remain.
+
+
+## Delivery evidence and remaining gaps — source 4d482a87
+
+The final focused glossary run is green: two passes, four filtered, zero failures,
+18 assertions in 372.11 seconds (`/tmp/m28-glossary-eleventh-first-two.log`).
+The first case took 166571.92 ms and the second 194528.58 ms, under unchanged
+bounds. The exact one-journal assertion and all exercised listing, page and
+request assertions passed. Static check twenty passed all six gates with the
+same 18 architecture baseline findings. The concurrent sequence regression
+passed one case / eight assertions in 12.11 seconds. These are the final focused
+results for source `4d482a87`, not a claim that all six glossary cases passed.
+
+The other four glossary cases are unverified on this source. Previous full run
+ten settled at two passes, four failures and one error, 13 assertions in
+987.44 seconds, with a third-case timeout and cascading busy-run failures.
+The generic read/event repair preserves trace/read membership and locks while
+reducing the path from six SQL statements in two write transactions to four
+statements in one transaction. This is a source-level SQL/transaction reduction,
+not a measured wall-time speedup or changed constant. No assertion, timeout or
+performance bound was weakened.
+
+### Incomplete whole-suite run — retained failures, not acceptance
+
+The 249-file suite attempt at clean `2f59d09e` settled exit 143 after 658.19195
+seconds with only 17 file headers loaded. The parent did not explicitly kill it;
+the signal cause is unproven. There are no completed suite totals. Evidence is
+`/tmp/m28-full-suite-final-root.log` and
+`/tmp/m28-full-suite-final-incomplete-note.md`. Recorded unresolved observations:
+
+- `test/mcp-records.test.ts`: unnamed hook timeout, 120005.21 ms.
+- `test/graph-records.test.ts`: unnamed hook timeout, 5004.89 ms.
+- `test/product-daemon.test.ts:185` and `:204`: preparation socket failures;
+  doubled-slash case 7506.25 ms against 5000 ms and showcase hook 10029.61 ms.
+- `test/product-daemon.test.ts:218`: products-home redirect expected 302, got 200.
+  Root-route hook failed at 18712.25 ms; daemon free-port case at 5391.17 ms
+  against 5000 ms.
+- `test/fill-updates-run.test.ts:113`: no expected watcher update run,
+  287794.94 ms.
+- `test/product-cli.test.ts:454` and `:487`: subprocess status null rather than 0;
+  init cases timed out at 5406.35 and 5405.92 ms against 5000 ms. Line 454 also
+  appears as an unhandled error between tests.
+
+These observations have not been proved repaired by the focused glossary run.
+Earlier root/mixed-environment attempts are retained as invalid environment
+runs, not production regression or passing aggregate evidence. Correctly
+isolated coverage includes CLI 13/39, scenarios/lifecycle 5/56 (pre-batch source),
+enforced-host 47/180, and graph eight 39/219. None substitutes for the incomplete
+whole suite. The owner delegates remaining broad validation to CI; no further
+broad run is required for this delivery, and no full-suite acceptance is claimed.
+
+### Timing boundary and delivery status
+
+The actual native before remains 10.444655832 seconds. The valid ordinary-plugin
+after remains 298.543051 seconds with exact training facts, but it predates final
+batch/cache/read-event changes. Total product input workloads differ, so no
+ratio, controlled speedup/slowdown or final-source performance result is claimed.
+A new equal-workload paired experiment is still required for a controlled
+comparison. This bundle delivers the migration and focused validation with the
+remaining runtime/CI and measurement gaps explicit; it is not an all-green
+acceptance or process-approval receipt.

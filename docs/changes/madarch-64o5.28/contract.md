@@ -314,3 +314,19 @@ snapshots recursively read the exact immutable references of the complete tree,
 not mutable latest parts. All whole-output barrier, selected-scope, key-plan,
 evidence and failure-retention rules above still apply. Nested units do not
 permit publication before complete success or bypass any unit/message cap.
+
+
+### Delivery evidence boundary (4d482a87)
+
+All twelve contract rules and ordinary plugin integration requirements remain
+normative. Final focused glossary validation passed two cases / 18 assertions
+(four filtered) under unchanged bounds; check twenty passed all six gates and
+the concurrent sequence regression passed one case / eight assertions. The
+remaining four glossary cases are unverified on this source. The earlier whole
+249-file suite attempt ended exit 143 after loading 17 file headers, with failures
+and no completed totals. No all-six-glossary, whole-suite-green, acceptance or
+process-approval claim is made. The owner delegates remaining broad validation
+to CI. Detailed actual results, unresolved file/line observations and timing
+caveats are recorded in `../madarch-64o5.40/change.md`. Native before and valid
+pre-optimization ordinary after timings cover unequal total workloads and do
+not establish a controlled comparison or final-source speed result.
