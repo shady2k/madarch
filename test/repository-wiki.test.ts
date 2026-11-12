@@ -330,13 +330,13 @@ git(folder,'commit','-qm','the nested file moves');
       expect((beforeSources.body['sources'] as { key: string }[]).map((source) => source.key)).toEqual([emptyPath]);
       const beforeItems = await json(server, 'half', problemRoute);
       expect(beforeItems.status).toBe(200);
-      const initialProblems = beforeItems.body['problems'] as { identity: string; reason: string; source?: string }[];
+      const initialProblems = beforeItems.body['problems'] as { id: string; reason: string; source?: string }[];
       expect(initialProblems).toMatchObject([{
         source: emptyPath,
         reason: 'the repository "empty-code" holds no commit yet: nothing is read from it until it does',
       }]);
       expect(initialProblems.length).toBe(1);
-      expect(typeof initialProblems[0]!.identity).toBe('string');
+      expect(typeof initialProblems[0]!.id).toBe('string');
       // The fill reads the committed repository and says what it did for the empty one.
       const ended = await press(server, 'half');
       const fill = ended['fill'] as Record<string, unknown>;
@@ -353,7 +353,7 @@ git(folder,'commit','-qm','the nested file moves');
       expect((sources.body['sources'] as { key: string }[]).map((source) => source.key)).toEqual([emptyPath]);
       const items = await json(server, 'half', `/api/problems?rule=${encodeURIComponent('wiki.unreadable-file')}&source=${encodeURIComponent(emptySource!.key)}`);
       expect(items.status).toBe(200);
-      expect((items.body['problems'] as { identity: string }[]).map((problem) => problem.identity)).toEqual([initialProblems[0]!.identity]);
+      expect((items.body['problems'] as { id: string }[]).map((problem) => problem.id)).toEqual([initialProblems[0]!.id]);
       const item = (items.body['problems'] as { reason: string; source?: string }[]).find((problem) => problem.reason.includes('holds no commit yet'));
       expect(item).toBeDefined();
       expect(item!.reason).toContain('holds no commit yet');
