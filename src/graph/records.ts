@@ -33,15 +33,15 @@ import { raise } from '../model/raise.js';
 import { createOneGraphSchema, FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { EvidenceDraft, EvidenceEntry, GraphContract } from './contract.js';
-import { ensureEdge, ensureEdges, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishFileEntries, publishOpinion, publishOpinions, removeEdgeById, writeJournal } from './write.js';
+import { ensureEdge, ensureEdges, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishFileEntries, publishOpinion, publishOpinions, removeEdgeById, removeEntity, writeJournal } from './write.js';
 
 /** The producers of this store's opinions, and the version each states with them. */
 const TREE_PRODUCER = 'git-tree';
 const HISTORY_PRODUCER = 'git-history';
-const LINGUIST_PRODUCER = 'linguist';
+const LANGUAGE_PRODUCER = 'language-attribution';
 const TREE_VERSION = '1';
 const HISTORY_VERSION = '1';
-const LINGUIST_VERSION = '9.5.0';
+const LANGUAGE_VERSION = 'linguist-9.5.0+json-1';
 
 /** The key of a referenced entity, as the writer canonically states it: the kind and that entity's key values. */
 const KEY_REF = (alias: string, field: string, inner: string): string => `(${alias}.key->'${field}'->'key'->>'${inner}')`;
@@ -333,6 +333,7 @@ function languageOfOpinion(languages: unknown, lang: unknown): { language: strin
 /** One file of the store's current tree, as the diff reads it. */
 interface HeldFile {
   readonly nodeId: string;
+  readonly languageProducer: string | null;
   readonly mode: string | null;
   readonly blob: string | null;
   readonly languages: unknown;
@@ -343,7 +344,7 @@ interface HeldFile {
 function sameFile(held: HeldFile, file: TreeFile): boolean {
   const read = languageOfFile(file);
   const heldLanguage = languageOfOpinion(held.languages, held.language);
-  return held.mode === file.mode && held.blob === file.blob && heldLanguage.language === read.language && JSON.stringify(heldLanguage.candidates) === JSON.stringify(read.candidates);
+  return held.languageProducer === `${LANGUAGE_PRODUCER}@${LANGUAGE_VERSION}` && held.mode === file.mode && held.blob === file.blob && heldLanguage.language === read.language && JSON.stringify(heldLanguage.candidates) === JSON.stringify(read.candidates);
 }
 
 /** What the mechanism holds of one repository's entries: the mode and blob hash of each path. */
@@ -420,16 +421,16 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
     const fileNodes = new Map<string, string>();
     if (wants('file', 'vertex')) {
       const held = new Map<string, HeldFile>();
-      const found = await tx.query<{ path: string; node_id: string; mode: string | null; hash: string | null; languages: unknown; language: string | null }>(
-        `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id, g.mode, b.hash, l.languages, l.language
+      const found = await tx.query<{ path: string; node_id: string; mode: string | null; hash: string | null; languages: unknown; language: string | null; language_producer: string | null }>(
+        `SELECT ${PATH_OF('n')} AS path, n.id::text AS node_id, g.mode, b.hash, l.languages, l.language, l.said_by AS language_producer
          FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
          LEFT JOIN LATERAL (SELECT o."mode", o."blob_id" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${TREE_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) g ON true
          LEFT JOIN ${GIT_TABLES.blob} b ON b.id = g."blob_id"
-         LEFT JOIN LATERAL (SELECT o."language", o."languages" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = '${LINGUIST_PRODUCER}' ORDER BY o."id" DESC LIMIT 1) l ON true
+         LEFT JOIN LATERAL (SELECT o."language", o."languages", o."said_by" FROM ${GIT_TABLES.file} o WHERE o."node_id" = n.id AND o."state" = 'open' AND split_part(o."said_by", '@', 1) IN ('${LANGUAGE_PRODUCER}', 'linguist') ORDER BY o."id" DESC LIMIT 1) l ON true
          WHERE ${REPOSITORY_OF('n')} = $1 AND NOT n.removed`,
         [repository],
       );
-      for (const row of found.rows) held.set(row.path, { nodeId: row.node_id, mode: row.mode, blob: row.hash, languages: row.languages, language: row.language });
+      for (const row of found.rows) held.set(row.path, { nodeId: row.node_id, languageProducer: row.language_producer, mode: row.mode, blob: row.hash, languages: row.languages, language: row.language });
       const toWrite = files.filter((file) => { const known = held.get(file.path); return known === undefined || !sameFile(known, file); });
       counts = { ...counts, unchanged: counts.unchanged + (files.length - toWrite.length) };
       for (const [path, known] of held) if (files.some((file) => file.path === path)) fileNodes.set(path, known.nodeId);
@@ -443,13 +444,18 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
         const node = known?.nodeId ?? (await fileNodeOf(tx, repository, file.path)).node;
         fileNodes.set(file.path, node);
         if (known === undefined) counts = { ...counts, inserted: counts.inserted + 1 };
+        // Retire the old dataset-only producer before the combined attribution states its answer.
+        // The git-tree opinion keeps the vertex alive throughout this migration.
+        if (known?.languageProducer?.startsWith('linguist@')) {
+          await removeEntity(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: GIT_KINDS.repository, key: { name: repository } }, path: file.path }, producer: 'linguist' });
+        }
         const evidence = evidenceOf(file.path);
         opinions.push( { kind: GIT_KINDS.file, nodeId: node, producer: TREE_PRODUCER, producerVersion: TREE_VERSION, values: { mode: file.mode, blob_id: blobIds.get(file.blob) ?? null }, evidence: [evidence] });
         newFiles.push(known === undefined);
         const read = languageOfFile(file);
-        // A file's programming language is an ordinary field of the file, stated by the dataset as its own opinion: the
+        // A file's programming language is an ordinary field of the file, stated by the dataset and JSON parser as their combined opinion: the
         // opinion's `lang` column is the natural language of a text value and stands null for a language name.
-        opinions.push({ kind: GIT_KINDS.file, nodeId: node, producer: LINGUIST_PRODUCER, producerVersion: LINGUIST_VERSION, values: { language: read.language, languages: [...read.candidates] }, evidence: [evidence] });
+        opinions.push({ kind: GIT_KINDS.file, nodeId: node, producer: LANGUAGE_PRODUCER, producerVersion: LANGUAGE_VERSION, values: { language: read.language, languages: [...read.candidates] }, evidence: [evidence] });
         newFiles.push(known === undefined);
       }
       let offset = 0;
