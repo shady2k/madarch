@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { parsePluginManifest } from '../src/plugin/closure.js';
 import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
 import { fillRequirementsOf } from '../src/knowledge/fill-requirements.js';
+import { createPluginTurnStage, planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
@@ -20,6 +21,19 @@ function manifestOf(catalogue: ReturnType<typeof kind>[], declarations: ReturnTy
     plugins: new Map(declarations.map((entry) => [entry.manifest.name, { id: entry.manifest.name, declaration: entry.manifest, declarationFile: entry.file, declarationText: entry.text }])),
   } as unknown as KindsManifest;
 }
+
+test('vertex selection scopes the target unit but not its ordinary prerequisites', async () => {
+  const manifest = manifestOf([kind('File'), kind('Summary', ['description'], ['File'])], [
+    plugin('index'), plugin('summary', [output('Summary', '*', { reads: ['File'] })]),
+  ]);
+  const wiring = { manifest, productFolder: '/product', targets: { kinds: ['Summary'], vertex: 'Summary:one' },
+    locks: new Map(['index', 'summary'].map((id) => [id, { id, version: '1.0.0', closure: 'a'.repeat(64), path: `plugins/${id}`, line: 1 }])),
+  } as unknown as PluginTurnWiring;
+  const units = await planPluginTurns(wiring);
+  expect(units.map((unit) => unit.id)).toEqual(['index:File', 'summary:Summary@Summary:one']);
+  const stage = createPluginTurnStage(wiring);
+  expect(stage.unitScheduling!('summary:Summary@Summary:one').after).toEqual(['index:File']);
+});
 
 test('S1: universal agent capability does not schedule covered deterministic output', () => {
   const plan = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });

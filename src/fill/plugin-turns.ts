@@ -108,6 +108,12 @@ export function pluginTurnUnitId(plugin: string, kind: string, vertex?: string):
   return `${plugin}:${kind}${vertex === undefined ? '' : `@${vertex}`}`;
 }
 
+/** A vertex selector scopes only its own kind, never the prerequisite units it needs. */
+function selectedVertex(wiring: PluginTurnWiring, kind: string): string | undefined {
+  const vertex = wiring.targets?.vertex;
+  return vertex !== undefined && vertex.slice(0, vertex.indexOf(':')) === kind ? vertex : undefined;
+}
+
 /** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
   const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
@@ -120,7 +126,7 @@ export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginT
       throw new Error(`${file}:1: selected producer ${name} has no enabled lock; enable its producer`);
     }
     const selected = outputKindsOf(wiring.manifest, plugin).filter((kind) => plan.outputs.get(name)?.has(kind.name) === true);
-    for (const kind of selected) units.push({ id: pluginTurnUnitId(name, kind.name, wiring.targets?.vertex), plugin, kind, lock, patterns: [...new Set(kind.terms ?? [])] });
+    for (const kind of selected) units.push({ id: pluginTurnUnitId(name, kind.name, selectedVertex(wiring, kind.name)), plugin, kind, lock, patterns: [...new Set(kind.terms ?? [])] });
   }
   return units;
 }
@@ -318,12 +324,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const snapshots = new Map<string, Awaited<ReturnType<typeof successfulPluginSnapshot>>>();
   for (const read of reads) if (typeof read !== 'string') {
     if (runId === undefined) throw new Error(`${location}: output ${unit.kind.name} requires current-run identity to capture earlier snapshot ${read.kind} from ${read.producer}`);
-    snapshots.set(read.kind, await successfulPluginSnapshot(wiring.owner, runId, pluginTurnUnitId(read.producer, read.kind, wiring.targets?.vertex)));
+    snapshots.set(read.kind, await successfulPluginSnapshot(wiring.owner, runId, pluginTurnUnitId(read.producer, read.kind, selectedVertex(wiring, read.kind))));
   }
   if (runId !== undefined) for (const read of reads) if (typeof read === 'string') {
     for (const field of wiring.manifest.kinds.get(read)?.fields ?? []) {
       const producer = declarationPlan.lastProducer(read, field.name);
-      if (producer !== undefined) snapshots.set(`${read}.${field.name}`, await successfulPluginSnapshot(wiring.owner, runId, pluginTurnUnitId(producer, read, wiring.targets?.vertex)));
+      if (producer !== undefined) snapshots.set(`${read}.${field.name}`, await successfulPluginSnapshot(wiring.owner, runId, pluginTurnUnitId(producer, read, selectedVertex(wiring, read))));
     }
   }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
@@ -416,7 +422,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
       draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length } });
-      const only = wiring.targets?.vertex;
+      const only = selectedVertex(wiring, unit.kind.name);
       // Publish this kind's unit; other declared results belong to their own units.
       const selectedKinds = new Set([unit.kind.name]);
       if (only !== undefined && !outcome.result.vertices.some((vertex) => entityIdOf(wiring, vertex.kind, vertex.key) === only)) {
@@ -533,7 +539,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
     unitScheduling(id) {
       const unit = unitOf(wiring, id);
       const plan = declarationPlan;
-      const after = plan.unitPredecessors(unit.plugin.id, unit.kind.name).map((dependency) => pluginTurnUnitId(dependency.plugin, dependency.kind, wiring.targets?.vertex));
+      const after = plan.unitPredecessors(unit.plugin.id, unit.kind.name).map((dependency) => pluginTurnUnitId(dependency.plugin, dependency.kind, selectedVertex(wiring, dependency.kind)));
       return { after, group: unit.plugin.id, concurrency: plan.concurrency.get(unit.plugin.id) ?? 1 };
     },
     consumes: { required: [], optional: [] },
@@ -591,13 +597,13 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
           if (seen.has(canonical)) throw new Error(`duplicate output partition key ${canonical}`);
           seen.add(canonical);
           return key;
-        }).filter((key) => wiring.targets?.vertex === undefined || entityIdOf(wiring, selected.kind.name, key) === wiring.targets.vertex);
+        }).filter((key) => selectedVertex(wiring, selected.kind.name) === undefined || entityIdOf(wiring, selected.kind.name, key) === selectedVertex(wiring, selected.kind.name));
         return { keys };
       }).filter((partition) => partition.keys.length > 0);
       // Prior identities remain work even when enumeration is empty: missing keys retract only their own scoped fields.
       for (const entity of await producerEntities(wiring.owner, wiring.contract, selected.kind.name, selected.plugin.id)) {
         if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
-        if (wiring.targets?.vertex !== undefined && entityIdOf(wiring, selected.kind.name, entity.key) !== wiring.targets.vertex) continue;
+        if (selectedVertex(wiring, selected.kind.name) !== undefined && entityIdOf(wiring, selected.kind.name, entity.key) !== selectedVertex(wiring, selected.kind.name)) continue;
         if (!seen.has(canonicalKey(entity.key))) { seen.add(canonicalKey(entity.key)); partitions.push({ keys: [entity.key] }); }
       }
       if (partitions.length === 0) {
