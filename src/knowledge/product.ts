@@ -2728,7 +2728,14 @@ export class KnowledgeProduct {
   async documents(): Promise<DocumentListing> {
     const documents = (await this.documentOpinions()).map(({ entity, repo, path }) => ({ repo, path, title: entity.label }));
     documents.sort((a, b) => byCodePoint(`${a.repo ?? ''}:${a.path}`, `${b.repo ?? ''}:${b.path}`));
-    return { documents, truncated: [] };
+    const limit = 2000;
+    const totals = new Map<string | null, number>();
+    const shown = documents.filter((document) => {
+      const count = (totals.get(document.repo) ?? 0) + 1;
+      totals.set(document.repo, count);
+      return count <= limit;
+    });
+    return { documents: shown, truncated: [...totals].filter(([, total]) => total > limit).map(([repo, total]) => ({ repo, total, shown: limit })) };
   }
 
   /** A document's text and navigation are structured producer opinions. */
