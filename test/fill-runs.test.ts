@@ -1,3 +1,7 @@
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createWikiPart } from '../src/server/wiki-app.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createTestDatabaseOwner } from './test-database.js';
 import { openChain, advanceChain, createRun, readRun, readRuns, advanceRun, createUnit, readRunUnits, readRunUnitHistory } from '../src/fill/state-store.js';
@@ -155,4 +159,18 @@ test('run selection discovers catalogue agent producers from the same declaratio
   const agent = { id: 'agent-fill', contract: { vertices: [{ kind: 'probe.summary' }], agent: { catalogue: true } } } as unknown as PluginDecl;
   const unrelated = { id: 'unrelated', contract: { vertices: [{ kind: 'other' }], agent: { catalogue: true } } } as unknown as PluginDecl;
   expect(pluginsFillingKind({ kinds: new Map([[kind.name, kind]]), plugins: new Map([[agent.id, agent], [unrelated.id, unrelated]]) } as unknown as KindsManifest, kind.name)).toEqual(['agent-fill']);
+});
+
+test('native app serves a named fill run on direct navigation without accepting unrelated fill paths', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'fill-run-route-'));
+  try {
+    writeFileSync(join(folder, 'index.html'), '<!doctype html><title>fill run fixture</title>');
+    const part = createWikiPart((status, body) => Response.json(body, { status }), (status, error) => ({ response: Response.json({ error }, { status }) }), { revision: () => '', subscribe: () => () => undefined }, folder);
+    const direct = part.app('/fill/runs/fill-20261112T175127529Z');
+    expect(direct?.response.status).toBe(200);
+    expect(direct?.response.headers.get('content-type')).toContain('text/html');
+    expect(await direct?.response.text()).toContain('fill run fixture');
+    expect(part.app('/fill/unrelated')?.response.status).toBe(404);
+    expect(part.app('/fill/runs/id/unrelated')?.response.status).toBe(404);
+  } finally { rmSync(folder, { recursive: true, force: true }); }
 });
