@@ -19,8 +19,7 @@ import { runFill } from '../src/fill/run.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { instantOf } from '../plugins/git/main.js';
-import { languageOfPath, readRepositoryTree, type RepositoryAt } from '../plugins/disk/reader.js';
-import { shallowGapOf } from '../plugins/git/reader.js';
+import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { ensureVertex, publishOpinion } from '../src/graph/write.js';
@@ -51,10 +50,6 @@ function commitAll(message: string): string {
   git(['add', '-A']);
   git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', message]);
   return git(['rev-parse', 'HEAD']);
-}
-
-function pin(commit: string): RepositoryAt {
-  return { repository: 'fixture', root: repository, commit, url: 'file:///fixture' };
 }
 
 /** Runs the same declared ordinary plugins used by a product fill. */
@@ -253,8 +248,7 @@ describe('the two passes over one fixture', () => {
   test('a remote with a user and a password is stored and read without them', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     // The tree pass read the checkout\'s remote, which named a credential: the graph holds the address without it.
-    const second = await readRepositoryTree(pin(three));
-    expect(second.repository.url).toBe('https://example.test/fixture.git');
+    expect(git(['remote', 'get-url', 'origin'])).toBe('https://someone:secret-token@example.test/fixture.git');
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.url).toBe('https://example.test/fixture.git');
     const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
@@ -277,7 +271,8 @@ describe('the two passes over one fixture', () => {
     expect(run.units.map(unit => unit.stageId)).toEqual(Array(8).fill('plugin-turns'));
     expect(run.units.map(unit => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
-    expect(await shallowGapOf(pin(git(['rev-parse', 'HEAD'])))).toBeNull();
+    expect(git(['rev-parse', '--is-shallow-repository'])).toBe('false');
+    expect((await repositoryFacts(owner!, 'fixture'))?.historyShallow).toBe(false);
   }, 120_000);
 
   test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {
