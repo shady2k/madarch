@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { pluginInvocationAccess } from '../src/plugin/fill-access.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
 import { valueFromPluginSnapshot } from '../src/graph/plugin-turns.js';
-import { trackedPluginAnswerer } from '../src/fill/plugin-turns.js';
+import { trackedPluginAnswerer, pluginGraphAnswerer } from '../src/fill/plugin-turns.js';
 
 function setup(output: string, reads: string[], fields = ['text']) {
   const calls: string[] = [];
@@ -91,6 +91,26 @@ test('tracked optional graph arguments remain absent rather than becoming JSON n
     { method: 'value', args: ['File', { path: 'a' }, 'text'] },
     { method: 'files', args: ['**', snapshot] },
   ]);
+});
+
+test('one reader indexes immutable snapshot files and fields once without sharing with another reader', async () => {
+  const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:code.file', generation: 1 };
+  let loads = 0;
+  const writes = [{ kind: 'vertex', value: { kind: 'code.file', key: { repository: 'repo', path: 'a.ts' }, values: { content: 'saved', language: 'typescript' } } }];
+  const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (sql: string) => {
+    if (sql.includes('FROM fill_unit_draft d')) { loads++; return { rows: [{ unit_id: snapshot.unitId, generation: 1, writes }] }; }
+    return { rows: [] };
+  } }) };
+  const wiring = { owner, manifest: {}, contract: {} } as unknown as Parameters<typeof pluginGraphAnswerer>[0];
+  const reader = pluginGraphAnswerer(wiring);
+  const key = { repository: 'repo', path: 'a.ts' };
+  expect(await reader.files('**/*.ts', snapshot)).toEqual([{ kind: 'code.file', key }]);
+  expect(await reader.value('code.file', key, 'content', snapshot)).toBe('saved');
+  expect(await reader.value('code.file', key, 'language', snapshot)).toBe('typescript');
+  expect(await reader.value('code.file', key, 'omitted', snapshot)).toBeNull();
+  expect(loads).toBe(1);
+  expect(await pluginGraphAnswerer(wiring).value('code.file', key, 'content', snapshot)).toBe('saved');
+  expect(loads).toBe(2);
 });
 
 test('snapshot resolver rejects prior-run or unsuccessful generations before execution', async () => {

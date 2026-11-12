@@ -21,7 +21,7 @@ import { Type } from 'typebox';
 import { byCodePoint } from '../model/order.js';
 import { kindsInDependencyOrder, matchesAny, type KindDecl, type KindsManifest, type PluginDecl } from '../product/manifest/kinds.js';
 import type { GraphContract } from '../graph/contract.js';
-import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotValue, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
+import { graphFiles, producerEdges, producerEntities, writeRequestEntry, successfulPluginSnapshot, pluginSnapshotVertices, pluginGraphValue, pluginPartitionOutcome } from '../graph/plugin-turns.js';
 import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from '../graph/index.js';
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
@@ -30,6 +30,7 @@ import { planManifestFill } from '../plugin/fill-declarations.js';
 import { pluginInvocationAccess } from '../plugin/fill-access.js';
 import type { GraphAnswerer, RequestLog } from '../plugin/host.js';
 import { canonicalKey } from '../plugin/results.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
 import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
@@ -196,10 +197,20 @@ function edgeIdentity(kind: string, from: { readonly kind: string; readonly key:
  * answers — and each it refuses — in the unit's `RequestLog`, so the answerer states no sizes of its own.
  */
 export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>): GraphAnswerer {
+  const snapshots = new Map<string, Promise<Map<string, { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }>>>();
+  const vertices = (snapshot: import('../graph/plugin-turns.js').PluginSnapshot, kind: string) => {
+    const identity = canonicalJsonDigest({ snapshot, kind });
+    let held = snapshots.get(identity);
+    if (held === undefined) {
+      held = pluginSnapshotVertices(wiring.owner, snapshot, kind).then((rows) => new Map(rows.map((row) => [canonicalKey(row.key), row])));
+      snapshots.set(identity, held);
+    }
+    return held;
+  };
   return {
     files: async (pattern, snapshot) => {
       const files = snapshot === undefined ? await graphFiles(wiring.owner, wiring.contract)
-        : (await pluginSnapshotVertices(wiring.owner, snapshot, 'code.file')).map(({ key }) => {
+        : [...(await vertices(snapshot, 'code.file')).values()].map(({ key }) => {
           if (typeof key.repository !== 'string' || typeof key.path !== 'string') throw new Error('immutable code.file snapshot has an invalid declared key');
           return { repository: key.repository, path: key.path };
         });
@@ -208,7 +219,10 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
     },
     value: async (kind, key, field, snapshot) => {
       const ref = { kind, key };
-      if (snapshot !== undefined) return await pluginSnapshotValue(wiring.owner, snapshot, ref.kind, ref.key, field);
+      if (snapshot !== undefined) {
+        const vertex = (await vertices(snapshot, kind)).get(canonicalKey(key));
+        return vertex === undefined ? null : vertex.key[field] ?? vertex.values[field] ?? null;
+      }
       return await pluginGraphValue(wiring.owner, wiring.contract, ref.kind, ref.key, field);
     },
     // The writer's consistency records (madarch-stm0.7.1, pieces 2 and 4), one bounded page at a time: the plugin asks
@@ -229,10 +243,9 @@ export function pluginGraphAnswerer(wiring: Pick<PluginTurnWiring, 'owner' | 'ma
 }
 
 /** Replay the same plugin read during execution, publication, and cache validation. */
-export async function answerPluginGraphQuery(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract'>, text: string): Promise<readonly unknown[]> {
+export async function answerPluginGraphQuery(answerer: GraphAnswerer, text: string): Promise<readonly unknown[]> {
   const request = JSON.parse(text) as { read: string; method: keyof GraphAnswerer; args: unknown[] };
   if (request.read !== 'plugin') throw new Error('src/fill/plugin-turns.ts:1: expected a plugin graph read');
-  const answerer = pluginGraphAnswerer(wiring);
   switch (request.method) {
     case 'files': return [await answerer.files(...request.args as Parameters<GraphAnswerer['files']>)];
     case 'value': return [await answerer.value(...request.args as Parameters<GraphAnswerer['value']>)];

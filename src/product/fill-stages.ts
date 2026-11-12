@@ -24,7 +24,7 @@ import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
-import { answerPluginGraphQuery } from '../fill/plugin-turns.js';
+import { answerPluginGraphQuery, pluginGraphAnswerer } from '../fill/plugin-turns.js';
 import type { OuterTransaction } from '../history-types.js';
 import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
 import type { AgentRunBudget } from '../fill/agent-meter.js';
@@ -199,17 +199,18 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     snapshot: () => snapshotOf(identity, registry, repin()),
     configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, fillStageConfigurationFrom(files, folder), registry),
     // Plugin reads use the orchestrator's recorder and replay inside the publication's transaction.
-    graph: (_ref, transaction) => ({
-      query: async (text) => {
+    graph: (_ref, transaction) => {
+      const owner: FillDatabase = transaction === undefined ? options.database : {
+        ...options.database,
+        transaction: async (_kind, work) => await work(transaction as OuterTransaction),
+        run: async (work) => await work(transaction as OuterTransaction),
+      };
+      const answerer = pluginGraphAnswerer({ owner, manifest: kindsRead.manifest, contract });
+      return { query: async (text) => {
         if (!kindsRead.present) throw new Error('src/product/fill-stages.ts:1: plugin graph reads require the product kind declarations');
-        const owner: FillDatabase = transaction === undefined ? options.database : {
-          ...options.database,
-          transaction: async (_kind, work) => await work(transaction as OuterTransaction),
-          run: async (work) => await work(transaction as OuterTransaction),
-        };
-        return await answerPluginGraphQuery({ owner, manifest: kindsRead.manifest, contract }, text);
-      },
-    }),
+        return await answerPluginGraphQuery(answerer, text);
+      } };
+    },
     source: (): SnapshotSource => snapshots,
     // A plugin's answer publishes as the graph's claims inside the publication's own transaction (decision 0035, item 6).
     facts: { apply: async ({ executor, writes }) => await publishGraphWrites(executor, contract, writes) },
