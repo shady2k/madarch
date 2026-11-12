@@ -61,6 +61,11 @@
   "knowledge": {
     "prefill": {"created": "Product created", "connected": "Code connected", "noCode": "No code repository connected", "empty": "The graph is empty. Choose what to fill next.", "open": "Fill…"},
     "dependencies": {
+      "search": "Find a kind",
+      "overview": "All sections",
+      "oneStep": "1 step",
+      "twoSteps": "2 steps",
+
       "title": "Dependency graph",
       "intro": "The entities that take part in a dependency, one column per depth in the dependency order their declarations give: an entity stands after the entities it needs. The state is what the last fill left: filled, partial, or never filled. The entities that take part in no dependency are grouped by section below.",
       "count": "{{kinds}} entities in {{layers}} columns.",
