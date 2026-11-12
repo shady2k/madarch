@@ -1112,7 +1112,7 @@ export interface FillProgressEvent {
 const PROGRESS_KINDS = [
   'run-planned', 'run-started', 'run-blocked', 'run-paused', 'run-resumed', 'run-cancelling', 'run-cancelled',
   'run-completed', 'run-completed-partial', 'run-failed', 'run-replanned', 'run-refused',
-  'stage-found-nothing', 'stage-planned',
+  'stage-found-nothing', 'stage-planned', 'kind-abstained',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
   'unit-stale', 'unit-inherited', 'unit-cancelled', 'unit-requeued', 'unit-refused', 'run-waiting',

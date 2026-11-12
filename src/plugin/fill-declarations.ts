@@ -240,7 +240,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     if (capability === undefined) refuse(`agent plugin ${kind.agent.plugin} has no declared capability for ${kind.name}`);
     const fields = kind.agent.fields === '*' ? (kind.fields ?? []).map((field) => field.name) : kind.agent.fields;
     for (const field of fields) if (capability!.fields !== '*' && !capability!.fields.includes(field)) refuse(`agent plugin ${kind.agent.plugin} has no declared capability for ${kind.name}.${field}`);
-    // An explicit entry claims configured fields; the wildcard gap entry keeps all remaining gaps.
+    // Compile explicit configuration into an ordinary scoped producer declaration.
     target!.manifest = { ...target!.manifest, produces: [...target!.manifest.produces, { kind: kind.name, fields: kind.agent.fields === '*' ? '*' : [...kind.agent.fields], reads: capability!.reads, ...(kind.agent.refines === undefined ? {} : { refines: [...kind.agent.refines] }) }] };
   }
   // An agent wildcard advertises availability; only configured outputs participate in this plan.
