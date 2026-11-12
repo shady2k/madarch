@@ -16,6 +16,7 @@ import { generatedTableName, type EdgeContract, type FieldContract, type GraphCo
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
+import { planFillDeclarations } from '../../plugin/fill-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
@@ -90,6 +91,11 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
  */
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
+  const plan = planFillDeclarations({
+    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
+    selectedKinds: [],
+  });
   for (const kind of manifest.kinds.values()) {
     if (kind.fields === undefined) continue;
     const keyFields = kind.key ?? [];
@@ -106,7 +112,9 @@ export function declaredKindReads(manifest: KindsManifest): Map<string, Generate
     }
     // A kind no declaration fills, or whose key no producer names, has no table a reader can answer from.
     if (bound.size === 0 || !keyFields.every((field) => bound.has(field))) continue;
-    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields });
+    reads.set(kind.name, { kind: kind.name, table: generatedTableName(kind.name, 'vertex'), columns, types, key: keyFields,
+      producers: Object.fromEntries(columns.map((field) => [field, plan.producers(kind.name, field)])),
+    });
   }
   return reads;
 }

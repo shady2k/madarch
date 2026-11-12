@@ -78,6 +78,8 @@ export interface GeneratedKindRead {
   /** Each column's declared type, so a text column that holds digits stays text. */
   readonly types: Readonly<Record<string, 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json'>>;
   readonly key: readonly string[];
+  /** Per-field producer names in explicit refinement order; all source opinions remain available. */
+  readonly producers?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -908,8 +910,9 @@ export class GraphReader {
 
   /**
    * The rows of one manifest-declared kind as the wiki's entities: the vertex's key, and every open opinion of the
-   * kind's fields. A field every opinion agrees on is that value; a field they differ on is every value, and every
-   * value carries its opinion's id, producer, language and evidence, so no value is ever shown without its source.
+   * kind's fields. Declared writers resolve each field to the last present producer in its refinement chain.
+   * Authored fields without declared writers show agreement or all distinct values. Every opinion keeps its id,
+   * producer, language and evidence, including opinions superseded by a refinement.
    */
   private async generatedEntities(tx: OuterTransaction, decl: GeneratedKindRead, rows: readonly Raw[]): Promise<GraphEntity[]> {
     if (rows.length === 0) return [];
@@ -952,17 +955,19 @@ export class GraphReader {
         ownPlaces.push(...evidencePlaces(opinion['evidence']).map((place) => Object.assign({}, place, { saidBy: String(opinion['said_by']) })));
       }
       for (const column of decl.columns) {
-        const stated: unknown[] = [];
+        const stated: { value: unknown; producer: string }[] = [];
         for (const opinion of held.get(node) ?? []) {
           const value = valueOfColumn(opinion[column], decl.types[column] ?? 'text');
           if (value === null || value === undefined) continue;
-          stated.push(value);
+          stated.push({ value, producer: String(opinion['said_by']).split('@')[0]! });
           const places = evidencePlaces(opinion['evidence']).map((place) => Object.assign({}, place, { field: column, saidBy: String(opinion['said_by']) }));
           entityOpinions.push({ field: column, value, opinionId: String(opinion['opinion_id']), producer: String(opinion['said_by']), lang: typeof opinion['lang'] === 'string' ? opinion['lang'] : null, evidence: places });
           evidence.push(...places);
         }
-        const distinct = new Map(stated.map((one) => [JSON.stringify(canonical(one)), one]));
-        if (distinct.size === 1) properties[column] = stated[0];
+        const last = decl.producers?.[column]?.findLast((producer) => stated.some((one) => one.producer === producer));
+        const values = (last === undefined ? stated : stated.filter((one) => one.producer === last)).map((one) => one.value);
+        const distinct = new Map(values.map((one) => [JSON.stringify(canonical(one)), one]));
+        if (distinct.size === 1) properties[column] = values[0];
         else if (distinct.size > 1) properties[column] = [...distinct.values()];
       }
       if (evidence.length === 0) evidence.push(...ownPlaces);
