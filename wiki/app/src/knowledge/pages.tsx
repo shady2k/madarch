@@ -1,5 +1,5 @@
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted, SmallTitle } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
@@ -688,10 +688,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             <TableCell className="whitespace-nowrap align-top">
               <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink>
             </TableCell>
-            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} compact /></TableCell>
+            <TableCell className="align-top">{kind.descriptions?.[language] ?? <Text className="text-muted">–</Text>}<KindSources kind={kind} compact /></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
               {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)}>{kind.count}</KLink> : kind.count}
-              {kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}
+              {kind.statements !== undefined && <Text className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</Text>}
             </TableCell>
             <TableCell className="align-top" data-testid="catalogue-stage" data-stage={fillWithOf(kind)}>{producerWords(kind)}</TableCell>
             <TableCell className="align-top" data-testid="catalogue-states">
@@ -703,15 +703,15 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
     </Table>
   );
   return (
-    <section data-testid="catalogue-page">
-      <header className="mb-6">
-        <h1>{t('knowledge.catalogue')}</h1>
-        <p className="mb-1" data-testid="catalogue-intro">{t('knowledge.catalogueIntro')}</p>
-        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</p>
-      </header>
+    <PageSection data-testid="catalogue-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('knowledge.catalogue')}</PageTitle>
+        <Paragraph className="mb-1" data-testid="catalogue-intro">{t('knowledge.catalogueIntro')}</Paragraph>
+        <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</Paragraph>
+      </PageHeader>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
       <Stack layout="catalogue">
-      <div className="min-w-0">
+      <Stack className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
           <TabsTrigger value="table">{t('knowledge.catalogueViews.table')}</TabsTrigger>
@@ -719,26 +719,26 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </TabsList>
         <TabsContent value="table">
       {sections.map((section) => (
-        <section key={section.key} id={sectionId(section.key)} className="mb-8 scroll-mt-4" data-testid="catalogue-group" data-group={section.key}>
-          <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</span></h2>
+        <PageSection key={section.key} id={sectionId(section.key)} className="mb-8 scroll-mt-4" data-testid="catalogue-group" data-group={section.key}>
+          <SectionTitle className="flex flex-wrap items-baseline gap-x-3 gap-y-1">{section.name}<Text className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</Text></SectionTitle>
           {section.kinds.length > 0 && table(section.kinds)}
           {section.subgroups.map((subgroup) => (
-            <section key={subgroup.key} id={sectionId(subgroup.key)} className="mb-5 scroll-mt-4" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
-              <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{totals(subgroup.kinds)}</span></h3>
-              {subgroup.kinds.length > 0 ? table(subgroup.kinds) : <p className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</p>}
-            </section>
+            <PageSection key={subgroup.key} id={sectionId(subgroup.key)} className="mb-5 scroll-mt-4" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
+              <SmallTitle className="mb-2 mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-body">{subgroup.name}<Text className="text-small font-normal text-muted">{totals(subgroup.kinds)}</Text></SmallTitle>
+              {subgroup.kinds.length > 0 ? table(subgroup.kinds) : <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</Paragraph>}
+            </PageSection>
           ))}
-        </section>
+        </PageSection>
       ))}
         </TabsContent>
         <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
       </Tabs>
-      </div>
+      </Stack>
       <ContentsSidebar data-testid="catalogue-contents">
         <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
       </ContentsSidebar>
       </Stack>
-    </section>
+    </PageSection>
   );
 }
 /** A ground that is a thing of the system: its name and kind, what the kind is, what the code says of it, what it is connected to, and its page. */

@@ -272,17 +272,7 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "84a4f67a3275ca40954f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "c6b15d47a48b74d40332#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "cbe829110ce0dae8c930#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -838,11 +828,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/operations.tsx",
     "subject": "Operations#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "CataloguePage#1"
   },
   {
     "rule": "local-styled-component",
