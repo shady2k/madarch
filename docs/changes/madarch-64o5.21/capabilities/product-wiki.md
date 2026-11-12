@@ -1026,6 +1026,11 @@ and active-run deferral unchanged.
 - When: its default branch moves and the debounce ends
 - Then: the existing update path starts one run, deferring while a fill is active
 
+### Scenario: finished-fill-with-cached-status
+- Given: a product whose status body was cached before its first fill
+- When: the real fill run succeeds and status reuses that body
+- Then: the live status reports filled true and manifest ok together, based on the successful run rather than pins
+
 ### Scenario: pins-without-finished-fill
 - Given: repository pins published by a run that has not succeeded
 - When: status is read or the watcher observes a repository commit

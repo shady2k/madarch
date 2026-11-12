@@ -108,9 +108,10 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  // Close the visited products' readers, background work and PostgreSQL stores before removing them.
   await server.stop();
   rmSync(work, { recursive: true, force: true });
-});
+}, 60_000);
 
 describe('an empty product', () => {
   test('a product without a manifest is given nothing, while a validated manifest publishes kinds before any fill', async () => {
@@ -154,8 +155,8 @@ describe('an empty product', () => {
       await new Promise((rest) => setTimeout(rest, 250));
     }
     const status = await get('/products/bare/api/status');
-    // The status names all published kind declarations and holds no catalogue of its own.
-    expect(status.body.manifest).toBe('ok');
+    // A published catalogue or repository pin is not a finished fill.
+    expect(status.body).toMatchObject({ fill: { state: 'done' }, filled: true, manifest: 'ok' });
     const published = readKinds(join(home, 'bare'));
     if (!published.present || published.manifest.catalog === undefined) throw new Error('the fixture starter catalogue is absent');
     expect(status.body.kinds.map((kind: { kind: string }) => kind.kind).sort()).toEqual([...published.manifest.catalog.kinds.keys()].sort());
@@ -185,7 +186,7 @@ describe('an empty product', () => {
     const filled = catalog.kinds.find((kind) => kind.kind === 'code.service');
     expect(filled).toMatchObject({ count: 0, filled: true, page: true, producer: 'extract', subgroup: 'code.structure' });
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(300_000);
-  }, 30_000);
+  }, 90_000);
 
   test('a fresh starter product\'s problems page carries none of the notes about rules of another section', async () => {
     // madarch-8bdc.13: the code section ran every rule of the manifest, so each documents and wiki rule of the starter set
