@@ -74,11 +74,11 @@ beforeAll(async () => {
   delete env['MADARCH_PRIME_PROVIDER'];
   delete env['MADARCH_PRIME_MODEL'];
   const port = await freePort();
-  const init = madarch(['init', '--home', home, '--port', String(port), '--no-open'], repository);
+  const init = madarch(['init', '--template', 'everything', '--home', home, '--port', String(port), '--no-open'], repository);
   initOutput = `${init.stdout}${init.stderr}`;
   // The script answers for every document entity the product's own manifest makes of the repository's documents — read
   // from them, never a list of names — so the fill below finds a statement for each entity it offers (madarch-ztyq.3).
-  // `madarch init` gives the product the starter set, whose manifest declares the enrichment kind; the scripted agent
+  // `madarch init --template everything` gives the product the starter set, whose manifest declares the enrichment kind; the scripted agent
   // writes the product and domain pages only, so the kind is dropped from this fixture (see `withoutEnrichmentKind`).
   expect(init.status, initOutput).toBe(0);
   withoutEnrichmentKind(join(home, 'training-shop'));
