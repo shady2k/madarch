@@ -75,7 +75,7 @@ import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
 import { scopeWords, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
-import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
+import { groundsOfScope, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
 import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { graphKnowledgePages, type IndexedPage } from './index/index.js';
 import { StoredProductFiles } from '../plugin/product-source.js';
@@ -1807,18 +1807,6 @@ export class KnowledgeProduct {
     };
   }
 
-  /** The planned-change marks, read once per graph revision: a fill that stores the tasks again makes them read again. */
-  private marksMemo: { key: string; marks: PlannedMarks } | undefined;
-
-  /**
-   * What the planned-change marks depend on: the graph revision, the writer's plan and this process's own revision, all of
-   * them counts rather than files — a read of a page never stamps the checkout (madarch-hsqs stage C).
-   */
-  private async marksKey(): Promise<string> {
-    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
-    return `${await this.graphRevision()}|${String(this.revision)}|${plan}`;
-  }
-
   /** The graph revision the answers stand on: the store's publication stamp, or '' before the store is open. */
   private async graphRevision(): Promise<string> {
     const owner = this.reader?.owner;
@@ -2536,11 +2524,6 @@ export class KnowledgeProduct {
     return (await graphKnowledgePages(context.ctx.graph, pageOpinionKinds(context.manifest, graphKindsOf(context.manifest).generated))).pages;
   }
 
-  /** The file each page of the product is written in: what a task's statement scope names when a commit closes it. */
-  private async pageFiles(): Promise<Map<string, string>> {
-    return new Map((await this.indexPages()).map((page) => [page.id, page.file] as const));
-  }
-
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
   async block(id: string, held: string, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
     const result = await this.page(id, lang, { only: held, ...(history === undefined ? {} : { history }) });
@@ -2800,26 +2783,7 @@ export class KnowledgeProduct {
   }
 
   private async marks(): Promise<PlannedMarks> {
-    const key = await this.marksKey();
-    const held = this.marksMemo;
-    if (held !== undefined && held.key === key) return held.marks;
-    const product = this.product();
-    if ('message' in product) return NO_MARKS;
-    const owner = await this.open();
-    const repositories = this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }));
-    const files = await this.productFiles();
-    const read = await this.manifestFrom(product.folder);
-    if (!read.present) return NO_MARKS;
-    const marks = await plannedMarks({
-      owner, productFolder: this.options.productFolder, files, manifest: read.manifest,
-      // The product's own repository closes a task as a code repository does: its documents are in it.
-      repositories: [{ name: '', path: product.folder }, ...repositories],
-      // The product repository's own Markdown, as the graph holds it: a path here belongs to the product, not to a code repository.
-      productFiles: files.paths().filter((path) => path.endsWith('.md')),
-      pageFiles: await this.pageFiles(),
-    });
-    this.marksMemo = { key, marks };
-    return marks;
+    return await plannedMarks();
   }
 
   private async loopManifest(): Promise<KindsManifest> {

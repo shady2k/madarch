@@ -13,11 +13,7 @@
  * A page nobody's task touches is marked nothing. A task a commit has closed
  * marks nothing: its change already happened.
  */
-import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { type RepositoryRef } from './closure.js';
 import { type TaskScope } from './tasks.js';
-import type { ProductFileSource } from '../plugin/product-files.js';
-import type { KindsManifest } from '../product/manifest/kinds.js';
 
 /** The task a mark points at: enough for the badge to name it and to link to it. */
 export interface PlannedTaskRef {
@@ -64,7 +60,7 @@ export interface PlannedMarks {
 
 export const NO_MARKS: PlannedMarks = { sections: [], statements: [], entities: [], tasks: [], notes: [] };
 
-export async function plannedMarks(_input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly files: ProductFileSource; readonly manifest: KindsManifest; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[]; readonly pageFiles: ReadonlyMap<string, string> }): Promise<PlannedMarks> {
+export async function plannedMarks(): Promise<PlannedMarks> {
   return { ...NO_MARKS, notes: ['Markdown planned-change tracking is retired; authored entities are stored in the database'] };
 }
 
