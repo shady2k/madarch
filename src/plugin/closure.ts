@@ -121,7 +121,11 @@ function importLine(text: string, name: string): number {
 
 /** Resolve every statically named runtime import against precisely the files the snapshot will carry. */
 function validateImports(folder: string, files: readonly { path: string; file: string }[], entryPath: string): void {
-  const held = new Set(files.map((file) => resolve(file.file)));
+  const held = new Map<string, (typeof files)[number]>();
+  for (const file of files) {
+    const path = resolve(file.file);
+    if (!held.has(path)) held.set(path, file);
+  }
   const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`), 'bun', 'bun:ffi', 'bun:jsc', 'bun:sqlite', 'bun:test']);
   const pending = [files.find((file) => file.path === entryPath)!];
   const visited = new Set<string>();
@@ -141,8 +145,9 @@ function validateImports(folder: string, files: readonly { path: string; file: s
         const line = importLine(text, imported.path);
         throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder}: ${(error as Error).message}`, entry.file, line);
       }
-      if (held.has(resolve(target))) {
-        pending.push(files.find((file) => resolve(file.file) === resolve(target))!);
+      const resolved = held.get(resolve(target));
+      if (resolved !== undefined) {
+        pending.push(resolved);
         continue;
       }
       const line = importLine(text, imported.path);
