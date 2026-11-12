@@ -14,7 +14,7 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { repositoryContract, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
-import { canonicalJson, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishOpinion, publishOpinions, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
+import { canonicalJson, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishOpinion, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -159,7 +159,7 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
       drafts.push({ kind: GIT_KINDS.file, nodeId: made.nodeId, ...opinion(path, 'linguist', 'TypeScript', 2) });
       await flushJournalIfFull(tx, journal, 2);
     }
-    await publishOpinions(tx, repositoryContract, drafts);
+    for (const draft of drafts) await publishOpinion(tx, repositoryContract, draft);
     await writeJournal(tx, journal);
   });
 }
