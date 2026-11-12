@@ -287,9 +287,13 @@ const COMMIT_OPINIONS = (node: string): string => `(SELECT jsonb_agg(jsonb_build
 
 /** One commit's clock as `%aI` writes it, from the opinions that agree on it. */
 function clockOf(opinions: readonly HeldOpinion[], field: 'commit_date' | 'author_date', offsetField: 'commit_offset_min' | 'author_offset_min'): { readonly date: string; readonly offsetMin: number } {
-  const clock = fieldRead(opinions, field, (value) => (value instanceof Date ? value.toISOString().slice(0, 19) : typeof value === 'string' ? value.slice(0, 19) : null)).value;
+  const instant = fieldRead(opinions, field, (value) => value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : null).value;
   const offset = fieldRead(opinions, offsetField, asNumber).value ?? 0;
-  return { date: clock === null ? '' : gitDateOf(clock, offset), offsetMin: offset };
+  if (instant === null) return { date: '', offsetMin: offset };
+  // SQL's aggregate formats the timestamp at UTC without a suffix; restore it before applying Git's original offset.
+  const utc = /(?:Z|[+-]\d{2}:?\d{2})$/u.test(instant) ? instant : `${instant}Z`;
+  const localClock = new Date(new Date(utc).getTime() + offset * 60_000).toISOString().slice(0, 19);
+  return { date: gitDateOf(localClock, offset), offsetMin: offset };
 }
 
 /**
