@@ -3,14 +3,14 @@
  * 150 000-span trace. The status answer must not parse the whole trace for every poll; the first answer is
  * bounded, and the later answers are the cached reading.
  */
-import { quarantined } from './quarantine.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer as startServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
 import { SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
@@ -51,7 +51,7 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-quarantined('madarch-64o5.14', test, 'slow', '3ec0f2b1d7923fa81901d0293e2e92d34df300a8')('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
+test('the first status answer on a 150 000-span store answers within 5 seconds', async () => {
   const at = Date.now();
   const answer = await fetch(`${server!.url}/api/status`, { headers: { accept: 'application/json' } });
   const elapsed = Date.now() - at;

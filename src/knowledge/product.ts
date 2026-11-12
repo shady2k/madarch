@@ -1861,6 +1861,9 @@ export class KnowledgeProduct {
     // A folder that is no product is answered with the file it lacks, and nothing is written into it to stamp a key.
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    // Establish an existing cold store's publication before capturing the body's memo key.
+    // An unfilled product still opens no store merely to answer a poll.
+    if (this.reader === undefined && existsSync(storeDatabasePath(this.storeFolder()))) await this.open();
     // The memo key and the live fields share one publication read on a cached poll. A body
     // rebuilt below follows again afterward, because a fill can publish while that work runs.
     await this.followStoreFill();
