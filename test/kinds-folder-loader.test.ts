@@ -15,6 +15,47 @@ function source(entries: Record<string, string>): ProductFileSource {
   };
 }
 
+test('manifest cache rechecks source changes and isolates returned mutations', () => {
+  const entries: Record<string, string> = { 'madarch/catalog.yaml': '{}\n' };
+  const files = source(entries);
+  const first = readKindsFrom(files, '/cache-isolation');
+  if (!first.present) throw new Error('manifest is present');
+  (first.manifest.findings as unknown as { file: string; line: number; message: string }[]).push({ file: 'changed', line: 1, message: 'changed' });
+  const second = readKindsFrom(files, '/cache-isolation');
+  if (!second.present) throw new Error('manifest is present');
+  expect(second.manifest.findings).toEqual([]);
+  entries['madarch/kinds/bad.txt'] = '{}';
+  const added = readKindsFrom(files, '/cache-isolation');
+  if (!added.present) throw new Error('manifest is present');
+  expect(added.manifest.findings.some((finding) => finding.file.endsWith('/bad.txt'))).toBe(true);
+  delete entries['madarch/kinds/bad.txt'];
+  entries['madarch/catalog.yaml'] = 'language: invalid\n';
+  const changed = readKindsFrom(files, '/cache-isolation');
+  if (!changed.present) throw new Error('manifest is present');
+  expect(changed.manifest.findings.some((finding) => finding.message.includes('language'))).toBe(true);
+});
+
+test('manifest cache retries a source error inside the parser', () => {
+  const entries: Record<string, string> = {
+    'madarch/catalog.yaml': 'plugins:\n  - { id: git, version: 1, path: plugins/git, inputs: [], outputs: [], closure: [plugins/git/contract.json] }\n',
+    'plugins/git/contract.json': JSON.stringify({ id: 'git', version: '1.0.0', outputs: { vertices: [], edges: [] } }),
+    'plugins/git/plugin.json': '{}',
+  };
+  const files = source(entries);
+  const text = files.text;
+  let fail = false;
+  files.text = (path) => { if (fail && path === 'plugins/git/plugin.json') throw new Error('read failed'); return text(path); };
+  readKindsFrom(files, '/cache-source-error');
+  fail = true;
+  const failed = readKindsFrom(files, '/cache-source-error');
+  if (!failed.present) throw new Error('manifest is present');
+  expect(failed.manifest.findings.some((finding) => finding.message.includes('read failed'))).toBe(true);
+  fail = false;
+  const recovered = readKindsFrom(files, '/cache-source-error');
+  if (!recovered.present) throw new Error('manifest is present');
+  expect(recovered.manifest.findings.some((finding) => finding.message.includes('read failed'))).toBe(false);
+});
+
 test('empty metadata mapping composes with an empty kinds folder', () => {
   const read = readKindsFrom(source({'madarch/catalog.yaml': '{}\n'}), '/product');
   if (!read.present) throw new Error('the empty metadata still declares a manifest');

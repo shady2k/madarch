@@ -883,7 +883,46 @@ export function readKinds(productFolder: string): KindsRead {
  * Reads the metadata and folder declarations from a source of the product repository's files: the
  * fill's working tree, or the graph's stored text for a reader of the wiki. Nothing is read from a checkout here.
  */
+type KindsReadDependency = { method: 'has'; path: string; value: boolean } | { method: 'text'; path: string; value: string | undefined } | { method: 'size'; path: string; value: number | null } | { method: 'filesBelow'; path: string; value: string[] };
+const kindsReads = new Map<string, { dependencies: KindsReadDependency[]; read: KindsRead }>();
+
 export function readKindsFrom(files: KindsFileSource, productFolder: string): KindsRead {
+  const held = kindsReads.get(productFolder);
+  const matches = held !== undefined && held.dependencies.every((dependency) => {
+    try {
+      if (dependency.method === 'filesBelow') {
+        const current = files.filesBelow(dependency.path);
+        return current.length === dependency.value.length && current.every((path, index) => path === dependency.value[index]);
+      }
+      return files[dependency.method](dependency.path) === dependency.value;
+    } catch {
+      return false;
+    }
+  });
+  if (held !== undefined && matches) {
+    kindsReads.delete(productFolder);
+    kindsReads.set(productFolder, held);
+    return structuredClone(held.read);
+  }
+  const dependencies: KindsReadDependency[] = [];
+  let sourceThrew = false;
+  const call = <T>(read: () => T): T => {
+    try { return read(); } catch (error) { sourceThrew = true; throw error; }
+  };
+  const recorded: KindsFileSource = {
+    has: (path) => { const value = call(() => files.has(path)); dependencies.push({ method: 'has', path, value }); return value; },
+    text: (path) => { const value = call(() => files.text(path)); dependencies.push({ method: 'text', path, value }); return value; },
+    filesBelow: (path) => { const value = call(() => files.filesBelow(path)); dependencies.push({ method: 'filesBelow', path, value: [...value] }); return value; },
+    size: (path) => { const value = call(() => files.size(path)); dependencies.push({ method: 'size', path, value }); return value; },
+  };
+  const read = readKindsUncached(recorded, productFolder);
+  kindsReads.delete(productFolder);
+  if (!sourceThrew) kindsReads.set(productFolder, { dependencies, read: structuredClone(read) });
+  while (kindsReads.size > PARSED_MANIFESTS_KEPT) kindsReads.delete(kindsReads.keys().next().value!);
+  return read;
+}
+
+function readKindsUncached(files: KindsFileSource, productFolder: string): KindsRead {
   if (files.has(LEGACY_KINDS_FILE)) {
     const file = join(productFolder, LEGACY_KINDS_FILE);
     return { present: true, manifest: nothing(file, [{ file, source: file, line: 1, message: 'the legacy madarch/kinds.yaml layout is not supported: migrate metadata to madarch/catalog.yaml and kind declarations to madarch/kinds/<group>/<subgroup>/<kind>.yaml' }]) };

@@ -2,7 +2,7 @@ import { InlineCode } from '@/components/ui/inline-content.js';
 import { Breadcrumb } from '@/components/ui/breadcrumb.js';
 import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, ClippedLabel, Stack, Text, PageArticle, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, TextLink, Metadata, InlineGroup, CodeFrame, FileTitle, ClippedLabel, Stack, Text, PageArticle, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';

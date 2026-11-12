@@ -33,6 +33,14 @@ export function blockOpen(block: { type: Block['type']; name?: string }, role: s
   return open === undefined || open.includes(block.name ?? block.type);
 }
 
+/** The navigation's groups with the role's leading groups first, in the order the role names them; the rest keep the manifest's order. */
+export function leadGroups<T extends { group: string | null }>(groups: readonly T[], role: string, roles: RoleDecls): T[] {
+  const lead = role === 'everything' ? [] : roles[role]?.lead ?? [];
+  if (lead.length === 0) return [...groups];
+  const first = lead.flatMap((name) => groups.filter((entry) => entry.group === name));
+  return [...first, ...groups.filter((entry) => !first.includes(entry))];
+}
+
 /** The role and the manifest's declarations for it, for the blocks and the navigation. */
 export const RoleContext = createContext<{ role: string; roles: RoleDecls }>({ role: 'everything', roles: {} });
 export const useRole = (): { role: string; roles: RoleDecls } => useContext(RoleContext);
