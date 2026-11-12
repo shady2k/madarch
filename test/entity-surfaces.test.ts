@@ -42,10 +42,15 @@ test('entity CLI creates, reads, updates, lists and deletes with stable uid and 
 }, 60_000);
 
 test('madarch dispatches entity commands from the executable entry', async () => {
-  const child = Bun.spawn([process.execPath, 'scripts/madarch.ts', 'entity', 'list', 'note', '--product', folder, '--home', home, '--json'], { cwd: import.meta.dir + '/..', env, stdout: 'pipe', stderr: 'pipe' });
+  const childEnv = {
+    ...env,
+    MADARCH_STORE_OWNER_URL: process.env['MADARCH_STORE_OWNER_URL']!,
+    MADARCH_STORE_OWNER_TOKEN: process.env['MADARCH_STORE_OWNER_TOKEN']!,
+  };
+  const child = Bun.spawn([process.execPath, 'scripts/madarch.ts', 'entity', 'list', 'note', '--product', folder, '--home', home, '--json'], { cwd: import.meta.dir + '/..', env: childEnv, stdout: 'pipe', stderr: 'pipe' });
   const text = await new Response(child.stdout).text();
   const error = await new Response(child.stderr).text();
-  expect(await child.exited).toBe(0);
+  expect(await child.exited, `stdout: ${text}\nstderr: ${error}`).toBe(0);
   expect(error).toBe('');
   expect(JSON.parse(text).guidance.product).toBe('notes');
 }, 60_000);
