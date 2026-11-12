@@ -879,6 +879,7 @@ describe('every route names its tab', () => {
       if (url.endsWith('/api/agents')) return json({ agents: [], chosen: null });
       if (url.endsWith('/api/settings')) return json({ role: 'everything', asked: true, roles: [] });
       if (url.endsWith('/api/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      if (url.includes('/api/facts')) return json({ role: 'everything', kinds: [] });
       if (url.includes('/api/page')) return pending ?? (page === null ? json({ message: 'no page' }, 404) : json(page));
       if (url.includes('/api/view')) return json({ renderer: 'mermaid', views: [] });
       return json({ message: 'not here' }, 404);
@@ -889,10 +890,10 @@ describe('every route names its tab', () => {
   const routes: { address: string; selector: string; expected?: string; state?: WikiStatus; page?: unknown }[] = [
     // The home of an empty product (the owner's case): the introduction, and the product's name on the tab.
     { address: '/', selector: '[data-testid=overview]', expected: 'shop', state: status({ filled: false, home: null, repositories: [{ name: 'shop', filled: false }] }) },
-    // A filled home whose page the server names.
-    { address: '/', selector: '[data-testid=entity-page]', expected: 'Shop home', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
-    // A filled home that is its repository's page (the demo's shape).
-    { address: '/', selector: '[data-testid=entity-page]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
+    // A filled home shows facts and keeps product identity even when an old home page is declared.
+    { address: '/', selector: '[data-testid=facts-home]', expected: 'shop', state: status({ home: 'product:shop', filled: true }), page: pageModel('product:shop', 'Shop home') },
+    // A filled home with repository metadata also shows facts, not the repository page.
+    { address: '/', selector: '[data-testid=facts-home]', expected: 'shop', state: status({ home: null, filled: true, repository: { id: 'code.repository:shop', name: 'shop', url: 'https://example.invalid/shop.git', defaultBranch: 'main', asIsCommit: 'abc123', counts: { files: 1, commits: 1, folders: 0 }, gaps: [], steps: { tree: true, history: true } } }), page: pageModel('code.repository:shop', 'shop') },
     { address: '/e/domain%3Apayment', selector: '[data-testid=entity-page]', expected: 'Payment domain', page: pageModel('domain:payment', 'Payment domain') },
     { address: '/e/nothing', selector: '[data-testid=page-error]', expected: 'There is no such page' },
     { address: '/kind/code.symbol', selector: '[data-testid=kind-page]', expected: 'Symbols' },
@@ -932,8 +933,8 @@ describe('every route names its tab', () => {
   test('«Loading…» still stands while the page it names is really being read, and gives way to the page\'s name', async () => {
     let answer!: (response: Response) => void;
     const held = new Promise<Response>((resolve) => { answer = resolve; });
-    serve(status({ home: 'product:shop', filled: true }), null, held);
-    window.history.replaceState({}, '', '/');
+    serve(status(), null, held);
+    window.history.replaceState({}, '', '/e/product%3Ashop');
     const container = into(createElement(AppRoot));
     await until(() => container.querySelector('[data-testid=tab][data-active=true]') !== null, 'the tab bar');
     await until(() => activeTab(container) === loading(), 'the loading name');

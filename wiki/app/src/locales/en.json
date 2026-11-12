@@ -1,4 +1,21 @@
 {
+  "facts": {
+    "loading": "Reading facts…",
+    "empty": "No facts are declared for this reader role.",
+    "unavailable": "Not available",
+    "noValues": "No values in the graph.",
+    "label": "Label",
+    "value": "Value",
+    "ground": "Grounds",
+    "kind": "Kind",
+    "measure": "Measure",
+    "field": "Field",
+    "buckets": "Buckets",
+    "limit": "Limit",
+    "total": "Entities counted",
+    "missing": "Missing values",
+    "computedAt": "Computed at"
+  },
   "authored": {
     "reload": "Reload",
     "missingEntity": "The entity was not returned.",

@@ -75,6 +75,7 @@ export const addressOfKind = (kind: string): string => `/kind/${addressName(kind
 
 /** The API the app reads: one address per answer. */
 export const API = {
+  facts: '/api/facts',
   product: '/api/product',
   status: '/api/status',
   catalog: '/api/catalog',

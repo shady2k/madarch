@@ -1,3 +1,4 @@
+import { DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
 import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
@@ -866,8 +867,9 @@ function CorrectionBox({ page, name }: { page: string; name: string | null }): R
 
 /** One sentence of an agent's page with its paragraph, each ground with its excerpt, and the place for a correction. */
 export function StatementPage({ id, sentence, turn = 0, version }: { id: string; sentence: string; turn?: number; version: number }): ReactElement {
-  const { t } = useTranslation();
-  const { data: statement, error } = useRead<StatementModel>(`${id}\0${sentence}\0${turn}`, version, (signal) => getStatement(id, sentence, turn, signal));
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const { data: statement, error } = useRead<StatementModel>(`${id}\0${sentence}\0${turn}\0${language}`, version, (signal) => getStatement(id, sentence, turn, signal, language));
   useTabTitle(sentence.length > 40 ? `${sentence.slice(0, 39)}…` : sentence);
   if (statement === null && error === null) return <PageSkeleton testId="statement-loading" />;
   if (statement === null) {
@@ -894,6 +896,22 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
         <blockquote className="!my-0"><KMarkdown text={statement.paragraph} resolutions={statement.resolutions} /></blockquote>
         <p className="mb-0 mt-2 text-small text-muted">{t('knowledge.statementWhere', { file: statement.file, line: statement.line })}</p>
       </section>
+      {statement.aggregate !== undefined && <PageSection data-testid="statement-aggregate">
+        <SectionTitle>{t('facts.ground')}</SectionTitle>
+        {statement.aggregate.value !== null && <Paragraph>{statement.aggregate.value}</Paragraph>}
+        <BulletList>{statement.aggregate.rows.map((row, index) => <ListItem key={index}>{row.entity === undefined ? row.label : <TextLink href={appPath(addressOfEntity(row.entity))} {...linkHandlers(addressOfEntity(row.entity))}>{row.label}</TextLink>}: {row.value}</ListItem>)}</BulletList>
+        <DefinitionList columns>
+          <DefinitionTerm>{t('facts.kind')}</DefinitionTerm><DefinitionValue>{statement.aggregate.kind}</DefinitionValue>
+          <DefinitionTerm>{t('facts.measure')}</DefinitionTerm><DefinitionValue>{statement.aggregate.measure}</DefinitionValue>
+          {statement.aggregate.field !== undefined && <><DefinitionTerm>{t('facts.field')}</DefinitionTerm><DefinitionValue>{statement.aggregate.field}</DefinitionValue></>}
+          {statement.aggregate.buckets !== undefined && <><DefinitionTerm>{t('facts.buckets')}</DefinitionTerm><DefinitionValue>{JSON.stringify(statement.aggregate.buckets)}</DefinitionValue></>}
+          {statement.aggregate.limit !== undefined && <><DefinitionTerm>{t('facts.limit')}</DefinitionTerm><DefinitionValue>{statement.aggregate.limit}</DefinitionValue></>}
+          <DefinitionTerm>{t('facts.total')}</DefinitionTerm><DefinitionValue>{statement.aggregate.total}</DefinitionValue>
+          <DefinitionTerm>{t('facts.missing')}</DefinitionTerm><DefinitionValue>{statement.aggregate.missing}</DefinitionValue>
+          <DefinitionTerm>{t('facts.computedAt')}</DefinitionTerm><DefinitionValue>{statement.aggregate.computedAt}</DefinitionValue>
+        </DefinitionList>
+        <BulletList>{statement.aggregate.entities.map((entity) => <ListItem key={entity}><TextLink href={appPath(addressOfEntity(entity))} {...linkHandlers(addressOfEntity(entity))}>{entity}</TextLink></ListItem>)}</BulletList>
+      </PageSection>}
       <section className="mb-8" data-testid="statement-grounds">
         <h2>{t('knowledge.statementGrounds')}</h2>
         {statement.grounds.length === 0 ? (

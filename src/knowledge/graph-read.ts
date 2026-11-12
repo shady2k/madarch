@@ -509,6 +509,7 @@ function entityOf(row: Raw, sources = true): GraphEntity {
     if (graphKind === `${GIT_KINDS.file}`) {
       // Every field the opinions agree on is its value; fields they differ on stand as every value, with the opinions
       // beside them (A4: nothing wins by rule).
+      properties['directory'] = String(row['path']).includes('/') ? String(row['path']).slice(0, String(row['path']).lastIndexOf('/')) : '.';
       properties['mode'] = valueOf(row['file_opinions'], fileOpinions, 'mode');
       properties['blob'] = valueOf(row['file_opinions'], fileOpinions, 'blob');
       const bytes = valueOf(row['file_opinions'], fileOpinions, 'bytes');
@@ -1007,7 +1008,20 @@ export class GraphReader {
   }
 
   async list(kind: string, options: { q?: string; after?: string; limit: number }): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
-    return await this.listKinds([kind], options);
+    const page = await this.listKinds([kind], options);
+    if (kind === WIKI_KIND['file']) {
+      const now = Date.now();
+      const windows = { d30: new Date(now - 30 * 86400000).toISOString(), d90: new Date(now - 90 * 86400000).toISOString(), d365: new Date(now - 365 * 86400000).toISOString() };
+      for (const repository of new Set(page.rows.map((row) => String(row.properties['repository'])))) {
+        const rhythm = await this.fileRhythm(repository, windows);
+        for (const row of page.rows.filter((row) => row.properties['repository'] === repository)) {
+          const history = rhythm.get(String(row.properties['path']));
+          row.properties['commit_count'] = history?.all ?? null;
+          row.properties['last_change'] = history?.last ?? null;
+        }
+      }
+    }
+    return page;
   }
 
   /**

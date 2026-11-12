@@ -10,11 +10,52 @@ relation-constraints:
   - contains
   in:
   - partOf
+audience: [developer, architect]
+facts:
+- id: count
+  labels: { en: Files, ru: Файлы }
+  measure: count
+  display: number
+- id: by-language
+  labels: { en: By language, ru: По языку }
+  measure: group-by
+  field: language
+  display: bar
+- id: by-folder
+  labels: { en: By folder, ru: По папке }
+  measure: group-by
+  field: directory
+  display: treemap
+- id: age
+  labels: { en: Time since last change, ru: Время с последнего изменения }
+  measure: histogram
+  field: last_change
+  buckets: [30, 90, 365]
+  display: timeline
+- id: largest
+  labels: { en: Largest files in bytes, ru: Самые большие файлы в байтах }
+  measure: top-n
+  field: bytes
+  limit: 10
+  display: bar
+- id: most-changed
+  labels: { en: Most changed files (dated non-merge commits), ru: Чаще изменяемые файлы (датированные немержевые коммиты) }
+  measure: top-n
+  field: commit_count
+  limit: 10
+  display: bar
 template-policy: page
 template: templates/file.liquid
 source: graph
 capability: git
 fields:
+# Graph projections: git tree/path/blob reads fill directory and bytes;
+# git language detection fills language; git touched/history reads fill dates and counts.
+- { name: language, type: text, nullable: true, producers: [git] }
+- { name: directory, type: text, producers: [git] }
+- { name: bytes, type: bigint, nullable: true, producers: [git] }
+- { name: last_change, type: timestamp, nullable: true, producers: [git] }
+- { name: commit_count, type: integer, nullable: true, producers: [git] }
 - name: state_machines
   type: json
   nullable: true
