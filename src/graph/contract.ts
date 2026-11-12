@@ -140,6 +140,8 @@ export type KeyValueDraft = string | number | boolean | EntityRefDraft;
  * field it has no opinion on.
  */
 export interface VertexDraft {
+  /** Replace only these fields; fields outside the scope keep their prior opinions. */
+  readonly selectedFields?: readonly string[];
   readonly kind: string;
   /** The entity's natural key values, by the kind's key fields; a reference is its entity's kind and key. */
   readonly key: Readonly<Record<string, KeyValueDraft>>;
@@ -180,6 +182,8 @@ export interface EdgeRemovalDraft {
 
 /** One entity a producer no longer holds: its opinions are closed and it leaves the reads (a removal of a term). */
 export interface VertexRemovalDraft {
+  /** Withdraw only these fields, preserving the producer's other fields. */
+  readonly selectedFields?: readonly string[];
   readonly kind: string;
   readonly key: Readonly<Record<string, KeyValueDraft>>;
   readonly producer: string;

@@ -470,10 +470,10 @@ function paramOf(value: unknown): unknown {
  * digest, its context and the moment it was said), a re-evidenced one the grounds that replaced its own, and a closed
  * one its id — the row it names is the state, and replay drops it from there.
  */
-async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string, translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string }): Promise<boolean> {
+async function stateOpinion(executor: SqlExecutor, entity: string, table: string, owner: 'node_id' | 'edge_id', ownerId: string, saidBy: string, values: ReadonlyMap<string, unknown>, fields: readonly string[], evidence: readonly EvidenceEntry[], lang: string | null, contextId = 1, journal?: Journal, nodeUid?: string, edgeId?: string, translation?: { readonly translatedFrom?: string; readonly sourceDigest?: string }, selectedFields?: readonly string[]): Promise<boolean> {
   const columns = fields;
   const producer = saidBy.slice(0, saidBy.lastIndexOf('@') < 0 ? saidBy.length : saidBy.lastIndexOf('@'));
-  const stated = [...values.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field);
+  let stated = [...values.entries()].filter(([, value]) => value !== null && value !== undefined).map(([field]) => field);
   // A node opinion names its vertex by uid, which the row itself does not carry: the same statement reads it, so an
   // event says its vertex even where the caller holds only the node's local id (codex, stage 2 review, item 3).
   const ownerUid = (param: number): string => (owner === 'node_id' ? `, (SELECT uid::text FROM node WHERE id = $${String(param)}::bigint) AS owner_uid` : '');
@@ -489,6 +489,14 @@ async function stateOpinion(executor: SqlExecutor, entity: string, table: string
     [ownerId, producer, lang, String(contextId)],
   );
   const open = held.rows[0];
+  if (selectedFields !== undefined) {
+    const selected = new Set(selectedFields);
+    values = new Map(columns.map((field) => [field, selected.has(field) ? values.get(field) ?? null : open?.[field] ?? null]));
+    if (open !== undefined && columns.some((field) => !selected.has(field) && open[field] != null)) {
+      evidence = [...(open['evidence'] as EvidenceEntry[] ?? []), ...evidence].filter((entry, index, entries) => entries.findIndex((other) => sameValue(entry, other)) === index);
+    }
+    stated = [...values.entries()].filter(([, value]) => value != null).map(([field]) => field);
+  }
   if (open !== undefined) {
     // One publication states the producer's whole opinion: every declared field counts, and an omitted field is null.
     const same = columns.every((column) => sameColumn(open[column], values.get(column) ?? null));
@@ -580,11 +588,11 @@ export async function publishOpinions(executor: SqlExecutor, contract: GraphCont
  * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
  * wrote, so a rerun of the same answer writes nothing.
  */
-export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
+export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly selectedFields?: readonly string[]; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
   const vertex = vertexOf(contract, draft.kind);
   const values = valuesOf(vertex, draft);
   const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
-  return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) });
+  return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
 }
 
 /**
@@ -691,13 +699,30 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   const node = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = $3::bigint FOR UPDATE OF n`, [uid, vertex.name, String(contextId)]);
   const nodeId = node.rows[0]?.id;
   if (nodeId === undefined) return false;
+  const preserved: string[] = [];
+  let scopedChanged = false;
+  if (draft.selectedFields !== undefined && draft.withdrawAll !== true) {
+    const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
+    const selected = new Set(draft.selectedFields);
+    const standing = await executor.query<Record<string, unknown>>(
+      `SELECT * FROM ${vertex.table} WHERE node_id = $1::bigint AND split_part(said_by, '@', 1) = $2 AND state = 'open' AND context_id = $3::bigint`,
+      [nodeId, draft.producer, String(contextId)]);
+    for (const row of standing.rows) {
+      if (!fields.some((field) => !selected.has(field) && row[field] != null)) continue;
+      scopedChanged = await stateOpinion(executor, vertex.name, vertex.table, 'node_id', nodeId, String(row['said_by']),
+        new Map(fields.map((field) => [field, selected.has(field) ? null : row[field]])), fields,
+        row['evidence'] as EvidenceEntry[], row['lang'] as string | null, contextId, journal, uid) || scopedChanged;
+      // The merge created or kept an open replacement; preserve that language from the whole-row withdrawal below.
+      preserved.push(row['lang'] === null ? '' : String(row['lang']));
+    }
+  }
   const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
-    [nodeId, draft.producer, String(contextId), draft.withdrawAll === true],
+    `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint AND NOT (COALESCE(lang, '') = ANY($5::text[])) RETURNING "id"::text AS id, "said_by", "lang"`,
+    [nodeId, draft.producer, String(contextId), draft.withdrawAll === true, preserved],
   );
   // A withdrawal that withdrew nothing states nothing: no close, and no removal of a vertex that stands (codex, stage 2
   // review, item 4). A repeated ineffective withdrawal is not a change and writes no row.
-  if (closed.rows.length === 0) return false;
+  if (closed.rows.length === 0) return scopedChanged;
   for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
   const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
   const removed = Number(open.rows[0]?.n ?? '0') === 0;
