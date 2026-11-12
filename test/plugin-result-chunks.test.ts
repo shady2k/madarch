@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { PluginHost } from '../src/plugin/host.js';
 
 /** Protocol-only fixture: sandbox-off is not an isolation test. */
-async function runLargeResult(maxUnitOutputBytes?: number, count = 3, textBytes = 400000) {
+async function runLargeResult(maxUnitOutputBytes?: number, count = 3, textBytes = 400000, fault?: 'sequence' | 'missing-count') {
   const root = mkdtempSync(join(tmpdir(), 'madarch-result-chunks-'));
   const outputs = { vertices: [{ kind: 'item', key: ['id'], fields: [{ name: 'text', type: 'text', meaning: 'fixture text', example: '', required: false }] }], edges: [] };
   writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'chunks', version: '1.0.0', entry: 'entry.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'item', fields: '*' }] }));
   writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: 'chunks', version: '1.0.0', outputs, rights: { network: 'none' } }));
   writeFileSync(join(root, 'entry.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
-await definePlugin({ name: 'chunks', version: '1.0.0', contract: ${JSON.stringify(outputs)}, extract: () => ({ vertices: Array.from({length: ${count}}, (_, id) => ({kind: 'item', key: {id: String(id)}, values: {text: 'x'.repeat(${textBytes})}})), end: {state: 'complete'} }) });`);
+await definePlugin({ name: 'chunks', version: '1.0.0', contract: ${JSON.stringify(outputs)}, extract: (unit) => { ${fault === undefined ? '' : `process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'unit.resultChunk',params:{unitId:unit.unitId,sequence:${fault === 'sequence' ? 1 : 0},data:'e30='}})+'\\n');`} return ({ vertices: Array.from({length: ${count}}, (_, id) => ({kind: 'item', key: {id: String(id)}, values: {text: 'x'.repeat(${textBytes})}})), end: {state: 'complete'} }); } });`);
   let session;
   try {
     session = await new PluginHost({ pluginFolder: root, repository: root, workRoot: join(root, 'work'), trust: 'validation', env: { ...process.env, MADARCH_PLUGIN_SANDBOX: 'off' }, ...(maxUnitOutputBytes === undefined ? {} : { limits: { maxUnitOutputBytes } }) }).open();
@@ -39,6 +39,15 @@ test('byte fragments preserve a single vertex larger than one message', async ()
   expect(outcome.result.vertices[0]?.values?.text).toBe('x'.repeat(1_200_000));
   expect(outcome.result.end).toEqual({ state: 'complete' });
 });
+
+for (const fault of ['sequence', 'missing-count'] as const) {
+  test(`incomplete or out-of-order result fragments refuse atomically: ${fault}`, async () => {
+    const outcome = await runLargeResult(undefined, 1, 10, fault);
+    expect(outcome.state).toBe('not-extracted');
+    if (outcome.state === 'not-extracted') expect(outcome.cause.code).toBe('malformed-result');
+    expect('result' in outcome).toBe(false);
+  });
+}
 
 test('bounded result chunks cannot bypass the unchanged per-unit cap', async () => {
   const outcome = await runLargeResult(1_048_576);
