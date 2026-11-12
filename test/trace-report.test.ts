@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { readTraceReport, readTraceRun, readTraceSpans, stepReportsOf, traceReportOf, type StepReport, type TraceSpan } from '../src/obs/trace-report.js';
+import { readTraceReport, readTraceRunSummary, readTraceSpans, stepReportsOf, traceReportOf, type StepReport, type TraceSpan } from '../src/obs/trace-report.js';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../src/obs/trace.js';
 import { main } from '../src/product/cli.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
@@ -68,7 +68,7 @@ describe('madarch trace', () => {
       await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
       const result = await runFill({ product, database: owner, runId: 'steps', store, workers: 2, maxPasses: 100_000, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(result.ok).toBe(true);
-      const run = readTraceRun({ store, runId: 'steps' });
+      const run = readTraceRunSummary({ store, runId: 'steps' });
       expect(run.runId).toBe('steps');
       expect(run.report.spanCount).toBeGreaterThan(10);
       expect(run.endedAtMs - run.startedAtMs).toBeCloseTo(run.report.wallMs, 0);
@@ -183,8 +183,9 @@ test('one trace read gives the same report and steps as the public builders', ()
       span('other', undefined, 27, 30, 'other'), span('missing-parent', 'absent', 26, 28),
     ].map((one) => JSON.stringify(one)).join('\n'));
     const spans = readTraceSpans(file);
-    const read = readTraceRun({ store: root });
-    expect(read.report).toEqual(traceReportOf(spans, file));
+    const read = readTraceRunSummary({ store: root });
+    const { spanCount, wallMs, names, agentUsage } = traceReportOf(spans, file);
+    expect(read.report).toEqual({ spanCount, wallMs, names, agentUsage });
     expect(read.steps).toEqual(stepReportsOf(spans));
     expect(read.steps.find((step) => step.step === 'tree')?.slowest.find((name) => name.name === 'plan')?.selfMs).toBe(6);
   } finally {

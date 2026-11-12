@@ -496,17 +496,8 @@ export interface TraceRunReport {
   readonly endedAtMs: number;
 }
 
-/** One run of a store's trace: the named run, or the newest. The file is read once for both reports. */
-export function readTraceRun(options: { readonly store: string; readonly runId?: string }, reader?: TraceSpanReader): TraceRunReport {
-  return readRun(options, reader, traceReportFrom);
-}
-
 /** The exact report fields the live run page consumes; the detailed CLI diagnostics are not collected. */
 export function readTraceRunSummary(options: { readonly store: string; readonly runId?: string }, reader?: TraceSpanReader): Omit<TraceRunReport, 'report'> & { report: TraceSummary } {
-  return readRun(options, reader, (spans, _file, index) => traceSummaryOf(spans, index));
-}
-
-function readRun<T>(options: { readonly store: string; readonly runId?: string }, reader: TraceSpanReader | undefined, report: (spans: readonly TraceSpan[], file: string, index: SpanIndex) => T): Omit<TraceRunReport, 'report'> & { report: T } {
   const files = traceFiles(options.store);
   if (files.length === 0) raise(`the store holds no trace: its traces are one JSON lines file per run in ${join(options.store, 'traces')}, and a fill writes one`);
   const chosen = options.runId === undefined ? files[0]! : files.find((one) => one.runId === options.runId || one.file.endsWith(`/${traceFileNameOf(options.runId!)}`));
@@ -518,7 +509,7 @@ function readRun<T>(options: { readonly store: string; readonly runId?: string }
   return {
     file: chosen.file,
     runId: chosen.runId,
-    report: withSpanSync('trace.report', {}, () => report(spans, chosen.file, index)),
+    report: withSpanSync('trace.report', {}, () => traceSummaryOf(spans, index)),
     steps: withSpanSync('trace.steps', {}, () => stepReportsOf(spans, index)),
     startedAtMs: startedAt,
     endedAtMs: endedAt,

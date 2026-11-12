@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readTraceRun, readTraceRunSummary, readTraceSpans, TraceSpanReader } from '../src/obs/trace-report.js';
+import { readTraceRunSummary, readTraceSpans, stepReportsOf, traceReportOf, TraceSpanReader } from '../src/obs/trace-report.js';
 
 const span = (id: string) => JSON.stringify({ traceId: 'run', spanId: id, parentSpanId: 'unfinished-parent', name: 'fill.unit', startTimeUnixNano: '1000000', endTimeUnixNano: '2000000', attributes: [] });
 
@@ -14,10 +14,12 @@ test('a live trace reader follows appends and resets on truncation or replacemen
   try {
     writeFileSync(file, span('first') + '\n');
     expect(reader.read(file)).toEqual(readTraceSpans(file));
-    expect(readTraceRun({ store: folder, runId: 'run' }, reader)).toEqual(readTraceRun({ store: folder, runId: 'run' }));
-    const full = readTraceRun({ store: folder, runId: 'run' });
-    const { spanCount, wallMs, names, agentUsage } = full.report;
-    expect(readTraceRunSummary({ store: folder, runId: 'run' }, reader)).toEqual({ ...full, report: { spanCount, wallMs, names, agentUsage } });
+    const spans = readTraceSpans(file);
+    const { spanCount, wallMs, names, agentUsage } = traceReportOf(spans, file);
+    expect(readTraceRunSummary({ store: folder, runId: 'run' }, reader)).toEqual({
+      file, runId: 'run', startedAtMs: 1, endedAtMs: 2,
+      report: { spanCount, wallMs, names, agentUsage }, steps: stepReportsOf(spans),
+    });
     const next = span('second');
     appendFileSync(file, next.slice(0, 20));
     expect(reader.read(file).map((one) => one.spanId)).toEqual(['first']);
