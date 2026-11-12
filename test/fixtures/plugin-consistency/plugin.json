@@ -11,7 +11,7 @@
     {
       "kind": "probe.finding",
       "fields": "*",
-      "reads": ["code.file", "code.repository", "code.directory", "probe.opinion", "probe.keyed"]
+      "reads": ["code.file", "code.repository", "code.directory"]
     }
   ]
 }

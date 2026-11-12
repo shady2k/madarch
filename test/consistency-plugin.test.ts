@@ -14,7 +14,8 @@ import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
-import { seedStarterSet } from '../src/knowledge/seed.js';
+import { parseDocument } from 'yaml';
+import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
@@ -59,7 +60,8 @@ kinds:
     template: templates/item-plain.liquid
     source: graph
     findings: true
-    derives-from: [code.file, code.repository, code.directory, probe.opinion, probe.keyed]
+    # Consistency records are read through graphReads rights, not as executable content inputs.
+    derives-from: [code.file, code.repository, code.directory]
     labels:
       en: { one: Probe finding, many: Probe findings }
       ru: { one: Находка, many: Находки }
@@ -109,6 +111,15 @@ problems:
   writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   useRepositoryPlugins(folder);
+  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+  const declared = parseDocument(readFileSync(kindsFile, 'utf8'));
+  const starter = parseDocument(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content).toJS();
+  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
+  declared.setIn(['kinds', 'probe.referrer'], {
+    template: 'templates/item-plain.liquid', source: 'graph', key: ['repository', 'path'],
+    fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['test', 'other'] }, { name: 'path', type: 'text', producers: ['test', 'other'] }],
+  });
+  writeFileSync(kindsFile, declared.toString());
   return closure;
 }
 
@@ -158,9 +169,10 @@ describe('a declared fixture plugin reads consistency records through the host',
     if (!run.ok) return;
     expect(run.state).toBe('succeeded');
     // The check declares its finding output and uses the ordinary plugin stage.
-    expect(run.units.filter((unit) => unit.stageId === 'plugin-turns').length).toBe(1);
+    expect(run.units.filter((unit) => unit.unitId.includes('plugin-consistency:probe.finding'))).toHaveLength(1);
+    expect(run.units.some((unit) => unit.unitId.startsWith('disk:'))).toBe(true);
     expect(await findings()).toEqual([]);
-    expect(await readProducerOutcomes(owner, { runId: 'consistent' })).toEqual([expect.objectContaining({ kind: 'probe.finding', outcome: 'empty', produced: 0, generation: 1 })]);
+    expect((await readProducerOutcomes(owner, { runId: 'consistent' })).filter((one) => one.plugin === 'plugin-consistency')).toEqual([expect.objectContaining({ kind: 'probe.finding', outcome: 'empty', produced: 0, generation: 1 })]);
   }, 300_000);
 
   test('two unevidenced fields of one entity are two findings, not one key twice', async () => {
@@ -193,10 +205,10 @@ describe('a declared fixture plugin reads consistency records through the host',
       entity_id: string; from_node: string; to_node: string; discriminator: string; context_id: string;
     }>(`SELECT e.entity_id::text, e.from_node::text, e.to_node::text, e.discriminator, e.context_id::text
         FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node
-        WHERE k.name = 'contains' AND n.key->>'path' = 'src/a.ts'`));
+        WHERE k.name = 'code.contains' AND n.key->>'path' = 'src/a.ts'`));
     expect(damaged.rows).toHaveLength(1);
-    for (const producer of ['git-tree', 'linguist']) {
-      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src/a.ts' }, producer }, 1))).toBe(true);
+    for (const producer of ['disk', 'git']) {
+      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, producer }, 1))).toBe(true);
     }
     await owner.transaction('write', async (tx) => {
       const edge = damaged.rows[0]!;
@@ -204,11 +216,11 @@ describe('a declared fixture plugin reads consistency records through the host',
         [edge.entity_id, edge.from_node, edge.to_node, edge.discriminator, edge.context_id]);
     });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [{ kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
+      vertices: [{ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
       removals: [],
     }, 1));
     expect((await unresolvedReferences(owner, { limit: 10 })).rows.map((one) => one.edge === undefined ? 'key' : 'edge')).toEqual(['key']);
-    expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['contains']);
+    expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['code.contains']);
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
     const alone = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
@@ -228,8 +240,8 @@ describe('a declared fixture plugin reads consistency records through the host',
     // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
-        { kind: 'repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
-        { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
+        { kind: 'code.repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
+        { kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
       ],
       removals: [],
     }, 1));
@@ -275,7 +287,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
-    const fileVertex = (name: string) => ({ kind: 'file', key: { repository: { kind: 'repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
+    const fileVertex = (name: string) => ({ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [fileVertex('page-a'), fileVertex('page-b')], removals: [] }, 1));
     const first = await unresolvedReferences(owner, { limit: 1 });
     expect(first.rows).toHaveLength(1);
@@ -283,11 +295,11 @@ describe('a declared fixture plugin reads consistency records through the host',
     const second = await unresolvedReferences(owner, { after: first.next, limit: 1 });
     expect(second.rows).toHaveLength(1);
     // The target stands now: the row the writer kept is no longer a problem, while the other still is.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'code.repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
     const after = await unresolvedReferences(owner, { limit: 10 });
     expect(after.rows.filter((one) => one.target.label.startsWith('page-')).map((one) => one.target.label)).toEqual(['page-b']);
     await owner.transaction('write', async (tx) => {
-      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
+      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
       for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b') OR key->>'name' IN ('page-a', 'page-b'))`);
       await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b')`);
       await tx.query(`DELETE FROM node WHERE key->>'name' IN ('page-a', 'page-b')`);
@@ -299,20 +311,20 @@ describe('a declared fixture plugin reads consistency records through the host',
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
-    const key = { repository: { kind: 'repository', key: { name: 'withdrawn-ghost' } }, path: 'withdrawn.ts' };
+    const key = { repository: { kind: 'code.repository', key: { name: 'withdrawn-ghost' } }, path: 'withdrawn.ts' };
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
-        { kind: 'file', key, values: {}, producer: 'test', producerVersion: '1' },
-        { kind: 'file', key, values: {}, producer: 'other', producerVersion: '1' },
+        { kind: 'probe.referrer', key, values: {}, producer: 'test', producerVersion: '1' },
+        { kind: 'probe.referrer', key, values: {}, producer: 'other', producerVersion: '1' },
       ],
       removals: [],
     }, 1));
-    await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key, producer: 'test' }, 1));
+    await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'probe.referrer', key, producer: 'test' }, 1));
     const found = await unresolvedReferences(owner, { limit: 20 });
     expect(found.rows.filter((one) => one.target.label === 'withdrawn-ghost').map((one) => one.producer)).toEqual(['other@1']);
     await owner.transaction('write', async (tx) => {
       for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' = 'withdrawn-ghost')`);
-      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' = 'withdrawn-ghost'`);
+      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.repository' AND target_key->>'name' = 'withdrawn-ghost'`);
       await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' = 'withdrawn-ghost'`);
     });
   }, 120_000);
@@ -323,17 +335,17 @@ describe('a declared fixture plugin reads consistency records through the host',
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
     const edge = (discriminator: string) => ({
-      kind: 'contains',
-      from: { kind: 'directory', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src' } },
-      to: { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'edge-ghost' } }, path: 'e.ts' } },
+      kind: 'code.contains',
+      from: { kind: 'code.directory', key: { repository: 'repo', path: 'src' } },
+      to: { kind: 'code.file', key: { repository: 'edge-ghost', path: 'e.ts' } },
       discriminator,
       producer: 'test', producerVersion: '1',
     });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [], edges: [edge('d1'), edge('d2')], removals: [] }, 1));
-    const found = (await unresolvedReferences(owner, { limit: 20 })).rows.filter((one) => one.edge?.kind === 'contains' && one.target.key['repository'] === 'edge-ghost');
+    const found = (await unresolvedReferences(owner, { limit: 20 })).rows.filter((one) => one.edge?.kind === 'code.contains' && one.target.key['repository'] === 'edge-ghost');
     expect(found.map((one) => one.edge?.discriminator).sort()).toEqual(['d1', 'd2']);
     expect(new Set(found.map((one) => one.id)).size).toBe(2);
-    await owner.transaction('write', async (tx) => await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' = 'edge-ghost'`));
+    await owner.transaction('write', async (tx) => await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.file' AND target_key->>'repository' = 'edge-ghost'`));
   }, 120_000);
 
   test('an opinion with two evidence-required fields is two pages at limit one, and every key field is emitted', async () => {
