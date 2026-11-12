@@ -1,0 +1,127 @@
+# Repository facts come from ordinary disk and git plugins
+
+Change: madarch-64o5.40
+Base: 6d19ce48
+Tasks: madarch-64o5.28
+Kind: behavior
+
+## Intent
+
+Replace native repository-tree and history graph producers with ordinary disk
+and git plugins. A fresh starter product ships both. Plugin declarations alone
+select and order repository fact work: Files runs disk; Commits runs disk then
+git. The engine hosts plugins and publishes their opinions but does not walk a
+repository tree or interpret Git history to feed the graph.
+
+## Out of scope
+
+Real agent/model execution; unrelated agent-producer admission policy; changing
+timeouts or performance bounds; reader exceptions for native kind names;
+weakening any of the twelve madarch-64o5.28 contract rules; owner approval;
+tracker closure or landing this branch.
+
+## Rationale
+
+The disk/git example in madarch-64o5.28 remained only an ordering example while
+native foundational stages still populated the graph. Moving interpretation
+inside ordinary plugins makes the selected work match the declarations and
+removes a second graph-writing route. This forward-port starts at owner-pinned HEAD 6d19ce48 on
+fix/madarch-64o5.30-28. Saved a2b0a60c is a source reference only; its
+older planner and all-output grouping are not carried forward. This proposal
+does not assert an approval receipt.
+
+## Changes to requirements
+
+- repository-fact-plugins/producers: add ordinary disk and git plugins with output-specific declarations, shipped by the starter.
+- repository-fact-plugins/selection: add declaration-only Files and Commits selection and ordering.
+- repository-fact-plugins/publication: add ordinary typed-opinion publication and generic readback without native interpretation.
+- repository-fact-plugins/regression: add fixture-only regression and unchanged-workload speed evidence.
+- fill-history/stage: replace the native registered history stage with the ordinary git plugin.
+- fill-history/reads: replace native snapshot/fact SQL inputs with declared disk output reads and generic opinion publication.
+
+- fill-history/ancestry: replace native stage wording while retaining the required history behavior through the git plugin.
+- fill-history/task-keys: replace native stage wording while retaining the required history behavior through the git plugin.
+- fill-history/incremental: replace native stage wording while retaining the required history behavior through the git plugin.
+- fill-history/bound: replace native stage wording while retaining the required history behavior through the git plugin.
+- fill-history/gaps: replace native stage wording while retaining the required history behavior through the git plugin.
+Complete proposed capabilities: `capabilities/repository-fact-plugins.md` and
+`capabilities/fill-history.md`.
+
+## Preserved contracts
+
+- fill-stages/graph: derive producer ordering from declarations rather than an engine-defined plugin category.
+- fill-stages/starvation: refuse missing enabled prerequisites instead of silently omitting selected work.
+- fill-orchestrator/plan: retain the orchestrator's stage registration and admission contract for runnable plugin work.
+
+
+## Coverage
+
+- fill-stages/graph: static, test, mutation, review
+- fill-stages/starvation: static, test, mutation, review
+- fill-orchestrator/plan: static, test, mutation, review
+- repository-fact-plugins/producers: static, test, mutation, review
+- repository-fact-plugins/selection: static, test, mutation, review
+- repository-fact-plugins/publication: static, test, mutation, review
+- repository-fact-plugins/regression: static, test, mutation, review
+
+- fill-history/stage: static, test, mutation, review
+- fill-history/reads: static, test, mutation, review
+- fill-history/ancestry: static, test, mutation, review
+- fill-history/task-keys: static, test, mutation, review
+- fill-history/incremental: static, test, mutation, review
+- fill-history/bound: static, test, mutation, review
+- fill-history/gaps: static, test, mutation, review
+
+## Where it is seen
+
+Kind: command
+Place: A fresh starter product, madarch fill --entity KIND, and the product wiki kind pages
+
+1. Create a starter product and inspect its declared disk and git plugins.
+2. Select Files through the CLI or wiki; inspect the planned producer names and run the fill.
+3. Read Files and Folders from the published plugin opinions.
+4. Select Commits; observe disk completing before git, then read Commits, Authors and history.
+5. Disable a required producer and request its output; observe a refusal before run acceptance rather than native fallback.
+
+## Blocking questions
+
+None.
+
+## Design and decisions
+
+Disk owns repository/tree interpretation. Git reads disk's declared output
+and owns commit, author and history interpretation. Both are ordinary plugins
+with plugin-and-kind scoped units, output-specific reads/fields and enforced
+selected scope. Multiple entries remain one plugin identity, not one invocation
+allowed to write all its outputs. Files selects its prerequisite closure only;
+Commits selects its prerequisite closure and waits for successful disk units. Any low-level host facilities remain generic and do not turn tree
+entries or Git records into graph facts. Existing .28/.30 declaration,
+refinement, source-preservation and prerequisite rules remain applicable; all twelve
+rules of .28 contract.md remain normative. Append-only integration notes do not
+replace historical evidence.
+
+## Canonical identity and host rights
+
+Repository storage and all reads/writes use ordinary declared `code.*` kinds.
+There are no native read/write aliases, dual identities, fallback writers or
+native prerequisite exemptions. All existing typed fields, source/evidence and
+retained history must survive. Generic host facilities expose read-only pinned
+repository inputs and declared executable/tool rights, not graph interpretation.
+Delete native tree/history stages and their publication path.
+
+## Acceptance evidence
+
+Pending. Red-first results, final checks, mutation/review findings and the same
+training-workload speed measurement must be recorded against their actual
+inputs. No real agent or model is used. No timeout or performance bound is
+increased. No pending or skipped check is claimed as passed.
+
+## DONE WHEN
+
+A fresh starter ships ordinary disk and git producers. Files runs disk only;
+Commits runs disk then git through declarations, without an agent requirement
+introduced by either deterministic producer. Their published data is readable
+through the generic opinion readers. Native tree/history graph producers and
+engine interpretation feeding the graph are absent. Fixture regressions and
+the unchanged training workload provide actual evidence, with any remaining
+blockers reported explicitly.

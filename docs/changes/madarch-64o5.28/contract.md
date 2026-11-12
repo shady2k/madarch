@@ -225,3 +225,30 @@ that process approval receipts exist, or that historical failures are repaired.
 The existing native-stage migration limitation and unresolved schema-key,
 performance/list, glossary journal and child-role shutdown observations remain
 in change.md. No PostgreSQL or heavy checks were run to author this contract.
+
+
+## .40 ordinary repository plugin integration
+
+The owner-authorized forward-port from saved a2b0a60c onto 6d19ce48 replaces
+native tree/history stages and their graph writers/readers with real ordinary
+disk/git plugins. Saved .40 is source reference only; its old planner and
+all-output invocation grouping are not normative. All twelve rules above remain
+unchanged. Plugin-and-kind units, selected fields, output-specific reads,
+success-gated dependencies, immutable earlier versions and scoped lifecycle
+remain mandatory for disk/git as for every other plugin. No native exemption,
+fallback writer/reader or read/write alias may satisfy a prerequisite.
+
+Repository facts use canonical ordinary `code.repository`, `code.directory`,
+`code.file`, `code.gitlink`, `code.commit` and `code.author` identities and declared
+relations through generic storage/readback. Repository/path keys are declared
+scalar values, not native nested-reference or physical-node aliases. Preserve
+all existing typed fields, source/evidence and retained fact/run/version history.
+Generic read-only pinned repository input and declared trusted executable/tool
+rights provide confined access; only plugin code interprets disk and Git.
+
+The proposed requirements are in `../madarch-64o5.40/`. This integration note is
+a contract-first record, not implementation or validation evidence. Historical
+failures above and in change.md remain recorded. Whole-suite green and actual
+comparable before/after training measurements are pending parent coordination.
+No test/check/PostgreSQL command, real model, assertion weakening or bound
+increase was used to author this note. No approval receipt is fabricated.
