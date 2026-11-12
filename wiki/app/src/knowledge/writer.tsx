@@ -29,14 +29,6 @@ export function agentOfferNote(t: (key: string, options?: Record<string, unknown
   return t('knowledge.writer.notInstalled', { package: install.package, version: install.version, size: install.size, folder: install.folder });
 }
 
-export const UNIT_STATE_KEY: Record<WriterUnit['state'], string> = {
-  waiting: 'knowledge.writer.unitWaiting',
-  writing: 'knowledge.writer.unitWriting',
-  written: 'knowledge.writer.unitWritten',
-  failed: 'knowledge.writer.unitFailed',
-  'not-written': 'knowledge.writer.unitNotWritten',
-};
-
 /**
  * What a reader calls the page a unit writes: the kind's name the manifest declares and the page's own title, so «Термин
  * Capture» and never the writer's word for its work (madarch-m38l.23). A page whose kind or title the status could not

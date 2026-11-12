@@ -102,6 +102,7 @@ export const API = {
   products: '/api/products',
   fill: '/api/fill',
   fillSelected: '/api/fill-selected',
+  fillRuns: '/api/fill-runs',
   pause: '/api/pause',
   stop: '/api/stop',
   agents: '/api/agents',

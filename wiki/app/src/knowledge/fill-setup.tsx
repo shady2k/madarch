@@ -1,4 +1,6 @@
 import { Stack, Text, PageSection, SmallTitle, Paragraph, FieldLabel } from '@/components/ui/typography.js';
+import { appPath } from '../app-base.js';
+import { navigateTo } from '../hold.js';
 import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
@@ -10,7 +12,7 @@ import { Select } from '@/components/ui/select.js';
 import { fillSelected, getAgents, getCatalog } from './api.js';
 import { areaOf } from './catalog-area.js';
 import { KLink } from './blocks.js';
-import { addressOfKind } from './routes.js';
+import { addressOfFillRun, addressOfKind } from './routes.js';
 import { KindGraph } from './kind-graph.js';
 import { addedByDependency, estimateOf } from './fill-selection.js';
 import { useRead } from './live.js';
@@ -64,7 +66,7 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
     setBusy(true);
     setFailure(null);
     fillSelected({ selected: [...checked].sort(), agent, tokenCap: cap.trim() === '' ? null : Number(cap) }).then(
-      () => { setBusy(false); setChecked(new Set()); refresh(); },
+      (answer) => { setBusy(false); setChecked(new Set()); refresh(); navigateTo(appPath(addressOfFillRun(answer.runId))); },
       (error: unknown) => { setBusy(false); setFailure(error instanceof Error ? error.message : String(error)); },
     );
   };

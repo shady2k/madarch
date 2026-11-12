@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { readFillEnd } from '../src/fill/orchestrator-store.js';
 import { readRunUnits } from '../src/fill/state-store.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { createDraft } from '../src/product/draft.js';
@@ -117,6 +118,10 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
   test('the fill page request fills exactly the selected kinds, with the kinds their dependencies add, and no agent', async () => {
     const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: null, tokenCap: null }) });
     expect(pressed.status).toBe(202);
+    expect(pressed.body.runId).toBeString();
+    const requested = await call(`/api/fill-runs?run=${encodeURIComponent(pressed.body.runId)}`);
+    expect(requested.status).toBe(200);
+    expect(requested.body.run).toMatchObject({ runId: pressed.body.runId, selected: ['doc.term'], order: pressed.body.order });
     // The order the engine runs them in: the kinds doc.term needs come first.
     expect(pressed.body.order).toEqual(['code.repository', 'code.directory', 'code.file', 'doc.term']);
     // The fill is the product's own: wait for its end, then read what it ran.
@@ -127,6 +132,10 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     }
     const status = await call('/api/status');
     expect(status.body.fill.state).toBe('done');
+    const history = await call('/api/fill-runs');
+    expect(history.body.runs[0]).toMatchObject({ runId: pressed.body.runId, state: 'succeeded', remainingMs: 0 });
+    const refusedHistoricalPause = await call(`/api/pause?run=${encodeURIComponent(pressed.body.runId)}`, { method: 'POST' });
+    expect(refusedHistoricalPause.status).toBe(409);
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
     try {
       const rows = await owner.run(async (tx) => await tx.query<{ run_id: string }>('SELECT run_id FROM fill_unit_generation ORDER BY updated_at DESC LIMIT 1'));
@@ -151,5 +160,30 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     const useCase = (catalogue.body.kinds as { kind: string; estimate?: { volume: number | null } }[]).find((kind) => kind.kind === 'doc.use-case');
     expect(useCase?.estimate).toBeUndefined();
   }, 600_000);
+
+  test('a precreated native request fails durably when pinned workflow initialization fails', async () => {
+    const workflow = join(folder, 'madarch', 'workflows.yaml');
+    const previous = readFileSync(workflow, 'utf8');
+    writeFileSync(workflow, 'workflows: [broken\n');
+    execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(IDENTITY) });
+    execFileSync('git', ['commit', '--quiet', '-m', 'Broken workflow fixture'], { cwd: folder, env: gitEnv(IDENTITY) });
+    try {
+      const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'] }) });
+      expect(pressed.status).toBe(202);
+      const runId = pressed.body.runId as string;
+      let detail: any;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        detail = (await call(`/api/fill-runs?run=${encodeURIComponent(runId)}`)).body.run;
+        if (detail.state === 'failed') break;
+        await new Promise((rest) => setTimeout(rest, 250));
+      }
+      expect(detail).toMatchObject({ runId, state: 'failed', selected: ['doc.term'] });
+      const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
+      try { expect((await readFillEnd(owner, runId))?.state).toBe('failed'); } finally { await owner.close(); }
+      expect((await call('/api/status')).body.fill.state).toBe('failed');
+    } finally {
+      writeFileSync(workflow, previous);
+    }
+  }, 120_000);
 
 });

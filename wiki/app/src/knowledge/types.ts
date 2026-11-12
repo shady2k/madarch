@@ -421,6 +421,7 @@ export type FillProgressView = {
 export type FillErrorView = { message: string; file?: string; line?: number; path?: string };
 
 export type FillState = {
+  runId?: string;
   rebuilt?: 'extractors-changed';
   /** `paused` and `stopped` are a person's press (madarch-m38l.17): a paused run ends at the next page boundary and is
    * taken up where it stopped; a stopped one ends now and the pages it rewrote stand. */
@@ -890,3 +891,23 @@ export type ContractReason =
   | {code: 'selectionNotRendered'};
 export type ContractDiagnostic = { path: string; line: number; fullPath: string; code: string; detail: string; reason?: ContractReason; technicalDetail?: string };
 type ProtoDocumentation = { services: {name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[]}[]; messages: {name: string; fields: {name: string; type: string; id: number; rule: string; oneof?: string}[]; values?: {name: string; id: number}[]}[] };
+
+/** A persisted fill run, independent of the currently selected product run. */
+export type SelectionRun = {
+  runId: string;
+  state: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  elapsedMs: number;
+  remainingMs: number | null;
+  selected: string[] | null;
+  order: string[] | null;
+  vertex: string | null;
+  units: { unitId: string; stage: string; scope: string; status: string; generation: number; attempts: number }[];
+  events: { seq: number; at: string; stage: string; unitId: string | null; type: string; summary: string }[];
+  records: number;
+  publishedUnits: number;
+  groups: { kind: string; group: string | null; plugin: string; done: number; total: number; state: string }[];
+  agentUsage: AgentUsageReport | null;
+};
