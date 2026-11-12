@@ -1,5 +1,5 @@
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
+import { Progress } from '@/components/ui/progress.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement } from './api.js';
 import { linkHandlers, syncFrontTabAddress, useTabTitle } from './tabs.js';
@@ -318,19 +319,17 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
           <CardDescription>{fill.repository !== undefined ? t('knowledge.fillReading', { repository: fill.repository, what: fillPhaseWords(fill, t) }) : t('knowledge.fillOpening')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t('knowledge.fillRunningTitle')}>
-            <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(share * 100)}%` }} />
-          </div>
+          <Progress value={Math.round(share * 100)} aria-label={t('knowledge.fillRunningTitle')} />
           {progress !== undefined && planned > 0 && (
-            <p className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-counts">{t('knowledge.repository.progressCounts', { published, planned })}</p>
+            <Paragraph className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-counts">{t('knowledge.repository.progressCounts', { published, planned })}</Paragraph>
           )}
           {progress !== undefined && planned === 0 && (
-            <p className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-spans">{t('knowledge.repository.fillSpans', { spans: progress.spans })}</p>
+            <Paragraph className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-spans">{t('knowledge.repository.fillSpans', { spans: progress.spans })}</Paragraph>
           )}
           {progress?.last !== null && progress?.last !== undefined && (progress.last.startsWith('fill.unit') || progress.last.startsWith('scheduler pass')) && (
-            <p className="mb-0 mt-1 break-all text-small text-muted" data-testid="fill-progress-last">{t('knowledge.repository.fillLast', { last: progress.last })}</p>
+            <Paragraph className="mb-0 mt-1 break-all text-small text-muted" data-testid="fill-progress-last">{t('knowledge.repository.fillLast', { last: progress.last })}</Paragraph>
           )}
-          <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.fillLive')}</p>
+          <Paragraph className="mb-0 mt-3 text-small text-muted">{t('knowledge.fillLive')}</Paragraph>
         </CardContent>
       </Card>
     );
@@ -342,12 +341,12 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
         <AlertDescription>
           <FailureNote scope="fill" code={fill.code} message={fill.message} />
           {fill.error !== undefined && fill.error.file !== undefined && (
-            <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-where">{t('knowledge.repository.errorAt', { file: fill.error.file, line: fill.error.line ?? 0, path: fill.error.path ?? '' })}</p>
+            <Paragraph className="mb-0 mt-2 break-all text-small" data-testid="fill-error-where">{t('knowledge.repository.errorAt', { file: fill.error.file, line: fill.error.line ?? 0, path: fill.error.path ?? '' })}</Paragraph>
           )}
           {fill.error !== undefined && fill.error.file === undefined && fill.error.path !== undefined && (
-            <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-path">{t('knowledge.repository.errorPath', { path: fill.error.path })}</p>
+            <Paragraph className="mb-0 mt-2 break-all text-small" data-testid="fill-error-path">{t('knowledge.repository.errorPath', { path: fill.error.path })}</Paragraph>
           )}
-          <p className="mt-2"><KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillRetry')}</KLink></p>
+          <Paragraph className="mt-2"><KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillRetry')}</KLink></Paragraph>
         </AlertDescription>
       </Alert>
     );
@@ -395,7 +394,7 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
         {connected ? (
           <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
         ) : (
-          <pre className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></pre>
+          <Preformatted className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></Preformatted>
         )}
       </CardContent>
     </Card>

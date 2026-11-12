@@ -267,22 +267,12 @@
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "10e838ba93404b0fab0b#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "2cc94da7166937fc6eb7#1"
   },
   {
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "84a4f67a3275ca40954f#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "93cf83cb7e00a8680f87#1"
   },
   {
     "rule": "arbitrary-tailwind",
@@ -453,11 +443,6 @@
     "rule": "inline-style",
     "file": "wiki/app/src/knowledge/fill-page.tsx",
     "subject": "293cf7bdbb0d6838536c#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "1e5caeb2423f47ef7fff#1"
   },
   {
     "rule": "local-styled-component",
@@ -883,11 +868,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "ExcerptView#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "FillPart#1"
   },
   {
     "rule": "local-styled-component",
