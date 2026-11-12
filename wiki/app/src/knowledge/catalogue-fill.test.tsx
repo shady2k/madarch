@@ -65,20 +65,14 @@ function stub(calls: { url: string; method: string }[], catalog: CatalogView = C
 }
 
 describe('the catalogue as a browse-only view', () => {
-  test('description cells cite named standards and offer compact source lists', async () => {
-    const sources = ['https://c4model.com/abstractions', 'https://arc42.org/overview'];
-    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => kind.kind === 'code.file' ? { ...kind, sources } : kind) });
+  test('short rows link to the kind instead of repeating standards disclosures', async () => {
+    stub([], { ...CATALOG, kinds: CATALOG.kinds.map((kind) => ({ ...kind, sourcesAvailable: true })) });
     const page = into(createElement(CataloguePage, { version: 0 }));
-    await until(() => page.querySelector('[data-kind="code.file"] [data-testid="kind-sources"]') !== null, 'source citations');
+    await until(() => page.querySelector('[data-kind="code.file"]') !== null, 'catalogue row');
     const row = page.querySelector('[data-kind="code.file"]')!;
-    const citation = row.querySelector('[data-testid="kind-sources"]')!;
-    expect(citation.closest('td')!.textContent).toContain('Source files');
-    expect([...citation.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
-      ['C4 model', sources[0]!], ['arc42', sources[1]!],
-    ]);
-    expect(citation.querySelector('button')!.getAttribute('aria-label')).toBe('Standards and practices');
-    expect(page.querySelectorAll('[data-testid="kind-sources"]')).toHaveLength(1);
-    expect(page.querySelector('a[href^="/src?"]')).toBeNull();
+    expect(row.querySelector('a[href="/kind/code.file"]')?.textContent).toBe('Files');
+    expect(row.querySelector('button')).toBeNull();
+    expect(page.querySelector('[data-testid="kind-sources"]')).toBeNull();
   });
 
   test('contents lists every section and kind and jumps to the selected section', async () => {
@@ -192,8 +186,8 @@ describe('the catalogue as a browse-only view', () => {
     await until(() => page.querySelector('[data-kind="doc.term"]') !== null, 'the catalogue');
     expect(page.querySelectorAll('[data-kind]')).toHaveLength(3);
     expect(page.querySelector('[data-kind="code.file"]')!.textContent).toContain('Source files');
-    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"] a')!.textContent).toBe('12');
-    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"] a')!.getAttribute('href')).toContain('code.file');
+    expect(page.querySelector('[data-kind="code.file"] [data-testid="catalogue-count"]')!.textContent).toBe('12');
+    expect(page.querySelector('[data-kind="code.file"] a')!.textContent).toBe('Files');
     expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-stage"]')!.textContent).toContain('glossary');
     expect(page.querySelector('[data-kind="doc.term"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('partial');
     expect(page.querySelector('[data-kind="doc.use-case"] [data-testid="catalogue-state"]')!.getAttribute('data-state')).toBe('never');

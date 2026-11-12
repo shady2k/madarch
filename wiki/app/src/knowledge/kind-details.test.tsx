@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { KindPage } from './pages.js';
 import { KindDetails } from './kind-details.js';
+import { KindLabels } from './kind-names.js';
 import { localeKeyIn, renderedText } from '../../test/locale-keys.js';
 import type { CatalogKindView, CatalogView } from './types.js';
 
@@ -49,7 +50,8 @@ const CATALOG: CatalogView = {
       sources: ['https://example.test/standard'],
       pluginFolders: ['plugins/glossary'],
       dependsOn: ['code.file'], state: 'partial', turn: 'failed',
-      fields: [{ name: 'definition', type: 'text' }, { name: 'parent', type: 'text', nullable: true, reference: 'doc.term' }],
+      declaration: { file: 'madarch/kinds.yaml', line: 12 },
+      fields: [{ name: 'definition', labels: { en: 'Definition', ru: 'Определение' }, declaration: { file: 'madarch/kinds.yaml', line: 18 }, type: 'text' }, { name: 'parent', type: 'text', nullable: true, reference: 'doc.term' }],
       relations: [{ direction: 'out', name: 'defined_in', kind: 'code.file' }, { direction: 'in', name: 'uses', kind: 'doc.rule' }],
     }),
     kind('doc.rule', { dependsOn: ['doc.term'] }),
@@ -78,8 +80,13 @@ test('the kind page combines its declaration, both relation directions, focused 
   expect(page.querySelectorAll('h1')).toHaveLength(1);
   expect(page.querySelector('[data-testid="kind-meaning"]')!.textContent).toBe('A word with one agreed meaning.');
   expect(page.querySelector('a[href="https://example.test/standard"]')).not.toBeNull();
-  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('definition');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Definition');
+  expect(page.querySelector('[data-testid="kind-declaration"]')?.textContent).toBe('madarch/kinds.yaml:12');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('madarch/kinds.yaml:18');
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('text | null');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('Untranslated field');
+  expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).not.toContain('parent');
+  expect(page.querySelector('[data-kind="doc.term"] [data-testid="dependency-plugin"]')!.textContent).toBe('plugins/glossary');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="out"]')!.textContent).toContain('defined_in →');
   expect(page.querySelector('[data-testid="kind-relations"] [data-direction="in"]')!.textContent).toContain('← uses');
   expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('plugins/glossary');
@@ -109,4 +116,30 @@ test('a catalogue-only kind shows details without inventing fields or targets', 
   expect(page.querySelector('[data-testid="kind-relations"]')!.textContent).toContain('contains →');
   expect(page.querySelector('[data-testid="kind-relations"] a')).toBeNull();
   expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('a person');
+});
+
+test('field labels use the selected Russian publication label without engine keys', async () => {
+  await setWikiLanguage('ru');
+  try {
+    stub(CATALOG);
+    const page = into(createElement(KindDetails, { kind: 'doc.term', version: 0 }));
+    await until(() => page.querySelector('[data-testid="kind-fields"]') !== null, 'Russian fields');
+    const fields = page.querySelector('[data-testid="kind-fields"]')!;
+    expect(fields.textContent).toContain('Определение');
+    expect(fields.textContent).toContain('Поле без перевода');
+    expect(fields.textContent).not.toContain('definition');
+    expect(fields.textContent).not.toContain('parent');
+    expect(fields.textContent).toContain('madarch/kinds.yaml:18');
+  } finally {
+    await setWikiLanguage('en');
+  }
+});
+
+test('person-origin kind pages include their declaration and catalogue-only kinds name absent producers', async () => {
+  stub({ ...CATALOG, kinds: [kind('member', { page: false, fields: [], relations: [] })] });
+  const page = into(createElement(KindLabels.Provider, { value: [{ kind: 'member', source: 'graph', count: 0, single: false, origins: ['person'] }] }, createElement(KindPage, { kind: 'member', version: 0 })));
+  await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'authored declaration');
+  expect(page.querySelector('[data-testid="authored-kind-page"]')).not.toBeNull();
+  expect(page.querySelector('[data-testid="kind-producer"]')?.textContent).toBe('No producer is declared');
+  expect(localeKeyIn(renderedText(page))).toBeUndefined();
 });

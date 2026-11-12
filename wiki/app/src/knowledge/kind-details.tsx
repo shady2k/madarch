@@ -21,20 +21,21 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
   const chosen = detail.data;
   if (catalog === null || chosen === null) return read.error === null && detail.error === null ? <Paragraph role="status">{t('knowledge.loading')}</Paragraph> : <Paragraph className="mb-6 text-small text-muted" role="status" data-testid="kind-details-unavailable">{t('knowledge.kindDetails.unavailable')}</Paragraph>;
   const related = relatedKinds(catalog.kinds, kind);
-  const description = chosen.descriptions?.[language] ?? chosen.descriptions?.['en'];
+  const description = chosen.descriptions?.[language];
   const producer = (chosen.pluginFolders ?? []).length > 0 ? chosen.pluginFolders!.join(', ')
     : (chosen.plugins ?? []).length > 0 ? t('knowledge.catalogueByPlugin', { plugins: chosen.plugins!.join(', ') })
     : fillWithOf(chosen) === 'person' ? t('knowledge.catalogueByPerson')
-    : fillWithOf(chosen) === 'agent' ? t('knowledge.catalogueByAgent')
-    : t(`knowledge.catalogueStage.${chosen.producer}`);
+    : chosen.fillWith === 'agent' ? t('knowledge.catalogueByAgent')
+    : chosen.producer === undefined ? t('knowledge.kindDetails.noProducer') : t(`knowledge.catalogueStage.${chosen.producer}`);
   const name = (id: string): string => {
     const entry = catalog.kinds.find((item) => item.kind === id);
-    return entry?.labels?.[language]?.many ?? entry?.labels?.['en']?.many ?? id;
+    return entry?.labels?.[language]?.many ?? t('knowledge.kindDetails.untranslatedKind');
   };
   return <Stack className="mb-8 space-y-6" data-testid="kind-details">
     <PageSection>
-      {description !== undefined && <Paragraph data-testid="kind-meaning">{description}</Paragraph>}
+      <Paragraph data-testid="kind-meaning">{description ?? t('knowledge.kindDetails.untranslatedDescription')}</Paragraph>
       <KindSources kind={chosen} />
+      {chosen.declaration !== undefined && <Paragraph className="text-small text-muted" data-testid="kind-declaration">{chosen.declaration.file}:{chosen.declaration.line}</Paragraph>}
       <DefinitionList className="mt-4 grid gap-2 text-small sm:grid-cols-2">
         <DefinitionTerm className="text-muted">{t('knowledge.kindSources.producer')}</DefinitionTerm>
         <DefinitionValue className="m-0" data-testid="kind-producer">{producer}</DefinitionValue>
@@ -46,8 +47,8 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
       <SectionTitle>{t('knowledge.kindDetails.fields')}</SectionTitle>
       {(chosen.fields ?? []).length === 0 ? <Paragraph className="text-muted">{t('knowledge.kindDetails.noFields')}</Paragraph> : <DefinitionList className="space-y-2">
         {chosen.fields!.map((field) => <Stack key={field.name} className="flex flex-wrap gap-x-3">
-          <DefinitionTerm className="font-mono">{field.name}</DefinitionTerm>
-          <DefinitionValue className="m-0 text-muted">{field.type}{field.nullable === true && ' | null'}{field.reference !== undefined && <> → <KLink href={addressOfKind(field.reference)}>{name(field.reference)}</KLink></>}</DefinitionValue>
+          <DefinitionTerm>{field.labels?.[language] ?? t('knowledge.kindDetails.untranslatedField')}</DefinitionTerm>
+          <DefinitionValue className="m-0 text-muted">{field.type}{field.nullable === true && ' | null'}{field.reference !== undefined && <> → <KLink href={addressOfKind(field.reference)}>{name(field.reference)}</KLink></>}{field.declaration !== undefined && <Text className="ml-2 text-small">{field.declaration.file}:{field.declaration.line}</Text>}</DefinitionValue>
         </Stack>)}
       </DefinitionList>}
     </PageSection>
