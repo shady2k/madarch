@@ -13,7 +13,7 @@ import { closureOf } from '../src/plugin/closure.js';
 import { runFill } from '../src/fill/run.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
-import { successfulPluginSnapshot, pluginSnapshotValue, pluginSnapshotVertices } from '../src/graph/plugin-turns.js';
+import { successfulPluginSnapshot, pluginSnapshotVertices } from '../src/graph/plugin-turns.js';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -130,8 +130,9 @@ test('a named successful snapshot keeps every earlier partition after a later pu
     f.change('normal', 'second');
     expect((await run('snapshot-second')).state).toBe('succeeded');
     expect((await rows()).map(row => row.text)).toEqual(keys.map(id => `second:${id}`));
-    for (const id of keys) expect(await pluginSnapshotValue(owner, snapshot, 'Items', { id }, 'text')).toBe(`first:${id}`);
-    expect((await pluginSnapshotVertices(owner, snapshot, 'Items')).map(vertex => [vertex.key['id'], vertex.values['text']]))
+    const snapshotVertices = await pluginSnapshotVertices(owner, snapshot, 'Items');
+    for (const id of keys) expect(snapshotVertices.find(vertex => vertex.key['id'] === id)?.values['text']).toBe(`first:${id}`);
+    expect(snapshotVertices.map(vertex => [vertex.key['id'], vertex.values['text']]))
       .toEqual(keys.map(id => [id, `first:${id}`]));
   } finally { await owner.close(); }
 }, 300_000);
