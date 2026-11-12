@@ -18,6 +18,7 @@ import { builtinModules } from 'node:module';
 import { ClosureRefusal } from './closure-refusal.js';
 export { ClosureRefusal } from './closure-refusal.js';
 import { walk, dependencyFiles } from './dependency-files.js';
+import { withSpanSync } from '../obs/trace.js';
 import { PluginContractFile, type PluginRights } from './protocol.js';
 import { SDK_SOURCE } from './sdk-asset.js';
 import { Type, type Static } from 'typebox';
@@ -278,11 +279,11 @@ export function closureOf(folder: string): Closure {
   folder = resolve(folder);
   const manifest = readPluginManifest(folder);
   const missing: ClosureRefusal[] = [];
-  const entries = [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))];
-  const own = entries.map((entry) => {
+  const entries = withSpanSync('plugin.closure.files', {}, () => [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))]);
+  const own = withSpanSync('plugin.closure.hash', { 'madarch.plugin.files': entries.length }, () => entries.map((entry) => {
     const stat = lstatSync(entry.file);
     return { path: entry.path, sha256: digestOf(entry.file), bytes: stat.size, mode: stat.mode & 0o777 };
-  });
+  }));
   if (!own.some((file) => file.path === manifest.entry)) {
     throw new ClosureRefusal('plugin-entry', `${WHERE}:1: ${join(folder, manifest.entry)} is the entry ${PLUGIN_MANIFEST_FILE} names, and the plugin folder holds no such file`, join(folder, manifest.entry));
   }
@@ -290,7 +291,7 @@ export function closureOf(folder: string): Closure {
   if (ownSdk !== undefined) {
     throw new ClosureRefusal('plugin-sdk-conflict', `${WHERE}:1: ${join(folder, ownSdk.path)} stands in the plugin's folder, and madarch hands every plugin its own SDK at that name: remove the copy, and import ${SDK_PACKAGE} from the closure madarch builds`, join(folder, ownSdk.path));
   }
-  validateImports(folder, entries, manifest.entry);
+  withSpanSync('plugin.closure.imports', {}, () => validateImports(folder, entries, manifest.entry));
   if (missing[0] !== undefined) throw missing[0];
   const files = [...own, ...sdkClosureFiles()].sort((left, right) => byCodePoint(left.path, right.path));
   return { folder, manifest, files, hash: closureHashOf(files) };

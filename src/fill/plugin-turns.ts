@@ -26,6 +26,7 @@ import { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type Eviden
 import { generatedTableName } from '../graph/contract.js';
 import { closureOf, pluginManifestLine, pluginRightsOf } from '../plugin/closure.js';
 import { prepareRepositoryInputs } from '../plugin/repository-input.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { planManifestFill } from '../plugin/fill-declarations.js';
 import { pluginInvocationAccess } from '../plugin/fill-access.js';
 import type { GraphAnswerer, RequestLog } from '../plugin/host.js';
@@ -295,7 +296,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   // is written once the unit ends — a unit with no agent part wrote nothing, and says so by holding no row.
   const meter = pluginUnitMeter(wiring, unit);
   const pluginFolder = join(wiring.productFolder, unit.plugin.path ?? '');
-  const closure = closureOf(pluginFolder);
+  const closure = withSpanSync('plugin.closure.verify', {}, () => closureOf(pluginFolder));
   if (closure.hash !== unit.lock.closure) {
     throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
@@ -343,7 +344,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const repositoryInputs = await (async () => {
     try {
       return pluginRightsOf(closure).filesystem === true
-        ? await prepareRepositoryInputs(await wiring.snapshots.pins(), workRoot)
+        ? await withSpan('plugin.repositories', {}, async () => await prepareRepositoryInputs(await wiring.snapshots.pins(), workRoot))
         : { filesystemInputs: [], repositories: [] };
     } catch (error) {
       rmSync(workRoot, { recursive: true, force: true });
