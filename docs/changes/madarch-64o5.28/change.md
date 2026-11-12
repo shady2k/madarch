@@ -55,5 +55,7 @@ None.
 
 ## Acceptance evidence
 
+- Independent review identified disabled/omitted plugin-stage admission and cross-plugin prerequisite-completion regressions. Regression scenarios are included in this proposal; implementation fixes and final review are still pending. This is not a green review claim.
+
 - `test/fill-target-selection.test.ts`: before implementation, 1 failure because derives-from was unknown; after implementation, 1 pass and 3 assertions. The fixture selects source and summary, not their dependant report.
 - Implementation evidence and tracker check receipts are recorded separately by the coordinator after the final source revision. This observation is not a receipt for the full required checks.

@@ -414,6 +414,11 @@ so a kind without a dedicated producer still has a declared filler.
 - When: report is selected
 - Then: report, summary and source are selected once each
 
+### Scenario: cross-plugin-prerequisite-completion
+- Given: summary derives from source and different plugins produce the two kinds
+- When: a selected summary fill runs
+- Then: the source-kind prerequisite completes before any derived summary-kind unit runs, not merely before that unit is planned
+
 ### Scenario: unavailable-producer
 - Given: the selected kind has no enabled runnable producer
 - When: a fill is requested

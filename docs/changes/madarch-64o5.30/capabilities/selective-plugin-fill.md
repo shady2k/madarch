@@ -32,6 +32,16 @@ scripted fixture, never a real agent or model.
 - When: the server receives the fill request
 - Then: it refuses with an actionable reason before accepting or queueing the run
 
+### Scenario: disabled-or-omitted-plugin-stage
+- Given: selected-kind declarations have producers but the runnable plugin stage is disabled or omitted from the run graph
+- When: the server receives the selective fill request
+- Then: it refuses before HTTP 202 and before queueing rather than accepting work that cannot execute
+
+### Scenario: cross-plugin-prerequisite-completion
+- Given: a selected kind derives from another kind produced by a different plugin
+- When: their selective fill runs
+- Then: the prerequisite-kind unit completes before the derived-kind unit starts, even across plugin boundaries
+
 ## Requirement: run-options — Any plugin can request the chosen agent and cap
 
 The wiki shall offer an agent selector and optional positive whole-number token

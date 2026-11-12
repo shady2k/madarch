@@ -55,6 +55,8 @@ None.
 
 ## Acceptance evidence
 
+- Independent review identified disabled/omitted plugin-stage admission and cross-plugin prerequisite-completion regressions. Regression scenarios are included in this proposal; implementation fixes and final review are still pending. This is not a green review claim.
+
 - CLI red/green: `test/fill-agent-options.test.ts` first failed on missing --agent; after implementation it passed with 4 assertions and prerequisite-only help text.
 - Wiki focused red/green: 4 failures and 2 passes before fixing disabled controls, request options and selection closure; 6 passes afterward.
 - Wiki bounded manual mutation restored the always-disabled agent selector and the enabled-control assertion detected it; production code was restored. This is not a Stryker run.
