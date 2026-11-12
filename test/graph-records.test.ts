@@ -434,7 +434,13 @@ describe('a git date of a zero or a negative offset', () => {
     // The bulk read a page's treemap and the Problems listing make: every value, and no opinion's id, producer or
     // evidence (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms with the sources, 1.21 MB and
     // 24 ms without). A list shows values, and no page shows where a value was stated from a list.
-    const listed = await reader.byPrefix('code.file', 'code.file:fixture/', 100);
+    let page = await reader.byPrefix('code.file', 'code.file:', 100);
+    const listed = { total: page.total, rows: [...page.rows] };
+    while (page.rows.length !== 0) {
+      page = await reader.byPrefix('code.file', 'code.file:', 100, page.rows.at(-1)!.key);
+      listed.rows.push(...page.rows);
+    }
+    expect(listed.rows).toHaveLength(listed.total);
     const file = listed.rows.find((one) => one.key === 'code.file:fixture/src/a.ts');
     if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
     expect(typeof file.properties['path']).toBe('string');
