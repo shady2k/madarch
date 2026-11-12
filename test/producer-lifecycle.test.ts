@@ -61,7 +61,7 @@ kinds:
       - { name: detail, type: text, nullable: true }
     key: [id]
 plugins:
-  - { id: lifecycle, version: 1, path: plugins/lifecycle, outputs: [Document, Problem], closure: [plugins/lifecycle/contract.json, plugins/lifecycle/main.ts, plugins/lifecycle/plugin.json] }
+  - { id: lifecycle, version: 1, path: plugins/lifecycle, inputs: [], outputs: [Document, Problem], closure: [plugins/lifecycle/contract.json, plugins/lifecycle/main.ts, plugins/lifecycle/plugin.json] }
 `);
   const author = { repository: 'repo', path: 'source.md', lineStart: 1, lineEnd: 1 };
   const configure = (mode: 'bad' | 'good' | 'partial' | 'failed') => {
