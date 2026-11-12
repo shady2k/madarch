@@ -53,4 +53,3 @@ Native Debian wiki check and focused i18n/layout/kind-details/settings tests pas
 - Independent read-only source review: no remaining blockers. It checked catalogue completeness, actual bare Git labels, shipped code relation labels, all client surfaces and server-generated diagram arrows.
 
 Validation logs are scratch artifacts under `/tmp/relation38-*.log`; the counts and limitations above are the retained record. Unknown custom relation names retain their established readable spelling. No graph relation ID, direction, timeout, or production lifecycle constant was changed.
-
