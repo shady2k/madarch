@@ -135,3 +135,41 @@ only the parent coordinator runs checks and PostgreSQL commands.
 
 Schema migration revision is 5 → 6. The release-platform trusted Git digest is
 `eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
+
+
+## Requirement: partitions — Large outputs use generic bounded key plans
+
+An output may declare `partition: "key"` and enumerate a complete bounded key
+plan through the generic host SDK protocol. The host shall validate exact keys,
+reject duplicate keys and include prior producer keys needed for deletions.
+Every partition draft is confined to its declared key and selected kind/fields.
+The 8 MiB per-execution-unit and 1 MiB per-message limits remain unchanged.
+Facts, fields and evidence shall not be omitted, and compression shall not
+bypass a cap. This protocol is ordinary plugin infrastructure available to all
+large outputs; it has no native or repository-specific exemption.
+
+Only a whole successful output barrier may publish. Generic graph publication
+shall atomically aggregate immutable generation references after all partitions
+succeed. Partial/failed/abstained work retains prior successful facts and blocks
+consumers. Producer-scoped deletion/replacement and retained history apply to
+the complete selected output. Explicit named earlier reads shall identify only
+a successful complete immutable barrier generation.
+
+### Scenario: bounded-complete-output
+- Given: an ordinary output exceeding one 8 MiB execution unit and opting into key partitioning
+- When: its complete validated plan executes within unchanged unit/message caps
+- Then: all facts/fields/evidence publish atomically only after all partitions succeed
+
+### Scenario: failed-partition
+- Given: a validated complete plan with prior producer keys including deleted keys
+- When: one partition fails or abstains
+- Then: no partial output publishes, previous successful facts remain and consumers stay blocked
+
+### Scenario: invalid-key-plan
+- Given: a partition declaration and a key plan with duplicate, unexpected or missing required prior keys
+- When: the host validates it
+- Then: refuse the invalid plan rather than accept partial enumeration or silently lose facts
+
+Contract approved for implementation; runtime implementation and validation are
+pending. Actual oversized glossary evidence and partial checks remain recorded
+in change.md; this design does not itself establish acceptance.

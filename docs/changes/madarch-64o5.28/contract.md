@@ -267,3 +267,37 @@ Shared schema revision changes 5 → 6. The trusted Git release-platform digest 
 `eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
 Actual parent-reported before timing and its input are recorded in .40 change.md;
 after measurement and whole-suite evidence remain pending, not claimed green.
+
+
+### Ordinary bounded output partitions (contract first)
+
+An output entry may opt into `partition: "key"`. This is a generic declaration
+available to any plugin, not a disk/git/glossary exception. Existing output
+kind/fields/reads/refines and selected scope remain authoritative. A partition
+is bounded execution/transport work within one plugin-kind output barrier, not
+a new plugin identity or independently successful prerequisite.
+
+Through the host SDK protocol the plugin declares a bounded key plan with
+complete enumeration. The host validates exact keys and rejects duplicates;
+the plan includes prior producer keys so deletions participate in replacement
+rather than disappearing from the plan. Partition execution may produce only
+bounded drafts for its validated key scope. Every execution unit retains the
+unchanged 8 MiB cap and every protocol message the unchanged 1 MiB cap.
+No content omission, compression-based cap bypass, native exemption or bound
+increase is permitted to make an oversized output pass.
+
+Nothing publishes before the whole selected output barrier succeeds. Once all
+partitions complete successfully, generic graph publication atomically applies
+the aggregate through immutable generation references. Replacement/retraction
+remains producer- and selected-field-scoped, includes deleted prior keys and
+preserves other producers, evidence and retained run/version history. A failed,
+abstained or partial partition leaves the barrier non-successful and retains
+previous successful facts; dependants cannot consume drafts or partial success.
+Named earlier reads identify only an immutable successful complete barrier
+generation, never a partial draft or overwritten current view.
+
+This design is required because the actual glossary disk output measured
+13.58 MB against the unchanged 8 MiB execution-unit cap (Babel closure files).
+Large outputs must use ordinary bounded partitioning, not remove fields or
+facts. Runtime implementation and validation are pending. This is a contract
+record, not a green-suite, repaired-glossary or acceptance claim.
