@@ -4,6 +4,8 @@
  * their declared graph outputs through the same generic publication path.
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { sanitizeRepositoryUrl } from '../plugin/repository-input.js';
 import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
@@ -299,7 +301,10 @@ function pinsOf(identity: ProductIdentity, product: boolean): PinnedRepositories
 function pinOf(id: string, form: 'code' | 'product', root: string, defaultBranch?: string): RepositoryPin {
   const commit = git(root, id, ['rev-parse', 'HEAD']);
   const branch = defaultBranch ?? branchOf(root, id);
-  return { id, form, root, commit, ...(branch === undefined ? {} : { defaultBranch: branch }) };
+  const shallowFile = resolve(root, git(root, id, ['rev-parse', '--git-path', 'shallow']));
+  const historyBoundaryHash = hashFillInput(existsSync(shallowFile) ? readFileSync(shallowFile, 'utf8') : '');
+  const url = sanitizeRepositoryUrl(gitQuietly(root, ['remote', 'get-url', 'origin']) ?? '');
+  return { id, form, root, commit, url, historyBoundaryHash, ...(branch === undefined ? {} : { defaultBranch: branch }) };
 }
 
 /** The branch one checkout's HEAD stands on; `undefined` where it is detached or the branch cannot be read. */
@@ -446,12 +451,14 @@ function snapshotOf(identity: ProductIdentity, registry: StageRegistry, pins: re
 }
 
 /**
- * The digest of the run's pins: one `<id>@<commit>` line per repository, in code
+ * The digest of the run's pins, including origin and history availability, in code
  * point order of the ids. A pin whose commit moved moves it, which is what makes
  * a unit's own inputs move.
  */
 function pinsDigest(pins: readonly RepositoryPin[]): string {
-  return hashFillInput(pins.map((pin) => `${pin.id}@${pin.commit}`).sort(byCodePoint).join('\n'));
+  return hashFillInput(JSON.stringify([...pins].sort((a, b) => byCodePoint(a.id, b.id)).map(pin => ({
+    id: pin.id, commit: pin.commit, url: pin.url ?? '', historyBoundaryHash: pin.historyBoundaryHash ?? '',
+  }))));
 }
 
 /**

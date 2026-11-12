@@ -21,6 +21,16 @@ function git(args: readonly string[]): Promise<string> {
   });
 }
 
+/** Credentials in an origin URL are transport secrets, never repository metadata. */
+export function sanitizeRepositoryUrl(remote: string): string {
+  try {
+    const url = new URL(remote);
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch { return remote; /* Git also permits scp-like remote addresses. */ }
+}
+
 /** Copy objects, not a live checkout or a host Git RPC; resolve every revision before the plugin receives it. */
 export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string) {
   const filesystemInputs: { name: string; folder: string }[] = [];
@@ -33,18 +43,9 @@ export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], wo
     await git(['init', '--bare', `--object-format=${format}`, '--', folder]);
     await git(['--git-dir', folder, 'fetch', '--no-tags', '--update-shallow', '--', pin.root, commit]);
     await git(['--git-dir', folder, 'update-ref', '--no-deref', 'HEAD', commit]);
-    const remote = await git(['-C', pin.root, 'remote', 'get-url', 'origin']).catch(() => '');
-    let address: string | undefined;
-    if (remote !== '') {
-      address = remote;
-      try {
-        const url = new URL(remote);
-        url.username = '';
-        url.password = '';
-        address = url.toString();
-      } catch { /* Git also permits scp-like remote addresses. */ }
-      await git(['--git-dir', folder, 'config', 'remote.origin.url', address]);
-    }
+    const remote = pin.url ?? await git(['-C', pin.root, 'remote', 'get-url', 'origin']).catch(() => '');
+    const address = remote === '' ? undefined : sanitizeRepositoryUrl(remote);
+    if (address !== undefined) await git(['--git-dir', folder, 'config', 'remote.origin.url', address]);
     filesystemInputs.push({ name, folder });
     repositories.push({ repository: pin.id, root: sandboxInputPath(name, filesystemInputSnapshotPath(workRoot, name)), commit,
       ...(address === undefined ? {} : { url: address }),

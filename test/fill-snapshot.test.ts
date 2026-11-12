@@ -507,6 +507,9 @@ describe('ordinary plugin repository metadata', () => {
       expect(execFileSync('git', ['--git-dir', prepared.filesystemInputs[0]!.folder, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8' }).trim()).toBe(expected);
       expect(JSON.stringify(prepared.repositories)).not.toContain('secret');
       expect(JSON.stringify(prepared.repositories)).not.toContain('user:');
+      execFileSync('git', ['remote', 'set-url', 'origin', 'https://changed.example.test/new.git'], { cwd: f.root });
+      const pinned = await prepareRepositoryInputs([{ ...pinOf(f, f.second), url: expected }], join(work, 'pinned'));
+      expect(pinned.repositories[0]!.url).toBe(expected);
     } finally {
       await rm(work, { recursive: true, force: true });
       await f.dispose();
