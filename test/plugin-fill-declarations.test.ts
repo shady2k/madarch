@@ -123,7 +123,7 @@ test('catalogue requirement follows prerequisites and wildcard plugins, not unre
   expect(fillRequirementOf(manifest, '/product', ['summary'])).toEqual({ requiresAgent: true });
   expect(fillRequirementOf(manifest, '/product', ['plain', 'summary'])).toEqual({ requiresAgent: true });
   const general = plugin('general', { agent: { prompt: 'Fill.', roots: ['product'] }, produces: [{ kind: '*', fields: '*' }], refines: ['*'] });
-  const withGeneral = { ...manifest, plugins: new Map([...manifest.plugins!, ['general', { id: 'general', declaration: general.manifest, declarationFile: general.file, declarationText: general.text }]]) } as unknown as KindsManifest;
+  const withGeneral = { ...manifest, plugins: new Map<string, unknown>([...manifest.plugins!, ['general', { id: 'general', declaration: general.manifest, declarationFile: general.file, declarationText: general.text }]]) } as unknown as KindsManifest;
   expect(fillRequirementOf(withGeneral, '/product', ['plain'])).toEqual({ requiresAgent: true });
   expect(fillRequirementOf({ ...manifest, plugins: new Map() }, '/product', ['plain'])).toEqual({ fillPlanRefusal: '/product/madarch/kinds.yaml:12: selected kind plain has no enabled producer; enable its producer' });
 });

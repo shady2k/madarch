@@ -239,6 +239,10 @@ export type CatalogKindView = {
   filled: boolean;
   /** Enabled plugins that declare output for this kind. */
   plugins?: string[];
+  /** The server's enabled-plugin plan, including prerequisites, requests an agent. */
+  requiresAgent?: boolean;
+  /** Why the server could not plan this kind. */
+  fillPlanRefusal?: string;
   /** The kinds this one's declaration says must finish first. */
   derivesFrom?: string[];
   /** The newest generation of the kind's fill turn (`planned`, `running`, `published`, `failed`, ...); absent when it never ran. */

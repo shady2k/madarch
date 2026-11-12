@@ -1044,7 +1044,7 @@
       "dependency": "Dependency",
       "independent": "Independent kinds ({{count}})",
       "agent": "Agent",
-      "noAgent": "No agent selected",
+      "chooseAgent": "Choose an agent to run this plan.",
       "cap": "Token cap (optional)",
       "count": "{{selected}} selected · {{dependencies}} dependencies",
       "starting": "Starting…",

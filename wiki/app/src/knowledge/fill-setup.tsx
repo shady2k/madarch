@@ -40,6 +40,9 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
   const added = addedByDependency(all, checked);
   const active = new Set([...checked, ...added.keys()]);
   const cost = estimateOf(all, checked, added);
+  const needsAgent = all.some((kind) => active.has(kind.kind) && kind.requiresAgent === true);
+  const planRefusal = all.find((kind) => active.has(kind.kind) && kind.fillPlanRefusal)?.fillPlanRefusal;
+  const missingAgent = needsAgent && agent === null;
   const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
   const byId = new Map(all.map((kind) => [kind.kind, kind]));
   const neededName = (id: string): string => byId.has(id) ? name(byId.get(id)!) : id;
@@ -58,10 +61,10 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
     setFailure(null);
   };
   const run = (): void => {
-    if (checked.size === 0 || locked || !validCap) return;
+    if (checked.size === 0 || locked || !validCap || missingAgent || planRefusal) return;
     setBusy(true);
     setFailure(null);
-    fillSelected({ selected: [...checked].sort(), agent, tokenCap: cap.trim() === '' ? null : Number(cap) }).then(
+    fillSelected({ selected: [...checked].sort(), agent: needsAgent ? agent : null, tokenCap: cap.trim() === '' ? null : Number(cap) }).then(
       () => { setBusy(false); setChecked(new Set()); refresh(); },
       (error: unknown) => { setBusy(false); setFailure(error instanceof Error ? error.message : String(error)); },
     );
@@ -91,12 +94,14 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
           </PageSection>
         </Stack>
         <Stack className="mt-4 flex flex-wrap items-end gap-4 border-t border-line pt-4">
-          <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-agent">{t('knowledge.fillSetup.agent')}<Select id="fill-setup-agent" data-testid="fill-setup-agent" disabled={locked} value={agent ?? ''} onChange={(event) => setAgent(event.target.value || null)} options={[{ value: '', label: t('knowledge.fillSetup.noAgent') }, ...agents.map((entry) => ({ value: entry.id, label: entry.label }))]} /></FieldLabel>
+          {needsAgent && <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-agent">{t('knowledge.fillSetup.agent')}<Select id="fill-setup-agent" data-testid="fill-setup-agent" required disabled={locked} value={agent ?? ''} onChange={(event) => setAgent(event.target.value || null)} options={[{ value: '', label: t('knowledge.fillSetup.chooseAgent') }, ...agents.map((entry) => ({ value: entry.id, label: entry.label }))]} /></FieldLabel>}
           <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-cap">{t('knowledge.fillSetup.cap')}<Input id="fill-setup-cap" data-testid="fill-setup-cap" type="number" min={1} step={1} value={cap} disabled={locked} aria-invalid={!validCap} onChange={(event) => setCap(event.target.value)} /></FieldLabel>
           <Paragraph className="m-0 text-small" data-testid="fill-setup-count">{t('knowledge.fillSetup.count', { selected: checked.size, dependencies: added.size })}</Paragraph>
-          <Button variant="default" size="default" data-testid="fill-setup-run" disabled={locked || checked.size === 0 || !validCap} onClick={run}>{t(busy ? 'knowledge.fillSetup.starting' : 'knowledge.fillSetup.run')}</Button>
+          <Button variant="default" size="default" data-testid="fill-setup-run" disabled={locked || checked.size === 0 || !validCap || missingAgent || !!planRefusal} onClick={run}>{t(busy ? 'knowledge.fillSetup.starting' : 'knowledge.fillSetup.run')}</Button>
         </Stack>
         {checked.size > 0 && <Stack className="mt-3 text-small" data-testid="fill-setup-estimate">{cost.tokens === null ? t('knowledge.fillSetup.unknown', { count: cost.unknown }) : t('knowledge.fillSetup.estimate', { tokens: cost.tokens, seconds: Math.round(cost.seconds ?? 0) })}</Stack>}
+        {missingAgent && <Paragraph className="mt-3 text-small" data-testid="fill-setup-agent-required">{t('knowledge.fillSetup.chooseAgent')}</Paragraph>}
+        {planRefusal && <Alert variant="problem" className="mt-3"><AlertDescription>{planRefusal}</AlertDescription></Alert>}
         {!validCap && <Paragraph role="alert" className="text-small">{t('knowledge.fillSetup.invalidCap')}</Paragraph>}
         {failure !== null && <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
       </CardContent>
