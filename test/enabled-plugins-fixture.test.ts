@@ -17,7 +17,9 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
-test.each([{ selected: [] as string[] }, { selected: ['db-schema'] }])('fixture plugin selection preserves all fields with %j', ({ selected }) => {
+const selections: { selected: string[] }[] = [{ selected: [] }, { selected: ['db-schema'] }];
+
+test.each(selections)('fixture plugin selection preserves all fields with %j', ({ selected }) => {
     writeFileSync(file, original);
     const before = parse(original);
     useFixturePlugins(folder, selected);
