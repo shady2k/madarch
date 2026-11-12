@@ -1,4 +1,4 @@
-import { contentsOf, storedFileValueAnswerer } from '../src/plugin/stored-text.js';
+import { contentsOf } from '../src/plugin/stored-text.js';
 /**
  * The ordinary repository plugins (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
  * this step writes, a second run at one commit writing nothing, a new commit writing only what
@@ -161,11 +161,11 @@ describe('the two passes over one fixture', () => {
   test('a text file\'s bytes stand in ordinary opinions, and a reader takes them there', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
-    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'src/a.ts' }, 'content')).toBe('export const a = 2;\n');
-    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/renamed.md' }, 'content')).toBe('# one\n');
-    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'blob.bin' }, 'content')).toBeNull();
+    expect(await contentsOf(reader, 'fixture', ['src/a.ts']).then(texts => texts.get('src/a.ts') ?? null)).toBe('export const a = 2;\n');
+    expect(await contentsOf(reader, 'fixture', ['docs/renamed.md']).then(texts => texts.get('docs/renamed.md') ?? null)).toBe('# one\n');
+    expect(await contentsOf(reader, 'fixture', ['blob.bin']).then(texts => texts.get('blob.bin') ?? null)).toBeNull();
     // A path that left the tree has no text at the filled commit, though its row and blob remain.
-    expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/same-one.md' }, 'content')).toBeNull();
+    expect(await contentsOf(reader, 'fixture', ['docs/same-one.md']).then(texts => texts.get('docs/same-one.md') ?? null)).toBeNull();
     // Many paths at once are one bound text[] parameter: a quote and a backslash in a name are characters, not SQL.
     const many = await contentsOf(reader, 'fixture', ['src/a.ts', 'docs/renamed.md', 'docs/with "quotes" and \\backslash.md', 'src/missing.ts']);
     expect(many.get('src/a.ts')).toBe('export const a = 2;\n');
