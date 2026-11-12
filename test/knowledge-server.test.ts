@@ -145,16 +145,16 @@ describe('an empty product', () => {
       await new Promise((rest) => setTimeout(rest, 250));
     }
     const status = await get('/products/bare/api/status');
-    // The status names the kinds with pages (and a member's row), and holds no catalogue of its own.
+    // The status names all published kind declarations and holds no catalogue of its own.
     expect(status.body.manifest).toBe('ok');
-    expect(status.body.kinds.length).toBe(67);
+    expect(status.body.kinds.length).toBe(519);
     expect(status.body.catalog).toBeUndefined();
     const response = await fetch(`${server.url}/products/bare/api/catalog`);
     const text = await response.text();
     expect(response.status).toBe(200);
     const catalog = JSON.parse(text) as { kinds: any[]; groups: any[]; findings: any[] };
     // The counts are the merged starter catalog's own, read from the manifest the server seeded into this product (the
-    // starter set: 28 areas and 106 subgroups, 515 kinds), as main's `test/catalog-read.test.ts` reads the same manifest.
+    // starter set: 28 areas and 106 subgroups, 519 kinds), as main's `test/catalog-read.test.ts` reads the same manifest.
     // A starter set that grows moves this case with it instead of leaving a number here to edit.
     const read = readKinds(join(home, 'bare'));
     if (!read.present) throw new Error('the server seeded no madarch/kinds.yaml into the bare product');
@@ -278,7 +278,7 @@ describe('the fill the reader watches', () => {
     // repository in two passes, not a commit at a time, so its two moments are the two notices.
     expect(revisions.length - opened).toBeGreaterThanOrEqual(2);
     expect(new Set(revisions).size).toBe(revisions.length);
-    expect(revisions[revisions.length - 1]).toMatch(/\+\d+$/);
+    expect(revisions[revisions.length - 1]).toMatch(/^\d+$/);
 
     const final = await get('/products/tiny/api/status');
     expect(final.body).toMatchObject({ filled: true, fill: { state: 'done' }, repositories: [{ name: 'tiny', filled: true }] });
