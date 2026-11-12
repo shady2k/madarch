@@ -7,6 +7,8 @@
 import { forwardRef, type ReactElement } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
+import { Button } from './button.js';
+import { DialogBody, DialogHeader } from './dialog.js';
 import { cn } from '@/lib/utils.js';
 
 export const Sheet = DialogPrimitive.Root;
@@ -28,18 +30,17 @@ export const SheetContent = forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'sheet-drawer fixed wiki-modal-layer flex w-[min(280px,_82vw)] flex-col rounded-r-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] shadow-[var(--nav-shadow)] outline-none',
+          'sheet-drawer fixed wiki-modal-layer flex min-h-0 overflow-hidden w-[min(280px,_82vw)] flex-col rounded-r-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] shadow-[var(--nav-shadow)] outline-none',
           sideClasses[side],
           className,
         )}
         {...props}
       >
-        <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
-        <DialogPrimitive.Close className="absolute right-2 top-2 rounded-[var(--radius-control)] p-1 text-secondary hover:bg-[var(--surface-hover)] hover:text-ink">
-          <XIcon aria-hidden="true" size={16} />
-          <span className="sr-only">{closeLabel}</span>
-        </DialogPrimitive.Close>
-        {children}
+        <DialogHeader>
+          <DialogPrimitive.Title className="m-0 text-body font-semibold">{title}</DialogPrimitive.Title>
+          <DialogPrimitive.Close asChild><Button size="icon" className="absolute right-2 top-2" aria-label={closeLabel}><XIcon aria-hidden="true" size={16} /></Button></DialogPrimitive.Close>
+        </DialogHeader>
+        <DialogBody>{children}</DialogBody>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

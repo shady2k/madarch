@@ -266,7 +266,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   // A product that holds no workflows manifest runs the engine's starter set, as a repository that is no product does.
   const workflow = files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages();
   const wiring: ProductFillWiring = {
-    snapshot: () => snapshotOf(identity, registry, repin()),
+    snapshot: () => ({ ...snapshotOf(identity, registry, repin()), ...(options.targets === undefined ? {} : { targets: options.targets }) }),
     configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, fillStageConfigurationFrom(files, folder), registry),
     // This step's two record passes read git and publish through the record store; they ask no graph.
     // The reader is handed to every stage's plan, and a read through it is refused by name.

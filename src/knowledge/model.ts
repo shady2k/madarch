@@ -654,9 +654,12 @@ export interface FillStepView {
 /** The newest run of the store's trace: its wall clock, its spans and its steps. */
 export interface FillRunView {
   readonly runId: string;
-  /** When the run's first span started and its last ended, as ISO instants. */
+  readonly state: string;
+  /** Null denotes a whole fill; kinds are the resolved selection in dependency order. */
+  readonly selection?: { readonly kinds: readonly string[]; readonly vertex?: string } | null;
+  /** Persisted creation time, and last transition time only once the run ended. */
   readonly startedAt: string;
-  readonly finishedAt: string;
+  readonly finishedAt?: string;
   readonly wallMs: number;
   readonly spans: number;
   /** The span names that took the most time of their own, the slowest first. */

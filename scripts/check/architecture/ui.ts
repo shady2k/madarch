@@ -9,7 +9,7 @@ export const RAW_UI_ELEMENTS = new Set([
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
   'details', 'summary', 'dialog', 'progress', 'meter',
 ]);
-export const UI_RULES = ['raw-ui-element', 'inline-style', 'styled-components', 'arbitrary-tailwind', 'local-styled-component'] as const;
+export const UI_RULES = ['raw-ui-element', 'inline-style', 'styled-components', 'arbitrary-tailwind', 'local-styled-component', 'dialog-whole-scroll', 'sidebar-missing-icon'] as const;
 export type UiRule = typeof UI_RULES[number];
 export interface UiDebt {
   readonly rule: UiRule;
@@ -36,8 +36,26 @@ export function isUiSource(file: string): boolean {
  * in other modules and className strings computed elsewhere are not resolved.
  */
 export function uiViolations(file: string, source: string): UiViolation[] {
-  if (!isUiSource(file)) return [];
+  const kit = file.startsWith('wiki/app/src/components/ui/') && file.endsWith('.tsx') && !/\.(?:test|spec)\.tsx$/.test(file);
+  if (!isUiSource(file) && !kit) return [];
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const aliases = new Map<string, string>();
+  const namespaces = new Set<string>();
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!/(?:components\/ui\/|^\.\/)(?:dialog|sheet|navigation)\.js$/.test(statement.moduleSpecifier.text)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const entry of bindings.elements) aliases.set(entry.name.text, entry.propertyName?.text ?? entry.name.text);
+    }
+  }
+  const constants = new Map<string, ts.Expression>();
+  function collect(node: ts.Node): void {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) constants.set(node.name.text, node.initializer);
+    ts.forEachChild(node, collect);
+  }
+  collect(tree);
   const found: UiViolation[] = [];
   const occurrences = new Map<string, number>();
   function add(rule: UiRule, node: ts.Node, subject?: string): void {
@@ -78,26 +96,45 @@ export function uiViolations(file: string, source: string): UiViolation[] {
     return returns(node.body);
   }
   function visit(node: ts.Node): void {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+    if (!kit && ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
       (node.moduleSpecifier.text === 'styled-components' || node.moduleSpecifier.text.startsWith('styled-components/'))) add('styled-components', node);
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
-      if (intrinsic(node) && RAW_UI_ELEMENTS.has(node.tagName.getText(tree))) add('raw-ui-element', node);
+      const rawTag = node.tagName.getText(tree);
+      const tag = ts.isPropertyAccessExpression(node.tagName) && ts.isIdentifier(node.tagName.expression) && namespaces.has(node.tagName.expression.text)
+        ? node.tagName.name.text : aliases.get(rawTag) ?? rawTag;
+      if (!kit && ['NavigationLink', 'NavigationGroupTrigger', 'NavigationSubheading'].includes(tag)) {
+        const icon = node.attributes.properties.find(attr => ts.isJsxAttribute(attr) && attr.name.getText(tree) === 'icon');
+        const value = icon && ts.isJsxAttribute(icon) && icon.initializer && ts.isJsxExpression(icon.initializer) ? icon.initializer.expression : undefined;
+        const empty = value && (value.kind === ts.SyntaxKind.NullKeyword || value.kind === ts.SyntaxKind.FalseKeyword || value.kind === ts.SyntaxKind.TrueKeyword || (ts.isIdentifier(value) && value.text === 'undefined'));
+        if (!icon || !ts.isJsxAttribute(icon) || !icon.initializer || empty) add('sidebar-missing-icon', node);
+      }
+      if (!kit && intrinsic(node) && RAW_UI_ELEMENTS.has(node.tagName.getText(tree))) add('raw-ui-element', node);
       for (const attr of node.attributes.properties) {
         if (!ts.isJsxAttribute(attr)) continue;
-        if (attr.name.getText(tree) === 'style') add('inline-style', attr);
+        if (!kit && attr.name.getText(tree) === 'style') add('inline-style', attr);
         if (attr.name.getText(tree) === 'className' && attr.initializer) {
           let arbitrary = false;
+          let scroll = false;
+          const inspected = new Set<ts.Node>();
           function inspect(value: ts.Node): void {
+            if (inspected.has(value)) return;
+            inspected.add(value);
+            if (ts.isIdentifier(value)) {
+              const initializer = constants.get(value.text);
+              if (initializer) inspect(initializer);
+            }
             if ((ts.isStringLiteralLike(value) || ts.isTemplateHead(value) || ts.isTemplateMiddle(value) || ts.isTemplateTail(value)) &&
               (/(?:^|\s)[^\s]*\[/.test(value.text) || /(?:^|\s)(?:[\w-]+:)*max-w-(?:prose|xs|sm|md|lg|xl|[2-7]xl)(?=\s|$)/.test(value.text))) arbitrary = true;
+            if ((ts.isStringLiteralLike(value) || ts.isTemplateHead(value) || ts.isTemplateMiddle(value) || ts.isTemplateTail(value)) && /(?:^|\s)(?:[\w-]+:)*overflow(?:-y)?-(?:auto|scroll)(?=\s|$)/.test(value.text)) scroll = true;
             ts.forEachChild(value, inspect);
           }
           inspect(attr.initializer);
-          if (arbitrary) add('arbitrary-tailwind', attr);
+          if (scroll && ['DialogContent', 'DialogPreview', 'SheetContent', 'DialogPrimitive.Content'].includes(tag)) add('dialog-whole-scroll', node);
+          if (!kit && arbitrary) add('arbitrary-tailwind', attr);
         }
       }
     }
-    if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) {
+    if (!kit && (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node))) {
       const name = componentName(node);
       if (name && /^[A-Z]/.test(name) && returnsStyledJsx(node)) add('local-styled-component', node, name);
     }
@@ -115,7 +152,7 @@ export function scanUi(root: string): UiViolation[] {
       if (entry.isDirectory()) walk(path);
       else {
         const file = relative(root, path).split('\\').join('/');
-        if (isUiSource(file)) found.push(...uiViolations(file, readFileSync(path, 'utf8')));
+        if (isUiSource(file) || (file.startsWith('wiki/app/src/components/ui/') && file.endsWith('.tsx'))) found.push(...uiViolations(file, readFileSync(path, 'utf8')));
       }
     }
   }

@@ -8,7 +8,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
-import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
+import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createRun } from '../src/fill/state-store.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer as startServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
@@ -42,7 +44,11 @@ beforeAll(async () => {
       attributes: [{ key: 'madarch.step', value: { stringValue: 'repository-tree' } }],
     }));
   }
-  writeFileSync(join(store, 'traces', 'fill-20261109T000000000Z.jsonl'), `${lines.join('\n')}\n`);
+  const runId = 'fill-20261109T000000000Z';
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(store), connectOnly: true });
+  try { await createRun(owner, { runId, product: 'api-role', at: Date.now() + 1_000 }); }
+  finally { await owner.close(); }
+  writeFileSync(join(store, 'traces', `${runId}.jsonl`), `${lines.join('\n')}\n`);
   server = await startServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }, 120_000);
 
@@ -58,6 +64,8 @@ test('the first status answer on a 150 000-span store answers within 5 seconds',
   expect(answer.status).toBe(200);
   const body = await answer.json();
   expect(body.manifest).toBe('ok');
+  expect(body.fill.run.runId).toBe('fill-20261109T000000000Z');
+  expect(body.fill.run.state).toBe('created');
   expect(body.fill.run.spans).toBe(150_000);
   expect(body.fill.run.steps.map((step: { step: string }) => step.step)).toEqual(['repository-tree']);
   // A fill now writes about 300 spans; 150 000 is a store left by a fill before the trace was bounded. The

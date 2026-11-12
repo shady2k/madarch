@@ -20,7 +20,8 @@ import { KLink } from './blocks.js';
 import { FailureNote } from './errors.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { PlanList } from './loop.js';
-import { addressOfEntity, addressOfJournal } from './routes.js';
+import { addressOfEntity, addressOfJournal, WIKI_RUN } from './routes.js';
+import { kindNameOf } from './kind-names.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
 import { UNIT_STATE_KEY, unitName } from './writer.js';
 import { FillSetup } from './fill-setup.js';
@@ -82,6 +83,7 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
   useTabTitle(t('knowledge.fillPage.title'));
   const writer = status.writer;
   const fill = status.fill;
+  const run = fill.run;
   const units = writer.units;
   const written = units.filter((unit) => unit.state === 'written').length;
   const current = writer.current ?? units.find((unit) => unit.state === 'writing')?.unit;
@@ -102,6 +104,22 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
         <PageTitle data-testid="fill-title">{t('knowledge.fillPage.title')}</PageTitle>
         {facts.length > 0 && <Paragraph className="mb-0 text-small text-muted" data-testid="fill-facts">{facts.join(' · ')}</Paragraph>}
       </PageHeader>
+      {run !== undefined && (
+        <Card className="mb-8" data-testid="fill-last-run">
+          <CardHeader><CardTitle>{t('knowledge.fillPage.lastRun')}</CardTitle></CardHeader>
+          <CardContent>
+            <Paragraph className="mt-0" data-testid="fill-run-when">{t('knowledge.fillPage.when', { time: new Date(run.startedAt).toLocaleString(language) })}</Paragraph>
+            {run.finishedAt !== undefined && <Paragraph data-testid="fill-run-finished">{t('knowledge.fillPage.finished', { time: new Date(run.finishedAt).toLocaleString(language) })}</Paragraph>}
+            <Paragraph data-testid="fill-run-selection">{run.selection === undefined
+              ? t('knowledge.fillPage.selectionNotRecorded')
+              : run.selection === null
+              ? t('knowledge.fillPage.wholeSelection')
+              : t('knowledge.fillPage.selection', { kinds: run.selection.kinds.map((kind) => kindNameOf(status.kinds, kind, 'many', language)).join(', '), vertex: run.selection.vertex === undefined ? '' : ` · ${run.selection.vertex}` })}</Paragraph>
+            <Paragraph data-testid="fill-run-result">{t('knowledge.fillPage.result', { state: t(`knowledge.fillPage.runStates.${run.state}`) })}</Paragraph>
+            <KLink href={`${WIKI_RUN}?${new URLSearchParams({ run: run.runId })}`} className="text-small hover:underline" testId="fill-run-link">{t('knowledge.fillPage.runDetails', { run: run.runId })}</KLink>
+          </CardContent>
+        </Card>
+      )}
       <FillSetup refresh={refresh} disabled={fill.state === 'running' || writer.state === 'running' || runIsPaused(status)} />
       {/* The run a person holds or ended (madarch-m38l.17): where it stands, that its pages stay, and the two controls. */}
       {runIsPaused(status) && (
@@ -161,7 +179,7 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
           </AlertDescription>
         </Alert>
       )}
-      {writer.state === 'idle' && fill.state !== 'running' && <Paragraph className="text-muted" data-testid="fill-idle">{t('knowledge.fillPage.idle')}</Paragraph>}
+      {run === undefined && writer.state === 'idle' && fill.state !== 'running' && <Paragraph className="text-muted" data-testid="fill-idle">{t('knowledge.fillPage.idle')}</Paragraph>}
     </PageSection>
   );
 }
