@@ -9,6 +9,13 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const files = unit.kind === 'code.repository' ? [] : await context.graph.files('**/*');
   const known = new Set(files.map(file => `${String(file.key['repository'])}\0${String(file.key['path'])}`));
   const authors = new Set<string>();
+  const paths = new Set<string>();
+  const fileIdentity = (repository: string, path: string, commit: string): void => {
+    const identity = JSON.stringify([repository, path]);
+    if (paths.has(identity)) return;
+    paths.add(identity);
+    vertices.push({ kind: 'code.file', key: { repository, path }, evidence: { repository, path, commitOrDigest: commit } });
+  };
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('git extraction cancelled');
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
@@ -16,6 +23,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     await context.graph.value('code.repository', repository.key, 'url');
     const history = await readRepositoryHistory(pin);
     const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
+    for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit);
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
     for (const [walk, held] of history.commits.entries()) {
       const commit = { kind: 'code.commit', key: { hash: held.hash } };
@@ -30,7 +38,8 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       held.parents.forEach((hash, position) => edges.push({ kind: 'code.parent', from: commit, to: { kind: 'code.commit', key: { hash } }, values: { position }, evidence }));
       for (const touched of held.touched) {
         const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
-        // Historical paths absent from disk remain unresolved references, not invented current files.
+        fileIdentity(pin.repository, touched.path, held.hash);
+        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, held.hash);
         edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
         if (touched.previousPath !== undefined) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
       }

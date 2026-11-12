@@ -26,6 +26,29 @@
         ]
       },
       {
+        "kind": "code.file",
+        "key": [
+          "repository",
+          "path"
+        ],
+        "fields": [
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "The repository read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "text",
+            "meaning": "The path read from the pinned repository.",
+            "example": "example",
+            "required": true
+          }
+        ]
+      },
+      {
         "kind": "code.commit",
         "key": [
           "hash"

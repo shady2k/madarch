@@ -30,6 +30,28 @@
       ]
     },
     {
+      "kind": "code.file",
+      "fields": [
+        "repository",
+        "path"
+      ],
+      "refines": [
+        "disk"
+      ],
+      "reads": [
+        {
+          "kind": "code.file",
+          "version": "earlier",
+          "producer": "disk"
+        },
+        {
+          "kind": "code.repository",
+          "version": "earlier",
+          "producer": "disk"
+        }
+      ]
+    },
+    {
       "kind": "code.commit",
       "fields": "*",
       "reads": [
