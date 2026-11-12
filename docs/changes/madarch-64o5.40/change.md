@@ -367,3 +367,30 @@ produced a valid completed after result. Performance audit may read source and
 plan, but no implementation changes are authorized while this run is active.
 The unequal-total-workload comparison caveat remains mandatory. Whole-suite
 green, successful after timing and acceptance remain pending.
+
+
+## Successful ordinary-plugin after integration timing
+
+The coordinator reports a successful completed after run at
+`/tmp/m28-after-second-valid/after.json`: 298543.051 ms (298.543051 seconds),
+`result.ok`, succeeded and settled true. The retained training pin is
+`0657ebc0eb2b0fcf4f5364976f8e3eae0a41d42e`; readback verifies exactly 114 training
+files, 583054 bytes, 72 commits and 55 directories, with shallow false.
+Whole graph totals are 2282 `code.file` identities, 148 directories, 73 commits,
+four authors, two repositories and zero gitlinks.
+
+This is valid integration timing and training fact evidence, not a controlled
+before/after performance estimate. The native before has 117 total file
+identities versus 2282 after: the after graph includes 2168 product identities
+alongside 114 training files. Graph identity counts may include historical keys;
+a pinned-tree audit is still needed before calling those product identities a
+current-tree file count. Product trees differ substantially. No speed ratio,
+controlled speedup/slowdown or acceptance is claimed.
+
+Runtime source audit of the full-glossary timeout found that a query answerer
+was recreated per query, so repeated key/field reads reloaded the root and all
+15 immutable partitions (about 13 MB). The approved repair direction is a
+fill-scoped immutable-snapshot cache, never a cache of mutable current values,
+plus path-selected disk and selected-output git read optimization. The source
+hold is released with no PostgreSQL run active; implementation and validation
+of these optimizations remain pending. Whole-suite green remains unresolved.
