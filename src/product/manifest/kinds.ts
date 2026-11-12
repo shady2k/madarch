@@ -252,7 +252,22 @@ interface GroupDecl {
  */
 export const GROUP_SHORT_LABEL_LIMIT = 18;
 
+/** A deterministic aggregate declared by a kind, not an agent conclusion. */
+export interface FactDecl {
+  readonly id: string;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly measure: 'count' | 'group-by' | 'histogram' | 'top-n';
+  readonly display: 'number' | 'bar' | 'treemap' | 'timeline';
+  readonly field?: string;
+  /** Upper bounds in days since the timestamp, followed by an open-ended bucket. */
+  readonly buckets?: readonly number[];
+  readonly limit?: number;
+  readonly audience?: readonly string[];
+}
+
 export interface KindDecl {
+  audience?: readonly string[];
+  facts?: readonly FactDecl[];
   name: string;
   /** The template's path in the product repository, `/`-separated. */
   template: string;
@@ -564,7 +579,7 @@ export type KindsRead =
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
-  'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
@@ -1642,6 +1657,46 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');
+    const audienceOf = (raw: unknown, path: (string | number)[]): readonly string[] | undefined => {
+      if (raw === undefined) return undefined;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((role) => typeof role !== 'string' || !roles.has(role)) || new Set(raw).size !== raw.length) {
+        problem(path, `audience is a nonempty list of distinct declared roles (${[...roles.keys()].join(', ')})`);
+        return undefined;
+      }
+      return raw as string[];
+    };
+    const audience = audienceOf(decl['audience'], ['audience']);
+    const facts: FactDecl[] = [];
+    const rawFacts = decl['facts'];
+    if (rawFacts !== undefined && !Array.isArray(rawFacts)) problem(['facts'], 'facts is a list of declared aggregates');
+    if (Array.isArray(rawFacts)) rawFacts.forEach((raw: unknown, index) => {
+      const path = ['facts', index] as (string | number)[];
+      if (!isRecord(raw)) { problem(path, 'a fact is a mapping'); return; }
+      const start = findings.length;
+      for (const key of Object.keys(raw)) if (!['id', 'labels', 'measure', 'display', 'field', 'buckets', 'limit', 'audience'].includes(key)) problem([...path, key], `unknown fact field "${key}"`);
+      if (typeof raw['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/u.test(raw['id']) || facts.some((fact) => fact.id === raw['id'])) problem([...path, 'id'], 'a fact id is a unique lower-case identifier');
+      const labels = raw['labels'];
+      if (!isRecord(labels) || Object.keys(labels).some((key) => !LABEL_LANGUAGES.includes(key)) || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || (labels[lang] as string).trim() === '')) problem([...path, 'labels'], `fact labels must name every language (${LABEL_LANGUAGES.join(', ')})`);
+      const measure = raw['measure'];
+      if (!['count', 'group-by', 'histogram', 'top-n'].includes(String(measure))) problem([...path, 'measure'], 'measure is count, group-by, histogram or top-n');
+      if (!['number', 'bar', 'treemap', 'timeline'].includes(String(raw['display']))) problem([...path, 'display'], 'display is number, bar, treemap or timeline');
+      if ((measure === 'count' && raw['display'] !== 'number') || (measure !== 'count' && raw['display'] === 'number')) problem([...path, 'display'], 'count displays a number; grouped, histogram and top-n facts display bar, treemap or timeline');
+      const field = fields.find((field) => field.name === raw['field']);
+      if (measure !== 'count' && field === undefined) problem([...path, 'field'], 'a fact must name a declared field');
+      if (measure === 'count' && raw['field'] !== undefined) problem([...path, 'field'], 'count has no field');
+      if (measure === 'group-by' && field?.type === 'json') problem([...path, 'field'], 'group-by requires a scalar field');
+      if (measure === 'histogram' && field?.type !== 'timestamp') problem([...path, 'field'], 'histogram requires a timestamp field');
+      if (measure === 'top-n' && field?.type !== 'integer' && field?.type !== 'bigint') problem([...path, 'field'], 'top-n requires a numeric field');
+      const buckets = raw['buckets'];
+      if (measure === 'histogram') {
+        if (!Array.isArray(buckets) || buckets.length === 0 || buckets.some((n, i) => typeof n !== 'number' || !Number.isFinite(n) || n <= 0 || (i > 0 && n <= buckets[i - 1]))) problem([...path, 'buckets'], 'histogram buckets are increasing positive day bounds');
+      } else if (buckets !== undefined) problem([...path, 'buckets'], 'only histogram declares buckets');
+      if (measure === 'top-n') {
+        if (typeof raw['limit'] !== 'number' || !Number.isInteger(raw['limit']) || raw['limit'] < 1) problem([...path, 'limit'], 'top-n requires a positive integer limit');
+      } else if (raw['limit'] !== undefined) problem([...path, 'limit'], 'only top-n declares a limit');
+      const factAudience = audienceOf(raw['audience'], [...path, 'audience']);
+      if (start === findings.length) facts.push({ ...raw, ...(factAudience === undefined ? {} : { audience: factAudience }) } as unknown as FactDecl);
+    });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
     const capability = decl['capability'];
@@ -1700,6 +1755,8 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       ...(nav === undefined ? {} : { nav }),
       ...(member === undefined ? {} : { member }),
       ...(fields.length === 0 ? {} : { fields }),
+      ...(audience === undefined ? {} : { audience }),
+      ...(facts.length === 0 ? {} : { facts }),
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(dependsOn) ? { dependsOn: dependsOn as string[] } : {}),

@@ -952,6 +952,7 @@ export interface RelyingRef {
 
 /** A statement of an agent's page: the sentence, its paragraph and each ground with its excerpt (the statement view). */
 export interface StatementModel {
+  aggregate?: import('./facts.js').FactGround;
   page: EntityRef;
   /** The statement's name on its page (its first footnote's name, `~2` from the second use): what a correction names it by; null when unnamed. */
   name: string | null;

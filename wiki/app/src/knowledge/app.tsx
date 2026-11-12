@@ -29,6 +29,7 @@ import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
 import { GlossaryProvider, GlossaryPage } from './glossary.js';
+import { FactsHome } from './facts.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
@@ -671,11 +672,7 @@ export function KnowledgeApp(): ReactElement {
   // page a later stage will read. Nothing of the product is parsed before the fill writes it.
   if (route.name === 'home') view = !status.filled
     ? <Overview status={status} refresh={refresh} />
-    : status.home !== null
-      ? <EntityPage key={status.home} id={status.home} version={version} />
-      : status.repository !== undefined && status.repository.asIsCommit !== null
-        ? <EntityPage key={status.repository.id} id={status.repository.id} after={null} version={version} />
-        : <Overview status={status} refresh={refresh} />;
+    : <FactsHome title={status.product.name} version={version} />;
   else if (route.name === 'kit') view = <KitPage />;
   else if (route.name === 'entity') view = <EntityPage key={`${route.id}\0${route.after ?? ''}`} id={route.id} after={route.after} version={version} />;
   else if (route.name === 'authored') view = status.kinds.some((kind) => kind.kind === route.kind && kind.origins.includes('person')) ? <AuthoredPage key={`${route.kind}:${route.uid}`} kind={route.kind} uid={route.uid} version={version} /> : <p>{t('knowledge.noSuchPage')}</p>;

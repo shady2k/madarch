@@ -69,6 +69,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { archifyFrame, likec4Model } from './view-frames.js';
 import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
+import { buildFacts, type FactsView } from './facts.js';
 import { documentAddress, entityAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
@@ -2592,10 +2593,22 @@ export class KnowledgeProduct {
     return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block known as ${held}` } : { ok: true, block };
   }
 
+  async facts(role: string, lang?: string): Promise<FactsView> {
+    const context = await this.context();
+    if ('absent' in context) return { role, kinds: [] };
+    return await buildFacts(context.ctx, role, lang ?? context.ctx.language);
+  }
+
   /** The statement view of one sentence of an agent's page. */
-  async statement(id: string, sentence: string, turn = 0): Promise<StatementResult> {
+  async statement(id: string, sentence: string, turn = 0, lang?: string): Promise<StatementResult> {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+    if (id.startsWith('fact:')) {
+      const facts = await buildFacts(context.ctx, 'everything', lang ?? context.ctx.language);
+      const fact = facts.kinds.flatMap((kind) => kind.statements).find((fact) => fact.id === id);
+      if (fact === undefined) return { ok: false, status: 404, message: `no declared fact ${id}` };
+      return { ok: true, statement: fact.statement };
+    }
     const result = await buildStatement(context.ctx, id, sentence, turn);
     if (!result.ok) return result;
     return { ok: true, statement: { ...result.statement, ...(await this.plannedForStatement(id, result.statement.name)) } };

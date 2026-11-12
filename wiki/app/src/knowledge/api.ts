@@ -1,8 +1,12 @@
+import type { FactsView } from './types.js';
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
 import type { AgentChoices, AgentOffer, Block, CatalogKindView, CatalogSummaryView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, SearchView, SourceFile, StatementModel, UserSettings, WikiStatus, WriterState } from './types.js';
+
+/** Graph facts in manifest order for the reader's current role. */
+export const getFacts = (lang: string, signal?: AbortSignal): Promise<FactsView> => readJson<FactsView>('read the facts', `${API.facts}?lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
@@ -20,7 +24,7 @@ export const getSearch = (query: string, lang: string, signal?: AbortSignal): Pr
 export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string, after?: string | null): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `${API.page}?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${after === null || after === undefined ? '' : `&after=${encodeURIComponent(after)}`}${historyQuery()}`, signal, compose);
 
 /** The statement view of one sentence of a page. */
-export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `${API.statement}?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
+export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal, lang = 'en'): Promise<StatementModel> => readJson<StatementModel>('read the statement', `${API.statement}?lang=${lang === 'ru' ? 'ru' : 'en'}&id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
 
 /** One page of a kind's entities. */
 export function getEntities(kind: string, options: { q?: string; after?: string } = {}, signal?: AbortSignal): Promise<EntityListing> {
