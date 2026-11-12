@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
@@ -7,6 +7,7 @@ import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { closeTrace, openTrace, runInTrace } from '../src/obs/trace.js';
 import { publishStoreOwner, requestHistoryPreparation, requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 
 test('owner prepares pinned contracts and new source databases for attach-only roles', async () => {
@@ -15,6 +16,16 @@ test('owner prepares pinned contracts and new source databases for attach-only r
     await withStorePreparationOwner(async () => {
       const store = join(folder, 'graph');
       await requestStorePreparation(store, GIT_CONTRACT);
+      const trace = openTrace({ store: folder, runId: 'repeat-preparation', console: false });
+      try {
+        await runInTrace(trace, async () => {
+          // Object key order does not change the declared contract.
+          const equivalent = { dictionary: GIT_CONTRACT.dictionary, edge: GIT_CONTRACT.edge, vertex: GIT_CONTRACT.vertex };
+          await requestStorePreparation(join(store, '.'), equivalent);
+          await requestStorePreparation(store);
+        });
+      } finally { closeTrace(trace); }
+      expect(readFileSync(trace.file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line).name)).not.toContain('db.transaction');
       const unpublish = publishStoreOwner(folder);
       try {
         const env = { ...process.env };
@@ -36,6 +47,9 @@ test('owner prepares pinned contracts and new source databases for attach-only r
         await requestStorePreparation(store, changed);
         const changedClient = await createDatabaseOwner({ store, connectOnly: true });
         try { await createOneGraphSchema(changedClient, withManifestContract(changed)); } finally { await changedClient.close(); }
+        await requestStorePreparation(store, GIT_CONTRACT);
+        const restored = await createDatabaseOwner({ store, connectOnly: true });
+        try { await createOneGraphSchema(restored, withManifestContract(GIT_CONTRACT)); } finally { await restored.close(); }
         await requestHistoryPreparation(store, 'h_added_source');
         const history = await createDatabaseOwner({ store, database: 'h_added_source', connectOnly: true });
         try {
