@@ -24,7 +24,7 @@ function git(args: readonly string[]): Promise<string> {
 /** Copy objects, not a live checkout or a host Git RPC; resolve every revision before the plugin receives it. */
 export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string) {
   const filesystemInputs: { name: string; folder: string }[] = [];
-  const repositories: { repository: string; root: string; commit: string; defaultBranch?: string }[] = [];
+  const repositories: { repository: string; root: string; commit: string; url?: string; defaultBranch?: string }[] = [];
   for (const [index, pin] of pins.entries()) {
     const name = `repository-${index}`;
     const folder = join(workRoot, name);
@@ -34,8 +34,9 @@ export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], wo
     await git(['--git-dir', folder, 'fetch', '--no-tags', '--update-shallow', '--', pin.root, commit]);
     await git(['--git-dir', folder, 'update-ref', '--no-deref', 'HEAD', commit]);
     const remote = await git(['-C', pin.root, 'remote', 'get-url', 'origin']).catch(() => '');
+    let address: string | undefined;
     if (remote !== '') {
-      let address = remote;
+      address = remote;
       try {
         const url = new URL(remote);
         url.username = '';
@@ -46,6 +47,7 @@ export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], wo
     }
     filesystemInputs.push({ name, folder });
     repositories.push({ repository: pin.id, root: sandboxInputPath(name, filesystemInputSnapshotPath(workRoot, name)), commit,
+      ...(address === undefined ? {} : { url: address }),
       ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) });
   }
   return { filesystemInputs, repositories };
