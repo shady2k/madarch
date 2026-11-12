@@ -243,8 +243,12 @@ export async function answerPluginGraphQuery(wiring: Pick<PluginTurnWiring, 'own
   }
 }
 
-function trackedPluginAnswerer(graph: { query(text: string): Promise<readonly unknown[]> }): GraphAnswerer {
-  const read = async <T>(method: keyof GraphAnswerer, args: readonly unknown[]): Promise<T> => (await graph.query(JSON.stringify({ read: 'plugin', method, args })))[0] as T;
+export function trackedPluginAnswerer(graph: { query(text: string): Promise<readonly unknown[]> }): GraphAnswerer {
+  const read = async <T>(method: keyof GraphAnswerer, args: readonly unknown[]): Promise<T> => {
+    const supplied = [...args];
+    while (supplied.length > 0 && supplied[supplied.length - 1] === undefined) supplied.pop();
+    return (await graph.query(JSON.stringify({ read: 'plugin', method, args: supplied })))[0] as T;
+  };
   return {
     files: (...args) => read('files', args),
     value: (...args) => read('value', args),

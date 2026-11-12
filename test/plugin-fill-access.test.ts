@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { pluginInvocationAccess } from '../src/plugin/fill-access.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
 import { valueFromPluginSnapshot } from '../src/graph/plugin-turns.js';
+import { trackedPluginAnswerer } from '../src/fill/plugin-turns.js';
 
 function setup(output: string, reads: string[], fields = ['text']) {
   const calls: string[] = [];
@@ -76,6 +77,20 @@ test('earlier file enumeration forwards the exact named snapshot and refuses mis
   expect(calls).toEqual([['**/*.ts', snapshot]]);
   await expect(pluginInvocationAccess(graph, scope).graph.files('**')).rejects.toThrow('earlier snapshot of File from base is unavailable');
   expect(calls).toHaveLength(1);
+});
+
+test('tracked optional graph arguments remain absent rather than becoming JSON null', async () => {
+  const requests: { method: string; args: unknown[] }[] = [];
+  const graph = trackedPluginAnswerer({ query: async (text) => { requests.push(JSON.parse(text)); return [[]]; } });
+  await graph.files('**', undefined);
+  await graph.value('File', { path: 'a' }, 'text', undefined);
+  const snapshot = { runId: 'saved', unitId: 'plugin-turns/base:File', generation: 1 };
+  await graph.files('**', snapshot);
+  expect(requests.map(({ method, args }) => ({ method, args }))).toEqual([
+    { method: 'files', args: ['**'] },
+    { method: 'value', args: ['File', { path: 'a' }, 'text'] },
+    { method: 'files', args: ['**', snapshot] },
+  ]);
 });
 
 test('snapshot resolver rejects prior-run or unsuccessful generations before execution', async () => {
