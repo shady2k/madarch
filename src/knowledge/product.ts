@@ -95,7 +95,7 @@ import { readUnitStates } from '../fill/state-store.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
-import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
+import { PLUGIN_TURN_STAGE_ID, pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
 import { manifestPublicationState, waitForManifestPublication } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
@@ -932,7 +932,7 @@ export class KnowledgeProduct {
       ...(options.targets.vertex === undefined ? {} : { vertex: options.targets.vertex }),
       groups: options.targets.kinds.flatMap((kind) => {
         const declaration = read.manifest.kinds.get(kind);
-        const plugins = [...new Set((declaration?.fields ?? []).flatMap((field) => field.binding?.kind === 'plugin' ? [field.binding.plugin] : []))];
+        const plugins = pluginsFillingKind(read.manifest, kind);
         return plugins.map((plugin) => ({ kind, group: declaration?.group ?? null, plugin, stageUnitId: pluginTurnUnitId(plugin, kind, options.targets?.vertex) }));
       }),
     };

@@ -104,3 +104,20 @@ test('terminal zero-unit runs say no units, not planning', async () => {
     root?.unmount(); root = undefined; node.remove();
   }
 });
+
+test('an existing idle button follows an unpublished native run and later version progress', async () => {
+  let current = { ...run, units: [], publishedUnits: 0 };
+  const calls: string[] = [];
+  globalThis.fetch = (async (url: string) => { calls.push(url); return Response.json({ run: current }); }) as typeof fetch;
+  const idle = { fill: { state: 'idle' } } as WikiStatus;
+  const node = render(createElement(FillButton, { status: idle, version: 0 }));
+  await until(() => node.textContent === 'Fill…');
+  const active = { fill: { state: 'running', runId: run.runId } } as WikiStatus;
+  root!.render(createElement(FillButton, { status: active, version: 1 }));
+  await until(() => calls.length === 1);
+  expect(node.textContent).toBe('Planning the fill…');
+  current = run;
+  root!.render(createElement(FillButton, { status: active, version: 2 }));
+  await until(() => node.textContent === 'Filling · 1 of 2');
+  expect(calls).toEqual(['/api/fill-runs?run=own-run', '/api/fill-runs?run=own-run']);
+});

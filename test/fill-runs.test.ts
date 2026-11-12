@@ -5,6 +5,8 @@ import { readFillRunDetail } from '../src/knowledge/fill-runs.js';
 import { failRequestedFill } from '../src/knowledge/fill-run.js';
 import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
 import { recordUnitPlan } from '../src/fill/orchestrator-store.js';
+import type { KindDecl, PluginDecl, KindsManifest } from '../src/product/manifest/kinds.js';
+import { pluginsFillingKind } from '../src/fill/plugin-turns.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 let owner: Awaited<ReturnType<typeof createTestDatabaseOwner>>;
@@ -146,4 +148,11 @@ test('held chain remains canonical global status when a later request is refused
   Object.assign(product, { reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'held-refused', product: () => ({ name: 'held-shop' }), loadPins: async () => undefined, warmReader: async () => undefined });
   await (product as any).followStoreFill();
   expect((product as any).fill).toMatchObject({ runId: 'held-paused', state: 'paused' });
+});
+
+test('run selection discovers catalogue agent producers from the same declaration matcher as the scheduler', () => {
+  const kind = { name: 'probe.summary', fields: [{ name: 'id', binding: { kind: 'agent', description: 'identity' } }] } as unknown as KindDecl;
+  const agent = { id: 'agent-fill', contract: { vertices: [{ kind: 'probe.summary' }], agent: { catalogue: true } } } as unknown as PluginDecl;
+  const unrelated = { id: 'unrelated', contract: { vertices: [{ kind: 'other' }], agent: { catalogue: true } } } as unknown as PluginDecl;
+  expect(pluginsFillingKind({ kinds: new Map([[kind.name, kind]]), plugins: new Map([[agent.id, agent], [unrelated.id, unrelated]]) } as unknown as KindsManifest, kind.name)).toEqual(['agent-fill']);
 });
