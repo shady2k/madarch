@@ -14,6 +14,7 @@ import { addressOfKind } from './routes.js';
 import { KindGraph } from './kind-graph.js';
 import { addedByDependency, estimateOf } from './fill-selection.js';
 import { useRead } from './live.js';
+import { pluginNames } from './producers.js';
 import { PageSkeleton } from './skeleton.js';
 import type { AgentOffer, CatalogKindView, CatalogView } from './types.js';
 
@@ -82,7 +83,7 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
                 {section.kinds.map((kind) => <Stack key={kind.kind} className="mb-2 text-small" data-kind={kind.kind}><FieldLabel className="flex items-start gap-2">
                   <Checkbox data-testid={`fill-setup-check-${kind.kind}`} checked={active.has(kind.kind)} disabled={locked || added.has(kind.kind)} onChange={() => change([kind.kind], checked.has(kind.kind))} />
                   <Text><KLink href={addressOfKind(kind.kind)}>{name(kind)}</KLink>{added.has(kind.kind) && <Text className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.neededBy', { kind: neededName(added.get(kind.kind)!) })}</Text>}</Text>
-                </FieldLabel></Stack>)}
+                </FieldLabel><Paragraph className="mb-0 ml-6 text-small text-muted" data-testid="fill-setup-plugins">{pluginNames(kind).join(', ') || t('knowledge.catalogueNoPlugin')}</Paragraph></Stack>)}
               </PageSection>;
             })}
           </Stack>
