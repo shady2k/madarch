@@ -1,22 +1,26 @@
 import { contentsOf, storedFileValueAnswerer } from '../src/plugin/stored-text.js';
 /**
- * The record tables and the two passes (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
+ * The ordinary repository plugins (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
  * this step writes, a second run at one commit writing nothing, a new commit writing only what
  * moved, and a neutral fixture for the shapes git can give a tree.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { fileFacts, listDirectories, listFiles, publishHistory, publishTree, repositoryFacts } from '../src/graph/index.js';
+import { fileFacts, listDirectories, listFiles, repositoryFacts } from '../src/graph/index.js';
 import { commitWithPaths as commitFacts } from '../src/graph/records.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
-import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
-import { instantOf } from '../src/graph/records.js';
-import { REPOSITORY_HISTORY_STAGE_ID, REPOSITORY_TREE_STAGE_ID, createRepositoryHistoryStage, createRepositoryTreeStage, languageOfPath, readRepositoryHistory, readRepositoryTree, repositoryOfUnit, repositoryUnitId, shallowGapOf, type RepositoryAt } from '../src/fill/stages/repository-facts.js';
+import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
+import { runFill } from '../src/fill/run.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { instantOf } from '../plugins/git/main.js';
+import { languageOfPath, readRepositoryTree, type RepositoryAt } from '../plugins/disk/reader.js';
+import { shallowGapOf } from '../plugins/git/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { ensureVertex, publishOpinion } from '../src/graph/write.js';
@@ -25,6 +29,8 @@ import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
 let repository = '';
+let product = '';
+let runSequence = 0;
 /** The graph's own tables, which every store holds: the mechanism the product's contracts build on. */
 const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unresolved_reference'] as const;
 
@@ -49,6 +55,27 @@ function commitAll(message: string): string {
 
 function pin(commit: string): RepositoryAt {
   return { repository: 'fixture', root: repository, commit, url: 'file:///fixture' };
+}
+
+/** Runs the same declared ordinary plugins used by a product fill. */
+async function fillRepository(folder = repository, name = 'fixture') {
+  if (owner === undefined) throw new Error('the store was not opened');
+  const fixture = folder === repository ? product : join(root, `product-${name}`);
+  if (folder !== repository && !existsSync(fixture)) makeProduct(fixture, folder, name);
+  const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: contract => prepareStore(owner!, { contract }) });
+  if (!result.ok) throw new Error(`fill refused: ${result.reason}`);
+  expect(result.state).toBe('succeeded');
+  return result;
+}
+
+function makeProduct(folder: string, source: string, name: string): void {
+  mkdirSync(join(folder, 'repos'), { recursive: true });
+  symlinkSync(source, join(folder, 'repos', name));
+  writeFileSync(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: records\nrepos:\n  - name: ${name}\n    url: file://${source}\n`);
+  useRepositoryPlugins(folder);
+  execFileSync('git', ['init', '-q'], { cwd: folder });
+  execFileSync('git', ['add', '-A'], { cwd: folder });
+  execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Declare repository plugins'], { cwd: folder });
 }
 
 /** The commits the fixture makes, oldest first: a past commit's text is read at the commit that held it. */
@@ -76,6 +103,8 @@ beforeAll(async () => {
   git(['rm', '-q', 'docs/same-two.md']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 2;\n');
   commitAll('two');
+  product = join(root, 'product');
+  makeProduct(product, repository, 'fixture');
   owner = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
 });
 
@@ -101,40 +130,37 @@ describe('the record tables', () => {
 describe('the two passes over one fixture', () => {
   test('write the tree and the history, and a second run writes nothing', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const head = git(['rev-parse', 'HEAD']);
-    const tree = await readRepositoryTree(pin(head));
-    const history = await readRepositoryHistory(pin(head));
-    const firstTree = await publishTree(owner, tree);
-    const firstHistory = await publishHistory(owner, history);
-    expect(firstTree.inserted).toBeGreaterThan(3);
-    expect(firstHistory.inserted).toBeGreaterThan(3);
-    const secondTree = await publishTree(owner, tree);
-    const secondHistory = await publishHistory(owner, history);
-    expect([secondTree.inserted, secondTree.updated, secondTree.deleted]).toEqual([0, 0, 0]);
-    expect([secondHistory.inserted, secondHistory.updated, secondHistory.deleted]).toEqual([0, 0, 0]);
+    const first = await fillRepository();
+    expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/disk:'))).toHaveLength(4);
+    expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/git:'))).toHaveLength(3);
+    const before = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
+    const second = await fillRepository();
+    expect(second.reused.length).toBe(7);
+    const after = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
+    expect(after.rows).toEqual(before.rows);
   }, 120_000);
 
   test('every opinion event of the tree and the history pass names its vertex by uid and its own producer', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { opinions: { node?: string; said_by: string; state: string; values?: Record<string, unknown>; evidence?: unknown[]; context?: number; said_at?: string }[] } }>(
-      `SELECT change FROM operation WHERE author IN ('git-tree@1', 'git-history@1') ORDER BY seq`,
+      `SELECT change FROM operation WHERE split_part(author, '@', 1) IN ('disk', 'git') ORDER BY seq`,
     ));
     const opinions = entries.rows.flatMap((row) => row.change.opinions);
     expect(opinions.length).toBeGreaterThan(10);
     // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
     // a replay names no local id of this store.
     expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
-    // The tree publishes inventory and the extension dataset's separate Linguist opinion, never a picked language.
-    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['git-tree', 'git-history', 'linguist']));
+    // Inventory and history identify their ordinary plugin producers, with language candidates kept as fields.
+    expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['disk', 'git']));
     // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
     const opened = opinions.filter((one) => one.state === 'opened');
     expect(opened.length).toBeGreaterThan(5);
     expect(opened.every((one) => one.values !== undefined && Array.isArray(one.evidence) && one.context === 1 && typeof one.said_at === 'string' && one.said_at.length > 10)).toBe(true);
   }, 120_000);
 
-  test('a text file\'s bytes stand in the graph once per blob, and a reader takes them there', async () => {
+  test('a text file\'s bytes stand in ordinary opinions, and a reader takes them there', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const reader = new GraphReader(owner, () => new Date().toISOString());
+    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
     expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'src/a.ts' }, 'content')).toBe('export const a = 2;\n');
     expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'docs/renamed.md' }, 'content')).toBe('# one\n');
     expect(await storedFileValueAnswerer(owner)('code.file', { repository: 'fixture', path: 'blob.bin' }, 'content')).toBeNull();
@@ -146,7 +172,7 @@ describe('the two passes over one fixture', () => {
     expect(many.get('docs/renamed.md')).toBe('# one\n');
     expect(many.get('docs/with "quotes" and \\backslash.md')).toBe('# quoted\n');
     expect(many.has('src/missing.ts')).toBe(false);
-    const shared = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.blob} WHERE content = $1`, ['# one\n']));
+    const shared = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE content = $1 AND state = 'open'`, ['# one\n']));
     expect(shared.rows[0]?.n).toBe('1');
   });
 
@@ -159,7 +185,7 @@ describe('the two passes over one fixture', () => {
     expect(byPath.has('docs/same-two.md')).toBe(false);
     expect(byPath.has('with space and\nnewline.txt')).toBe(true);
     expect(byPath.get('link.ts')?.mode).toBe('120000');
-    // Two paths on one blob: one dictionary row, two files.
+    // Blob identity remains a field of the ordinary file opinion.
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
@@ -179,21 +205,15 @@ describe('the two passes over one fixture', () => {
     if (owner === undefined) throw new Error('the store was not opened');
     writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 3;\n');
     three = commitAll('three');
-    const head = three;
-    const tree = await readRepositoryTree(pin(head));
-    const history = await readRepositoryHistory(pin(head));
-    const treeCounts = await publishTree(owner, tree);
-    const historyCounts = await publishHistory(owner, history);
-    // One file's blob moved: the file's row is updated, the new commit's vertex and its row and the
-    // as-is edge are added, and the edge to the commit the repository stood at before is removed.
-    // Every other row stands: inserted 3 (the commit vertex, its opinion and the as-is edge), updated 3 (the file's
-    // mechanism entry, its opinion and the dataset's opinion — the last two now resting on the new commit as their
-    // evidence), deleted 1 (the old as-is edge).
-    expect(treeCounts.inserted).toBe(3);
-    expect(treeCounts.updated).toBe(3);
-    expect(treeCounts.deleted).toBe(1);
-    expect(historyCounts.inserted).toBeGreaterThan(0);
-    expect(historyCounts.updated + historyCounts.unchanged).toBeGreaterThan(0);
+    const before = await owner.transaction('snapshot', tx => tx.query<{ id: string }>(`SELECT (n.key->>'path') AS path, o.mode, o.blob, o.bytes, o.lines, o.content FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND n.key->>'path' <> 'src/a.ts' ORDER BY n.key->>'path'`));
+    const old = await fileFacts(owner, 'fixture', 'src/a.ts');
+    const run = await fillRepository();
+    expect(run.units.every(unit => unit.state === 'published')).toBe(true);
+    const moved = await fileFacts(owner, 'fixture', 'src/a.ts');
+    expect(moved?.blob).not.toBe(old?.blob);
+    expect(await commitFacts(owner, 'fixture', three)).toMatchObject({ hash: three, subject: 'three' });
+    const after = await owner.transaction('snapshot', tx => tx.query<{ id: string }>(`SELECT (n.key->>'path') AS path, o.mode, o.blob, o.bytes, o.lines, o.content FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND n.key->>'path' <> 'src/a.ts' ORDER BY n.key->>'path'`));
+    expect(after.rows).toEqual(before.rows);
     const a = await fileFacts(owner, 'fixture', 'src/a.ts');
     expect(a?.lines).toBe(1);
   }, 120_000);
@@ -205,20 +225,20 @@ describe('the two passes over one fixture', () => {
     // The tree's dataset opinion states candidates in ordinary fields, never in the text's natural-language tag.
     const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
-       WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'linguist'`,
+       WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'disk'`,
     ));
     expect(stored.rows).toEqual([{ lang: null, language: null, languages: ['TypeScript', 'XML'] }]);
-    const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'fixture' } }, path: 'src/a.ts' } }));
+    const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
+    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
     const first = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'linguist'`, [node.nodeId],
+      `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'disk'`, [node.nodeId],
     ));
     expect(first.rows[0]?.n).toBe('1');
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'linguist', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
+    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
     const states = await owner.transaction('snapshot', async (tx) => await tx.query<{ state: string; language: string | null; lang: string | null }>(
-      `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'linguist' ORDER BY "id"`, [node.nodeId],
+      `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'disk' ORDER BY "id"`, [node.nodeId],
     ));
     expect(states.rows.filter((row) => row.state === 'open')).toHaveLength(1);
     expect(states.rows.every((row) => row.lang === null)).toBe(true);
@@ -236,7 +256,7 @@ describe('the two passes over one fixture', () => {
     expect(second.repository.url).toBe('https://example.test/fixture.git');
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.url).toBe('https://example.test/fixture.git');
-    const reader = new GraphReader(owner, () => new Date().toISOString());
+    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
     // The repository block renders the graph\'s own repository read: its data carries the clean address.
     const held = await reader.repository('fixture');
     expect(held?.url).toBe('https://example.test/fixture.git');
@@ -251,24 +271,12 @@ describe('the two passes over one fixture', () => {
     expect(stored.rows.map((row) => row.url).filter((url) => url !== null)).toEqual(['https://example.test/fixture.git']);
   });
 
-  test('run as stages: one unit per repository per pass, publishing through the module', async () => {
-    if (owner === undefined) throw new Error('the store was not opened');
-    const head = git(['rev-parse', 'HEAD']);
-    const pins = [{ id: 'fixture', form: 'code' as const, root: repository, commit: head }];
-    const sources = { pins: async () => pins, open: async () => { throw new Error('the passes read git, not the snapshot reader'); } } as never;
-    const treeStage = createRepositoryTreeStage({ sources, publishTree: (input) => publishTree(owner!, input), publishHistory: (input) => publishHistory(owner!, input) });
-    const historyStage = createRepositoryHistoryStage({ sources, publishTree: (input) => publishTree(owner!, input), publishHistory: (input) => publishHistory(owner!, input) });
-    expect([treeStage.id, historyStage.id]).toEqual([REPOSITORY_TREE_STAGE_ID, REPOSITORY_HISTORY_STAGE_ID]);
-    const plan = await treeStage.plan({ query: async () => [] });
-    expect(plan.units.map((unit) => unit.id)).toEqual([repositoryUnitId('fixture')]);
-    expect(repositoryOfUnit(repositoryUnitId('fixture'))).toBe('fixture');
-    const said: string[] = [];
-    const context = { unit: { id: repositoryUnitId('fixture'), scope: 'fixture' }, config: {} as never, graph: { query: async () => [] }, draft: { write: () => undefined, writes: () => ({ writes: [] }) }, progress: (note: string) => said.push(note), signal: new AbortController().signal } as never;
-    expect(await treeStage.execute({ id: repositoryUnitId('fixture'), scope: 'fixture' }, context)).toEqual({ outcome: 'draft' });
-    expect(await historyStage.execute({ id: repositoryUnitId('fixture'), scope: 'fixture' }, context)).toEqual({ outcome: 'draft' });
-    expect(said.length).toBe(2);
+  test('ordinary output units execute through the plugin runtime', async () => {
+    const run = await fillRepository();
+    expect(run.units.map(unit => unit.stageId)).toEqual(Array(7).fill('plugin-turns'));
+    expect(run.units.map(unit => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
-    expect(await shallowGapOf(pin(head))).toBeNull();
+    expect(await shallowGapOf(pin(git(['rev-parse', 'HEAD'])))).toBeNull();
   }, 120_000);
 
   test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {
@@ -282,10 +290,11 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs')).toBe('');
     // The parent of a file is its folder, never the repository.
     const parents = await owner.transaction('snapshot', async (tx) => await tx.query(
-      `SELECT (fn.key->>'path') AS child, coalesce(pn.key->>'path', '') AS parent FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = 'contains'
-       JOIN node fn ON fn.id = e.to_node JOIN entity fe ON fe.id = fn.entity_id AND fe.name = 'file'
+      `SELECT (fn.key->>'path') AS child, coalesce(pn.key->>'path', '') AS parent FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = 'code.contains'
+       JOIN node fn ON fn.id = e.to_node JOIN entity fe ON fe.id = fn.entity_id AND fe.name = 'code.file'
        LEFT JOIN node pn ON pn.id = e.from_node`,
     ));
+    expect(parents.rows.length).toBeGreaterThan(0);
     for (const row of parents.rows as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
       expect({ child: row.child, parent: row.parent }).toEqual({ child: row.child, parent: folder });
@@ -298,15 +307,12 @@ describe('the two passes over one fixture', () => {
     if (owner === undefined) throw new Error('the store was not opened');
     mkdirSync(join(repository, 'only', 'deep'), { recursive: true });
     writeFileSync(join(repository, 'only', 'deep', 'x.txt'), 'x\n');
-    const head = commitAll('four');
-    await publishHistory(owner, await readRepositoryHistory(pin(head)));
-    await publishTree(owner, await readRepositoryTree(pin(head)));
+    commitAll('four');
+    await fillRepository();
     expect((await listDirectories(owner, 'fixture')).map((row) => row.path)).toContain('only/deep');
     git(['rm', '-q', '-r', 'only']);
-    const gone = commitAll('five');
-    await publishHistory(owner, await readRepositoryHistory(pin(gone)));
-    const counts = await publishTree(owner, await readRepositoryTree(pin(gone)));
-    expect(counts.deleted).toBeGreaterThan(1);
+    commitAll('five');
+    await fillRepository();
     const again = (await listDirectories(owner, 'fixture')).map((row) => row.path);
     expect(again).not.toContain('only/deep');
     expect(again).not.toContain('only');
@@ -319,13 +325,13 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     if (owner === undefined) throw new Error('the store was not opened');
     // Stage 3: `gap` is gone. What a pass could not read is a problem for a person, said in the run's log and trace; a
     // fact it can state about a vertex — a shallow clone — is its opinion of that vertex.
-    const publication = (shallow: boolean) => ({ repository: { name: 'shallow' }, commits: [], shallow });
-    const first = await publishHistory(owner, publication(true));
-    expect(first.inserted).toBeGreaterThan(0);
+    const shallow = join(root, 'shallow');
+    execFileSync('git', ['clone', '--depth=1', `file://${repository}`, shallow]);
+    await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
     const subject: Subject = { source: 'graph', entity: { key: 'code.repository:shallow', kind: 'code.repository', label: 'shallow', properties: { name: 'shallow' }, nodeIds: [], scope: '' } };
     const wireBlock = async () => {
-      const reader = new GraphReader(owner!, () => new Date().toISOString());
+      const reader = new GraphReader(owner!, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
       const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/kinds.yaml', 1);
       if (block.type !== 'repository') throw new Error(`expected repository, got ${block.type}`);
       return JSON.parse(JSON.stringify(block)).data;
@@ -333,12 +339,13 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     expect((await wireBlock()).historyShallow).toBe(true);
     expect(await wireBlock()).not.toHaveProperty('gaps');
     // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
-    await publishHistory(owner, publication(false));
+    execFileSync('git', ['fetch', '--unshallow'], { cwd: shallow });
+    await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
     expect((await wireBlock()).historyShallow).toBe(false);
     expect(await wireBlock()).not.toHaveProperty('gaps');
     const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' AND (n.key->>'name') = 'shallow'`,
+      `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git' AND (n.key->>'name') = 'shallow'`,
     ));
     expect(open.rows[0]?.n).toBe('1');
   }, 120_000);
@@ -347,13 +354,13 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
 describe('a git date of a zero or a negative offset', () => {
 
   test('instantOf reads the offset git writes, and the Z a newer git writes for zero minutes', () => {
-    expect(instantOf('2026-11-07T20:38:26+03:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 180]);
-    expect(instantOf('2026-11-07T20:38:26-05:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', -300]);
+    expect(instantOf('2026-11-07T20:38:26+03:00')).toEqual(['2026-11-07T17:38:26.000Z', 180]);
+    expect(instantOf('2026-11-07T20:38:26-05:00')).toEqual(['2026-11-08T01:38:26.000Z', -300]);
     // A newer git states a zero offset as `Z` (measured: git 2.43 writes `+00:00` for the same commit).
-    expect(instantOf('2026-11-07T20:38:26Z', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 0]);
-    expect(instantOf('2026-11-07T20:38:26+00:00', 'authorDate', 'h')).toEqual(['2026-11-07T20:38:26Z', 0]);
-    expect(() => instantOf('2026-11-07 20:38:26', 'authorDate', 'h')).toThrow(/2026-11-07 20:38:26/);
-    expect(() => instantOf('2026-11-07T20:38:26+0000', 'authorDate', 'h')).toThrow(/a git date is/);
+    expect(instantOf('2026-11-07T20:38:26Z')).toEqual(['2026-11-07T20:38:26.000Z', 0]);
+    expect(instantOf('2026-11-07T20:38:26+00:00')).toEqual(['2026-11-07T20:38:26.000Z', 0]);
+    expect(() => instantOf('2026-11-07 20:38:26')).toThrow(/2026-11-07 20:38:26/);
+    expect(() => instantOf('2026-11-07T20:38:26+0000')).toThrow(/unreadable git date/);
   }, 60_000);
 
   test('a commit at +00:00 and one at -05:00 keep git\'s instant and each one\'s own offset', async () => {
@@ -375,7 +382,7 @@ describe('a git date of a zero or a negative offset', () => {
     execFileSync('git', ['add', '-A'], { cwd: offsets });
     const negative = commitAt('-0500', 'negative');
     const at = { repository: 'offsets', root: offsets, commit: negative, url: `file://${offsets}` };
-    await publishHistory(owner, await readRepositoryHistory(at));
+    await fillRepository(at.root, at.repository);
     // git states 20:38:26 at +00:00, and 20:38:26 at -05:00, which is 01:38:26 UTC the next day.
     // The answer is `%aI`: the clock the author wrote and the offset it stood at, never the instant.
     expect(await commitFacts(owner, 'offsets', zero)).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
@@ -384,22 +391,15 @@ describe('a git date of a zero or a negative offset', () => {
 
   test('a history whose dates git states with Z publishes with a zero offset', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    // The form a newer git writes for a zero offset, exactly as `%aI` answers it.
-    const history = {
-      repository: { name: 'z-dates' },
-      commits: [{
-        hash: 'b'.repeat(40), parents: [], authorName: 'Zero Offset', authorEmail: 'zero@example.invalid',
-        authorDate: '2026-11-07T20:38:26Z', commitDate: '2026-11-07T20:38:26Z', subject: 'a zero offset', touched: [],
-      }],
-      gaps: [],
-    };
-    await publishHistory(owner, history);
-    expect(await commitFacts(owner, 'z-dates', 'b'.repeat(40))).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
+    // Newer Git's Z form and explicit zero offset denote the same instant and stored offset.
+    expect(instantOf('2026-11-07T20:38:26Z')).toEqual(instantOf('2026-11-07T20:38:26+00:00'));
+    const held = await commitFacts(owner, 'offsets', execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: join(root, 'offsets') }).toString().trim());
+    expect(held).toMatchObject({ authorDate: '2026-11-07T20:38:26+00:00', authorOffsetMin: 0, commitDate: '2026-11-07T20:38:26+00:00', commitOffsetMin: 0 });
   }, 120_000);
 
   test('a listing answers the opinions\' values without their sources, and a single entity answers both', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const reader = new GraphReader(owner, () => new Date().toISOString());
+    const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
     // The bulk read a page's treemap and the Problems listing make: every value, and no opinion's id, producer or
     // evidence (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms with the sources, 1.21 MB and
     // 24 ms without). A list shows values, and no page shows where a value was stated from a list.
