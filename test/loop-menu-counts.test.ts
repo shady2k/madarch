@@ -1,3 +1,4 @@
+import { starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /** The menu problems count follows a committed manifest edit without another server start. */
 import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
@@ -73,13 +74,12 @@ beforeAll(async () => {
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
   withoutPluginTurns(folder);
-  const kindsFile = join(folder, 'madarch/kinds.yaml');
-  const kinds = readFileSync(kindsFile, 'utf8');
+  const kinds = starterManifestText();
   const rule = kinds.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
   expect(rule).toContain('enabled: true');
   const debt = '  code.debt:\n';
   expect(kinds).toContain(debt);
-  writeFileSync(kindsFile, kinds.replace(rule, rule.replace('enabled: true', 'enabled: false')).replace(debt, `${debt}    key: [path]\n    fields:\n      - { name: path, type: text, binding: { agent: "The source file path" } }\n      - { name: marker, type: text, binding: { agent: "The debt marker" } }\n      - { name: text, type: text, binding: { agent: "The comment text" } }\n`));
+  writeFolderManifest(folder, kinds.replace(rule, rule.replace('enabled: true', 'enabled: false')).replace(debt, `${debt}    key: [path]\n    fields:\n      - { name: path, type: text, binding: { agent: "The source file path" } }\n      - { name: marker, type: text, binding: { agent: "The debt marker" } }\n      - { name: text, type: text, binding: { agent: "The comment text" } }\n`));
   commitProduct(folder, 'Declare a debt opinion and disable its TODO rule');
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
@@ -121,7 +121,7 @@ describe('the problems entry of the menu', () => {
     expect(before.body.loop.problemsOpen).toBe(problemsBefore.body.open);
 
     // A valid manifest enables the TODO rule for the one structured debt opinion already in the graph.
-    const file = join(folder, 'madarch/kinds.yaml');
+    const file = join(folder, 'madarch/catalog.yaml');
     const manifest = readFileSync(file, 'utf8');
     const rule = manifest.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
     expect(rule).toContain('enabled: false');

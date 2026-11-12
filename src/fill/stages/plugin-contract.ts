@@ -1,6 +1,6 @@
 /**
  * The table a manifest kind declares for itself (decision 0034, item 14 and
- * decision 0035, items 17 and 18): each field of a kind in `madarch/kinds.yaml`
+ * decision 0035, items 17 and 18): each field of a kind in `madarch/catalog.yaml`
  * names its producer — a plugin field (`glossary@1.definition`) or the agent with
  * a description — and the kind's fields and key build the kind's table. No code
  * per kind: the engine reads the declarations, the plugin's own contract supplies

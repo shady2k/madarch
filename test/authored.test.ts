@@ -8,7 +8,7 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let owner: DatabaseOwner;
-const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/kinds.yaml', '/tmp'), kinds: new Map([
+const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/catalog.yaml', '/tmp'), kinds: new Map([
   ['note', { name: 'note', template: 'note.liquid', source: 'graph', origin: 'person', title: 'title', relations: [], line: 1, fields: [
     { name: 'title', type: 'text' }, { name: 'count', type: 'integer', nullable: true }, { name: 'flag', type: 'boolean', nullable: true },
   ] }],

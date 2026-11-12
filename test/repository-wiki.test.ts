@@ -260,7 +260,7 @@ git(folder,'commit','-qm','the nested file moves');
       expect(empty.body['findingCount']).toBe(0);
       // Startup publishes the declared catalogue, not document entities inferred from working-tree files.
       const declared = readKinds(folder);
-      if (!declared.present) throw new Error(`${folder}/madarch/kinds.yaml:1: fixture kinds are absent`);
+      if (!declared.present) throw new Error(`${folder}/madarch/catalog.yaml:1: fixture kinds are absent`);
       const expectedKinds = [...(declared.manifest.catalog?.kinds.keys() ?? declared.manifest.kinds.keys())].sort(byCodePoint);
       const emptyKinds = empty.body['kinds'] as { kind: string; count: number }[];
       expect(emptyKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
@@ -302,7 +302,7 @@ git(folder,'commit','-qm','the nested file moves');
     nativeWorkflow(folder);
     // This case compares the unread-checkout finding before and after the fill. Other rule predicates are outside
     // its scope: the product's bundled plugin files are not the source files this fixture measures.
-    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    const kindsFile = join(folder, 'madarch', 'catalog.yaml');
     const kinds = parseDocument(readFileSync(kindsFile, 'utf8'));
     const unreadableRule = kinds.getIn(['problems', 'rules', 'wiki.unreadable-file']);
     kinds.setIn(['problems', 'rules'], { 'wiki.unreadable-file': unreadableRule });

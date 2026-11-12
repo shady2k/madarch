@@ -47,7 +47,7 @@ plugins:
   - { id: git, version: 1, path: plugins/git, inputs: [a], outputs: [a, b], closure: [plugins/git/contract.json] }
 `;
 
-const findings = (text: string): string[] => parseKinds(text, 'madarch/kinds.yaml', root).findings.map((finding) => finding.message);
+const findings = (text: string): string[] => parseKinds(text, 'madarch/catalog.yaml', root).findings.map((finding) => finding.message);
 
 describe('the manifest contract preflight', () => {
   test('a valid contract passes: every field has a producer, the key is authoritative and the plugin reads its closure', () => {
@@ -56,10 +56,10 @@ describe('the manifest contract preflight', () => {
 
   test('a field that still says role is refused, naming the file and the line and saying the word is gone', () => {
     const text = VALID.replace("      - { name: note, type: text, producers: [agent] }", "      - { name: note, type: text, role: authoritative, producers: [agent] }");
-    const read = parseKinds(text, 'madarch/kinds.yaml', root);
+    const read = parseKinds(text, 'madarch/catalog.yaml', root);
     const line = text.split('\n').findIndex((one) => one.includes('role: authoritative')) + 1;
     // The refusal names the file and the line the field stands on, and says the word is gone.
-    expect(read.findings).toContainEqual({ file: 'madarch/kinds.yaml', line, message: expect.stringContaining('"role" is gone: no field is authoritative and none is claimed') });
+    expect(read.findings).toContainEqual({ file: 'madarch/catalog.yaml', line, message: expect.stringContaining('"role" is gone: no field is authoritative and none is claimed') });
   });
 
   test('a field with no producer is refused, naming the kind and the field', () => {
@@ -118,7 +118,7 @@ plugins:
   test('a valid manifest binds the key to the plugin field it declares, and passes', () => {
     const text = BOUND('      - { name: name, type: text, binding: "git@1.name" }\n      - { name: tag, type: text, binding: "git@1.tag" }');
     expect(findings(text)).toEqual([]);
-    const read = parseKinds(text, 'madarch/kinds.yaml', root);
+    const read = parseKinds(text, 'madarch/catalog.yaml', root);
     const field = read.kinds.get('a')?.fields?.[0];
     expect(field?.binding).toEqual({ kind: 'plugin', plugin: 'git', major: '1', field: 'name' });
     expect(field?.line).toBeGreaterThan(1);
@@ -126,9 +126,9 @@ plugins:
 
   test('a binding to a field the plugin does not declare is refused, naming the file and the line', () => {
     const text = BOUND('      - { name: name, type: text, binding: "git@1.surname" }\n      - { name: tag, type: text, binding: "git@1.tag" }');
-    const read = parseKinds(text, 'madarch/kinds.yaml', root);
+    const read = parseKinds(text, 'madarch/catalog.yaml', root);
     const finding = read.findings.find((one) => one.message.includes('declares no field "surname"'));
-    expect(finding?.file).toBe('madarch/kinds.yaml');
+    expect(finding?.file).toBe('madarch/catalog.yaml');
     expect(finding?.line).toBeGreaterThan(1);
     expect(finding?.message).toContain('kind "a": field "name" binds to git@1.surname');
   });

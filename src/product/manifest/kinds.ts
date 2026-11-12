@@ -1,6 +1,6 @@
 /**
  * The product's entity kinds (decision 0029, "Manifests and templates live in
- * the product repository"): `madarch/kinds.yaml` in the product repository
+ * the product repository"): `madarch/catalog.yaml` and `madarch/kinds/` in the product repository
  * is the retired layout. `madarch/catalog.yaml` holds metadata and
  * `madarch/kinds/<group>/<subgroup>/<kind>.yaml` declares each kind,
  * including where its entities come from

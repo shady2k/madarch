@@ -9,7 +9,7 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 /** Publishes the fixture's explicit structured template; it never reads or expands Liquid source. */
 export async function publishFixtureTemplate(owner: DatabaseOwner, product: string, path: string, parts: readonly TemplatePart[] = [{ type: 'block', name: 'properties', params: { title: 'Details' }, line: 1 }]): Promise<void> {
   const read = readKinds(product);
-  if (!read.present) throw new Error(`${product}/madarch/kinds.yaml:1: fixture manifest is absent`);
+  if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: fixture manifest is absent`);
   const contract = graphContractOf(read.manifest);
   await owner.transaction('write', async (tx) => {
     const journal = journalFor('fixture@1');

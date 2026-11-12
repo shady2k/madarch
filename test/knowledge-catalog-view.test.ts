@@ -117,7 +117,7 @@ const MANIFEST = [
 
 /** The context the view reads: a graph with three filled entities and two Markdown pages. */
 function context(): RenderContext {
-  const manifest = parseKinds(MANIFEST, 'madarch/kinds.yaml', TEMPLATES);
+  const manifest = parseKinds(MANIFEST, 'madarch/catalog.yaml', TEMPLATES);
   const page = (id: string, kind: string): MarkdownEntity => ({ id, kind, title: id, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: `docs/${id}.md`, front: {}, reading: { links: [], findings: [], ungrounded: [], statements: 0 }, statementReading: { statements: [], definitions: new Map() }, indexedStatements: [], mentions: [], digest: '' });
   return {
     productFolder: TEMPLATES,
@@ -262,7 +262,7 @@ describe('the catalogue view lists every declared kind', () => {
       '      ru: Страница, которую ведёт агент.',
       '',
     ].join('\n');
-    const manifest = parseKinds(bare, 'madarch/kinds.yaml', TEMPLATES);
+    const manifest = parseKinds(bare, 'madarch/catalog.yaml', TEMPLATES);
     const kinds = await catalogKinds({ ...context(), manifest } as unknown as RenderContext);
     expect(kinds.map((kind) => kind.kind)).toEqual(['written']);
     expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });

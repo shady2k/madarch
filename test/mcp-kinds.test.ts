@@ -52,7 +52,7 @@ test('a product MCP session publishes kinds without filling repository content',
     expect(files.isError).toBe(true);
     expect((files.answer as { error: { code: string } }).error.code).toBe('step-not-run');
     expect(session.filledCommit).toBeNull();
-    const manifestFile = join(product, 'madarch', 'kinds.yaml');
+    const manifestFile = join(product, 'madarch', 'catalog.yaml');
     const valid = readFileSync(manifestFile, 'utf8');
     writeFileSync(manifestFile, `${valid}\n  invalid: [\n`);
     const invalid = await session.call('kinds', {});

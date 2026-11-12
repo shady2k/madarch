@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The graph's one writer (decision 0035, items 6 and 7; the amendment of 2026-11-10): the contract a manifest's field
@@ -16,7 +17,7 @@ import { publishTree } from '../src/graph/records.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 
-import { parseKinds } from '../src/product/manifest/kinds.js';
+import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
 import { ensureEdges, ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
@@ -47,7 +48,7 @@ function product(): string {
     ] }], edges: [] },
   }));
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: glossary, version: 1.0.0, closure: ${HASH}, path: plugins/glossary }\n`);
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), [
+  writeFolderManifest(folder, [
     'kinds:',
     '  doc.term:',
     '    template: templates/t.liquid',
@@ -66,6 +67,12 @@ function product(): string {
   return folder;
 }
 
+function manifest(folder: string): KindsManifest {
+  const read = readKinds(folder);
+  if (!read.present) throw new Error('fixture manifest is absent');
+  return read.manifest;
+}
+
 let owner: DatabaseOwner;
 let contract: GraphContract;
 let productFolder = '';
@@ -73,7 +80,7 @@ let productFolder = '';
 beforeAll(async () => {
   const folder = product();
   productFolder = folder;
-  const read = parseKinds(await Bun.file(join(folder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', folder);
+  const read = manifest(folder);
   expect(read.findings).toEqual([]);
   contract = manifestContractOf(read);
   owner = await createTestDatabaseOwner({ graphContract: contract });
@@ -122,7 +129,7 @@ describe('a manifest-declared kind is read by prefix, as the Problems page reads
       vertices: [{ kind: 'doc.term', key: { name: 'Zeta' }, values: { definition: 'the last one' }, evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 1, line_end: 2 }], producer: 'glossary', producerVersion: '1.0.0' }],
       removals: [],
     }, 1));
-    const read = parseKinds(await Bun.file(join(productFolder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', productFolder);
+    const read = manifest(productFolder);
     const reader = new GraphReader(owner, () => 'now', undefined, undefined, undefined, declaredKindReads(read));
     const found = await reader.byPrefix('doc.term', 'doc.term:', 10);
     expect(found.rows.map((one) => one.key)).toContain('doc.term:Zeta');

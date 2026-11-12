@@ -2496,7 +2496,7 @@ export class KnowledgeProduct {
   /** Strict guide data and fresh walk evidence are assembled once for every read format. */
   private async guidePage(kind: GuideKind, locale: GuideLocale, ctx: RenderContext, history?: HistoryContext): Promise<PageResult> {
     const declaration = ctx.manifest.kinds.get(kind);
-    const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/kinds.yaml' };
+    const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/catalog.yaml' };
     const file = resolve(ctx.productFolder, output.path);
     const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
     const base: PageModel = { id: output.id, kind, language: locale, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };

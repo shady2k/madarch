@@ -3,7 +3,7 @@
  * --mode prepare|capture --binary <artifact> --artifact <provenance.json> --head <sha>
  * --pages <JSON array file> selects only changed page ids (catalogue is the operations index).
  */
-import {existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync} from 'node:fs';
 import {basename, join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -54,7 +54,8 @@ let product = previous?.product ?? 'catalogue';
 let productFolder = previous === undefined ? '' : join(home, previous.product);
 const fillConfigDigest = (): string => {
   const hash = createHash('sha256');
-  for (const path of ['workspace.yaml', 'madarch/kinds.yaml']) hash.update(path).update('\0').update(readFileSync(join(productFolder, path))).update('\0');
+  const kinds = readdirSync(join(productFolder, 'madarch/kinds'), { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name).slice(productFolder.length + 1)).sort();
+  for (const path of ['workspace.yaml', 'madarch/catalog.yaml', ...kinds]) hash.update(path).update('\0').update(readFileSync(join(productFolder, path))).update('\0');
   return hash.update(JSON.stringify({agent: null, ownWiki: 'off', repository: 'training', repositoryHead})).digest('hex');
 };
 if (previous !== undefined && fillConfigDigest() !== previous.configDigest) throw new Error('contract-shots.ts:57: cached product fill configuration differs from provenance');

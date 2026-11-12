@@ -4,7 +4,7 @@ import type { KindsManifest } from '../src/product/manifest/kinds.js';
 import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
 import { graphKnowledgePages } from '../src/knowledge/index/index.js';
 
-const manifest = { file: 'madarch/kinds.yaml', kinds: new Map([['page', { name: 'page', source: 'graph' }]]) } as unknown as KindsManifest;
+const manifest = { file: 'madarch/catalog.yaml', kinds: new Map([['page', { name: 'page', source: 'graph' }]]) } as unknown as KindsManifest;
 function graph(rows: GraphEntity[]): Pick<GraphReader, 'list'> {
   return { list: async (_kind, options) => options?.after === undefined
     ? { rows: rows.slice(0, 1), next: 'next', total: rows.length }

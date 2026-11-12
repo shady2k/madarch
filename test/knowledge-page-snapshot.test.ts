@@ -52,7 +52,7 @@ afterAll(async () => { await owner.close(); });
 function context(folder: string, graph: GraphReader): RenderContext {
   return {
     productFolder: folder, files: workingTreeFiles(folder), graph, language: 'en', markdown: new Map(),
-    manifest: { file: 'madarch/kinds.yaml', kinds: new Map([['code.author', { name: 'code.author', template: 'author.md', source: 'graph', title: 'label', relations: [], line: 1 }]]), roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+    manifest: { file: 'madarch/catalog.yaml', kinds: new Map([['code.author', { name: 'code.author', template: 'author.md', source: 'graph', title: 'label', relations: [], line: 1 }]]), roles: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     resolver: { resolve: async () => { throw new Error('the fixture has no authored links'); } },
     repoOfScope: () => undefined, repositories: [],
   } as unknown as RenderContext;

@@ -9,7 +9,7 @@ import { PAYMENTS_SERVICE, PAY } from './knowledge-fixture.js';
 /** Publish explicit fixture opinions; no fixture parser infers a page from file bytes. */
 export async function publishFixtureOpinions(folder: string, knowledgeRoot: string, opinions: readonly { kind: string; key: Record<string, KeyValueDraft>; values: Record<string, unknown> }[]): Promise<void> {
   const read = readKinds(folder);
-  if (!read.present) throw new Error(`${folder}/madarch/kinds.yaml:1: fixture kinds are absent`);
+  if (!read.present) throw new Error(`${folder}/madarch/catalog.yaml:1: fixture kinds are absent`);
   const contract = graphContractOf(read.manifest);
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), connectOnly: true });
   try {

@@ -100,7 +100,7 @@ function fixture(files: GraphEntity[], rhythms: ReadonlyMap<string, FileRhythm> 
   const reader = new FixtureReader(files, rhythms);
   return {
     productFolder: '',
-    manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
+    manifest: { file: 'madarch/catalog.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     graph: reader,
     markdown: new Map(),
     language: 'en',

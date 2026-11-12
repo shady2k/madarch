@@ -10,7 +10,7 @@ import type { KindsManifest } from '../src/product/manifest/kinds.js';
  * stands as a manifest of that kind alone, with the file and line a refusal names.
  */
 const MANIFEST: KindsManifest = {
-  file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [],
+  file: 'madarch/catalog.yaml', roles: new Map(), properties: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [],
   kinds: new Map([['code.table', { name: 'code.table', template: 'templates/table.liquid', source: 'graph', title: 'label', relations: [], line: 2, er: 'links' }]]),
 };
 

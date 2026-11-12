@@ -22,7 +22,7 @@ for (const starter of STARTER_FILES) {
 }
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
-const parse = (text: string) => parseKinds(text, 'madarch/kinds.yaml', folder);
+const parse = (text: string) => parseKinds(text, 'madarch/catalog.yaml', folder);
 const MANIFEST = [
   'groups:',
   '  code: { en: Code, ru: Код }',

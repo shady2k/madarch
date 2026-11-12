@@ -537,7 +537,7 @@ export function createKnowledgePart(
         : await product.problemItems(rule, source, { ...(after === null ? {} : { after }), limit });
       if (page === undefined) {
         return refused(404, source === null
-          ? { field: 'rule', message: `the problems hold no category ${JSON.stringify(rule)}: the product's manifest declares it in madarch/kinds.yaml under problems.rules, or no problem of it is open` }
+          ? { field: 'rule', message: `the problems hold no category ${JSON.stringify(rule)}: the product's manifest declares it in madarch/catalog.yaml under problems.rules, or no problem of it is open` }
           : { field: 'source', message: `the category ${JSON.stringify(rule)} holds no source ${JSON.stringify(source)}: read the category's sources first` });
       }
       return { response: json(200, page) };

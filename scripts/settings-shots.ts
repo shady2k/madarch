@@ -45,10 +45,10 @@ const products = join(work, 'products');
 mkdirSync(products, { recursive: true });
 const shop = makeProduct(products, 'sample-product', repository);
 const edited = makeProduct(products, 'sample-product-edited', repository);
-writeFileSync(join(edited, 'madarch', 'kinds.yaml'), `# our own note: kinds are listed in the order we read them\n${readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8')}`);
+writeFileSync(join(edited, 'madarch', 'catalog.yaml'), `# our own note: kinds are listed in the order we read them\n${readFileSync(join(edited, 'madarch', 'catalog.yaml'), 'utf8')}`);
 git(edited, 'add', '-A');
 git(edited, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Note in the manifest');
-const editedBefore = readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8');
+const editedBefore = readFileSync(join(edited, 'madarch', 'catalog.yaml'), 'utf8');
 
 // The adapter: a program named like the real one that speaks ACP and reports a model and a reasoning level.
 const bin = join(work, 'bin');
@@ -142,8 +142,8 @@ try {
 
   // ---- the product a person edited: untouched ------------------------------------------------------
   await both(base, '/products/sample-product-edited/problems', 'edited-problems', '[data-testid=problems-page]', true);
-  check(readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8') === editedBefore, 'the edited manifest is byte for byte as it was');
-  check(readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8').startsWith('# our own note'), 'the person\'s comment is still the first line');
+  check(readFileSync(join(edited, 'madarch', 'catalog.yaml'), 'utf8') === editedBefore, 'the edited manifest is byte for byte as it was');
+  check(readFileSync(join(edited, 'madarch', 'catalog.yaml'), 'utf8').startsWith('# our own note'), 'the person\'s comment is still the first line');
 
   // ---- the settings page ---------------------------------------------------------------------------
   await post(base, '/products/sample-product/api/agent', { agent: 'claude-code', install: false });
@@ -167,7 +167,7 @@ try {
   const id = (await json(base, '/products/sample-product/api/product')).id as string;
   const store = join(products, '.madarch', 'knowledge', id);
   writeFileSync(join(shop, 'templates', 'domain.md'), 'a template we edited\n');
-  const kindsBefore = readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8');
+  const kindsBefore = readFileSync(join(shop, 'madarch', 'catalog.yaml'), 'utf8');
   const templatesBefore = readdirSync(join(shop, 'templates')).sort();
   const page = await open(base, '/products/sample-product/settings', 1150, 900);
   await page.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 120_000 });
@@ -178,7 +178,7 @@ try {
   const files = (folder: string): string[] => (existsSync(folder) ? readdirSync(folder, { recursive: true }).map(String) : []);
   check(!existsSync(join(shop, 'docs', 'product.md')) && files(join(shop, 'docs', 'domains')).length === 0, 'no agent page is left');
   check(!existsSync(join(store, 'graph')) || files(join(store, 'graph')).length === 0 || (await json(base, '/products/sample-product/api/status')).fill.state === 'running', 'the old graph is gone (a fresh fill is writing a new one)');
-  check(readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8') === kindsBefore, 'the manifest is the product\'s own, untouched by the reset');
+  check(readFileSync(join(shop, 'madarch', 'catalog.yaml'), 'utf8') === kindsBefore, 'the manifest is the product\'s own, untouched by the reset');
   check(JSON.stringify(readdirSync(join(shop, 'templates')).sort()) === JSON.stringify(templatesBefore), 'the templates are the product\'s own, untouched by the reset');
   check(readFileSync(join(shop, 'templates', 'domain.md'), 'utf8') === 'a template we edited\n', 'the template a person edited is left as they wrote it');
   await shoot(page, 'after-start-from-scratch');

@@ -1,5 +1,5 @@
 /** Composite values exist only to exercise the shared validator in unit tests. */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
@@ -25,6 +25,7 @@ export function starterManifestText(): string {
 /** Write a composite unit fixture using the product's real folder layout. */
 export function writeFolderManifest(folder: string, text: string): void {
   const { kinds = {}, ...metadata } = parse(text);
+  rmSync(join(folder, 'madarch/kinds'), { recursive: true, force: true });
   if (Object.values(kinds).some((raw) => (raw as Record<string, unknown>).group === undefined)) {
     metadata.groups = { ...metadata.groups, fixture: { en: 'Fixture', ru: 'Пример' }, 'fixture.fixture': { en: 'Fixture', ru: 'Пример', parent: 'fixture' } };
   }

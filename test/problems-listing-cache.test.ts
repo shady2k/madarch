@@ -175,13 +175,13 @@ describe('the count of problems is collected once per revision', () => {
   });
 
   test('an invalid kinds manifest refuses the fill with its file and line, without changing the published listing', async () => {
-    const file = join(folder, 'madarch', 'kinds.yaml');
-    const original = readFileSync(file, 'utf8');
+    const file = join(folder, 'madarch/kinds/code/analysis/probe-kind.yaml');
     const before = await allProblems();
-    const kindsAt = original.indexOf('\nkinds:\n');
-    expect(kindsAt).toBeGreaterThan(-1);
-    const line = '  probe-kind: { template: templates/probe-absent.liquid, source: markdown, folder: docs/probe }';
-    const broken = `${original.slice(0, kindsAt + '\nkinds:\n'.length)}${line}\n${original.slice(kindsAt + '\nkinds:\n'.length)}`;
+    const line = 'template: templates/probe-absent.liquid';
+    const broken = `${line}
+source: markdown
+folder: docs/probe
+`;
     try {
       writeFileSync(file, broken);
       commitProduct(folder, 'Declare an invalid kind');
@@ -190,7 +190,7 @@ describe('the count of problems is collected once per revision', () => {
       expect(listed.problems).toEqual(before.problems);
       expect(listed.open).toBe(before.open);
     } finally {
-      writeFileSync(file, original);
+      rmSync(file);
       commitProduct(folder, 'Restore the kinds manifest');
     }
     await fill();
@@ -200,7 +200,7 @@ describe('the count of problems is collected once per revision', () => {
   }, 60_000);
 
   test('the poll follows a committed edit once the fill stores it, with the count of the Problems page', async () => {
-    const file = join(folder, 'madarch', 'kinds.yaml');
+    const file = join(folder, 'madarch', 'catalog.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.setIn(['groups', 'cache-probe'], { en: 'Cache probe', ru: 'Проба кеша', short: { en: 'Cache probe', ru: 'Проба кеша' } });
     manifest.addIn(['roles', 'developer', 'lead'], 'cache-probe');

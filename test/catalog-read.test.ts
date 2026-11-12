@@ -164,14 +164,14 @@ function block(manifest: string, at: string, written: string): string {
 
 /** The catalog findings of a manifest: the line and the words of each. */
 function refusals(manifest: string): string[] {
-  const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+  const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
   // A schema the catalog cannot read leaves the manifest without a catalog; its findings are the manifest's own then.
   return (read.catalog?.findings ?? read.findings).filter((finding) => !finding.message.startsWith('"documents.expect"')).map((finding) => `${finding.line}: ${finding.message}`);
 }
 
 /** The whole-manifest findings of a small manifest: the line and the words of each. */
 function read1(manifest: string): string[] {
-  const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+  const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
   return read.findings.map((finding) => `${finding.line}: ${finding.message}`);
 }
 
@@ -184,7 +184,7 @@ function expectRefused(manifest: string, message: string): void {
 
 describe('a catalog is read as its manifest declares it', () => {
   test('the schema, the two levels and every kind\'s row are read, and a catalogue-only kind shows no page', () => {
-    const read = parseKinds(SMALL, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(SMALL, 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings).toEqual([]);
     expect(read.catalog!.schema.subgroupKindBound).toBe(2);
     expect(read.catalog!.schema.attributes).toEqual(['version']);
@@ -204,14 +204,14 @@ describe('a catalog is read as its manifest declares it', () => {
 
   test('a kind without a translation is a finding at its declaration and stays in the catalog, never an English label in its place', () => {
     const manifest = withKind(SMALL, 'untranslated', { labels: '{ en: { one: Thing, many: Things } }', description: '{ en: A thing. }' });
-    const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
     const found = read.findings.filter((finding) => finding.message.includes('untranslated'));
     expect(found.map((finding) => finding.message)).toEqual([
       'kind "untranslated": the kind has no name in "ru": the catalogue names every kind in en and ru, and an untranslated name is never shown as an English one',
       'kind "untranslated": the kind has no description in "ru": the catalogue describes every kind in en and ru, and an untranslated description is never shown as an English one',
     ]);
     for (const finding of found) {
-      expect(finding.file).toBe('madarch/kinds.yaml');
+      expect(finding.file).toBe('madarch/catalog.yaml');
       expect(finding.line).toBeGreaterThan(0);
     }
     // The catalogue keeps the kind with the words it has: the page marks it untranslated rather than dropping it.
@@ -227,7 +227,7 @@ describe('a catalog is read as its manifest declares it', () => {
       labels: '{ en: { one: Page, many: Pages } }',
       description: null,
     });
-    const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
     const found = read.findings.filter((finding) => finding.message.includes('untranslated-page'));
     expect(found.map((finding) => finding.message)).toEqual([
       'kind "untranslated-page": the kind has no name in "ru": the catalogue names every kind in en and ru, and an untranslated name is never shown as an English one',
@@ -242,9 +242,9 @@ describe('a catalog is read as its manifest declares it', () => {
   });
 
   test('the starter set reads clean: every area of the life cycle, two levels, and a row for every kind', () => {
-    const read = parseKinds(starterManifestText(), 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/catalog.yaml', TEMPLATES);
     const starter = product();
-    const seeded = parseKinds(starterManifestText(), 'madarch/kinds.yaml', starter);
+    const seeded = parseKinds(starterManifestText(), 'madarch/catalog.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
     expect(read.catalog!.kinds.size).toBe(519);
@@ -311,7 +311,7 @@ describe('every field of a catalog row is required, and a wrong one is refused n
 
 describe('the navigation names every group by a short label', () => {
   test('the starter set gives every area and subgroup a short label that fits the sidebar, in both languages', () => {
-    const read = parseKinds(starterManifestText(), 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings).toEqual([]);
     for (const group of read.groups.values()) {
       expect([group.name, group.short?.en !== undefined && group.short?.ru !== undefined]).toEqual([group.name, true]);
@@ -343,7 +343,7 @@ describe('the navigation names every group by a short label', () => {
 describe('one defect in the manifest is one problem', () => {
   /** The findings of the starter manifest with one defect planted, the file and the words of each. */
   function planted(text: string): string[] {
-    const read = parseKinds(text, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(text, 'madarch/catalog.yaml', TEMPLATES);
     return read.findings.map((finding) => finding.message);
   }
   /** The starter manifest with one string replaced (the plant), so the plant is what the manifest differs by. */
@@ -389,7 +389,7 @@ describe('one defect in the manifest is one problem', () => {
 
 describe('the areas a person sees open at once', () => {
   test('the product\'s own knowledge opens before code, and every kind the old product group held is in an open area', () => {
-    const read = parseKinds(starterManifestText(), 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     // The areas the wiki opens by itself: strategy, requirements, research and documentation — the product's knowledge.
@@ -457,7 +457,7 @@ describe('the catalog as a whole is refused where its rows do not agree', () => 
 
   test('a subgroup no area holds is refused, naming the kind and the area it belongs to', () => {
     const moved = line(SMALL, '  area.two:', '  area.two: { en: Two, ru: Два, short: { en: Two, ru: Два } }');
-    const read = parseKinds(moved, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(moved, 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings.map((finding) => finding.message)).toContain('kind "sprocket": "group" names "area.two", which no area holds: a catalog kind belongs to a subgroup, and a subgroup\'s "parent" names its area');
     // A group the catalog does not fill is the product's own business: no second finding is invented for it.
     expect(read.findings.filter((finding) => finding.message.startsWith('area ') || finding.message.startsWith('subgroup '))).toEqual([]);
@@ -465,17 +465,17 @@ describe('the catalog as a whole is refused where its rows do not agree', () => 
 
   test('a catalog field on a manifest that declares no catalog is refused, and the manifest keeps its kinds', () => {
     const without = SMALL.slice(SMALL.indexOf('groups:'));
-    const read = parseKinds(without, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(without, 'madarch/catalog.yaml', TEMPLATES);
     expect(read.catalog).toBeUndefined();
     expect(read.findings.map((finding) => finding.message)).toContain('kind "widget": "id" is a field of the entity catalog, and the manifest declares no "catalog"');
   });
 
   test('a catalogue-only kind is read, and refused when the manifest declares no "catalog"', () => {
     const without = SMALL.slice(SMALL.indexOf('groups:'));
-    const read = parseKinds(SMALL, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(SMALL, 'madarch/catalog.yaml', TEMPLATES);
     expect(read.kinds.has('gadget')).toBe(false);
     expect(read.catalog!.kinds.has('gadget')).toBe(true);
-    expect(parseKinds(without, 'madarch/kinds.yaml', TEMPLATES).kinds.has('gadget')).toBe(false);
+    expect(parseKinds(without, 'madarch/catalog.yaml', TEMPLATES).kinds.has('gadget')).toBe(false);
   });
 });
 
@@ -513,9 +513,9 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
 
   test('a finding stands at the field it is about, and at the kind when the field is absent', () => {
     const written = withKind(SMALL, 'test.kind', { status: 'shipped' });
-    expect(parseKinds(written, 'madarch/kinds.yaml', TEMPLATES).catalog!.findings.map((finding) => finding.line)).toEqual([written.split('\n').findIndex((text) => text === '    status: shipped') + 1]);
+    expect(parseKinds(written, 'madarch/catalog.yaml', TEMPLATES).catalog!.findings.map((finding) => finding.line)).toEqual([written.split('\n').findIndex((text) => text === '    status: shipped') + 1]);
     const absent = withKind(SMALL, 'test.kind', { status: null });
-    expect(parseKinds(absent, 'madarch/kinds.yaml', TEMPLATES).catalog!.findings.map((finding) => finding.line)).toEqual([absent.split('\n').findIndex((text) => text === '  test.kind:') + 1]);
+    expect(parseKinds(absent, 'madarch/catalog.yaml', TEMPLATES).catalog!.findings.map((finding) => finding.line)).toEqual([absent.split('\n').findIndex((text) => text === '  test.kind:') + 1]);
   });
 
   test('every field of a row stands the finding it makes at its own line', () => {
@@ -531,7 +531,7 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
     ];
     for (const [field, value] of cases) {
       const manifest = withKind(SMALL, 'test.kind', { [field]: value });
-      const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+      const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
       expect([field, read.catalog!.findings.map((finding) => finding.line)]).toEqual([field, [manifest.split('\n').findIndex((text) => text === `    ${field}: ${value}`) + 1]]);
     }
   });
@@ -547,7 +547,7 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
     ];
     for (const [field, value] of cases) {
       const manifest = line(SMALL, `  ${field}:`, `  ${field}: ${value}`);
-      const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+      const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
       expect([field, read.findings.map((finding) => finding.line)]).toEqual([field, [manifest.split('\n').findIndex((text) => text === `  ${field}: ${value}`) + 1]]);
     }
   });
@@ -562,25 +562,25 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
       ['a constraint on a relation the catalog does not hold', withKind(SMALL, 'test.kind', { 'relation-constraints': '{ out: [c4.flies], in: [] }' }), '    relation-constraints: { out: [c4.flies], in: [] }'],
     ];
     for (const [what, manifest, text] of cases) {
-      const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+      const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
       expect([what, (read.catalog?.findings ?? read.findings).map((finding) => finding.line)]).toEqual([what, [at(manifest, text)]]);
     }
     // A kind whose subgroup no area holds is refused at the kind's own `group` line.
     const moved = line(SMALL, '  area.two:', '  area.two: { en: Two, ru: Два, short: { en: Two, ru: Два } }');
-    const read = parseKinds(moved, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(moved, 'madarch/catalog.yaml', TEMPLATES);
     const finding = read.findings.find((one) => one.message.startsWith('kind "sprocket"'))!;
     expect(finding.line).toBe(at(moved, '    group: area.two'));
   });
 
   test('a row with a problem leaves its kind out of the catalog, and the rest of the catalog stands', () => {
-    const read = parseKinds(withKind(SMALL, 'test.kind', { status: 'shipped' }), 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(withKind(SMALL, 'test.kind', { status: 'shipped' }), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.catalog!.kinds.has('test.kind')).toBe(false);
     expect(read.catalog!.kinds.has('widget')).toBe(true);
     expect(read.kinds.has('widget')).toBe(true);
   });
 
   test('a schema that is not a mapping, and constraints that are a list, are refused at the catalog\'s line and the kind\'s', () => {
-    const read = parseKinds(block(SMALL, 'catalog:', 'catalog: []'), 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(block(SMALL, 'catalog:', 'catalog: []'), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings.map((finding) => [finding.line, finding.message])).toEqual([
       [read.findings[0]!.line, '"catalog" declares the schema of the entity catalog: subgroup-kind-bound, attributes, origin-marks, extractor-mark, statuses, template-policies and relations'],
     ]);

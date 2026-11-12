@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
 import { authoredEntity } from '../src/graph/authored.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -32,6 +33,7 @@ let product = '';
 
 const MANIFEST = `groups:
   tracker: { en: Tracker, ru: Трекер, short: { en: Tracker, ru: Трекер } }
+  tracker.items: { en: Items, ru: Записи, parent: tracker }
 kinds:
   template:
     template: templates/item.liquid
@@ -46,7 +48,7 @@ kinds:
     origin: person
     fields:
       - { name: title, type: text, producers: [person] }
-    group: tracker
+    group: tracker.items
     title: title
     labels:
       en: { one: Idea, many: Ideas }
@@ -57,7 +59,7 @@ kinds:
     origin: person
     fields:
       - { name: title, type: text, producers: [person] }
-    group: tracker
+    group: tracker.items
     title: title
     labels:
       en: { one: Task, many: Tasks }
@@ -76,7 +78,7 @@ beforeAll(() => {
   mkdirSync(join(product, 'templates'), { recursive: true });
   mkdirSync(join(product, 'docs', 'ideas'), { recursive: true });
   mkdirSync(join(product, 'docs', 'tasks'), { recursive: true });
-  writeFileSync(join(product, 'madarch', 'kinds.yaml'), MANIFEST);
+  writeFolderManifest(product, MANIFEST);
   writeFileSync(join(product, 'templates', 'entity.liquid'), '{% block lead %}{% endblock %}\n{% block details %}{% endblock %}\n{% block parts %}{% endblock %}\n');
   writeFileSync(join(product, 'templates', 'item.liquid'), '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.title }}{% endblock %}\n{% block details %}{% properties title="Details" %}{% endblock %}\n');
   writeFileSync(join(product, 'docs', 'ideas', 'one.md'), '---\nid: idea:one\nkind: idea\ntitle: One idea\n---\n\nAn idea.\n');
@@ -101,7 +103,7 @@ describe('a product that is only a tracker', () => {
       const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
       expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 0 }]);
-      expect(String(opening.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
+      expect(String(opening.manifestFile)).toContain(join('madarch', 'catalog.yaml'));
       const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:00000000-0000-4000-8000-000000000001')}&full=1`, { headers: { accept: 'application/json' } });
       expect(unopened.status, JSON.stringify({ body: await unopened.text(), errors })).toBe(404);
 
