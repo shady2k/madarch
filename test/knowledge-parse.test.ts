@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
 import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
 import { byCodePoint } from '../src/model/order.js';
 import { createDraft } from '../src/product/draft.js';
@@ -48,7 +49,7 @@ describe('the kinds manifest', () => {
       '    relations:',
       '      - { type: code.contains, to: "code.package:{span.path|dirname}" }',
       '',
-    ].join('\n'), 'madarch/kinds.yaml', root);
+    ].join('\n'), 'madarch/catalog.yaml', root);
     expect(manifest.findings).toEqual([]);
     expect([...manifest.kinds.keys()]).toEqual(['domain', 'product', 'code.thing']);
     expect(manifest.kinds.get('code.thing')).toMatchObject({ source: 'graph', title: 'name', attributes: ['name', 'language'], relations: [{ type: 'code.contains', to: 'code.package:{span.path|dirname}' }] });
@@ -71,23 +72,23 @@ describe('the kinds manifest', () => {
       '  graphfolder: { template: templates/a.md, source: graph, folder: docs }', // 9
       'extra: 1', // 10
     ].join('\n');
-    const manifest = parseKinds(text, 'madarch/kinds.yaml', root);
+    const manifest = parseKinds(text, 'madarch/catalog.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
+      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
       [6, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [7, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [8, 'kind "stray": "colour" is not a field of a kind: the fields are template, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      [8, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, template, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, depends-on, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
       [9, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
-    expect(manifest.findings.every((finding) => finding.file === 'madarch/kinds.yaml')).toBe(true);
+    expect(manifest.findings.every((finding) => finding.file === 'madarch/catalog.yaml')).toBe(true);
   });
 
   test('YAML that does not parse is one finding at its line, and no kind is guessed', () => {
-    const manifest = parseKinds('kinds:\n  a: [unclosed\n', 'madarch/kinds.yaml', scratch());
+    const manifest = parseKinds('kinds:\n  a: [unclosed\n', 'madarch/catalog.yaml', scratch());
     expect(manifest.kinds.size).toBe(0);
     expect(manifest.findings).toHaveLength(1);
     expect(manifest.findings[0]!.line).toBeGreaterThanOrEqual(2);
@@ -106,7 +107,7 @@ describe('the starter set madarch init seeds', () => {
     // The starter set of both changes: the document task page and the history task page are two templates of one name
     // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
     // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
-    expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/kinds.yaml', 'madarch/plugins.lock', 'madarch/workflows.yaml',
+    expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/catalog.yaml', ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`), 'madarch/plugins.lock', 'madarch/workflows.yaml',
       ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`)),
       'templates/entity.liquid',
       'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',

@@ -32,7 +32,6 @@ function product(manifest?: string): string {
     writeFileSync(path, file.bytes ?? file.content);
   }
   if (manifest !== undefined) {
-    rmSync(join(folder, 'madarch/kinds'), { recursive: true, force: true });
     writeFolderManifest(folder, manifest);
   }
   return folder;
@@ -111,7 +110,7 @@ describe('the catalog check over the starter set', () => {
 
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
     const manifest = editField(MANIFEST, 'code.service', 'status', null);
-    const read = parseKinds(manifest, 'madarch/kinds.yaml', product());
+    const read = parseKinds(manifest, 'madarch/catalog.yaml', product());
     expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
     // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
     expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
@@ -169,7 +168,7 @@ describe('the catalog check over the starter set', () => {
   }, 30_000);
 
   test('a kind the catalog marks with the template policy none is catalogue data only: the wiki shows no page for it', () => {
-    const read = parseKinds(MANIFEST, 'madarch/kinds.yaml', product());
+    const read = parseKinds(MANIFEST, 'madarch/catalog.yaml', product());
     expect(read.findings).toEqual([]);
     expect(read.catalog!.kinds.get('firewall-rule')).toMatchObject({ templatePolicy: 'none', status: 'not-implemented', subgroup: 'infrastructure.network', area: 'infrastructure' });
     expect(read.kinds.has('firewall-rule')).toBe(false);

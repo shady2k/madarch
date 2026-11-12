@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
@@ -104,7 +105,7 @@ problems:
     removed-end: { predicate: findings, kind: removed-end, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: Edge ends at a removed vertex, ru: Ребро ведёт к удалённой вершине } }
     unevidenced-opinion: { predicate: findings, kind: unevidenced-opinion, sonar: bug, severity: minor, section: code, action: task, enabled: true, label: { en: Opinion without evidence, ru: Утверждение без основания } }
 `;
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest);
+  writeFolderManifest(folder, manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   return closure;
 }

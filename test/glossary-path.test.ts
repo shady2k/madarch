@@ -108,7 +108,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     // The debug journal keeps every request the plugin makes, its reads included (stage 2).
-    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    const kindsFile = join(folder, 'madarch', 'catalog.yaml');
     writeFileSync(kindsFile, `${readFileSync(kindsFile, 'utf8')}\njournal:\n  debug: true\n`);
   });
 
@@ -217,9 +217,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
   }, 300_000);
 
   test('a kind the manifest no longer declares loses its table', async () => {
-    const file = join(folder, 'madarch', 'kinds.yaml');
+    const file = join(folder, 'madarch', 'catalog.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
-    manifest.deleteIn(['kinds', 'doc.term']);
+    rmSync(join(folder, 'madarch', 'kinds', 'requirements', 'statement', 'doc.term.yaml'));
     const plugins = manifest.get('plugins');
     if (!isSeq(plugins)) throw new Error('the fixture plugin declarations are absent');
     plugins.items = plugins.items.filter((plugin) => !isMap(plugin) || plugin.get('id') !== 'glossary');

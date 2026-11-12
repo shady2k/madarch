@@ -21,7 +21,7 @@ for (const file of STARTER_FILES) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, file.bytes ?? file.content);
 }
-const manifest = parseKinds(starterManifestText(), 'madarch/kinds.yaml', folder);
+const manifest = parseKinds(starterManifestText(), 'madarch/catalog.yaml', folder);
 
 test('the loop kinds declare complete authored contracts and explicit import locations', () => {
   expect(manifest.findings).toEqual([]);

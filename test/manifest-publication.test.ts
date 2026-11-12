@@ -55,7 +55,7 @@ test('publishes complete metadata and declaration evidence without repository co
     const counted = { ...owner, transaction: async <T>(kind: Parameters<typeof owner.transaction>[0], work: Parameters<typeof owner.transaction<T>>[1]): Promise<T> => owner.transaction(kind, async (tx) => work({ ...tx, query: async (...args: Parameters<typeof tx.query>) => { queries++; return tx.query(...args); } } as typeof tx)) };
     expect(await publishValidatedManifests(counted, read.value)).toBe(0);
     expect(queries).toBeLessThan(10);
-    const regrounded = { ...read.value, vertices: read.value.vertices.map((one) => ({ ...one, evidence: [{ repository: folder, path: 'madarch/kinds.yaml', lineStart: 9, lineEnd: 9, commit: 'b'.repeat(40) }] })) };
+    const regrounded = { ...read.value, vertices: read.value.vertices.map((one) => ({ ...one, evidence: [{ repository: folder, path: 'madarch/catalog.yaml', lineStart: 9, lineEnd: 9, commit: 'b'.repeat(40) }] })) };
     expect(await publishValidatedManifests(owner, regrounded)).toBeGreaterThan(0);
     const grounds = await owner.run((tx) => tx.query<{ evidence: { line_start: number; commit_or_digest: string }[] }>(`SELECT evidence FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));
     expect(grounds.rows[0]!.evidence[0]!.line_start).toBe(9);
@@ -95,7 +95,6 @@ test('reports all invalid declarations with full paths and retains the last vali
     await watch.refresh(folder);
     expect(reports.length).toBeGreaterThan(1);
     expect([...((await owner.run((tx) => readPublishedManifest(tx)))!.kinds.keys())]).toEqual(['term']);
-    rmSync(join(folder, 'madarch/kinds'), { recursive: true, force: true });
     writeFolderManifest(folder, 'kinds: {}\n');
     writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows: {}\n');
     await watch.refresh(folder);

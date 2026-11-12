@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * Pages for people (madarch-m38l.21): details are labelled from the manifest,
  * member kinds have no catalogue page of their own, and a section with nothing
@@ -9,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import { membersBlock, type RenderContext } from '../src/knowledge/blocks.js';
-import { parseKinds } from '../src/product/manifest/kinds.js';
+import { parseKinds, readKinds } from '../src/product/manifest/kinds.js';
 import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
@@ -68,7 +69,8 @@ beforeAll(async () => {
   await link('code.calls', READER, CHARGE);
 
   const write = (path: string, text: string): void => { mkdirSync(join(product, path, '..'), { recursive: true }); writeFileSync(join(product, path), text); };
-  write('madarch/kinds.yaml', [
+  mkdirSync(join(product, 'madarch'), { recursive: true });
+  writeFolderManifest(product, [
     'properties:',
     '  language: { en: Language, ru: Язык }',
     '  role: { en: Role, ru: Роль }',
@@ -112,7 +114,9 @@ beforeAll(async () => {
   write('templates/file.liquid', '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.path }}{% endblock %}\n{% block parts %}{% members title="Code facts" title-ru="Сведения о коде" kind="code.facet" relation="code.facet-of" direction="in" %}{% endblock %}\n');
   write('templates/symbol.liquid', '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.symbolKind }} in {{ page.path }}{% endblock %}\n{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}\n{% block calls %}{% callers title="Callers" title-ru="Кто вызывает" %}{% endblock %}\n{% block parts %}{% members title="Fields" title-ru="Поля" kind="code.field" relation="code.contains" direction="out" readers="code.reads-field" %}{% endblock %}\n');
   write('templates/item.liquid', '{% layout "./entity.liquid" %}\n{% block details %}{% properties title="Details" title-ru="Сведения" %}{% endblock %}\n');
-  const read = parseKinds(await Bun.file(join(product, 'madarch/kinds.yaml')).text(), join(product, 'madarch/kinds.yaml'), product);
+  const loaded = readKinds(product);
+  if (!loaded.present) throw new Error(`${product}/madarch/catalog.yaml:1: fixture catalog missing`);
+  const read = loaded.manifest;
   expect(read.findings).toEqual([]);
   const block = (name: string, params: Record<string, string> = {}) => ({ type: 'block', name, params, line: 1 });
   const attribute = (name: string) => ({ type: 'attribute', name, line: 1 });
@@ -255,14 +259,13 @@ describe('details, members and empty sections', () => {
     const result = await renderPage(ctx, ORPHAN);
     if (result.ok) throw new Error(`the orphan member was drawn as the page ${result.page.id}`);
     expect(result.status).toBe(404);
-    const file = join(product, 'madarch', 'kinds.yaml');
-    const lines = (await Bun.file(file).text()).split('\n');
+    const file = join(product, 'madarch/catalog.yaml');
     // The address, the kind, the relation and its direction, the parent kind, and where the manifest declared it.
     expect(result.message).toContain(ORPHAN);
     expect(result.message).toContain('code.field');
     expect(result.message).toContain('code.contains (in)');
     expect(result.message).toContain('no code.symbol holds it');
-    expect(result.message).toContain(`${file}:${lines.indexOf('  code.field:') + 1} declares`);
+    expect(result.message).toContain(`${file}:1 declares`);
   });
 
   test('an empty call list says what was looked for, in the reader\'s language; an empty related list is not drawn at all', async () => {

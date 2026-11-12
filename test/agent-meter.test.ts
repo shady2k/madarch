@@ -314,7 +314,7 @@ describe('the bounds a product declares for its plugins', () => {
 
   test('a plugin\'s declared token and cost bounds are read as its own, with no finding', () => {
     const { folder: where, text } = product(', bounds: { tokens: 200000, cost: { amount: 1.50, currency: USD } }');
-    const read = parseKinds(text, 'madarch/kinds.yaml', where);
+    const read = parseKinds(text, 'madarch/catalog.yaml', where);
     expect(read.findings).toEqual([]);
     expect(read.plugins?.get('g')?.bounds).toEqual({ tokens: 200_000, cost: { amount: 1.5, currency: 'USD' } });
   });
@@ -331,10 +331,10 @@ describe('the bounds a product declares for its plugins', () => {
     ];
     for (const [bounds, message] of cases) {
       const { folder: where, text } = product(bounds);
-      const read = parseKinds(text, 'madarch/kinds.yaml', where);
+      const read = parseKinds(text, 'madarch/catalog.yaml', where);
       expect(read.findings.map((finding) => finding.message).join('\n'), bounds).toContain(message);
       expect(read.findings.every((finding) => finding.line > 0), bounds).toBe(true);
-      expect(read.findings.some((finding) => finding.file === 'madarch/kinds.yaml'), bounds).toBe(true);
+      expect(read.findings.some((finding) => finding.file === 'madarch/catalog.yaml'), bounds).toBe(true);
     }
   });
 });

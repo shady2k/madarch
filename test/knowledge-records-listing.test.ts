@@ -19,7 +19,7 @@ const entity = (repository: string, path: string): GraphEntity => ({
 function context(files: readonly GraphEntity[], asked: { after?: string; prefix?: string }[], count = files.length): RenderContext {
   return {
     productFolder: '/nowhere',
-    manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map([['code.file', decl('code.file')]]), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as unknown as KindsManifest,
+    manifest: { file: 'madarch/catalog.yaml', roles: new Map(), properties: new Map(), kinds: new Map([['code.file', decl('code.file')]]), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] } as unknown as KindsManifest,
     graph: {
       kindCounts: async () => [{ kind: 'code.file', count }],
       byPrefix: async (_kind: string, prefix: string, limit: number, after?: string) => {

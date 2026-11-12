@@ -269,7 +269,7 @@ describe('the two passes over one fixture', () => {
     const held = await reader.repository('fixture');
     expect(held?.url).toBe('https://example.test/fixture.git');
     const subject: Subject = { source: 'graph', entity: { key: 'code.repository:fixture', kind: 'code.repository', label: 'fixture', properties: { name: 'fixture' }, nodeIds: [], scope: '' } };
-    const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/kinds.yaml', 1);
+    const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/catalog.yaml', 1);
     if (block.type !== 'repository') throw new Error(`the repository block answered ${block.type}: ${block.type === 'problem' ? block.message : ''}`);
     expect(block.data.url).toBe('https://example.test/fixture.git');
     // The credential stands nowhere in the store.
@@ -354,7 +354,7 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     const subject: Subject = { source: 'graph', entity: { key: 'code.repository:shallow', kind: 'code.repository', label: 'shallow', properties: { name: 'shallow' }, nodeIds: [], scope: '' } };
     const wireBlock = async () => {
       const reader = new GraphReader(owner!, () => new Date().toISOString());
-      const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/kinds.yaml', 1);
+      const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/catalog.yaml', 1);
       if (block.type !== 'repository') throw new Error(`expected repository, got ${block.type}`);
       return JSON.parse(JSON.stringify(block)).data;
     };

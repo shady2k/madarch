@@ -75,7 +75,7 @@ const milestone: GraphEntity = {
 };
 
 function context(): RenderContext {
-  const manifest = parseKinds(MANIFEST, 'madarch/kinds.yaml', TEMPLATES);
+  const manifest = parseKinds(MANIFEST, 'madarch/catalog.yaml', TEMPLATES);
   const markdown = new Map([
     ['product:shop', page('product:shop', 'product', 'The shop', 'The shop bills customers through the billing service.')],
     ['doc.term:Fill', page('doc.term:Fill', 'doc.term', 'Fill', '**Fill** — the one run that reads a repository.')],

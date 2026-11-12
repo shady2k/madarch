@@ -309,13 +309,19 @@ function catalogMetadata(kinds: readonly CatalogKindData[]): string {
       group = CATALOG_METADATA.groups[group]?.parent;
     }
   }
+  const audiences = new Set(kinds.flatMap((kind) => {
+    const declaration = parseCatalogYaml(CATALOG_FILES[CATALOG_KIND_FILES[kind.name]!]!) as {
+      audience?: string[]; facts?: { audience?: string[] }[];
+    };
+    return [...(declaration.audience ?? []), ...(declaration.facts ?? []).flatMap((fact) => fact.audience ?? [])];
+  }));
   return stringify({
     ...CATALOG_METADATA,
     groups: Object.fromEntries(Object.entries(CATALOG_METADATA.groups).filter(([name]) => used.has(name))),
     documents: { ...CATALOG_METADATA.documents, expect: CATALOG_METADATA.documents.expect.filter((name) => names.has(name)) },
     roles: Object.fromEntries(Object.entries(CATALOG_METADATA.roles)
       .map(([name, role]) => [name, { ...role, lead: role.lead.filter((group) => used.has(group)) }] as const)
-      .filter(([, role]) => role.lead.length > 0)),
+      .filter(([name, role]) => role.lead.length > 0 || audiences.has(name))),
     edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => names.has(name))),
   });
 }

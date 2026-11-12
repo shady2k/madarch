@@ -84,7 +84,7 @@ describe('the templates madarch init offers', () => {
       const read = readKinds(folder);
       if (template.kinds === 'none') {
         expect({ template: template.id, present: read.present }).toEqual({ template: template.id, present: false });
-        expect(existsSync(join(folder, 'madarch', 'kinds.yaml'))).toBe(false);
+        expect(existsSync(join(folder, 'madarch', 'catalog.yaml'))).toBe(false);
         expect(existsSync(join(folder, 'templates'))).toBe(false);
         continue;
       }
@@ -104,7 +104,7 @@ describe('the templates madarch init offers', () => {
         const status = (await answer.json()) as { manifest?: string; manifestFile?: string; fill?: { state?: string } };
         const expected = template.kinds === 'none' ? 'no-manifest' : 'not-filled';
         expect({ template: template.id, manifest: status.manifest }).toEqual({ template: template.id, manifest: expected });
-        expect(String(status.manifestFile)).toContain(join('madarch', 'kinds.yaml'));
+        expect(String(status.manifestFile)).toContain(join('madarch', 'catalog.yaml'));
         // The status only offers the fill: nothing has started one.
         expect(status.fill?.state).toBe('idle');
       }

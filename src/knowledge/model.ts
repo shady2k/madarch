@@ -829,7 +829,7 @@ export interface AgentOffer {
 
 export interface WikiStatus {
   product: { name: string; id: string };
-  /** `no-manifest` when `madarch/kinds.yaml` is absent. */
+  /** `no-manifest` when `madarch/catalog.yaml` is absent. */
   manifest: 'ok' | 'not-filled' | 'no-manifest';
   /** Startup catalogue publication is separate from a fill and never opens a store for a poll. */
   publication?: 'pending' | 'done' | 'failed';

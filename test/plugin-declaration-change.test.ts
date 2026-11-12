@@ -116,9 +116,9 @@ describe.skipIf(sandboxProblem !== undefined)('a kind declaration that changes i
     expect(await terms(folder, storeRoot)).toEqual(['Fill', 'Sweep']);
     // The kind's pattern narrows to another folder, and no document of the kind is left: the kind still has its turn,
     // and the plugin sees no document and retracts the terms it published before.
-    const kinds = join(folder, 'madarch', 'kinds.yaml');
+    const kinds = join(folder, 'madarch', 'kinds', 'requirements', 'statement', 'doc.term.yaml');
     const manifest = parseDocument(readFileSync(kinds, 'utf8'));
-    manifest.setIn(['kinds', 'doc.term', 'terms'], ['docs/glossary*.md']);
+    manifest.setIn(['terms'], ['docs/glossary*.md']);
     writeFileSync(kinds, manifest.toString());
     commit(folder, 'Narrow the term kind to the docs folder');
     const second = await fill(folder, storeRoot);
@@ -134,9 +134,9 @@ describe.skipIf(sandboxProblem !== undefined)('a kind declaration that changes i
     commit(folder, 'The glossary document');
     expect((await fill(folder, storeRoot)).state).toBe('succeeded');
     expect(await terms(folder, storeRoot)).toEqual(['Fill', 'Sweep']);
-    const kinds = join(folder, 'madarch', 'kinds.yaml');
+    const kinds = join(folder, 'madarch', 'kinds', 'requirements', 'statement', 'doc.term.yaml');
     const manifest = parseDocument(readFileSync(kinds, 'utf8'));
-    manifest.setIn(['kinds', 'doc.term', 'terms'], ['**/glossary*.md', 'docs/notes/*.md']);
+    manifest.setIn(['terms'], ['**/glossary*.md', 'docs/notes/*.md']);
     writeFileSync(kinds, manifest.toString());
     commit(folder, 'Let the term kind read the notes folder');
     const second = await fill(folder, storeRoot);

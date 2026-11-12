@@ -5,7 +5,7 @@
  * taken from, the ways it can be acquired, whether the engine can make one yet,
  * the relations it may carry and its template policy.
  *
- * The catalog is a section of `madarch/kinds.yaml` beside the kinds' pages: the
+ * The catalog is a section of `madarch/catalog.yaml` beside the kinds' pages: the
  * `catalog:` mapping declares the schema, and every kind of `kinds:` declares
  * its own row. The engine holds no area, kind or id: this module reads the
  * schema of whatever catalog the product holds and refuses a row that leaves a

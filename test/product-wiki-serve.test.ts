@@ -74,11 +74,11 @@ describe('serveWiki with a product or a manifestless directory', () => {
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
     // The product's own copy of the starter set: the engine knows no entities (decision 0034, item 24).
     seedStarterSet(product);
-    const kindsFile = join(product, 'madarch', 'kinds.yaml');
+    const kindsFile = join(product, 'madarch/kinds/documentation/document/document.yaml');
     const manifest = parseDocument(readFileSync(kindsFile, 'utf8'));
-    const documentKind = manifest.getIn(['kinds', 'document']);
+    const documentKind = manifest.contents;
     const documentDeclaration = (documentKind as { toJSON(): Record<string, unknown> }).toJSON();
-    manifest.setIn(['kinds', 'document'], {
+    manifest.setIn([], {
       ...documentDeclaration, source: 'graph', origin: 'person', key: ['title'], title: 'title',
       fields: [
         { name: 'title', type: 'text', producers: ['fixture'] },
@@ -169,7 +169,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     expect(status.seeded).toBeUndefined();
     const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(pressed.status).toBe(409);
-    expect(JSON.stringify(await pressed.json())).toContain('madarch/kinds.yaml');
+    expect(JSON.stringify(await pressed.json())).toContain('madarch/catalog.yaml');
   }, 60_000);
 
   test('a product without a kinds manifest is given nothing by the wiki that serves it: the file is named and the folder stands as it is', async () => {
@@ -190,7 +190,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
     expect(readFileSync(join(folder, 'templates', 'domain.liquid'), 'utf8')).toBe('my own template\n');
     const pressed = await fetch(`${result.url}/api/fill`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(pressed.status).toBe(409);
-    expect(JSON.stringify(await pressed.json())).toContain('madarch/kinds.yaml');
+    expect(JSON.stringify(await pressed.json())).toContain('madarch/catalog.yaml');
     expect(readdirSync(folder).sort()).toEqual(before);
   }, 60_000);
 

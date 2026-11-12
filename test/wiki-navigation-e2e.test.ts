@@ -71,7 +71,7 @@ function buildNavigationProduct(): string {
   const product = mkdtempSync(join(tmpdir(), 'madarch-navigation-e2e-'));
   writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: 1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33\nname: Link Map\n');
   mkdirSync(join(product, 'docs'), { recursive: true });
-  writeFileSync(join(product, 'docs', 'kinds.yaml'), REGISTRY);
+  writeFileSync(join(product, 'docs', 'catalog.yaml'), REGISTRY);
   const documents = [
     {
       path: 'docs/vision/vision.md',
