@@ -37,7 +37,7 @@ describe('test quarantine through a real fill', () => {
       const home = join(work, 'home');
       const draft = createDraft({ home, name: 'quarantine-shop', gitEnv: gitEnv(IDENTITY), template: 'quarantine-fixture', templates: [{
         id: 'quarantine-fixture', title: { en: 'Quarantine', ru: 'Карантин' }, description: { en: 'Fixture', ru: 'Fixture' },
-        kinds: ['code.repository', 'code.directory', 'code.file', 'code.test-case', 'code.commit', 'task', 'code.test-quarantine', 'template'],
+        kinds: ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.test-case', 'code.commit', 'code.author', 'task', 'code.test-quarantine', 'template'],
       }] });
       if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
       const folder = draft.folder;
