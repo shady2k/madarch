@@ -29,7 +29,8 @@
     {
       "kind": "code.file",
       "fields": "*",
-      "reads": []
+      "reads": [],
+      "partition": "key"
     },
     {
       "kind": "code.gitlink",

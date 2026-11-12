@@ -61,7 +61,8 @@
           "version": "earlier",
           "producer": "disk"
         }
-      ]
+      ],
+      "partition": "key"
     },
     {
       "kind": "code.author",

@@ -3,7 +3,7 @@ import { readRepositoryHistory, type RepositoryAt } from './reader.js';
 
 /** The git plugin reads disk identities, then interprets history from pinned repository objects. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
+  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; keys?: readonly { hash: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
   if (!Array.isArray(inputs?.repositories)) throw new Error('git needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
   const files = unit.kind === 'code.repository' ? [] : await context.graph.files('**/*');
@@ -25,7 +25,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
     for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit);
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
+    const hashes = inputs.keys === undefined ? undefined : new Set(inputs.keys.map(key => key.hash));
     for (const [walk, held] of history.commits.entries()) {
+      if (unit.kind === 'code.commit' && hashes !== undefined && !hashes.has(held.hash)) continue;
       const commit = { kind: 'code.commit', key: { hash: held.hash } };
       const author = { kind: 'code.author', key: { name: held.authorName, email: held.authorEmail } };
       const [author_date, author_offset_min] = instantOf(held.authorDate);

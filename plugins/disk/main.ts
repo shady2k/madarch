@@ -3,7 +3,7 @@ import { readRepositoryTree, type RepositoryAt } from './reader.js';
 
 /** Reads pinned objects itself; the host supplies only read-only mounts and pin metadata. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] }; paths?: readonly string[] };
+  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] }; paths?: readonly string[]; keys?: readonly { repository: string; path: string }[] };
   if (!Array.isArray(inputs?.repositories)) throw new Error('disk needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
   for (const pin of inputs.repositories) {
@@ -13,7 +13,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       context.progress(vertices.length, undefined, pin.repository);
       continue;
     }
-    const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file' });
+    const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file', ...(inputs.keys === undefined ? {} : { paths: inputs.keys.filter(key => key.repository === pin.repository).map(key => key.path) }) });
     const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
     vertices.push({ ...repository, values: { url: tree.repository.url, default_branch: pin.defaultBranch ?? null }, evidence });

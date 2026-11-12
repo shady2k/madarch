@@ -199,7 +199,7 @@ export interface RepositoryTreeRead {
   readonly gaps: readonly ReadGap[];
 }
 
-export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean } = {}): Promise<RepositoryTreeRead> {
+export async function readRepositoryTree(pin: RepositoryAt, options: { readonly fileFacts?: boolean; readonly paths?: readonly string[] } = {}): Promise<RepositoryTreeRead> {
   const gaps: ReadGap[] = [];
   const entries: TreeEntry[] = [];
   const treeSplit = byteSplit();
@@ -252,11 +252,12 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
     if (newPath !== undefined && newPath.length > 0) countsByKey.set(keyOf(newPath), { added: held.added, removed: held.removed });
     at += 2;
   }
-  const blobs = entries.filter((entry) => entry.type === 'blob');
+  const selectedEntries = options.paths === undefined ? entries : entries.filter(entry => options.paths!.includes(entry.path));
+  const blobs = selectedEntries.filter((entry) => entry.type === 'blob');
   const overrides = options.fileFacts === false ? new Map<string, string>() : await languageOverridesAt(pin.root, pin.commit, blobs.map((entry) => entry.path));
   const files: TreeFile[] = [];
   const gitlinks: TreeGitlink[] = [];
-  for (const entry of entries) {
+  for (const entry of selectedEntries) {
     if (entry.type === 'commit') {
       const other = /^\.\.\/(.+)$/.exec(entry.path);
       gitlinks.push({ path: entry.path, otherRepository: other === null ? entry.path : other[1]!, commit: entry.blob });
