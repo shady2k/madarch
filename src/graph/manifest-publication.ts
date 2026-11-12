@@ -97,9 +97,9 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
     ) ${MANIFEST_CONTRACT.vertex.map((kind) => `SELECT w.kind, w.name FROM wanted w
       JOIN entity e ON e.name = w.kind
       JOIN node n ON n.entity_id = e.id AND n.key = jsonb_build_object('name', w.name) AND n.context_id = 1 AND NOT n.removed
-      JOIN LATERAL (SELECT p.declaration, p.evidence FROM "${kind.table}" p
-        WHERE p.node_id = n.id AND p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
-        ORDER BY p.id DESC LIMIT 1) p ON true
+      JOIN (SELECT DISTINCT ON (p.node_id) p.node_id, p.declaration, p.evidence FROM "${kind.table}" p
+        WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
+        ORDER BY p.node_id, p.id DESC) p ON p.node_id = n.id
       WHERE w.kind = '${kind.name}' AND p.declaration = w.declaration AND p.evidence = w.evidence`).join(' UNION ALL ')}`,
       [JSON.stringify(validated.vertices.map((one) => ({ kind: one.kind, name: one.key.name, declaration: one.values?.declaration, evidence: evidenceList(one) })))],
     );
