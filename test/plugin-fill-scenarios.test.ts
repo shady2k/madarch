@@ -47,8 +47,8 @@ function fixture(mode: Mode) {
   writeFileSync(join(plugin, 'main.js'), readFileSync(new URL('./fixtures/plugin-declaration-scenarios/main.js', import.meta.url), 'utf8'));
   writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(contract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files)};\n`);
   const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { template: 'templates/item-plain.liquid', source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
-  const plugins = [{ id: 'scenarios', version: 1, path: 'plugins/scenarios', outputs: entries.map(([kind]) => kind), closure: ['plugins/scenarios/plugin.json', 'plugins/scenarios/contract.json', 'plugins/scenarios/main.js', 'plugins/scenarios/scenario.js'] }];
-  if (mode === 'files') plugins.push({ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', outputs: [], closure: ['plugins/agent-fill/plugin.json', 'plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/prompt.md'] });
+  const plugins = [{ id: 'scenarios', version: 1, path: 'plugins/scenarios', inputs: [...new Set(entries.flatMap(([, reads]) => [...reads]))], outputs: entries.map(([kind]) => kind), closure: ['plugins/scenarios/plugin.json', 'plugins/scenarios/contract.json', 'plugins/scenarios/main.js', 'plugins/scenarios/scenario.js'] }];
+  if (mode === 'files') plugins.push({ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/plugin.json', 'plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/prompt.md'] });
   writeFileSync(join(product, 'madarch/kinds.yaml'), stringify({ language: 'en', kinds, plugins }));
   const releases = plugins.map(({ id, path }) => ({ id, path, version: '1.0.0', closure: closureOf(join(product, path)).hash }));
   writeFileSync(join(product, 'madarch/plugins.lock'), stringify({ plugins: releases }));
