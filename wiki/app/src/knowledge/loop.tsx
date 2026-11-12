@@ -1,3 +1,10 @@
+import { Breadcrumb } from '@/components/ui/breadcrumb.js';
+import { Textarea } from '@/components/ui/textarea.js';
+import { Input } from '@/components/ui/input.js';
+import { DetailTitle, RadioInput, ReadingPanel, ReadingPanelItem, ReadingQuote, WrappingList } from '@/components/ui/reading-layout.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { FieldLabel, Form, ListItem, PageArticle, PageHeader, PageSection, PageTitle, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text } from '@/components/ui/typography.js';
 /**
  * The loop that closes the wiki (decision 0029; madarch-m38l.7): the agent
  * asks what it could not settle, a person answers here, and the next refresh
@@ -41,22 +48,22 @@ const useLanguage = (): string => {
 function Target({ target, resolutions }: { target: string; resolutions: Record<string, Resolution> }): ReactElement {
   const { t } = useTranslation();
   const resolution = resolutions[target];
-  if (resolution === undefined) return <code className="text-small">{target}</code>;
-  if (resolution.state === 'broken') return <span className="ref-broken" title={brokenWords(resolution, t)} data-testid="ref-broken">{target}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
+  if (resolution === undefined) return <InlineCode className="text-small">{target}</InlineCode>;
+  if (resolution.state === 'broken') return <Text className="ref-broken" title={brokenWords(resolution, t)} data-testid="ref-broken">{target}<Text className="ref-broken-mark">{t('knowledge.broken')}</Text></Text>;
   if (resolution.location !== undefined) return <CodePlace location={resolution.location} />;
   if (resolution.href !== null) return <KLink href={resolution.href}>{resolution.label}</KLink>;
-  return <span>{resolution.label}</span>;
+  return <Text>{resolution.label}</Text>;
 }
 
 function AuthorLine({ by, at }: { by: Author; at: string | null }): ReactElement {
   const { t } = useTranslation();
   const language = useLanguage();
   return (
-    <span className="text-small text-muted" data-testid="author-line">
+    <Text className="text-small text-muted" data-testid="author-line">
       {t('loop.by', { name: by.name, email: by.email })}{at !== null && `, ${whenWords(at, language)}`}
       {' · '}
-      <span data-testid="verified-mark" title={t('loop.verifiedHint')}>{t('loop.localUnverified')}</span>
-    </span>
+      <Text data-testid="verified-mark" title={t('loop.verifiedHint')}>{t('loop.localUnverified')}</Text>
+    </Text>
   );
 }
 
@@ -65,18 +72,18 @@ const STATE_KEY: Record<QuestionState, string> = { open: 'loop.stateOpen', answe
 function QuestionItem({ row }: { row: QuestionRow }): ReactElement {
   const { t } = useTranslation();
   return (
-    <li className="border-b border-line py-3 last:border-b-0" data-testid="question-row" data-question={row.slug} data-state={row.state}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <ListItem className="border-b border-line py-3 last:border-b-0" data-testid="question-row" data-question={row.slug} data-state={row.state}>
+      <Stack className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <KLink href={addressOfQuestion(row.slug)} className="font-medium">{row.title}</KLink>
         <Badge>{t(`loop.type.${row.type}`)}</Badge>
         <Badge variant={row.state === 'open' ? 'solid' : 'outline'}>{t(STATE_KEY[row.state])}</Badge>
-      </div>
-      <div className="mt-1 text-small text-muted">
-        {row.askedIn !== null && <span>{t('loop.askedIn')} <KLink href={addressOfEntity(row.askedIn)}>{shortId(row.askedIn)}</KLink></span>}
-        {row.state === 'closed' && row.closedBy.length > 0 && <span> · {t('loop.closedBy')} {row.closedBy.map((id, index) => <span key={id}>{index > 0 && ', '}<KLink href={addressOfEntity(id)}>{shortId(id)}</KLink></span>)}</span>}
-        {row.state === 'answered' && <span> · {t('loop.waitsForRefresh')}</span>}
-      </div>
-    </li>
+      </Stack>
+      <Stack className="mt-1 text-small text-muted">
+        {row.askedIn !== null && <Text>{t('loop.askedIn')} <KLink href={addressOfEntity(row.askedIn)}>{shortId(row.askedIn)}</KLink></Text>}
+        {row.state === 'closed' && row.closedBy.length > 0 && <Text> · {t('loop.closedBy')} {row.closedBy.map((id, index) => <Text key={id}>{index > 0 && ', '}<KLink href={addressOfEntity(id)}>{shortId(id)}</KLink></Text>)}</Text>}
+        {row.state === 'answered' && <Text> · {t('loop.waitsForRefresh')}</Text>}
+      </Stack>
+    </ListItem>
   );
 }
 
@@ -87,7 +94,7 @@ export function QuestionsPage({ version }: { version: number }): ReactElement {
   useTabTitle(t('loop.questionsTitle'));
   if (data === null && error === null) return <PageSkeleton testId="questions-loading" rows />;
   if (data === null) {
-    return <Alert variant="problem" data-testid="questions-error"><AlertTitle>{t('loop.questionsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+    return <Alert variant="problem" data-testid="questions-error"><AlertTitle>{t('loop.questionsMissing')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   }
   const groups: { state: QuestionState; heading: string }[] = [
     { state: 'open', heading: t('loop.openHeading', { count: data.open }) },
@@ -95,29 +102,29 @@ export function QuestionsPage({ version }: { version: number }): ReactElement {
     { state: 'closed', heading: t('loop.closedHeading', { count: data.closed }) },
   ];
   return (
-    <section data-testid="questions-page">
-      <header className="mb-6">
-        <h1>{t('loop.questionsTitle')}</h1>
-        <p className="text-secondary" data-testid="questions-intro">{t('loop.questionsIntro')}</p>
-      </header>
+    <PageSection data-testid="questions-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('loop.questionsTitle')}</PageTitle>
+        <Paragraph className="text-secondary" data-testid="questions-intro">{t('loop.questionsIntro')}</Paragraph>
+      </PageHeader>
       {data.problems.length > 0 && (
         <Alert variant="problem" className="mb-6" data-testid="questions-files">
           <AlertTitle>{t('loop.unreadableFiles')}</AlertTitle>
-          <AlertDescription><ul className="m-0 list-none p-0">{data.problems.map((line) => <li key={line}><code>{line}</code></li>)}</ul></AlertDescription>
+          <AlertDescription><PlainList className="m-0 list-none p-0">{data.problems.map((line) => <ListItem key={line}><InlineCode>{line}</InlineCode></ListItem>)}</PlainList></AlertDescription>
         </Alert>
       )}
-      {data.rows.length === 0 && <p className="text-muted" data-testid="questions-empty">{t('loop.noQuestions')}</p>}
+      {data.rows.length === 0 && <Paragraph className="text-muted" data-testid="questions-empty">{t('loop.noQuestions')}</Paragraph>}
       {groups.map((group) => {
         const rows = data.rows.filter((row) => row.state === group.state);
         if (rows.length === 0) return null;
         return (
-          <section key={group.state} className="mb-8" data-testid="questions-group" data-state={group.state}>
-            <h2>{group.heading}</h2>
-            <ul className="m-0 list-none p-0">{rows.map((row) => <QuestionItem key={row.slug} row={row} />)}</ul>
-          </section>
+          <PageSection key={group.state} className="mb-8" data-testid="questions-group" data-state={group.state}>
+            <SectionTitle>{group.heading}</SectionTitle>
+            <PlainList className="m-0 list-none p-0">{rows.map((row) => <QuestionItem key={row.slug} row={row} />)}</PlainList>
+          </PageSection>
         );
       })}
-    </section>
+    </PageSection>
   );
 }
 
@@ -135,22 +142,22 @@ function AnswerForm({ question, onSaved }: { question: QuestionDetail; onSaved: 
     );
   };
   return (
-    <form className="mt-2 grid gap-3" data-testid="answer-form" onSubmit={(event) => { event.preventDefault(); if (text.trim() !== '' && !saving) save(); }}>
-      <label className="grid gap-1.5">
-        <span className="text-small font-medium text-ink">{t('loop.yourAnswer')}</span>
-        <textarea
+    <Form className="mt-2 grid gap-3" data-testid="answer-form" onSubmit={(event) => { event.preventDefault(); if (text.trim() !== '' && !saving) save(); }}>
+      <FieldLabel className="grid gap-1.5">
+        <Text className="text-small font-medium text-ink">{t('loop.yourAnswer')}</Text>
+        <Textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={5}
           placeholder={t('loop.answerPlaceholder')}
           data-testid="answer-text"
-          className="ui-input w-full rounded-[var(--radius-control)] border border-line bg-page px-3 py-2 text-small text-ink outline-none placeholder:text-muted focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+          
         />
-      </label>
-      <p className="m-0 text-small text-muted" data-testid="answer-where">{t('loop.answerWhere', { file: question.file })}</p>
-      <div className="flex flex-wrap gap-2"><Button variant="default" size="default" type="submit" disabled={saving || text.trim() === ''} data-testid="answer-save">{t('loop.saveAnswer')}</Button></div>
-      {refused !== null && <p className="m-0 text-small" role="alert" data-testid="answer-refused">{refused}</p>}
-    </form>
+      </FieldLabel>
+      <Paragraph className="m-0 text-small text-muted" data-testid="answer-where">{t('loop.answerWhere', { file: question.file })}</Paragraph>
+      <Stack className="flex flex-wrap gap-2"><Button variant="default" size="default" type="submit" disabled={saving || text.trim() === ''} data-testid="answer-save">{t('loop.saveAnswer')}</Button></Stack>
+      {refused !== null && <Paragraph className="m-0 text-small" role="alert" data-testid="answer-refused">{refused}</Paragraph>}
+    </Form>
   );
 }
 
@@ -166,66 +173,66 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
   useTabTitle(question?.title ?? (error !== null ? t('loop.noSuchQuestion') : null));
   if (question === null && error === null) return <PageSkeleton testId="question-loading" />;
   if (question === null) {
-    return <Alert variant="problem" data-testid="question-error"><AlertTitle>{t('loop.noSuchQuestion')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+    return <Alert variant="problem" data-testid="question-error"><AlertTitle>{t('loop.noSuchQuestion')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   }
   const affected = [...new Set(question.about.map((entry) => entry.split('#')[0]!).filter((entry) => /^(product|domain):/.test(entry)))];
   const mine = (tasks?.tasks ?? []).filter((row) => row.question === `question:${question.slug}`);
   return (
-    <article data-testid="question-page" data-question={question.slug} data-state={question.state}>
-      <header className="mb-6">
-        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_QUESTIONS}>{t('loop.questionsTitle')}</KLink></nav>
-        <div className="mb-2 flex items-center gap-2">
+    <PageArticle data-testid="question-page" data-question={question.slug} data-state={question.state}>
+      <PageHeader className="mb-6">
+        <Breadcrumb aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_QUESTIONS}>{t('loop.questionsTitle')}</KLink></Breadcrumb>
+        <Stack className="mb-2 flex items-center gap-2">
           <Badge>{t(`loop.type.${question.type}`)}</Badge>
           <Badge variant={question.state === 'open' ? 'solid' : 'outline'} data-testid="question-state">{t(STATE_KEY[question.state])}</Badge>
-        </div>
-        <h1 data-testid="question-title">{question.title}</h1>
-        {question.askedIn !== null && <p className="m-0 text-small text-muted">{t('loop.askedBy', { when: whenWords(question.askedAt, language) })} <KLink href={addressOfEntity(question.askedIn)}>{shortId(question.askedIn)}</KLink></p>}
-      </header>
-      <section className="mb-6">
-        <p className="text-body" data-testid="question-text">{question.question}</p>
-        <h2>{t('loop.whyItMatters')}</h2>
-        <p className="text-secondary" data-testid="question-why">{question.why}</p>
-      </section>
-      <section className="mb-8" data-testid="question-sides">
-        <h2>{t('loop.whatSourcesSay')}</h2>
-        <ul className="m-0 grid min-w-0 list-none gap-3 p-0 [overflow-wrap:anywhere]">
+        </Stack>
+        <PageTitle data-testid="question-title">{question.title}</PageTitle>
+        {question.askedIn !== null && <Paragraph className="m-0 text-small text-muted">{t('loop.askedBy', { when: whenWords(question.askedAt, language) })} <KLink href={addressOfEntity(question.askedIn)}>{shortId(question.askedIn)}</KLink></Paragraph>}
+      </PageHeader>
+      <PageSection className="mb-6">
+        <Paragraph className="text-body" data-testid="question-text">{question.question}</Paragraph>
+        <SectionTitle>{t('loop.whyItMatters')}</SectionTitle>
+        <Paragraph className="text-secondary" data-testid="question-why">{question.why}</Paragraph>
+      </PageSection>
+      <PageSection className="mb-8" data-testid="question-sides">
+        <SectionTitle>{t('loop.whatSourcesSay')}</SectionTitle>
+        <WrappingList>
           {question.sides.map((side, index) => (
-            <li key={index} className="min-w-0 rounded-[var(--radius-card)] border border-line p-3" data-testid="question-side">
-              <p className="m-0 text-body">{side.claim}</p>
-              <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted">
-                <span>{t('loop.grounds')}</span>
+            <ReadingPanelItem key={index} data-testid="question-side">
+              <Paragraph className="m-0 text-body">{side.claim}</Paragraph>
+              <Paragraph className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted">
+                <Text>{t('loop.grounds')}</Text>
                 {side.grounds.map((ground) => <Target key={ground} target={ground} resolutions={question.resolutions} />)}
-              </p>
-            </li>
+              </Paragraph>
+            </ReadingPanelItem>
           ))}
-        </ul>
-      </section>
+        </WrappingList>
+      </PageSection>
       {affected.length > 0 && (
-        <p className="mb-8 text-small text-muted" data-testid="question-affects">{t('loop.affects')} {affected.map((id, index) => <span key={id}>{index > 0 && ', '}<KLink href={addressOfEntity(id)}>{shortId(id)}</KLink></span>)}</p>
+        <Paragraph className="mb-8 text-small text-muted" data-testid="question-affects">{t('loop.affects')} {affected.map((id, index) => <Text key={id}>{index > 0 && ', '}<KLink href={addressOfEntity(id)}>{shortId(id)}</KLink></Text>)}</Paragraph>
       )}
-      {commitNote !== null && <Alert variant="problem" className="mb-6" data-testid="answer-note"><AlertDescription><p>{commitNote}</p></AlertDescription></Alert>}
+      {commitNote !== null && <Alert variant="problem" className="mb-6" data-testid="answer-note"><AlertDescription><Paragraph>{commitNote}</Paragraph></AlertDescription></Alert>}
       {question.state === 'open' && (
-        <section data-testid="question-answer-section">
-          <h2>{t('loop.answerHeading')}</h2>
+        <PageSection data-testid="question-answer-section">
+          <SectionTitle>{t('loop.answerHeading')}</SectionTitle>
           <AnswerForm question={question} onSaved={(note) => { setCommitNote(note); refresh(); }} />
-        </section>
+        </PageSection>
       )}
       {question.answer !== null && (
-        <section data-testid="question-answer">
-          <h2>{t('loop.answerHeading')}</h2>
-          <blockquote className="m-0 whitespace-pre-wrap rounded-[var(--radius-card)] border border-line bg-[var(--surface-soft)] p-3 text-body" data-testid="answer-quote">{question.answer.text}</blockquote>
-          <p className="mb-0 mt-2"><AuthorLine by={question.answer.by} at={question.answer.at} /></p>
-          {question.state === 'answered' && <Alert className="mt-4" data-testid="answer-waiting"><AlertDescription><p>{t('loop.answerWaiting')}</p></AlertDescription></Alert>}
+        <PageSection data-testid="question-answer">
+          <SectionTitle>{t('loop.answerHeading')}</SectionTitle>
+          <ReadingQuote data-testid="answer-quote">{question.answer.text}</ReadingQuote>
+          <Paragraph className="mb-0 mt-2"><AuthorLine by={question.answer.by} at={question.answer.at} /></Paragraph>
+          {question.state === 'answered' && <Alert className="mt-4" data-testid="answer-waiting"><AlertDescription><Paragraph>{t('loop.answerWaiting')}</Paragraph></AlertDescription></Alert>}
           {question.state === 'closed' && (
             <Alert className="mt-4" data-testid="answer-closed">
-              <AlertDescription><p>{t('loop.answerClosed', { when: whenWords(question.resolvedAt, language) })} {question.closedBy.map((id, index) => <span key={id}>{index > 0 && ', '}<KLink href={addressOfEntity(id)}>{shortId(id)}</KLink></span>)}</p></AlertDescription>
+              <AlertDescription><Paragraph>{t('loop.answerClosed', { when: whenWords(question.resolvedAt, language) })} {question.closedBy.map((id, index) => <Text key={id}>{index > 0 && ', '}<KLink href={addressOfEntity(id)}>{shortId(id)}</KLink></Text>)}</Paragraph></AlertDescription>
             </Alert>
           )}
-        </section>
+        </PageSection>
       )}
       {question.answer !== null && mine.length > 0 && mine.map((task) => <TaskCard key={task.id} id={task.id} version={version} refresh={refresh} />)}
       {question.answer !== null && mine.length === 0 && <ProposeTaskForm question={question} refresh={refresh} />}
-    </article>
+    </PageArticle>
   );
 }
 
@@ -233,7 +240,7 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
 
 /** A link the data layer built: its href when the wiki can open it, its label as plain text otherwise. */
 function ProblemLinkView({ link }: { link: NonNullable<Problem['place']> }): ReactElement {
-  return link.href === null ? <code>{link.label}</code> : <KLink href={link.href}>{link.label}</KLink>;
+  return link.href === null ? <InlineCode>{link.label}</InlineCode> : <KLink href={link.href}>{link.label}</KLink>;
 }
 
 function ProblemItem({ problem, refresh }: { problem: Problem; refresh: () => void }): ReactElement {
@@ -265,54 +272,54 @@ function ProblemItem({ problem, refresh }: { problem: Problem; refresh: () => vo
   };
   const evidence = problem.evidence ?? [];
   return (
-    <li className="border-b border-line py-3 last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-rule={problem.rule} data-closed={problem.closed ? 'true' : 'false'}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-medium" data-testid="problem-rule">{ruleWords}</span>
+    <ListItem className="border-b border-line py-3 last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-rule={problem.rule} data-closed={problem.closed ? 'true' : 'false'}>
+      <Stack className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Text className="font-medium" data-testid="problem-rule">{ruleWords}</Text>
         {problem.sonar !== undefined && <Badge variant="outline" data-testid="problem-sonar">{t(`loop.sonar.${problem.sonar}`)}</Badge>}
         {problem.severity !== undefined && <Badge variant={problem.severity === 'blocker' || problem.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-severity">{t(`loop.severity.${problem.severity}`)}</Badge>}
         <Badge variant={problem.fixer === 'agent' ? 'outline' : 'solid'} data-testid="problem-fixer">{t(`loop.fixer.${problem.fixer}`)}</Badge>
         {problem.closed && <Badge>{t('loop.stateClosed')}</Badge>}
-      </div>
+      </Stack>
       {(problem.place !== undefined || where !== null) && (
-        <p className="mb-0 mt-1.5 text-small" data-testid="problem-place">
+        <Paragraph className="mb-0 mt-1.5 text-small" data-testid="problem-place">
           {t('loop.problemPlace')} {problem.place === undefined ? where : <ProblemLinkView link={problem.place} />}
           {problem.entity != null && <> · {t('loop.problemEntity')} <ProblemLinkView link={problem.entity} /></>}
-        </p>
+        </Paragraph>
       )}
-      {problem.sentence !== null && <p className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">«{problem.sentence}»</p>}
-      <p className="mb-0 mt-1 text-small"><span data-testid="problem-reason">{readerReason}</span></p>
+      {problem.sentence !== null && <Paragraph className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">«{problem.sentence}»</Paragraph>}
+      <Paragraph className="mb-0 mt-1 text-small"><Text data-testid="problem-reason">{readerReason}</Text></Paragraph>
       {evidence.length > 0 && (
-        <p className="mb-0 mt-1 text-small text-muted" data-testid="problem-evidence">
-          {t('loop.problemEvidence')} {evidence.map((link, index) => <span key={`${link.key ?? link.label}:${index}`}>{index > 0 && ' → '}{link.href === null ? <code>{link.label}</code> : <KLink href={link.href}>{link.label}</KLink>}</span>)}
-        </p>
+        <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="problem-evidence">
+          {t('loop.problemEvidence')} {evidence.map((link, index) => <Text key={`${link.key ?? link.label}:${index}`}>{index > 0 && ' → '}{link.href === null ? <InlineCode>{link.label}</InlineCode> : <KLink href={link.href}>{link.label}</KLink>}</Text>)}
+        </Paragraph>
       )}
-      {missingGroup !== null && <details className="mt-1 text-small text-muted" data-testid="problem-details"><summary className="cursor-pointer underline">{t('knowledge.findingsDetails')}</summary><code>{problem.reason}</code></details>}
-      <p className="mb-0 mt-1 text-small text-muted">
-        {where !== null && <span>{t('loop.onPage')} {where} · </span>}
-        <code>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</code>
-        {problem.source !== undefined && <> · <code data-testid="problem-source">{problem.source}</code></>}
-        {problem.by !== null && problem.by !== undefined && <span> · <AuthorLine by={problem.by} at={problem.at ?? null} /></span>}
-      </p>
-      <p className="mb-0 mt-1 text-small text-muted" data-testid="problem-who">{problem.closed ? t('loop.fixedNote') : t(`loop.whoFixes.${problem.kind}`, { defaultValue: t('loop.whoFixes.correction') })}</p>
+      {missingGroup !== null && <Disclosure className="mt-1 text-small text-muted" data-testid="problem-details"><DisclosureSummary className="cursor-pointer underline">{t('knowledge.findingsDetails')}</DisclosureSummary><InlineCode>{problem.reason}</InlineCode></Disclosure>}
+      <Paragraph className="mb-0 mt-1 text-small text-muted">
+        {where !== null && <Text>{t('loop.onPage')} {where} · </Text>}
+        <InlineCode>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</InlineCode>
+        {problem.source !== undefined && <> · <InlineCode data-testid="problem-source">{problem.source}</InlineCode></>}
+        {problem.by !== null && problem.by !== undefined && <Text> · <AuthorLine by={problem.by} at={problem.at ?? null} /></Text>}
+      </Paragraph>
+      <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="problem-who">{problem.closed ? t('loop.fixedNote') : t(`loop.whoFixes.${problem.kind}`, { defaultValue: t('loop.whoFixes.correction') })}</Paragraph>
       {!problem.closed && problem.id !== undefined && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Stack className="mt-2 flex flex-wrap items-center gap-2">
           {problem.scope !== undefined && <Button size="default" variant="default" data-testid="problem-task" disabled={working !== null} onClick={() => act('task')}>{t('loop.problemCreateTask')}</Button>}
           <Button size="default" variant="ghost" data-testid="problem-not-a-problem" disabled={working !== null} onClick={() => setAsking((open) => !open)}>{t('loop.problemNotAProblem')}</Button>
-          {done !== null && <span className="text-small text-muted" data-testid="problem-done">{done}</span>}
-          {error !== null && <span className="text-small" data-testid="problem-action-error">{error}</span>}
-        </div>
+          {done !== null && <Text className="text-small text-muted" data-testid="problem-done">{done}</Text>}
+          {error !== null && <Text className="text-small" data-testid="problem-action-error">{error}</Text>}
+        </Stack>
       )}
       {asking && problem.id !== undefined && (
-        <div className="mt-2" data-testid="problem-dismiss">
-          <label className="block text-small" htmlFor={`dismiss-${problem.id}`}>{t('loop.problemDismissPrompt')}</label>
-          <textarea id={`dismiss-${problem.id}`} data-testid="problem-dismiss-reason" className="mt-1 w-full" rows={2} value={reason} onChange={(event) => setReason(event.target.value)} />
-          <div className="mt-1 flex gap-2">
+        <Stack className="mt-2" data-testid="problem-dismiss">
+          <FieldLabel className="block text-small" htmlFor={`dismiss-${problem.id}`}>{t('loop.problemDismissPrompt')}</FieldLabel>
+          <Textarea id={`dismiss-${problem.id}`} data-testid="problem-dismiss-reason" className="mt-1 w-full" rows={2} value={reason} onChange={(event) => setReason(event.target.value)} />
+          <Stack className="mt-1 flex gap-2">
             <Button size="default" data-testid="problem-dismiss-confirm" disabled={working !== null || reason.trim() === ''} onClick={() => act('dismiss')}>{t('loop.problemDismissConfirm')}</Button>
             <Button size="default" variant="ghost" onClick={() => setAsking(false)}>{t('loop.cancel')}</Button>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
       )}
-    </li>
+    </ListItem>
   );
 }
 
@@ -348,18 +355,18 @@ function usePaged<T extends { next: string | null }>(key: string, version: numbe
 function ProblemSourceGroup({ rule, source, version, refresh }: { rule: string; source: ProblemSource; version: number; refresh: () => void }): ReactElement {
   const [opened, setOpened] = useState(false);
   return (
-    <details
+    <Disclosure
       className="border-b border-line py-3 last:border-b-0"
       data-testid="problem-source"
       data-source={source.key}
     >
-      <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1" onClick={() => setOpened(true)}>
-        <span className="font-medium">{source.label}</span>
+      <DisclosureSummary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1" onClick={() => setOpened(true)}>
+        <Text className="font-medium">{source.label}</Text>
         <Badge variant="outline" data-testid="problem-source-count">{source.count}</Badge>
-        {source.file !== null && <code className="text-small text-muted">{source.file}</code>}
-      </summary>
+        {source.file !== null && <InlineCode className="text-small text-muted">{source.file}</InlineCode>}
+      </DisclosureSummary>
       {opened && <ProblemItemsList rule={rule} source={source.key} version={version} refresh={refresh} />}
-    </details>
+    </Disclosure>
   );
 }
 
@@ -370,17 +377,17 @@ function ProblemItemsList({ rule, source, version, refresh }: { rule: string; so
   const first = pages[0];
   const rows = pages.flatMap((page) => page.problems);
   const last = pages[pages.length - 1];
-  if (error !== null) return <Alert variant="problem" data-testid="problem-items-error"><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  if (error !== null) return <Alert variant="problem" data-testid="problem-items-error"><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   return (
-    <div className="mt-2 pl-4" data-testid="problem-items">
-      <ul className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</ul>
+    <Stack className="mt-2 pl-4" data-testid="problem-items">
+      <PlainList className="m-0 list-none p-0">{rows.map((problem) => <ProblemItem key={problem.id ?? `${problem.kind}:${problem.file}:${problem.line ?? ''}:${problem.target ?? ''}`} problem={problem} refresh={refresh} />)}</PlainList>
       {first !== undefined && (
-        <p className="mb-0 mt-2 flex flex-wrap items-center gap-3 text-small text-muted" data-testid="problem-items-more">
-          <span>{t('loop.problemPageShown', { shown: rows.length, count: first.count })}</span>
+        <Paragraph className="mb-0 mt-2 flex flex-wrap items-center gap-3 text-small text-muted" data-testid="problem-items-more">
+          <Text>{t('loop.problemPageShown', { shown: rows.length, count: first.count })}</Text>
           {last?.next !== null && last !== undefined && <Button size="default" variant="ghost" disabled={loading} onClick={more} data-testid="problem-items-next">{t('loop.problemPageNext')}</Button>}
-        </p>
+        </Paragraph>
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -391,19 +398,19 @@ function ProblemSources({ rule, version, onBack, refresh }: { rule: string; vers
   const first = pages[0];
   const sources = pages.flatMap((page) => page.sources);
   const last = pages[pages.length - 1];
-  if (error !== null) return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  if (error !== null) return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   if (first === undefined) return <PageSkeleton testId="problems-loading" rows />;
   return (
-    <section data-testid="problem-sources" data-rule={rule}>
-      <p className="mb-4"><Button size="default" variant="ghost" onClick={onBack} data-testid="problems-back">{t('loop.problemBack')}</Button></p>
-      <h2>{t(`loop.rule.${rule}`, { defaultValue: rule })} <code className="text-small">{rule}</code></h2>
-      <p className="text-secondary" data-testid="problem-sources-intro">{t('loop.problemSourcesIntro')}</p>
-      <ul className="m-0 list-none p-0">{sources.map((source) => <li key={source.key}><ProblemSourceGroup rule={rule} source={source} version={version} refresh={refresh} /></li>)}</ul>
-      <p className="mb-0 mt-3 flex flex-wrap items-center gap-3 text-small text-muted" data-testid="problem-sources-more">
-        <span>{t('loop.problemSourcesShown', { shown: sources.length, count: first.totalSources })}</span>
+    <PageSection data-testid="problem-sources" data-rule={rule}>
+      <Paragraph className="mb-4"><Button size="default" variant="ghost" onClick={onBack} data-testid="problems-back">{t('loop.problemBack')}</Button></Paragraph>
+      <SectionTitle>{t(`loop.rule.${rule}`, { defaultValue: rule })} <InlineCode className="text-small">{rule}</InlineCode></SectionTitle>
+      <Paragraph className="text-secondary" data-testid="problem-sources-intro">{t('loop.problemSourcesIntro')}</Paragraph>
+      <PlainList className="m-0 list-none p-0">{sources.map((source) => <ListItem key={source.key}><ProblemSourceGroup rule={rule} source={source} version={version} refresh={refresh} /></ListItem>)}</PlainList>
+      <Paragraph className="mb-0 mt-3 flex flex-wrap items-center gap-3 text-small text-muted" data-testid="problem-sources-more">
+        <Text>{t('loop.problemSourcesShown', { shown: sources.length, count: first.totalSources })}</Text>
         {last?.next !== null && last !== undefined && <Button size="default" variant="ghost" disabled={loading} onClick={more} data-testid="problem-sources-next">{t('loop.problemPageNext')}</Button>}
-      </p>
-    </section>
+      </Paragraph>
+    </PageSection>
   );
 }
 
@@ -418,7 +425,7 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
   if (rule !== null) return <ProblemSources rule={rule} version={version} onBack={() => setRule(null)} refresh={refresh} />;
   if (data === null && error === null) return <PageSkeleton testId="problems-loading" rows />;
   if (data === null) {
-    return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+    return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   }
   const ruleName = (category: ProblemCategory): string => t(`loop.rule.${category.rule}`, { defaultValue: category.label?.[language] ?? category.rule });
   const meaning = (category: ProblemCategory): string => t(`loop.ruleMeaning.${category.rule}`, { defaultValue: '' });
@@ -429,37 +436,37 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
     { key: 'loop.sectionWiki', section: 'wiki' },
   ];
   return (
-    <section data-testid="problems-page">
-      <header className="mb-6">
-        <h1>{t('loop.problemsTitle')}</h1>
-        <p className="text-secondary" data-testid="problems-intro">{t('loop.problemsIntro')}</p>
-      </header>
+    <PageSection data-testid="problems-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('loop.problemsTitle')}</PageTitle>
+        <Paragraph className="text-secondary" data-testid="problems-intro">{t('loop.problemsIntro')}</Paragraph>
+      </PageHeader>
       {data.notes.map((note) => (
-        <Alert key={note.message} className="mb-4" data-testid="problems-note"><AlertDescription><p>{note.textKey === undefined ? note.message : t(`loop.problemNote.${note.textKey}`, { ...(note.textArgs ?? {}), defaultValue: note.message })}</p></AlertDescription></Alert>
+        <Alert key={note.message} className="mb-4" data-testid="problems-note"><AlertDescription><Paragraph>{note.textKey === undefined ? note.message : t(`loop.problemNote.${note.textKey}`, { ...(note.textArgs ?? {}), defaultValue: note.message })}</Paragraph></AlertDescription></Alert>
       ))}
-      <p className="mb-4 flex flex-wrap items-center gap-2" data-testid="problems-filters">
+      <Paragraph className="mb-4 flex flex-wrap items-center gap-2" data-testid="problems-filters">
         {filters.map((filter) => (
           <Button key={filter.key} size="default" variant={section === filter.section ? 'default' : 'ghost'} data-testid={`problems-filter-${filter.section ?? 'all'}`} onClick={() => setSection(filter.section)}>{t(filter.key)}</Button>
         ))}
-      </p>
-      {data.categories.length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
-      <p className="mb-2 text-secondary" data-testid="problems-total">{t('loop.problemCount', { count: data.open, total: data.total })}</p>
-      <ul className="m-0 list-none p-0" data-testid="problem-categories">
+      </Paragraph>
+      {data.categories.length === 0 && <Paragraph className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</Paragraph>}
+      <Paragraph className="mb-2 text-secondary" data-testid="problems-total">{t('loop.problemCount', { count: data.open, total: data.total })}</Paragraph>
+      <PlainList className="m-0 list-none p-0" data-testid="problem-categories">
         {data.categories.map((category) => (
-          <li key={category.rule} className="border-b border-line py-3 last:border-b-0">
+          <ListItem key={category.rule} className="border-b border-line py-3 last:border-b-0">
             <Button type="button" size="content" className="w-full justify-start flex-wrap gap-x-3 gap-y-1" data-testid="problem-category" data-rule={category.rule} onClick={() => setRule(category.rule)}>
-              <span className="font-medium">{ruleName(category)}</span>
-              <code className="text-small">{category.rule}</code>
+              <Text className="font-medium">{ruleName(category)}</Text>
+              <InlineCode className="text-small">{category.rule}</InlineCode>
               <Badge variant={category.severity === 'blocker' || category.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-category-severity">{t(`loop.severity.${category.severity}`)}</Badge>
-              <span className="text-small text-secondary">{t(`loop.fixer.${category.fixer}`)}</span>
-              <span className="ml-auto font-medium" data-testid="problem-category-count">{category.count}</span>
+              <Text className="text-small text-secondary">{t(`loop.fixer.${category.fixer}`)}</Text>
+              <Text className="ml-auto font-medium" data-testid="problem-category-count">{category.count}</Text>
             </Button>
-            {meaning(category) !== '' && <p className="mb-0 mt-1 text-small text-secondary" data-testid="problem-category-meaning">{meaning(category)}</p>}
-          </li>
+            {meaning(category) !== '' && <Paragraph className="mb-0 mt-1 text-small text-secondary" data-testid="problem-category-meaning">{meaning(category)}</Paragraph>}
+          </ListItem>
         ))}
-      </ul>
-      {(data.dismissed ?? 0) > 0 && <p className="text-small text-muted" data-testid="problems-dismissed">{t('loop.problemDismissedCount', { count: data.dismissed })}</p>}
-    </section>
+      </PlainList>
+      {(data.dismissed ?? 0) > 0 && <Paragraph className="text-small text-muted" data-testid="problems-dismissed">{t('loop.problemDismissedCount', { count: data.dismissed })}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -484,23 +491,23 @@ function ReasonText({ reason }: { reason: RefreshPlan['pages'][number]['reasons'
 export function PlanList({ plan, compact = false }: { plan: RefreshPlan; compact?: boolean }): ReactElement {
   const { t } = useTranslation();
   return (
-    <div data-testid="refresh-plan">
+    <Stack data-testid="refresh-plan">
       {plan.pages.length === 0
-        ? <p className="m-0 text-small" data-testid="plan-nothing">{t('loop.plan.nothing')}</p>
-        : <p className="mb-2 mt-0 text-small font-medium text-ink" data-testid="plan-summary">{t('loop.plan.touches', { count: plan.pages.length })}{plan.unchanged.length > 0 && <span className="font-normal text-muted"> {t('loop.plan.leaves', { count: plan.unchanged.length })}</span>}</p>}
-      <ul className="m-0 list-none p-0 text-small" data-testid="plan-pages">
+        ? <Paragraph className="m-0 text-small" data-testid="plan-nothing">{t('loop.plan.nothing')}</Paragraph>
+        : <Paragraph className="mb-2 mt-0 text-small font-medium text-ink" data-testid="plan-summary">{t('loop.plan.touches', { count: plan.pages.length })}{plan.unchanged.length > 0 && <Text className="font-normal text-muted"> {t('loop.plan.leaves', { count: plan.unchanged.length })}</Text>}</Paragraph>}
+      <PlainList className="m-0 list-none p-0 text-small" data-testid="plan-pages">
         {plan.pages.map((page) => (
-          <li key={page.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="plan-page" data-path={page.path}>
-            <code>{page.path}</code>
-            <ul className={`m-0 list-disc ps-5 text-secondary ${compact ? 'mt-0.5' : 'mt-1'}`}>
-              {page.reasons.map((reason, index) => <li key={index} data-testid="plan-reason" data-kind={reason.kind}><ReasonText reason={reason} /></li>)}
-            </ul>
-          </li>
+          <ListItem key={page.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="plan-page" data-path={page.path}>
+            <InlineCode>{page.path}</InlineCode>
+            <PlainList className={`m-0 list-disc ps-5 text-secondary ${compact ? 'mt-0.5' : 'mt-1'}`}>
+              {page.reasons.map((reason, index) => <ListItem key={index} data-testid="plan-reason" data-kind={reason.kind}><ReasonText reason={reason} /></ListItem>)}
+            </PlainList>
+          </ListItem>
         ))}
-      </ul>
-      {plan.unplaced.map((miss) => <p key={`${miss.kind}:${miss.slug}`} className="mb-0 mt-2 text-small" role="alert" data-testid="plan-unplaced">{t('loop.plan.unplaced', { title: miss.title })} {miss.reason}</p>)}
-      {plan.problems.map((line) => <p key={line} className="mb-0 mt-2 text-small" role="alert" data-testid="plan-problem"><code>{line}</code></p>)}
-    </div>
+      </PlainList>
+      {plan.unplaced.map((miss) => <Paragraph key={`${miss.kind}:${miss.slug}`} className="mb-0 mt-2 text-small" role="alert" data-testid="plan-unplaced">{t('loop.plan.unplaced', { title: miss.title })} {miss.reason}</Paragraph>)}
+      {plan.problems.map((line) => <Paragraph key={line} className="mb-0 mt-2 text-small" role="alert" data-testid="plan-problem"><InlineCode>{line}</InlineCode></Paragraph>)}
+    </Stack>
   );
 }
 
@@ -540,14 +547,14 @@ function scopeOfWords(words: string): TaskScope | undefined {
 
 /** A place a task changes, as a reader says it: the heading and its document's title, each a link; the path is small. */
 function PlaceName({ place }: { place: PlaceView }): ReactElement {
-  const label = place.href === null ? <span>{place.label}</span> : <KLink href={place.href}>{place.label}</KLink>;
+  const label = place.href === null ? <Text>{place.label}</Text> : <KLink href={place.href}>{place.label}</KLink>;
   return (
-    <span className="place" data-testid="place" data-kind={place.kind} title={place.words}>
+    <Text className="place" data-testid="place" data-kind={place.kind} title={place.words}>
       {label}
-      {place.where !== null && place.where !== place.label && <span className="text-muted"> — {place.where}</span>}
-      {place.path !== null && place.path !== place.label && place.kind !== 'section' && <code className="ms-2 text-muted">{place.path}</code>}
-      {place.kind === 'section' && place.path !== null && <code className="ms-2 text-muted" data-testid="place-path">{place.path}</code>}
-    </span>
+      {place.where !== null && place.where !== place.label && <Text className="text-muted"> — {place.where}</Text>}
+      {place.path !== null && place.path !== place.label && place.kind !== 'section' && <InlineCode className="ms-2 text-muted">{place.path}</InlineCode>}
+      {place.kind === 'section' && place.path !== null && <InlineCode className="ms-2 text-muted" data-testid="place-path">{place.path}</InlineCode>}
+    </Text>
   );
 }
 
@@ -555,39 +562,39 @@ function PlaceName({ place }: { place: PlaceView }): ReactElement {
 function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
   const { t } = useTranslation();
   return (
-    <div className="mt-2" data-testid="task-impact-list">
-      <p className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactPages', { count: impact.counts.pages })} {t('loop.taskImpactStatements', { count: impact.counts.statements })}</p>
-      {impact.pages.length === 0 && impact.statements.length === 0 && <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p>}
-      {impact.unindexed.length > 0 && <p className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed" title={impact.unindexed.join(', ')}>{t('loop.taskImpactUnindexed', { count: impact.unindexed.length })}</p>}
+    <Stack className="mt-2" data-testid="task-impact-list">
+      <Paragraph className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactPages', { count: impact.counts.pages })} {t('loop.taskImpactStatements', { count: impact.counts.statements })}</Paragraph>
+      {impact.pages.length === 0 && impact.statements.length === 0 && <Paragraph className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</Paragraph>}
+      {impact.unindexed.length > 0 && <Paragraph className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed" title={impact.unindexed.join(', ')}>{t('loop.taskImpactUnindexed', { count: impact.unindexed.length })}</Paragraph>}
       {impact.pages.length > 0 && (
-        <section className="mt-2" data-testid="impact-pages">
-          <h4 className="mb-1 text-small font-semibold">{t('loop.taskImpactPages')}</h4>
-          <ul className="m-0 list-none p-0 text-small">
+        <PageSection className="mt-2" data-testid="impact-pages">
+          <DetailTitle className="mb-1 text-small font-semibold">{t('loop.taskImpactPages')}</DetailTitle>
+          <PlainList className="m-0 list-none p-0 text-small">
             {impact.pages.map((page) => (
-              <li key={page.id} className="flex flex-wrap items-center gap-x-2 py-0.5" data-testid="impact-page" data-id={page.id} data-because={page.because}>
+              <ListItem key={page.id} className="flex flex-wrap items-center gap-x-2 py-0.5" data-testid="impact-page" data-id={page.id} data-because={page.because}>
                 <KLink href={addressOfEntity(page.id)}>{page.title}</KLink>
-                <code className="text-muted">{page.file}</code>
-                {page.because === 'link' && <span className="text-muted">· {t('loop.taskImpactLinked')}</span>}
-              </li>
+                <InlineCode className="text-muted">{page.file}</InlineCode>
+                {page.because === 'link' && <Text className="text-muted">· {t('loop.taskImpactLinked')}</Text>}
+              </ListItem>
             ))}
-          </ul>
-        </section>
+          </PlainList>
+        </PageSection>
       )}
       {impact.statements.length > 0 && (
-        <section className="mt-2" data-testid="impact-statements">
-          <h4 className="mb-1 text-small font-semibold">{t('loop.taskImpactStatements')}</h4>
-          <ul className="m-0 list-none p-0 text-small">
+        <PageSection className="mt-2" data-testid="impact-statements">
+          <DetailTitle className="mb-1 text-small font-semibold">{t('loop.taskImpactStatements')}</DetailTitle>
+          <PlainList className="m-0 list-none p-0 text-small">
             {impact.statements.map((statement) => (
-              <li key={`${statement.page}#${statement.statement}`} className="py-0.5" data-testid="impact-statement" data-page={statement.page} data-statement={statement.statement}>
+              <ListItem key={`${statement.page}#${statement.statement}`} className="py-0.5" data-testid="impact-statement" data-page={statement.page} data-statement={statement.statement}>
                 <KLink href={addressOfStatement(statement.page, statement.text)}>«{statement.text}»</KLink>
-                <span className="ms-2 text-muted">{statement.pageTitle}</span>
-                <code className="ms-2 text-muted" title={statement.grounds.join(', ')}>{statement.file}:{statement.line}</code>
-              </li>
+                <Text className="ms-2 text-muted">{statement.pageTitle}</Text>
+                <InlineCode className="ms-2 text-muted" title={statement.grounds.join(', ')}>{statement.file}:{statement.line}</InlineCode>
+              </ListItem>
             ))}
-          </ul>
-        </section>
+          </PlainList>
+        </PageSection>
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -639,51 +646,51 @@ function ProposeTaskForm({ question, refresh }: { question: QuestionDetail; refr
     );
   };
   return (
-    <section className="mt-6" data-testid="task-proposal">
-      <h2>{t('loop.taskChoice')}</h2>
-      <div role="radiogroup" aria-label={t('loop.taskChoice')} className="grid gap-2" data-testid="task-choice">
+    <PageSection className="mt-6" data-testid="task-proposal">
+      <SectionTitle>{t('loop.taskChoice')}</SectionTitle>
+      <Stack role="radiogroup" aria-label={t('loop.taskChoice')} className="grid gap-2" data-testid="task-choice">
         {([['code', t('loop.taskDocsWrong')], ['docs', t('loop.taskCodeWrong')], ['other', t('loop.taskOther')]] as const).map(([value, label]) => (
-          <label key={value} className="flex cursor-pointer items-center gap-2 text-small">
-            <input type="radio" name="task-choice" value={value} checked={choice === value} onChange={() => setChoice(value)} data-testid={`task-choice-${value}`} />
-            <span>{label}</span>
-          </label>
+          <FieldLabel key={value} className="flex cursor-pointer items-center gap-2 text-small">
+            <RadioInput name="task-choice" value={value} checked={choice === value} onChange={() => setChoice(value)} data-testid={`task-choice-${value}`} />
+            <Text>{label}</Text>
+          </FieldLabel>
         ))}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
+      </Stack>
+      <Stack className="mt-3 flex flex-wrap gap-2">
         <Button variant="default" size="default" type="button" disabled={busy || choice === 'other'} onClick={propose} data-testid="task-propose">{t('loop.taskPropose')}</Button>
-      </div>
+      </Stack>
       {proposal !== null && (
-        <section className="mt-4 rounded-[var(--radius-card)] border border-line p-3" data-testid="task-proposed">
-          <label className="grid gap-1">
-            <span className="text-small font-medium text-ink">{t('loop.taskTitle')}</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} data-testid="task-title" className="ui-input w-full rounded-[var(--radius-control)] border border-line bg-page px-3 py-2 text-small text-ink outline-none focus-visible:ring-2 focus-visible:ring-ink" />
-          </label>
-          <p className="mb-1 mt-3 flex flex-wrap items-baseline gap-2 text-small font-medium text-ink">{t('loop.taskScope')} <span className="text-muted" data-testid="task-scope-count">({scope.length})</span></p>
-          <ul className="m-0 grid list-none gap-1.5 p-0" data-testid="task-scope">
+        <ReadingPanel className="mt-4" data-testid="task-proposed">
+          <FieldLabel className="grid gap-1">
+            <Text className="text-small font-medium text-ink">{t('loop.taskTitle')}</Text>
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} data-testid="task-title"  />
+          </FieldLabel>
+          <Paragraph className="mb-1 mt-3 flex flex-wrap items-baseline gap-2 text-small font-medium text-ink">{t('loop.taskScope')} <Text className="text-muted" data-testid="task-scope-count">({scope.length})</Text></Paragraph>
+          <PlainList className="m-0 grid list-none gap-1.5 p-0" data-testid="task-scope">
             {scope.map((one) => (
-              <li key={JSON.stringify(one)} className="flex flex-wrap items-center gap-2 text-small" data-testid="task-scope-item" data-scope={scopeWords(one)} data-type={one.type}>
+              <ListItem key={JSON.stringify(one)} className="flex flex-wrap items-center gap-2 text-small" data-testid="task-scope-item" data-scope={scopeWords(one)} data-type={one.type}>
                 <PlaceName place={places.get(JSON.stringify(one)) ?? { kind: one.type, label: scopeWords(one), where: null, href: null, path: null, words: scopeWords(one) }} />
                 <Button type="button" variant="link" size="content" onClick={() => withScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</Button>
-              </li>
+              </ListItem>
             ))}
-          </ul>
-          {scope.length === 0 && <p className="m-0 text-small text-muted" data-testid="task-scope-empty">{t('loop.taskScopeEmpty')}</p>}
-          <div className="mt-2 flex flex-wrap items-end gap-2">
-            <label className="grid gap-1 text-small">
-              <span>{t('loop.taskScopeAdd')}</span>
-              <input value={adding} onChange={(event) => setAdding(event.target.value)} placeholder={t('loop.taskScopeAddPlaceholder')} data-testid="task-scope-add-input" className="ui-input w-[18rem] rounded-[var(--radius-control)] border border-line bg-page px-2 py-1.5 text-small text-ink outline-none focus-visible:ring-2 focus-visible:ring-ink" />
-            </label>
+          </PlainList>
+          {scope.length === 0 && <Paragraph className="m-0 text-small text-muted" data-testid="task-scope-empty">{t('loop.taskScopeEmpty')}</Paragraph>}
+          <Stack className="mt-2 flex flex-wrap items-end gap-2">
+            <FieldLabel className="grid gap-1 text-small">
+              <Text>{t('loop.taskScopeAdd')}</Text>
+              <Input value={adding} onChange={(event) => setAdding(event.target.value)} placeholder={t('loop.taskScopeAddPlaceholder')} data-testid="task-scope-add-input" className="w-72" />
+            </FieldLabel>
             <Button variant="default" size="default" type="button" onClick={add} disabled={adding.trim() === ''} data-testid="task-scope-add">{t('loop.taskScopeAddButton')}</Button>
-          </div>
-          <h3 className="mb-0 mt-4 text-base font-semibold">{t('loop.taskImpact')}</h3>
-          {impact === null ? <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p> : <ImpactList impact={impact} />}
-          <div className="mt-4 flex flex-wrap gap-2">
+          </Stack>
+          <SmallTitle className="mb-0 mt-4 text-base font-semibold">{t('loop.taskImpact')}</SmallTitle>
+          {impact === null ? <Paragraph className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</Paragraph> : <ImpactList impact={impact} />}
+          <Stack className="mt-4 flex flex-wrap gap-2">
             <Button variant="default" size="default" type="button" disabled={busy} onClick={confirm} data-testid="task-confirm">{t('loop.taskConfirm')}</Button>
-          </div>
-        </section>
+          </Stack>
+        </ReadingPanel>
       )}
-      {refused !== null && <p className="m-0 mt-3 text-small" role="alert" data-testid="task-refused">{refused}</p>}
-    </section>
+      {refused !== null && <Paragraph className="m-0 mt-3 text-small" role="alert" data-testid="task-refused">{refused}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -697,7 +704,7 @@ function TaskCard({ id, version, refresh }: { id: string; version: number; refre
   const { data: task, error } = useRead<TaskDetail>(`task:${id}`, version, (signal) => getTask(id, signal));
   if (task === null && error === null) return <PageSkeleton testId="task-loading" rows />;
   if (task === null) {
-    return <Alert variant="problem" data-testid="task-error"><AlertTitle>{t('loop.taskPageTitle')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+    return <Alert variant="problem" data-testid="task-error"><AlertTitle>{t('loop.taskPageTitle')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   }
   return <TaskBody task={task} refresh={refresh} />;
 }
@@ -722,35 +729,35 @@ function TaskBody({ task, refresh, headline = true }: { task: TaskDetail; refres
   };
   const nothingToRun = task.writable.length === 0;
   return (
-    <section className="mt-6 rounded-[var(--radius-card)] border border-line p-3" data-testid="task-card" data-task={task.id} data-state={task.status}>
+    <ReadingPanel className="mt-6" data-testid="task-card" data-task={task.id} data-state={task.status}>
       {headline && (
-        <div className="flex flex-wrap items-center gap-2">
+        <Stack className="flex flex-wrap items-center gap-2">
           <KLink href={addressOfTask(task.id)} className="font-medium" data-testid="task-title-link">{task.title}</KLink>
           <Badge variant={task.status === 'open' ? 'solid' : 'outline'} data-testid="task-state">{task.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
           <Badge variant="outline" data-testid="task-marks">{t('loop.plannedChange')}</Badge>
-        </div>
+        </Stack>
       )}
-      <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-scope-words">{task.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
+      <Paragraph className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-scope-words">{task.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</Paragraph>
       {task.closedBy !== null && (
-        <p className="mb-0 mt-1 text-small text-muted" data-testid="task-closed-by">
+        <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="task-closed-by">
           {'person' in task.closedBy
             ? t('loop.taskClosedByPerson', { when: whenWords(task.closedBy.at, language) })
             : t('loop.taskClosedByCommit', { commit: task.closedBy.commit.slice(0, 10), repository: task.closedBy.repository || t('knowledge.productRepository'), subject: task.closedBy.subject })}
-        </p>
+        </Paragraph>
       )}
       {task.impact !== null && <ImpactList impact={task.impact} />}
-      {task.problem !== undefined && <p className="m-0 mt-2 text-small" role="alert" data-testid="task-impact-problem">{task.problem}</p>}
+      {task.problem !== undefined && <Paragraph className="m-0 mt-2 text-small" role="alert" data-testid="task-impact-problem">{task.problem}</Paragraph>}
       {task.status === 'open' && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Stack className="mt-3 flex flex-wrap items-center gap-2">
           <Button variant="default" size="default" type="button" disabled={working || nothingToRun} onClick={run} data-testid="task-fix-now">{t('loop.refreshNow')}</Button>
           <Button variant="default" size="default" type="button" disabled={working} onClick={() => setSaid(t('loop.refreshDeferred'))} data-testid="task-fix-later">{t('loop.laterAnswers')}</Button>
           <Button type="button" variant="link" size="content" disabled={working} onClick={close} data-testid="task-close">{t('loop.taskClose')}</Button>
-        </div>
+        </Stack>
       )}
-      {nothingToRun && task.status === 'open' && <p className="m-0 mt-2 text-small text-muted" data-testid="task-nothing-to-run">{t('loop.refreshNothing')}</p>}
-      {said !== null && <p className="m-0 mt-2 text-small" role="status" data-testid="task-said">{said}</p>}
-      {refused !== null && <p className="m-0 mt-2 text-small" role="alert" data-testid="task-refused">{refused}</p>}
-    </section>
+      {nothingToRun && task.status === 'open' && <Paragraph className="m-0 mt-2 text-small text-muted" data-testid="task-nothing-to-run">{t('loop.refreshNothing')}</Paragraph>}
+      {said !== null && <Paragraph className="m-0 mt-2 text-small" role="status" data-testid="task-said">{said}</Paragraph>}
+      {refused !== null && <Paragraph className="m-0 mt-2 text-small" role="alert" data-testid="task-refused">{refused}</Paragraph>}
+    </ReadingPanel>
   );
 }
 
@@ -760,42 +767,42 @@ export function TasksPage({ version }: { version: number }): ReactElement {
   const { data, error } = useRead('tasks', version, (signal) => getTasks(signal));
   useTabTitle(t('loop.tasksTitle'));
   if (data === null && error === null) return <PageSkeleton testId="tasks-loading" rows />;
-  if (data === null) return <Alert variant="problem" data-testid="tasks-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  if (data === null) return <Alert variant="problem" data-testid="tasks-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   const groups = [
     { state: 'open' as const, heading: t('loop.openTasks', { count: data.open }), rows: data.tasks.filter((row) => row.status === 'open') },
     { state: 'closed' as const, heading: t('loop.closedTasks', { count: data.closed }), rows: data.tasks.filter((row) => row.status === 'closed') },
   ];
   return (
-    <section data-testid="tasks-page">
-      <header className="mb-6">
-        <h1>{t('loop.tasksTitle')}</h1>
-        <p className="text-secondary" data-testid="tasks-intro">{t('loop.tasksIntro')}</p>
-      </header>
-      {data.problems.length > 0 && <Alert variant="problem" className="mb-6" data-testid="tasks-files"><AlertTitle>{t('loop.unreadableFiles')}</AlertTitle><AlertDescription><ul className="m-0 list-none p-0">{data.problems.map((line) => <li key={line}><code>{line}</code></li>)}</ul></AlertDescription></Alert>}
-      {data.notes.length > 0 && <Alert className="mb-6" data-testid="tasks-notes"><AlertDescription><ul className="m-0 list-none p-0">{data.notes.map((note) => <li key={note}>{note}</li>)}</ul></AlertDescription></Alert>}
-      {data.tasks.length === 0 && <p className="text-muted" data-testid="tasks-empty">{t('loop.noTasks')}</p>}
+    <PageSection data-testid="tasks-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('loop.tasksTitle')}</PageTitle>
+        <Paragraph className="text-secondary" data-testid="tasks-intro">{t('loop.tasksIntro')}</Paragraph>
+      </PageHeader>
+      {data.problems.length > 0 && <Alert variant="problem" className="mb-6" data-testid="tasks-files"><AlertTitle>{t('loop.unreadableFiles')}</AlertTitle><AlertDescription><PlainList className="m-0 list-none p-0">{data.problems.map((line) => <ListItem key={line}><InlineCode>{line}</InlineCode></ListItem>)}</PlainList></AlertDescription></Alert>}
+      {data.notes.length > 0 && <Alert className="mb-6" data-testid="tasks-notes"><AlertDescription><PlainList className="m-0 list-none p-0">{data.notes.map((note) => <ListItem key={note}>{note}</ListItem>)}</PlainList></AlertDescription></Alert>}
+      {data.tasks.length === 0 && <Paragraph className="text-muted" data-testid="tasks-empty">{t('loop.noTasks')}</Paragraph>}
       {groups.map((group) => {
         if (group.rows.length === 0) return null;
         return (
-          <section key={group.state} className="mb-8" data-testid="tasks-group" data-state={group.state}>
-            <h2>{group.heading}</h2>
-            <ul className="m-0 list-none p-0">
+          <PageSection key={group.state} className="mb-8" data-testid="tasks-group" data-state={group.state}>
+            <SectionTitle>{group.heading}</SectionTitle>
+            <PlainList className="m-0 list-none p-0">
               {group.rows.map((row) => (
-                <li key={row.id} className="border-b border-line py-3 last:border-b-0" data-testid="task-row" data-state={row.status} data-task={row.id}>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <ListItem key={row.id} className="border-b border-line py-3 last:border-b-0" data-testid="task-row" data-state={row.status} data-task={row.id}>
+                  <Stack className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <KLink href={addressOfTask(row.id)} className="font-medium">{row.title}</KLink>
                     <Badge variant={row.status === 'open' ? 'solid' : 'outline'}>{row.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
-                  </div>
-                  <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-row-scope">{row.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
-                  {row.impact !== null && <p className="mb-0 mt-1 text-small text-muted" data-testid="task-row-impact">{t('loop.taskImpactPages', { count: row.impact.pages })} {t('loop.taskImpactStatements', { count: row.impact.statements })}</p>}
-                  {row.closedBy !== null && !('person' in row.closedBy) && <p className="mb-0 mt-1 text-small text-muted">{t('loop.taskClosedByCommit', { commit: row.closedBy.commit.slice(0, 10), repository: row.closedBy.repository || t('knowledge.productRepository'), subject: row.closedBy.subject })}</p>}
-                </li>
+                  </Stack>
+                  <Paragraph className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-row-scope">{row.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</Paragraph>
+                  {row.impact !== null && <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="task-row-impact">{t('loop.taskImpactPages', { count: row.impact.pages })} {t('loop.taskImpactStatements', { count: row.impact.statements })}</Paragraph>}
+                  {row.closedBy !== null && !('person' in row.closedBy) && <Paragraph className="mb-0 mt-1 text-small text-muted">{t('loop.taskClosedByCommit', { commit: row.closedBy.commit.slice(0, 10), repository: row.closedBy.repository || t('knowledge.productRepository'), subject: row.closedBy.subject })}</Paragraph>}
+                </ListItem>
               ))}
-            </ul>
-          </section>
+            </PlainList>
+          </PageSection>
         );
       })}
-    </section>
+    </PageSection>
   );
 }
 
@@ -807,54 +814,54 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
   useTabTitle(task?.title ?? (error !== null ? t('loop.tasksMissing') : null));
   if (task === null && error === null) return <PageSkeleton testId="task-page-loading" />;
   if (task === null) {
-    return <Alert variant="problem" data-testid="task-page-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+    return <Alert variant="problem" data-testid="task-page-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   }
   const slug = task.question.startsWith('question:') ? task.question.slice('question:'.length) : task.question;
   const fromProblem = task.problemId !== undefined;
   return (
-    <article data-testid="task-page" data-task={task.id} data-state={task.status}>
-      <header className="mb-6">
-        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_TASKS}>{t('loop.tasksTitle')}</KLink></nav>
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+    <PageArticle data-testid="task-page" data-task={task.id} data-state={task.status}>
+      <PageHeader className="mb-6">
+        <Breadcrumb aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_TASKS}>{t('loop.tasksTitle')}</KLink></Breadcrumb>
+        <Stack className="mb-2 flex flex-wrap items-center gap-2">
           <Badge variant={task.status === 'open' ? 'solid' : 'outline'} data-testid="task-page-state">{task.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
-          <code className="text-small text-muted">{task.file}</code>
-        </div>
-        <h1 data-testid="task-page-title">{task.title}</h1>
-        <p className="m-0 text-small text-muted">
+          <InlineCode className="text-small text-muted">{task.file}</InlineCode>
+        </Stack>
+        <PageTitle data-testid="task-page-title">{task.title}</PageTitle>
+        <Paragraph className="m-0 text-small text-muted">
           {fromProblem
-            ? <span data-testid="task-from-problem">{t('loop.taskFromProblem')}</span>
+            ? <Text data-testid="task-from-problem">{t('loop.taskFromProblem')}</Text>
             : <KLink href={addressOfQuestion(slug)}>{t('loop.taskFromAnswer', { title: slug })}</KLink>}
           {' · '}
           <AuthorLine by={task.by} at={task.at} />
-        </p>
+        </Paragraph>
         {task.closedBy !== null && (
-          <p className="mb-0 mt-1 text-small" data-testid="task-page-closed-by">
+          <Paragraph className="mb-0 mt-1 text-small" data-testid="task-page-closed-by">
             {'person' in task.closedBy
               ? t('loop.taskClosedByPerson', { when: whenWords(task.closedBy.at, language) })
               : t('loop.taskClosedByCommit', { commit: task.closedBy.commit.slice(0, 10), repository: task.closedBy.repository || t('knowledge.productRepository'), subject: task.closedBy.subject })}
-          </p>
+          </Paragraph>
         )}
-      </header>
-      <section className="mb-6" data-testid="task-page-scope">
-        <h2>{t('loop.taskScope')}</h2>
-        <ul className="m-0 list-none p-0">
-          {task.scope.map((one) => <li key={JSON.stringify(one.scope)} className="py-0.5 text-small" data-testid="task-page-scope-item" data-type={one.scope.type}><PlaceName place={one.place} /></li>)}
-        </ul>
-      </section>
-      <section className="mb-6" data-testid="task-page-grounds">
-        <h2>{t('loop.grounds')}</h2>
-        <ul className="m-0 list-none p-0">
-          {task.grounds.map((ground) => <li key={ground} className="py-0.5 text-small"><code>{ground}</code></li>)}
-        </ul>
-      </section>
-      <section className="mb-6" data-testid="task-page-impact">
-        <h2>{t('loop.taskImpact')}</h2>
+      </PageHeader>
+      <PageSection className="mb-6" data-testid="task-page-scope">
+        <SectionTitle>{t('loop.taskScope')}</SectionTitle>
+        <PlainList className="m-0 list-none p-0">
+          {task.scope.map((one) => <ListItem key={JSON.stringify(one.scope)} className="py-0.5 text-small" data-testid="task-page-scope-item" data-type={one.scope.type}><PlaceName place={one.place} /></ListItem>)}
+        </PlainList>
+      </PageSection>
+      <PageSection className="mb-6" data-testid="task-page-grounds">
+        <SectionTitle>{t('loop.grounds')}</SectionTitle>
+        <PlainList className="m-0 list-none p-0">
+          {task.grounds.map((ground) => <ListItem key={ground} className="py-0.5 text-small"><InlineCode>{ground}</InlineCode></ListItem>)}
+        </PlainList>
+      </PageSection>
+      <PageSection className="mb-6" data-testid="task-page-impact">
+        <SectionTitle>{t('loop.taskImpact')}</SectionTitle>
         {task.impact === null
-          ? <p className="m-0 text-small" role="alert">{task.problem ?? t('loop.taskImpactNone')}</p>
+          ? <Paragraph className="m-0 text-small" role="alert">{task.problem ?? t('loop.taskImpactNone')}</Paragraph>
           : <ImpactList impact={task.impact} />}
-        <p className="mb-0 mt-2 text-small text-muted" data-testid="task-page-marks">{t('loop.taskMarksSections', { count: task.marks.sections })}{t('loop.taskMarksStatements', { count: task.marks.statements })}{t('loop.taskMarksEntities', { count: task.marks.entities })}</p>
-      </section>
+        <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="task-page-marks">{t('loop.taskMarksSections', { count: task.marks.sections })}{t('loop.taskMarksStatements', { count: task.marks.statements })}{t('loop.taskMarksEntities', { count: task.marks.entities })}</Paragraph>
+      </PageSection>
       {task.status === 'open' && <TaskBody task={task} refresh={refresh} headline={false} />}
-    </article>
+    </PageArticle>
   );
 }
