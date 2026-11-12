@@ -7,8 +7,8 @@
  * The counter wraps the one function that walks the graph, `collectProblems`, so the test counts the walks themselves,
  * not the seconds they took.
  *
- * Every file the listing reads is part of that revision, the workflows manifest beside the kinds manifest included: a
- * workflow's finding appears at the read after the edit and goes at the read after the file is fixed.
+ * A valid committed manifest edit moves that revision after a fill. An invalid manifest refuses the fill with its
+ * file and line and leaves the last published listing intact. Pages and templates are explicit graph opinions.
  */
 import { afterAll, beforeAll, describe, expect, mock, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
@@ -22,6 +22,8 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withoutPluginTurns } from './knowledge-fixture.js';
 import { openProblemsOf } from '../src/problems/index.js';
 import { fillInProcess } from './fill-inline.js';
+import { publishFixtureOpinions } from './knowledge-page-opinions.js';
+import { parseDocument } from 'yaml';
 
 const real = await import('../src/problems/index.js');
 const realCollectProblems = real.collectProblems;
@@ -98,6 +100,18 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
   await fill();
+  await publishFixtureOpinions(folder, join(work, 'store'), [{
+    kind: 'domain', key: { slug: 'payment' },
+    values: {
+      title: 'Payment', file: 'docs/domains/payment.md', body: 'Payments use a provider.', body_line: 1,
+      relates: [], sources: ['docs/requirements.md'], producer: 'fixture', digest: 'payment-fixture',
+      statements: [{ id: 'provider', text: 'Payments use a provider.', digest: 'provider-fixture', labels: [], mentions: [], grounds: ['code.service:absent-provider'], line: 1 }],
+      mentions: [], links: [], findings: [], ungrounded: [],
+    },
+  }, {
+    kind: 'template', key: { path: 'templates/domain.liquid' },
+    values: { template_parts: [{ type: 'block', name: 'properties', params: { title: 'Details' }, line: 1 }] },
+  }]);
 }, 180_000);
 
 /** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
@@ -136,7 +150,7 @@ describe('the count of problems is collected once per revision', () => {
   test('a page that asks while the polls run waits for the same collection, and a page alone collects nothing', async () => {
     collections = 0;
     const pages = await Promise.all(Array.from({ length: 4 }, async () => await get(`/api/page?id=${encodeURIComponent(DOMAIN)}`)));
-    for (const page of pages) expect(page.status).toBe(200);
+    for (const page of pages) expect(page.status, JSON.stringify(page.body)).toBe(200);
     expect(collections).toBe(0);
     const listing = await allProblems();
     expect(pages[0]!.body.problems).toBe(openProblemsOf(listing.problems, DOMAIN));
@@ -160,28 +174,21 @@ describe('the count of problems is collected once per revision', () => {
     expect(collections).toBeLessThanOrEqual(1);
   });
 
-  test('an edit of the kinds manifest makes its finding appear at the read after the fill, and fixing the file takes it away', async () => {
+  test('an invalid kinds manifest refuses the fill with its file and line, without changing the published listing', async () => {
     const file = join(folder, 'madarch', 'kinds.yaml');
     const original = readFileSync(file, 'utf8');
     const before = await allProblems();
-    expect(before.problems.some((problem: { reason: string }) => problem.reason.includes('probe-field'))).toBe(false);
-
-    // A kind that names a template the product does not hold: the finding is the manifest's own, and the listing read
-    // after the fill that stored the file is the listing of the file as it stands now.
     const kindsAt = original.indexOf('\nkinds:\n');
     expect(kindsAt).toBeGreaterThan(-1);
     const line = '  probe-kind: { template: templates/probe-absent.liquid, source: markdown, folder: docs/probe }';
     const broken = `${original.slice(0, kindsAt + '\nkinds:\n'.length)}${line}\n${original.slice(kindsAt + '\nkinds:\n'.length)}`;
     try {
       writeFileSync(file, broken);
-      commitProduct(folder, 'Declare a kind whose template is not there');
-      await fill();
+      commitProduct(folder, 'Declare an invalid kind');
+      await expect(fill()).rejects.toThrow(`${file}:${lineOf(broken, line.trim())}: kind "probe-kind"`);
       const listed = await allProblems();
-      const finding = listed.problems.find((problem: { reason: string }) => problem.reason.includes('probe-absent')) as { file: string; line: number; reason: string } | undefined;
-      expect(finding).toBeDefined();
-      expect(finding!.file).toBe(file);
-      expect(finding!.line).toBe(lineOf(broken, line.trim()));
-      expect(finding!.reason).toContain('probe-absent');
+      expect(listed.problems).toEqual(before.problems);
+      expect(listed.open).toBe(before.open);
     } finally {
       writeFileSync(file, original);
       commitProduct(folder, 'Restore the kinds manifest');
@@ -193,14 +200,20 @@ describe('the count of problems is collected once per revision', () => {
   }, 60_000);
 
   test('the poll follows a committed edit once the fill stores it, with the count of the Problems page', async () => {
-    const manifest = readFileSync(join(folder, 'madarch', 'kinds.yaml'), 'utf8');
-    expect(manifest).toContain('groups:\n');
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломанное }\n'));
-    commitProduct(folder, 'Declare a group no kind names');
+    const file = join(folder, 'madarch', 'kinds.yaml');
+    const manifest = parseDocument(readFileSync(file, 'utf8'));
+    manifest.setIn(['groups', 'cache-probe'], { en: 'Cache probe', ru: 'Проба кеша', short: { en: 'Cache probe', ru: 'Проба кеша' } });
+    manifest.addIn(['roles', 'developer', 'lead'], 'cache-probe');
+    writeFileSync(file, manifest.toString());
+    commitProduct(folder, 'Declare a valid probe group');
+    collections = 0;
     await fill();
     const listing = await get('/api/problems');
     expect(listing.status).toBe(200);
+    expect(collections).toBe(1);
     const status = await get('/api/status');
+    expect(status.body.groups.map((group: { group: string }) => group.group)).toContain('cache-probe');
+    expect(collections).toBe(1);
     expect(status.body.loop.problemsOpen).toBe(listing.body.open);
     expect(status.body.loop.problemsOpen).toBeGreaterThan(0);
   });

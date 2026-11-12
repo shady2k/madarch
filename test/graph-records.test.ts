@@ -124,7 +124,7 @@ describe('the two passes over one fixture', () => {
     // A node's opinion states the vertex's uid — though the pass holds its local node id — and an edge's its edge;
     // a replay names no local id of this store.
     expect(opinions.every((one) => typeof one.node === 'string' ? one.node.length === 36 : typeof (one as { edge?: string }).edge === 'string')).toBe(true);
-    // The tree publication journals the dataset's language opinions under their own producer.
+    // The tree publishes inventory and the extension dataset's separate Linguist opinion, never a picked language.
     expect(new Set(opinions.map((one) => one.said_by.split('@')[0]))).toEqual(new Set(['git-tree', 'git-history', 'linguist']));
     // An opened opinion carries what a replay needs: its values, its evidence, its context and the moment it was said.
     const opened = opinions.filter((one) => one.state === 'opened');
@@ -163,12 +163,13 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // The stored language opinion preserves the separate classifier's candidates without choosing an ambiguous one.
-    for (const path of ['blob.bin', 'src/a.ts', 'src/b.h']) {
-      const classified = languageOfPath(path);
-      expect(byPath.get(path)?.language).toBe(classified.language === 'ambiguous' ? null : classified.language);
-      expect(byPath.get(path)?.candidates).toEqual(classified.candidates);
-    }
+    // The extension dataset supplies candidates, but no text heuristic chooses among them.
+    expect(byPath.get('blob.bin')?.language).toBe('unknown');
+    expect(byPath.get('src/a.ts')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
+    const header = byPath.get('src/b.h')!;
+    expect(header.language).toBeNull();
+    expect(header.candidates).toEqual(['C', 'C++', 'Objective-C']);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.fileCount).toBe(files.rows.length);
@@ -201,13 +202,12 @@ describe('the two passes over one fixture', () => {
 
   test('a file\'s language is an opinion field: a changed language closes the old opinion, and the filter reads the field', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    // The tree publication already records the dataset's opinion, with no natural language of text.
+    // The tree's dataset opinion states candidates in ordinary fields, never in the text's natural-language tag.
     const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ lang: string | null; language: string | null; languages: unknown }>(
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'linguist'`,
     ));
-    const classified = languageOfPath('src/a.ts');
-    expect(stored.rows).toEqual([{ lang: null, language: classified.language === 'ambiguous' ? null : classified.language, languages: [...classified.candidates] }]);
+    expect(stored.rows).toEqual([{ lang: null, language: null, languages: ['TypeScript', 'XML'] }]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: { kind: 'repository', key: { name: 'fixture' } }, path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
