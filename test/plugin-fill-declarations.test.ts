@@ -174,7 +174,7 @@ test('manifest planning reports missing prerequisites without scheduling their d
   expect(plan.producers('Summary', 'description')).toEqual([]);
   expect(plan.requiresAgent).toBe(false);
   expect(plan.unproducedKinds).toEqual([
-    { kind: 'Summary', outcome: 'abstained', reason: 'required prerequisite has no configured producer for Summary' },
     { kind: 'File', outcome: 'abstained', reason: 'kind File has no configured producer; configure an ordinary producer or kind.agent' },
+    { kind: 'Summary', outcome: 'abstained', reason: 'required prerequisite has no configured producer for Summary' },
   ]);
 });
