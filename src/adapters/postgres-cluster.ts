@@ -145,8 +145,8 @@ function socketFolderFor(dataDir: string): string {
 }
 
 /** Runs one of the server's own programs, refusing by name with what it said. */
-function runBinary(program: string, args: readonly string[], options: { readonly allowFailure?: boolean } = {}): { code: number; stdout: string; stderr: string } {
-  const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: { ...process.env, LC_ALL: 'C' } });
+function runBinary(program: string, args: readonly string[], options: { readonly allowFailure?: boolean; readonly stdio?: 'ignore' | 'pipe' } = {}): { code: number; stdout: string; stderr: string } {
+  const answer = spawnSync(program, [...args], { encoding: 'utf8', timeout: 90_000, env: { ...process.env, LC_ALL: 'C' }, ...(options.stdio === undefined ? {} : { stdio: options.stdio }) });
   if (answer.error !== undefined) {
     throw new Error(`${program}:1: the server's own program could not run: ${answer.error.message} (src/adapters/postgres-cluster.ts)`);
   }
@@ -415,6 +415,14 @@ function removeSocketFiles(socketDir: string): void {
  */
 const SERVER_PRIORITY = 10;
 
+/** Windows postmasters inherit pg_ctl's handles: a parent pipe would remain open for the server's lifetime. */
+export function clusterStartInvocation(dataDir: string, logFile: string, connection: string, platform: NodeJS.Platform = process.platform): { args: string[]; stdio: 'ignore' | 'pipe' } {
+  return {
+    args: ['-D', dataDir, platform === 'win32' ? '-W' : '-w', '-l', logFile, '-t', '60', '-o', connection, 'start'],
+    stdio: platform === 'win32' ? 'ignore' : 'pipe',
+  };
+}
+
 /** Starts one private server: Unix socket on Unix, authenticated loopback TCP on Windows. */
 async function startServer(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly log: (line: string) => void }): Promise<void> {
   const { dataDir, socketDir, bin } = options;
@@ -427,7 +435,16 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
     : `-k "${socketDir}" -p ${String(CLUSTER_PORT)} -c listen_addresses=`;
   const started = performance.now();
   try {
-    runBinary(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-w', '-l', logFile, '-t', '60', '-o', connection, 'start']);
+    const invocation = clusterStartInvocation(dataDir, logFile, connection);
+    runBinary(join(bin, postgresProgram('pg_ctl')), invocation.args, { stdio: invocation.stdio });
+    if (process.platform === 'win32') {
+      // Replace pg_ctl's existing 60-second wait with an authenticated connection, not inherited output handles.
+      const deadline = Date.now() + 60_000;
+      while (!(await answering(socketDir))) {
+        if (Date.now() >= deadline) throw new Error(`the PostgreSQL server did not answer on ${socketDir} within 60 seconds`);
+        await Bun.sleep(100);
+      }
+    }
   } catch (error) {
     throw new Error(`${logFile}:1: PostgreSQL startup failed: ${String(error)}\n${readFileSync(logFile, 'utf8')}`);
   } finally {
