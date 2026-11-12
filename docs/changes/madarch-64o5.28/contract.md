@@ -92,4 +92,12 @@ its declared refinement chain, never arrival time or an engine type ranking.
 A wiki or CLI selection contains the requested kinds and their transitive
 `derives-from` prerequisites only. Never add kinds that depend on the selected
 ones. Both entry points use the same engine selection function and plan.
-Refinement is an intentional second opinion, not a no-output fallback path.
+For a unit produced by plugin P, `derives-from` prerequisites wait for their
+base/earlier producer units to complete, including units from other plugins.
+As with `reads`, a producer Q that directly or transitively refines P is not a
+prerequisite of P's unit: the derived unit consumes the prerequisite version
+available before its own later refinements, rather than waiting for that future
+opinion. This is a refinement-chain rule for any plugin, not an agent category
+exception. Other prerequisite dependencies remain required; genuine dependency
+cycles are refused. Refinement is an intentional second opinion, not a no-output
+fallback path.

@@ -417,7 +417,12 @@ so a kind without a dedicated producer still has a declared filler.
 ### Scenario: cross-plugin-prerequisite-completion
 - Given: summary derives from source and different plugins produce the two kinds
 - When: a selected summary fill runs
-- Then: the source-kind prerequisite completes before any derived summary-kind unit runs, not merely before that unit is planned
+- Then: base/earlier source-kind producer units complete before the derived summary-kind unit runs, not merely before it is planned; producers explicitly downstream of that unit's plugin in the refinement chain are not prerequisites
+
+### Scenario: downstream-refiner-kind-prerequisite
+- Given: summary derives from source and plugin Q directly or transitively refines summary's producer P while also producing source
+- When: unit prerequisites are derived for P's summary unit
+- Then: it waits for source's base/earlier producers but not Q's later refinement, consuming the prerequisite version before its own later refiners without a plugin-category exception
 
 ### Scenario: unavailable-producer
 - Given: the selected kind has no enabled runnable producer

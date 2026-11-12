@@ -40,7 +40,7 @@ scripted fixture, never a real agent or model.
 ### Scenario: cross-plugin-prerequisite-completion
 - Given: a selected kind derives from another kind produced by a different plugin
 - When: their selective fill runs
-- Then: the prerequisite-kind unit completes before the derived-kind unit starts, even across plugin boundaries
+- Then: base/earlier prerequisite-kind producer units complete before the derived-kind unit starts, even across plugin boundaries; producers directly or transitively refining that derived unit's plugin are not prerequisites, so it consumes the prerequisite version before its own later refinements
 
 ## Requirement: run-options — Any plugin can request the chosen agent and cap
 
