@@ -14,6 +14,8 @@ import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
+import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
+import { activateTestProduct } from './prepared-server.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, args: string[], extra: Record<string, string> = {}): string =>
@@ -88,7 +90,7 @@ beforeAll(async () => {
   const warmed = await fetch(`${server.url}/products/${SHOP}/api/status`);
   expect(warmed.status).toBe(200);
   await fill();
-  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))) });
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
   try {
     const contract = await readPinnedGraphContract(folder);
     await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
@@ -125,7 +127,13 @@ describe('the problems entry of the menu', () => {
     expect(rule).toContain('enabled: false');
     writeFileSync(file, manifest.replace(rule, rule.replace('enabled: false', 'enabled: true')));
     commitProduct(folder, 'Enable the TODO finding');
-    await fill();
+    const validated = validateProductManifests(folder);
+    if (!validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+    if (validated.value === undefined) throw new Error(`${file}:1: the fixture manifest is absent`);
+    await activateTestProduct(folder, home, join(work, 'store'));
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+    try { await publishValidatedManifests(owner, validated.value); }
+    finally { await owner.close(); }
 
     const problems = await get('/api/problems');
     expect(problems.status).toBe(200);
