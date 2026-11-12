@@ -33,7 +33,7 @@ import { raise } from '../model/raise.js';
 import { createOneGraphSchema, FILE_BLOB_TABLE, FILE_ENTRY_TABLE, FILE_PATH_TABLE } from './one-graph.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import type { EvidenceDraft, EvidenceEntry, GraphContract } from './contract.js';
-import { ensureEdge, ensureEdges, ensureVertex, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishFileEntries, publishOpinion, publishOpinions, removeEdgeById, removeEntity, writeJournal } from './write.js';
+import { ensureEdge, ensureEdges, ensureEdgesWithOpinions, ensureVertex, ensureVertices, flushJournalIfFull, journalFor, journalOn, publishEdgeOpinion, publishFileEntries, publishOpinion, publishOpinions, removeEdgeById, removeEntity, writeJournal } from './write.js';
 
 /** The producers of this store's opinions, and the version each states with them. */
 const TREE_PRODUCER = 'git-tree';
@@ -532,11 +532,9 @@ export async function publishTree(owner: DatabaseOwner, input: TreePublish): Pro
         await removeEdgeById(tx, GIT_CONTRACT, `${GIT_KINDS.contains}`, row.id);
         counts = { ...counts, deleted: counts.deleted + 1 };
       }
-      for (const [key, want] of desired) {
-        if (heldContains.has(key) || !within(want.path)) continue;
-        await ensureEdge(tx, GIT_CONTRACT, `${GIT_KINDS.contains}`, want.parent, want.child, '', { producer: TREE_PRODUCER, producerVersion: TREE_VERSION, evidence: [evidenceOf(want.path)] });
-        counts = { ...counts, inserted: counts.inserted + 1 };
-      }
+      const missing = [...desired].filter(([key, want]) => !heldContains.has(key) && within(want.path)).map(([, want]) => ({ from: want.parent, to: want.child, evidence: [evidenceOf(want.path)] }));
+      const created = await ensureEdgesWithOpinions(tx, GIT_CONTRACT, `${GIT_KINDS.contains}`, missing, TREE_PRODUCER, TREE_VERSION);
+      counts = { ...counts, inserted: counts.inserted + created };
       counts = { ...counts, unchanged: counts.unchanged + [...desired.keys()].filter((key) => heldContains.has(key)).length };
     }
 
@@ -692,11 +690,12 @@ export async function publishHistory(owner: DatabaseOwner, input: HistoryPublish
     if (wantFile) {
       const allPaths = [...firstSeen.keys()].sort();
       const opinions: Parameters<typeof publishOpinion>[2][] = [];
-      for (const path of allPaths) {
-        const one = await fileNodeOf(tx, repository, path);
-        fileNodes.set(path, one.node);
+      const nodes = await ensureVertices(tx, GIT_CONTRACT, GIT_KINDS.file, allPaths.map((path) => ({ repository: repositoryRef(repository), path })));
+      for (const [index, path] of allPaths.entries()) {
+        const one = nodes[index]!;
+        fileNodes.set(path, one.nodeId);
         if (one.created) {
-          opinions.push( { kind: GIT_KINDS.file, nodeId: one.node, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidence: [{ type: 'file', repository, commit_or_digest: firstSeen.get(path) ?? '', path }] });
+          opinions.push( { kind: GIT_KINDS.file, nodeId: one.nodeId, producer: HISTORY_PRODUCER, producerVersion: HISTORY_VERSION, evidence: [{ type: 'file', repository, commit_or_digest: firstSeen.get(path) ?? '', path }] });
           counts = { ...counts, inserted: counts.inserted + 2 };
           await flushJournalIfFull(tx, journal);
         }
