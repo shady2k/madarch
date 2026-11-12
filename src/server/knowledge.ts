@@ -456,17 +456,17 @@ export function createKnowledgePart(
     }),
     reset: guarded('start over', async (request) => {
       const crossSite = foreign(request);
-      if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to start over: its pages are not rewritten here" });
+      if (crossSite !== undefined) return refused(403, { message: `${product.folder}:1: ${crossSite}` });
+      if (own) return refused(403, { message: `${product.folder}:1: madarch's own wiki is documentation, not a product to start over: its pages are not rewritten here` });
       // A GET asks what a reset would remove and keep; a POST does it.
-      if (request.method === 'GET') return { response: json(200, product.resetPlan()) };
+      if (request.method === 'GET') return { response: json(200, await product.resetPlan()) };
       let expected: ResetPlan | undefined;
       if (request.headers.get('content-type')?.includes('application/json')) {
         let body: unknown;
-        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `${product.folder}:1: the request body is not JSON: ${(error as Error).message}` }); }
         const preview = (body as { preview?: unknown } | null)?.preview;
         if (preview !== undefined) {
-          if (preview === null || typeof preview !== 'object' || (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => !Array.isArray((preview as Record<string, unknown>)[key]) || ((preview as Record<string, unknown>)[key] as unknown[]).some((entry) => typeof entry !== 'string'))) return refused(400, { message: 'preview is the complete reset plan read from product settings' });
+          if (preview === null || typeof preview !== 'object' || (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => !Array.isArray((preview as Record<string, unknown>)[key]) || ((preview as Record<string, unknown>)[key] as unknown[]).some((entry) => typeof entry !== 'string'))) return refused(400, { message: `${product.folder}:1: preview is the complete reset plan read from product settings` });
           expected = preview as ResetPlan;
         }
       }

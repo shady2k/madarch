@@ -64,7 +64,7 @@ export const KIND_FILE_BASE = '/kind/';
 const WIKI_PAGE_PATHS: readonly string[] = [
   HOME_ADDRESS, DOCS_ADDRESS, CATALOGUE_ADDRESS, GLOSSARY_ADDRESS, QUESTIONS_ADDRESS,
   PROBLEMS_ADDRESS, SETTINGS_ADDRESS, FILL_ADDRESS, TASKS_ADDRESS, RUN_ADDRESS,
-  '/authored', '/task', '/journal', '/statement', '/doc', '/folder', '/file', '/commit', '/src',
+  '/authored', '/task', '/journal', '/statement', '/doc', '/folder', '/file', '/commit', '/src', '/kit',
 ];
 
 /** The reader's paths whose a name follows the prefix. */

@@ -126,7 +126,7 @@ stale, and the plugin's closure hash includes the SDK it was built against.
 - fill-orchestrator/publish: the publication is untouched; the host publishes nothing, and its units are the caller's.
 - fill-stages/registry: the stage registry and the fill's steps are untouched; no stage runs a plugin in this change.
 - graph-queries/rebuild: the graph is read by the fill as it was; the host writes no row of it.
-- product-repository/draft: `madarch new` writes the same starter set; the `plugin` command group stands beside it.
+- product-repository/draft: `madarch init` writes the same starter set; the `plugin` command group stands beside it.
 - fill-orchestrator/host: the background server still owns the orchestrator and starts no plugin here.
 
 ## Coverage

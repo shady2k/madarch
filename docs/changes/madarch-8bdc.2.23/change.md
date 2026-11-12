@@ -18,7 +18,7 @@ required field the manifest leaves out, and a plugin no lock holds — each with
 A manifest with an error is not loaded.
 
 The glossary plugin is a product plugin, not an engine one: version 1.0.0, its contract, its code and
-its closure hash. `madarch new` writes it into the product, `madarch/plugins.lock` records the exact
+its closure hash. `madarch init` writes it into the product, `madarch/plugins.lock` records the exact
 version and the closure hash, and the release carries the closure as its own texts, so the plugin a
 product receives is one the release trusts (0035 items 3, 4 and 20). A fill's plugin turn hands the
 plugin one unit per kind. Only the files producer — the tree pass — reads the source filesystem and
@@ -76,7 +76,7 @@ The extraction-plugin path is added as a new capability, `docs/changes/madarch-8
 
 - product-wiki/pages: a term's page still shows its definition, its other names and where it is stated, now from the graph
 - server/serves-wiki: `/api/k/glossary` and `/api/k/page` keep their shapes and addresses
-- release-binary/installers: `madarch new` writes the same layout, with the plugin and its lock beside the manifest
+- release-binary/installers: `madarch init` writes the same layout, with the plugin and its lock beside the manifest
 
 ## Coverage
 
@@ -95,7 +95,7 @@ Kind: command
 Place: `madarch fill`, then the product wiki's glossary page
 Reason: the fill runs the product's glossary plugin, and the glossary page then lists the terms it published.
 
-1. Run `madarch new` and connect this repository as its code repository.
+1. Run `madarch init` and connect this repository as its code repository.
 2. Run `madarch fill`.
 3. Open the glossary: every term of the glossary document is listed with its definition.
 4. Open a term's page: the definition, its other names and a link to the lines it is stated at.

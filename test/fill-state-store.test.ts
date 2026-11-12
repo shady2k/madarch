@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fillStateSchema } from '../src/adapters/schemas/fill-state.js';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillStateDatabase } from '../src/fill/state-store.js';
-import { FILL_STATE_TABLES, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
+import { FILL_STATE_TABLES, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
 import type { RunEvidence, UnitAdvanceEvent } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -280,4 +280,21 @@ describe('a failure of the borrowed database', () => {
     const source = await Bun.file(fileURLToPath(new URL('../src/fill/state-store.ts', import.meta.url))).text();
     expect(source.split('\n')[line - 1]).toContain('here()');
   });
+});
+
+test('a repository-free fill completion invalidates the store revision without another graph publication', async () => {
+  const owner = await createTestDatabaseOwner();
+  try {
+    await createFillStateSchema(owner);
+    const before = await readStoreStamp(owner);
+    await createRun(owner, { runId: 'repository-free', product: 'empty-product', at: NOW });
+    expect(await readStoreStamp(owner)).toBe(before);
+    expect(await hasSuccessfulFill(owner)).toBe(false);
+    // A fill can finish after its final publication. No node, operation or publication changes here.
+    await owner.run((tx) => tx.query("UPDATE fill_run SET state = 'succeeded' WHERE run_id = $1", ['repository-free']));
+    expect(await hasSuccessfulFill(owner)).toBe(true);
+    const after = await readStoreStamp(owner);
+    expect(after).not.toBe(before);
+    expect(await readStoreStamp(owner)).toBe(after);
+  } finally { await owner.close(); }
 });

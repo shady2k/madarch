@@ -7,7 +7,7 @@ Kind: behavior
 
 ## Intent
 
-Since madarch-zcti.1 `madarch new --no-open` returns at once and the products
+Since madarch-zcti.1 `madarch init --no-open` returns at once and the products
 home's background server serves the wiki, on the port it was started on. The release's
 build smoke still waited for a foreground on the port it passed, so it never
 saw the product; the "clean install walks" workflow has failed on every push
@@ -58,7 +58,7 @@ there, instead of ignoring the flag.
   `capabilities/product-repository.md`, with the added scenarios
   `new-port-belongs-to-the-server` and `the-port-a-start-names-is-the-one-served`.
 - release-binary/installers: the build smoke and this repository's installed
-  walks read the address `madarch new` prints, the smoke runs the binary from
+  walks read the address `madarch init` prints, the smoke runs the binary from
   outside the checkout, and each of them stops the server it started before it
   ends; the walk of the published tap formula stays the published release's own
   while that release serves in the foreground. Complete proposed text in
@@ -133,7 +133,7 @@ None.
   command's own line and fail the start on it as if the pid belonged to a
   foreign process — main CI run on 46865274, shard 2, failed exactly so, reading
   `bun test test/ --shard=2/5 …` (the test runner's own line) out of the pid
-  `madarch new` had just spawned. The read is now judged before it is acted on,
+  `madarch init` had just spawned. The read is now judged before it is acted on,
   into four cases: the daemon's own command line for this home and port
   (`daemon`); a command line that is still this process's own, which is the
   fork's copy of it, or one that reads empty — the 0 bytes the exec itself gives
@@ -188,7 +188,7 @@ None.
 ## Acceptance evidence
 - Checks, each command's own exit status: `bun run check` (tsc --noEmit) exit 0 at 1490659a; the same command's exit 0 on every earlier head of this branch. The scripts this change edits stand outside the project's `tsconfig` include, so they were also type-checked with the project's own options (`tsc --ignoreConfig ... scripts/build-binary.ts scripts/clean-install-walk.ts`) exit 0, and `sh -n scripts/clean-homebrew-walk.sh` exit 0.
 - Focused tests on the SkyPilot pod, where this machine is not allowed to run the suite: `madarch-sky-test <worktree> test/product-daemon.test.ts test/product-cli.test.ts` exit 0, 110 pass 0 fail, on a worktree whose `wiki/app/dist` was absent (the state a CI shard is in — the pod's staging excludes `dist`); earlier runs of the same tree with `test/product-cli-script.test.ts` and `test/product-serve.test.ts` exit 0 with three failures that were fixed in this branch (two `spawnSync(CLI, …)` tests the pod's lost executable bit fails whatever the branch — see the queue entry — and one assertion the change then corrected).
-- The compiled binary itself, on the pod: `bun scripts/build-binary.ts --version 0.0.1 --os linux --arch x64 --out dist` exit 0 ("graph-store smoke ok"), with the smoke running every command from a folder outside the checkout, reading the address `madarch new` printed, asking the product's API for the draft, listing the home, and stopping the daemon it started; the daemon child's command line read from `/proc` was the binary itself.
+- The compiled binary itself, on the pod: `bun scripts/build-binary.ts --version 0.0.1 --os linux --arch x64 --out dist` exit 0 ("graph-store smoke ok"), with the smoke running every command from a folder outside the checkout, reading the address `madarch init` printed, asking the product's API for the draft, listing the home, and stopping the daemon it started; the daemon child's command line read from `/proc` was the binary itself.
 - The clean install walks workflow, run 39139319609 on 1490659a: every job green — build-linux-fixture, linux-supported, linux-homebrew, macos-arm64, windows-x64 (the platform the liveness and bundle rules exist for; its walk reads "npx madarch stop ended that server") and published-linux-homebrew.
 - CI on the exact head 1490659a: run 39139313486 success (checks and test shards 1-5 with the aggregate `test` job), Product documents run 39139313672 success.
 - Independent review: a fresh `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` session over `git diff origin/main...HEAD`, verdict "fixes needed" with one blocking, one medium and three low findings; every one answered (the record's own bullets say how), its cross-compiled Windows probe supplying the `~BUN` marker spelling, and its note on `src/fill/fsm-core.ts` filed as madarch-ntth.
@@ -227,7 +227,7 @@ None.
 - The clean install walks, run 39146256533 dispatched on this branch and green on all six
   jobs: build-linux-fixture, macos-arm64 and windows-x64 each build the binary and run
   its graph-store smoke (which starts and stops the daemon), linux-supported,
-  linux-homebrew and macos-arm64 walk `npx madarch new` then `stop`, and the
+  linux-homebrew and macos-arm64 walk `npx madarch init` then `stop`, and the
   windows-x64 walk is the platform whose liveness reading is the command line alone.
 - Mutation: not run (owner's rule: Stryker once per assembled stage); acceptance therefore escalates per `mutationFallback: escalate`.
 

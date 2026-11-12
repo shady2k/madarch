@@ -1,8 +1,11 @@
 # How to write a product's manifests
 
-A product repository holds four manifest files. They are the product's own
-files: `madarch new` writes a starter set, and from then on the product edits
-them by hand or with its agent. This guide says where each file lives, what it
+A product repository holds its identity in `workspace.yaml` and can hold
+three manifest files under `madarch/`. They are the product's own files:
+`madarch init --template everything` writes the full starter set, and from
+then on the product edits them by hand or with its agent. Init asks only for
+a template in a terminal. With nonterminal input and no `--template`, or with
+`--template none`, it writes no kind or workflow manifest. This guide says where each file lives, what it
 is for, and which fields this version reads.
 
 The examples use neutral names. Copy the shape, not the names.
@@ -33,7 +36,7 @@ and the code of the repositories the manifest declares. The wiki then serves
 the pages from that graph. An edit to a manifest takes effect at the next
 fill, not at the next reload.
 
-A product whose manifest does not read is not a product: `madarch new`,
+A product whose manifest does not read is not a product: `madarch init`,
 `madarch list` and `madarch serve` refuse it and name the file and the line.
 
 ## workspace.yaml

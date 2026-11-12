@@ -14,13 +14,13 @@ The product repository's lifecycle — its layout, its manifest's schema,
 creating a draft, renaming it into a product and bootstrapping its code
 repositories — is madarch's own code, the contract's own reading and
 writing (decision 0021, revising the clause of 0019 that gave the lifecycle
-to the skill set and pinned its release). `madarch new` stays a front door
+to the skill set and pinned its release). `madarch init` stays a front door
 for a person without an agent, and reads any folder with a valid manifest —
 a set-made folder, a draft madarch made, a folder written by hand — with
 the same reader whoever made the folder.
 
-## Requirement: draft — `madarch new` creates a draft product repository with madarch's own creation code
-When `madarch new` is run, it shall create, under the products home, a folder
+## Requirement: draft — `madarch init` creates a draft product repository with madarch's own creation code
+When `madarch init` is run, it shall create, under the products home, a folder
 named `idea-YYYY-MM-DD` from the day's local date — `idea-YYYY-MM-DD-2`, and
 `-3` and so on when that day's names are taken — make it a git repository
 whose first commit holds the skeleton, and print the product's folder and its
@@ -62,7 +62,7 @@ instructions. A command's help gives its usage, each flag and an example.
 Unknown commands and invalid flags name the problem, suggest
 `madarch --help`, exit 2 and do not print a usage wall.
 
-On successful `madarch new` and `madarch init`, human-readable output shall
+On successful `madarch init` and `madarch init`, human-readable output shall
 state the product and its folder, how to open the wiki later, and the next
 document-writing step. `init` shall say the connected code repository stays
 where it is. The serving output shall make the running address clear, print
@@ -77,26 +77,26 @@ machine-readable facts under `--json`. `madarch version` keeps the exact
 
 ### Scenario: new-draft
 - Given: `MADARCH_HOME` names a scratch folder and the day is 2026-10-09
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: `products/idea-2026-10-09` exists as a git repository with one commit holding `AGENTS.md`, `CLAUDE.md`, `workspace.yaml`, `.gitignore`, `docs/`, `model/`, `skills/` and `prototypes/`, `repos/` exists untracked, and the command printed that folder and the product's id
 
 ### Scenario: second-draft-that-day
 - Given: `products/idea-2026-10-09` exists
-- When: `madarch new` is run again the same day
+- When: `madarch init` is run again the same day
 - Then: `products/idea-2026-10-09-2` is created, with its own id and its own first commit
 
 ### Scenario: home-not-usable
 - Given: the path `MADARCH_HOME` names is a file
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: it exits 2 naming that path, and no product folder is created anywhere
 
 ### Scenario: framing-commit-fails
 - Given: a products home that is created and a git that refuses to commit
-- When: `madarch new` is run
+- When: `madarch init` is run
 - Then: it exits 1 naming what git said, and the folder it made is gone
 
 ## Requirement: first-contact — The CLI tells a newcomer what happened and what to do
-When `madarch` is run without a command, or with `help`, `--help` or `-h`, it shall print short grouped help to standard output and exit 0. No-argument output shall first identify the current context: an unlinked Git checkout says `This folder is a git repository. To start a product around it: madarch init`; a product folder names the product, says `madarch serve` opens its wiki and offers writing its Markdown documents by hand, with any agent, or with the optional shady2k-skills set; elsewhere it says to run `madarch new` or enter a code repository and run `madarch init`. It shall state the products home (`~/madarch/products` or the configured `MADARCH_HOME`) before the command list. Grouped help lists the start commands, product commands and other commands, one plain-English line per command, and ends with `madarch COMMAND --help`. Each command's help lists that command's usage, flags one per line and an example. Unknown commands and invalid flags name the problem on standard error, suggest `madarch --help`, exit 2 and do not print a usage wall. User-facing help shall not mention `bun link`.
+When `madarch` is run without a command, or with `help`, `--help` or `-h`, it shall print short grouped help to standard output and exit 0. No-argument output shall first identify the current context: an unlinked Git checkout says `This folder is a git repository. To start a product around it: madarch init`; a product folder names the product, says `madarch serve` opens its wiki and offers writing its Markdown documents by hand, with any agent, or with the optional shady2k-skills set; elsewhere it says to run `madarch init` or enter a code repository and run `madarch init`. It shall state the products home (`~/madarch/products` or the configured `MADARCH_HOME`) before the command list. Grouped help lists the start commands, product commands and other commands, one plain-English line per command, and ends with `madarch COMMAND --help`. Each command's help lists that command's usage, flags one per line and an example. Unknown commands and invalid flags name the problem on standard error, suggest `madarch --help`, exit 2 and do not print a usage wall. User-facing help shall not mention `bun link`.
 
 After successful `new` and `init`, the command shall say the product name and folder; `init` shall also say the connected repository stays where it is. It shall then identify the running wiki URL and Ctrl+C, give the SSH tunnel command when SSH is detected, and list the product folder, how to serve the wiki later and the next document-writing step. `list` shall name products in code-point order and explain the empty state. Machine-readable facts are available through `--json` where that command supports it. The `version: X` output is unchanged.
 
@@ -111,7 +111,7 @@ After successful `new` and `init`, the command shall say the product name and fo
 - Then: command help shows only its usage, options and example and exits 0; an invalid invocation names the problem, suggests `madarch --help`, avoids a usage wall and exits 2
 
 ### Scenario: product-creation-output
-- Given: `madarch new` or `madarch init` succeeds
+- Given: `madarch init` or `madarch init` succeeds
 - When: its human-readable output is read locally or over SSH
 - Then: the product folder and next steps are clear, the wiki address is printed once, SSH output explains the tunnel, and init says the connected repository stays where it is
 
@@ -142,7 +142,7 @@ naming no `id` or a schema version this madarch does not know, and a
 and the line where the reader knows it.
 
 ### Scenario: draft-manifest
-- Given: a draft created by `madarch new`
+- Given: a draft created by `madarch init`
 - When: its manifest is read
 - Then: the id is the one the command printed, the name is the folder's name, and the schema version is the one madarch writes
 
@@ -172,18 +172,18 @@ and the line where the reader knows it.
 - Then: the id, name and schema version are the example's, and the pinned set and the declared repositories are read as the manifest declares them
 
 ### Scenario: constitution-is-written-once
-- Given: a draft created by `madarch new`
+- Given: a draft created by `madarch init`
 - When: its `AGENTS.md` is read
 - Then: it names `docs/`, `model/`, `skills/`, `prototypes/` and `repos/` and what each is for, says that `skills/` holds the team's own skills, carries the maintained-part markers, and is byte for byte the constitution the contract's example product `examples/contract/set-made-product/AGENTS.md` carries
 
 ### Scenario: no-absolute-path
-- Given: a draft created by `madarch new` in a scratch products home
+- Given: a draft created by `madarch init` in a scratch products home
 - When: every file the command wrote is searched for that home's absolute path
 - Then: none holds it
 
 ## Requirement: list — `madarch list` names the products the products home holds
 When `madarch list` is run, it shall name the products of the products home
-— resolved the way `madarch new` resolves it, `~/madarch/products` unless
+— resolved the way `madarch init` resolves it, `~/madarch/products` unless
 `MADARCH_HOME` or `--home` names another — as one product at a time, in code
 point order of their folders: each product's folder, its id and its name, one
 fact per line. A subfolder whose manifest reads, whoever made that folder,
@@ -394,7 +394,7 @@ absent from the repository's tree. The step's results land where the
 capability already reads them: a repository's intended model with its review
 report in the repository's own model folder, and the architecture page with
 the derived requirements, use cases and decision records under the product's
-`docs/repositories/name/`. A draft `madarch new` alone makes stays byte for
+`docs/repositories/name/`. A draft `madarch init` alone makes stays byte for
 byte what madarch's own creation writes (decision 0021: the constitution is
 madarch's, the section is laid below its markers by whoever runs the
 product, never written into the skeleton); such a draft carries no section
@@ -406,7 +406,7 @@ until the installed set lays one.
 - Then: none exists — the repository holds no `skills/` folder, and no code path or test reads one
 
 ### Scenario: a-fresh-draft-carries-nothing-until-laid
-- Given: a draft created by `madarch new` alone
+- Given: a draft created by `madarch init` alone
 - When: its `AGENTS.md` and its `skills/` folder are read
 - Then: `AGENTS.md` is byte for byte the constitution madarch's creation writes (the example's bytes), and `skills/` holds only the kept `.gitkeep`
 
@@ -478,7 +478,7 @@ A discussion message is a Markdown file at `comments/{thread ULID}/{message ULID
 
 
 ## Requirement: demo — `madarch demo` clones and serves the Madarch product wiki
-`madarch demo` shall use the upstream Madarch product repository, clone it to `madarch-product` in the products home when no clone exists, and serve its wiki through the same server as `madarch serve`. A later run shall update that clone with a fast-forward-only pull and serve it. It shall not replace a folder that is not the expected repository clone, and it shall not ship or copy product content into the engine. If cloning fails, the error shall include Git’s cause, tell the reader to check network availability, and offer `madarch new` as the offline alternative without claiming the network caused every failure. If updating fails, the error shall say the product working tree remains unchanged and tell the reader to check the network or clone state. The home shall resolve through `--home`, `MADARCH_HOME` and the normal products-home default.
+`madarch demo` shall use the upstream Madarch product repository, clone it to `madarch-product` in the products home when no clone exists, and serve its wiki through the same server as `madarch serve`. A later run shall update that clone with a fast-forward-only pull and serve it. It shall not replace a folder that is not the expected repository clone, and it shall not ship or copy product content into the engine. If cloning fails, the error shall include Git’s cause, tell the reader to check network availability, and offer `madarch init` as the offline alternative without claiming the network caused every failure. If updating fails, the error shall say the product working tree remains unchanged and tell the reader to check the network or clone state. The home shall resolve through `--home`, `MADARCH_HOME` and the normal products-home default.
 
 ### Scenario: demo-clone
 - Given: a usable products home with no `madarch-product` folder and an upstream product repository
@@ -493,7 +493,7 @@ A discussion message is a Markdown file at `comments/{thread ULID}/{message ULID
 ### Scenario: demo-offline
 - Given: the initial demo clone cannot reach the network
 - When: `madarch demo` is run
-- Then: it reports the network failure, offers `madarch new`, and leaves no partial clone
+- Then: it reports the network failure, offers `madarch init`, and leaves no partial clone
 
 ### Scenario: demo-conflict
 - Given: the products home holds an unrelated folder named `madarch-product`

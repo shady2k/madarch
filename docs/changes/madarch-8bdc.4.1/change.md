@@ -13,7 +13,7 @@ concept id, its definition, the standard or document it was taken from as an
 address a person can read, the ways it can be acquired (an extractor's mark, a
 document, a conversation, an agent from the graph, a live system, or not
 implemented), its implementation status, the relation constraints it may carry
-and its template policy. The catalog is product data: `madarch new` writes it
+and its template policy. The catalog is product data: `madarch init` writes it
 into `madarch/kinds.yaml`, and the engine reads it and holds none of it.
 
 A mechanical check validates whatever catalog a product holds, and the starter
@@ -22,7 +22,7 @@ bound, two kinds for one concept id, a value the catalog marks as an attribute
 declared as a kind, and an area, a subgroup or an origin mark the manifest does
 not declare. The wiki's own read of a product's manifest runs the same check,
 so a product sees the refusals on its Problems page; `bun run check` runs it
-over the starter set, written into a temporary product exactly as `madarch new`
+over the starter set, written into a temporary product exactly as `madarch init`
 writes it.
 
 ## Rationale
@@ -102,7 +102,7 @@ file's end. No hand-written delta is stored.
 - product-wiki/pages: the product's documents are still the wiki's pages, the kinds the wiki shows today keep their templates, labels and descriptions, and a document kind is still read by its identifier, its headings or its terms.
 - product-wiki/serve: serving a product is still one read of its working tree; the catalog adds findings to the manifest's own list and changes no page.
 - product-wiki/questions-and-overview: the overview still lists the groups the manifest declares, and an empty group and a kind with no entity are still not shown.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now includes the catalog's rows.
+- product-repository/draft: `madarch init` still writes the starter set as the product's own files; what it writes now includes the catalog's rows.
 - product-wiki/live: a saved manifest still changes the pages at the next read; the catalog is read with it.
 
 ## Coverage
@@ -116,9 +116,9 @@ file's end. No hand-written delta is stored.
 ## Where it is seen
 
 Kind: command
-Place: `madarch new`'s starter set, `bun run check` in a checkout, and a product's Problems page
+Place: `madarch init`'s starter set, `bun run check` in a checkout, and a product's Problems page
 
-1. Make a product with `madarch new` and open `madarch/kinds.yaml`: the `catalog:` mapping declares the schema, the `groups:` mapping holds the 26 areas and their 100 subgroups, and every kind of `kinds:` holds its `id`, `group`, `definition`, `sources`, `acquisition`, `status`, `relation-constraints` and `template-policy`.
+1. Make a product with `madarch init` and open `madarch/kinds.yaml`: the `catalog:` mapping declares the schema, the `groups:` mapping holds the 26 areas and their 100 subgroups, and every kind of `kinds:` holds its `id`, `group`, `definition`, `sources`, `acquisition`, `status`, `relation-constraints` and `template-policy`.
 2. Run `bun run check`: the catalog check prints `catalog: 26 areas, 100 subgroups, 490 kinds (67 with a page of their own or a member's row)` and the manifest it read, and exits 0.
 3. Delete a `status:` line of one kind and run `bun run check` again: it prints the manifest's full path, the kind's line, and `kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined`, and exits 1; open the product's wiki and the Problems page lists the same refusal with its file and line.
 
@@ -128,7 +128,7 @@ None.
 ## Design and decisions
 - `src/knowledge/starter-catalog.ts` is the catalog's data (the areas, the
   subgroups, the rows, the relation names, the attributes and the schema) — the
-  starter content `madarch new` writes, not engine behaviour.
+  starter content `madarch init` writes, not engine behaviour.
 - `src/knowledge/catalog.ts` is the reader and the check: the schema, a kind's
   row, and the findings of the catalog as a whole. It knows no area, kind or id.
 - `src/knowledge/kinds.ts` reads `catalog:` beside `kinds:`, gives each kind its
@@ -206,7 +206,7 @@ Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-04:
 - The independent review is the acceptance record's: it is not run by this change.
 
 ## DONE WHEN
-The starter set `madarch new` writes holds the whole catalog: every area of
+The starter set `madarch init` writes holds the whole catalog: every area of
 decision 0033's item 9, two levels with a subgroup of at most about twelve
 kinds, and for every kind its id, definition, sources as addresses, acquisition
 ways, implementation status, relation constraints and template policy. A

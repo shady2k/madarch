@@ -21,7 +21,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { requestStorePreparation } from '../product/store-preparation.js';
+import { requestStorePreparation, requestStoreReset } from '../product/store-preparation.js';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
 import { byCodePoint } from '../model/order.js';
@@ -1588,34 +1588,61 @@ export class KnowledgeProduct {
    * `reset.ts`). Refused while a fill runs. The wiki then reads as an empty product.
    */
   async reset(expected?: ResetPlan): Promise<{ ok: true; plan: ResetPlan } | { ok: false; message: string }> {
-    if (this.running !== undefined) return { ok: false, message: 'a fill of this product is running; start over after it ends' };
-    if (this.resetting) return { ok: false, message: 'this product is already being started over' };
+    const place = `${this.options.productFolder}:1:`;
+    if (this.running !== undefined) return { ok: false, message: `${place} a fill of this product is running; start over after it ends` };
+    if (this.resetting) return { ok: false, message: `${place} this product is already being started over` };
     const product = this.product();
     if ('message' in product) return { ok: false, message: product.message };
-    let plan: ResetPlan;
-    try {
-      if (await authoredHistoryPresent(await this.open())) return { ok: false, message: `${this.storeFolder()}:1: this store holds person-authored history. Start over is refused to preserve authored data and its journal; export a backup and use a preserving migration instead.` };
-      plan = await planReset(product.folder, this.storeFolder(), await this.loopGraph(), await this.loopManifest(), this.options.storeRoot);
-      if (expected !== undefined && (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => JSON.stringify(expected[key]) !== JSON.stringify(plan[key]))) return { ok: false, message: `${product.folder}:1: reset inputs changed since the preview; request a new preview: nothing was removed` };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
-    }
     this.resetting = true;
     try {
-      await this.swapping.catch(() => undefined);
-      await this.opening?.catch(() => undefined);
-      const held = this.fillQueue;
-      this.fillQueue = undefined;
-      if (held !== undefined) await held.stop().catch(() => undefined);
-      if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
-      this.reader = undefined;
-      this.opening = undefined;
+      const owner = await this.open();
+      if (await authoredHistoryPresent(owner)) return { ok: false, message: `${this.storeFolder()}:1: this store holds person-authored history. Start over is refused to preserve authored data and its journal; export a backup and use a preserving migration instead.` };
+      if (await readLiveRun(owner) !== null) return { ok: false, message: `${place} a fill of this product is running; start over after it ends` };
+      const manifests = validateProductManifests(product.folder);
+      if (!manifests.ok) return { ok: false, message: manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n') };
+      const contract = withManifestContract(manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest));
+      const plan = await planReset(product.folder, this.storeFolder(), await this.loopGraph(), await this.loopManifest(), this.options.storeRoot);
+      if (expected !== undefined && (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => JSON.stringify(expected[key]) !== JSON.stringify(plan[key]))) return { ok: false, message: `${place} reset inputs changed since the preview; request a new preview: nothing was removed` };
+      await applyReset(product.folder, plan, { resetStore: async () => {
+        await this.swapping;
+        await this.opening;
+        await this.verdictRun;
+        await this.problemsFlight?.promise;
+        const held = this.fillQueue;
+        this.fillQueue = undefined;
+        if (held !== undefined) await held.stop();
+        await this.reader?.owner.close();
+        this.reader = undefined;
+        this.opening = undefined;
+        await requestStoreReset(storeDatabasePath(this.storeFolder()), contract);
+        const fresh = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
+        try {
+          if (manifests.value !== undefined) await publishValidatedManifests(fresh, manifests.value);
+        } finally { await fresh.close(); }
+      } });
+      this.generation += 1;
+      this.storeStamp = undefined;
+      this.statusMemo = undefined;
+      this.runViewMemo = undefined;
+      this.filesMemo = undefined;
+      this.manifestMemo = undefined;
+      this.storeOf = undefined;
+      this.problemsCache = undefined;
+      this.problemsFailed = undefined;
       this.pins.clear();
       this.fill = { state: 'idle' };
+      this.fillExtras = {};
+      this.fillRun = undefined;
+      this.fillRunId = undefined;
+      this.pausedRun = undefined;
+      this.pauseRestored = false;
+      this.changedPages = undefined;
+      this.changedLoaded = false;
       this.writer = { state: 'idle', agent: null, units: [] };
-      await applyReset(product.folder, plan);
       this.notify();
       return { ok: true, plan };
+    } catch (error) {
+      return { ok: false, message: `${place} ${error instanceof Error ? error.message : String(error)}` };
     } finally {
       this.resetting = false;
     }
@@ -2164,12 +2191,14 @@ export class KnowledgeProduct {
       ...(run === null ? {} : { run }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
+    const filled = await hasSuccessfulFill(await this.open());
     return {
       ...(kinds === undefined ? {} : { kinds }),
       ...(repository === undefined ? {} : { repository }),
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
-      // Manifest publication alone is not a fill; a successful repository-free run is.
-      filled: this.pins.size > 0 || await hasSuccessfulFill(await this.open()),
+      // Both live fields follow the run, even when no graph publication moved the memo key.
+      filled,
+      manifest: filled ? 'ok' : 'not-filled',
       incomplete: [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0),
     };
   }
@@ -2344,7 +2373,7 @@ export class KnowledgeProduct {
     // (`numbersOf`), because a snapshot moves them without moving a file.
     const loop = await this.loopCounts();
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
-    const filled = this.pins.size > 0 || await hasSuccessfulFill(await this.open());
+    const filled = await hasSuccessfulFill(await this.open());
     const body: WikiStatus = {
       ...common,
       manifest: filled ? 'ok' : 'not-filled',

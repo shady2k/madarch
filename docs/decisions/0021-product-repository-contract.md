@@ -76,7 +76,7 @@ mechanism, the languages are data.
   the forms, templates and checks (0019 stands there); the kinds registry is
   that ownership made data, so nothing in the contract turns on its change.
 - **The lifecycle commands are madarch's code** (revising the clause of 0019
-  that gave them to the set and pinned the vendored program): `madarch new`,
+  that gave them to the set and pinned the vendored program): `madarch init`,
   `rename`, `repo add`, `bootstrap`, `remote`, `clone` and `list` read and
   write the contract's own files; the vendored folder leaves the repository,
   and the contract's schema and conformance examples take the manifest-shape

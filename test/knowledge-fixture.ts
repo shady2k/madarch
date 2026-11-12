@@ -154,7 +154,7 @@ export function starterKinds(): readonly ShownStarterKind[] {
   );
 }
 
-/** The starter manifest's text as `madarch new` writes it, with the product's page language when it has one. */
+/** The starter manifest's text as `madarch init` writes it, with the product's page language when it has one. */
 export function starterManifestText(language?: string): string {
   const entry = STARTER_FILES.find((file) => file.path === KINDS_FILE);
   if (entry === undefined) throw new Error(`the starter set holds no ${KINDS_FILE}`);

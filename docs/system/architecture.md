@@ -66,7 +66,7 @@ and a query database; no CLI starts that mode.
 knowledge as Markdown and YAML in a git repository of its own. The
 repository's lifecycle is madarch's own code (decision 0021, revising the
 clause of 0019 that took the set's program: the commands
-`madarch new`, `rename`, `repo add`, `bootstrap`, `remote` and `clone` sit
+`madarch init`, `rename`, `repo add`, `bootstrap`, `remote` and `clone` sit
 on `src/product/draft.ts`, `src/product/lifecycle.ts` and
 `src/product/git.ts`), with the products home `~/madarch/products`, moved by
 `MADARCH_HOME` or `--home`. The product's identity — its id and name — is

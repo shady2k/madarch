@@ -7,7 +7,7 @@ Kind: behavior
 
 ## Intent
 Decision 0033 (item 7) keeps two vocabularies: the extractors' code-structure schema and the product's catalog.
-A versioned mapping ties one to the other. The starter set `madarch new` writes now holds that mapping: every
+A versioned mapping ties one to the other. The starter set `madarch init` writes now holds that mapping: every
 node kind and relation type the extractors emit is tied to a catalog kind or to the catalog's relation names,
 or is declared internal to extraction with the reason. A mechanical check — run by `bun run check` over the
 starter set and by the wiki's own read of a product's manifest — refuses an emitted key with no row, a row that
@@ -59,7 +59,7 @@ from Base; `catalog` (madarch-8bdc.4.1) and the new `extractor-mapping` stand at
 - product-wiki/pages: the product's documents are still the wiki's pages; the mapping adds findings and no page.
 - product-wiki/live: a saved manifest still changes the pages at the next read; the mapping is read with it.
 - fill-stages/registry: the extractors' records and the stages that write them are unchanged; a vocabulary declaration changes no extraction.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now includes the mapping.
+- product-repository/draft: `madarch init` still writes the starter set as the product's own files; what it writes now includes the mapping.
 
 ## Coverage
 - product-wiki/catalog: test
@@ -74,7 +74,7 @@ from Base; `catalog` (madarch-8bdc.4.1) and the new `extractor-mapping` stand at
 Kind: command
 Place: the starter set's `madarch/kinds.yaml` and `bun run check`
 
-1. Open a product made by `madarch new`: `madarch/kinds.yaml` ends with `mapping:` — its version, then a row for every extractor kind and relation, each tied to a catalog kind or relation or declared internal with the reason.
+1. Open a product made by `madarch init`: `madarch/kinds.yaml` ends with `mapping:` — its version, then a row for every extractor kind and relation, each tied to a catalog kind or relation or declared internal with the reason.
 2. Run `bun run check`: the catalog check prints `mapping: version 1; 56 extractor kinds (55 tied to a catalog kind, 1 internal); 64 extractor relations (39 tied to a catalog relation, 25 internal)` and exits 0.
 3. Delete a row, or tie one to a kind the catalog does not hold, and run it again: it prints the file, the line and both names (the key and the kind or relation it names) and exits 1.
 

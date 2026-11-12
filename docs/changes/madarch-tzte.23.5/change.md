@@ -98,7 +98,7 @@ None.
 
 ## Design and decisions
 
-- **The product is shaped as `madarch new` and `madarch repo add` leave one.** A
+- **The product is shaped as `madarch init` and `madarch repo add` leave one.** A
   product repository holding `workspace.yaml` (`name: stage23-product`) and
   `docs/vision.md`, `repos/` untracked, and the code repository `engine` cloned under
   it: that is what a person's product looks like, and it is what makes the walk's
@@ -182,7 +182,7 @@ eight deterministic stages with no agent:
   run's own `STAGE23_WALK` lines are kept beside this walk's, as `first-run.txt` in the
   folder named above. This run's product declares no code repository (the checkout is the
   product, as 21.8's walk made it), so its pages carry no code links — which is why the
-  browser walk uses a product shaped the way `madarch new` leaves one.
+  browser walk uses a product shaped the way `madarch init` leaves one.
 - **The product the browser reads.** `stage23-product`: a product repository holding
   `workspace.yaml` and `docs/vision.md`, with its code repository `engine` a shallow
   checkout of `https://github.com/shady2k/madarch.git` at `4f67fc27` (194 tracked files

@@ -3,7 +3,7 @@
  * in the product repository declares the workflows the product runs. A workflow
  * is a named set of the engine's stage ids; the stages' capabilities give the
  * order, so no edge is declared in the file, and the engine holds no workflow of
- * its own beyond the starter set `madarch new` writes.
+ * its own beyond the starter set `madarch init --template everything` writes.
  *
  * The check is the derivation a run makes (`deriveStageGraphOver`), read over the
  * workflow's own stages: a stage id the registry does not hold is refused by id,
@@ -253,7 +253,7 @@ export function readWorkflowsFrom(files: ProductFileRead, folder: string, regist
 /** The stages one read of the workflows manifest names, or the refusal that says why a run cannot read them. */
 function firstFillOf(read: WorkflowsRead): FirstFillRead {
   if (!read.present) {
-    return { ok: false, refusal: { file: read.file, line: 1, message: `the product holds no workflows manifest, and its fill reads the stages its \`${FIRST_FILL_WORKFLOW}\` workflow names: write ${WORKFLOWS_FILE} (\`madarch new\` writes the starter set, which names the engine's stages)` } };
+    return { ok: false, refusal: { file: read.file, line: 1, message: `the product holds no workflows manifest, and its fill reads the stages its \`${FIRST_FILL_WORKFLOW}\` workflow names: write ${WORKFLOWS_FILE} (\`madarch init --template everything\` writes the starter set, which names the engine's stages)` } };
   }
   const first = read.findings[0];
   if (first !== undefined) return { ok: false, refusal: first };
@@ -270,7 +270,7 @@ function firstFillOf(read: WorkflowsRead): FirstFillRead {
 
 /**
  * The stages the engine's own `first-fill` workflow names, for a repository that
- * is no product and so holds no manifest: the starter set `madarch new` writes
+ * is no product and so holds no manifest: the starter set `madarch init --template everything` writes
  * into a product is the engine's declared workflow, and a repository served
  * without one runs it. The list is the declared workflow's, never a second list
  * written here; the check of decision 0033, item 2 (`scripts/check-workflows.ts`)

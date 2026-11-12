@@ -37,7 +37,7 @@ export function prepareDemo(options: DemoOptions = {}): DemoResult {
       return { ok: false, message: `the folder ${folder} is not the Madarch demo clone from ${url}; it was left unchanged` };
     const update = runGit(folder, ['pull', '--ff-only']);
     if (!update.ok)
-      return { ok: false, message: `the demo update from ${url} failed: ${update.output}; the product working tree remains unchanged. Check the network or the clone state; if you are offline, try madarch new` };
+      return { ok: false, message: `the demo update from ${url} failed: ${update.output}; the product working tree remains unchanged. Check the network or the clone state; if you are offline, try madarch init` };
     const read = readProduct(folder);
     if (!read.ok) return { ok: false, message: `${read.file}:${read.line}: ${read.message}` };
     return { ok: true, folder, updated: true };
@@ -54,7 +54,7 @@ export function prepareDemo(options: DemoOptions = {}): DemoResult {
   const clone = runGit(home, ['clone', '--quiet', url, stagedProduct]);
   if (!clone.ok) {
     rmSync(staging, { recursive: true, force: true });
-    return { ok: false, message: `git clone failed for ${url}: ${clone.output}; if the network is unavailable, check your connection; if you are offline, try madarch new` };
+    return { ok: false, message: `git clone failed for ${url}: ${clone.output}; if the network is unavailable, check your connection; if you are offline, try madarch init` };
   }
   const stagedRead = readProduct(stagedProduct);
   if (!stagedRead.ok) {

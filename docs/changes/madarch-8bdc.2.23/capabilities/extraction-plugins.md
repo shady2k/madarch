@@ -52,7 +52,7 @@ its exact version and its closure hash. A closure a madarch release carries shal
 approval; any other shall be refused by name until a person approves its hash.
 
 ### Scenario: release-closure
-- Given: a product made by `madarch new`
+- Given: a product made by `madarch init`
 - When: its fill runs the glossary plugin
 - Then: the plugin runs, because its closure hash is one the release carries
 

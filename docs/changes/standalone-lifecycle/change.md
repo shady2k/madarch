@@ -8,7 +8,7 @@ Kind: behavior
 ## Intent
 Decision 0021 item (b): the lifecycle commands are madarch's code, revising
 the clause of 0019 that gave them to the skill set and pinned its vendored
-release. `madarch new`, `rename`, `repo add`, `bootstrap`, `remote` and
+release. `madarch init`, `rename`, `repo add`, `bootstrap`, `remote` and
 `clone` create and change product folders by madarch's own modules
 (`src/product/manifest.ts` reading and writing the manifest,
 `src/product/draft.ts` creating the draft,
@@ -21,7 +21,7 @@ examples (`schema/product-registry.schema.json`, `examples/contract/`) and
 fixture folders the tests build themselves, not the set's program fixtures.
 
 What a user can do that they could not before: a person with only this
-repository can run `madarch new` and the whole lifecycle — no vendored
+repository can run `madarch init` and the whole lifecycle — no vendored
 release in the checkout decides their product's folder, its words and its
 git; the observable answers stay the ones the guide records.
 
@@ -72,7 +72,7 @@ git; the observable answers stay the ones the guide records.
 ## Rationale
 Decision 0021: "the lifecycle commands are madarch's code (revising the
 clause of 0019 that gave them to the set and pinned the vendored program):
-`madarch new`, `rename`, `repo add`, `bootstrap`, `remote`, `clone` and
+`madarch init`, `rename`, `repo add`, `bootstrap`, `remote`, `clone` and
 `list` read and write the contract's own files; the vendored folder leaves
 the repository, and the contract's schema and conformance examples take the
 manifest-shape tests' place, on 0016's pattern." The lifecycle behavior was

@@ -44,7 +44,7 @@ None.
 Kind: log
 Place: the log of the server serving a product, where a fill says what its documents' kinds are, and the product's Problems page, where the same lacks stand with the manifest's file and line
 
-1. Serve a product made by `madarch new` whose documents hold none of the four kinds the starter manifest expects — a product with no `docs/` folder, say — and press a fill of it.
+1. Serve a product made by `madarch init` whose documents hold none of the four kinds the starter manifest expects — a product with no `docs/` folder, say — and press a fill of it.
 2. Read the log of the server that serves it while the fill runs: a line names the product's `madarch/kinds.yaml`, the line of its `documents.expect`, and the kind no section of any document is read as.
 3. Open the product's Problems page: the same lacks stand there, each under the file and the line that declares it, fixed by the person who writes the documents.
 4. Open the wiki of the training product, whose documents hold all four kinds: no such line and no such problem stands, and the Requirement kind lists the two quality requirements of its unnumbered `## Qualities` section.

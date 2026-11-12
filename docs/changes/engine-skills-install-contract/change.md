@@ -109,5 +109,5 @@ gpt-6-luna review.
   install-contract line (shady2k-skills 0.106.0 or later);
 - the guide's skills step names the set's release, not this checkout's
   `skills/` folder;
-- `madarch new` and the describe step keep working for a product whose
+- `madarch init` and the describe step keep working for a product whose
   agent installs the set.

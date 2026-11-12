@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * `bun run check:catalog` (decision 0033, items 8 to 10): the mechanical check of the entity catalog
- * the starter set holds, run over the starter set exactly as `madarch new` writes it.
+ * the starter set holds, run over the starter set exactly as `madarch init` writes it.
  *
  *   bun run check:catalog                    the starter set, written into a temporary product and checked
  *   bun run check:catalog --folder <folder>  the catalog of a product folder that already exists

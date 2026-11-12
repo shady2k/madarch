@@ -161,14 +161,14 @@ function serveAppFiles(_json: ReplyMaker['json'], refused: ReplyMaker['refused']
     }
   }
   if (!isAppRoute(pathname)) {
-    return refused(404, { message: `no such path "${pathname}": the server offers the wiki's API and the app's routes (${APP_ROUTE_PREFIXES.join(', ')})` });
+    return refused(404, { message: `${import.meta.filename}:164: no such path "${pathname}": the server offers the wiki's API and the app's routes (${APP_ROUTE_PREFIXES.join(', ')})` });
   }
   try {
     const index = readFileSync(joinPath(root, 'index.html'));
     return { response: new Response(withMarkdownSibling(index.toString('utf8'), pathname), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }) };
   } catch (error) {
     return refused(404, {
-      message: `no file answers "${pathname}" and the app folder ${JSON.stringify(appFolder)} holds no index.html: the app's built files were expected there (${(error as Error).message})`,
+      message: `${import.meta.filename}:171: no file answers "${pathname}" and the app folder ${JSON.stringify(appFolder)} holds no index.html: the app's built files were expected there (${(error as Error).message})`,
     });
   }
 }

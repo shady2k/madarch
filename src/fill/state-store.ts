@@ -341,17 +341,20 @@ export async function createRun(database: FillStateDatabase, options: { readonly
 
 /**
  * A cheap stamp of what a store's answers stand on (madarch-8bdc.9): how many publications it holds, the last of them,
- * the latest graph journal operation, and the graph's own repositories with the commit each is as-is at. An api role that did not run the fill reads it
+ * the latest graph journal operation, successful fills, and the graph's own repositories with the commit each is as-is at.
+ * A repository-free fill can succeed after its last graph write; that transition changes the status's filled and manifest
+ * fields too, so a body cached before it must not survive its completion. An api role that did not run the fill reads it
  * before each answer and reads the store's numbers again when it moved — one row of counting, not the numbers
  * themselves. The repositories come from the graph, never from a pin table of the fill's (stage 3: `knowledge_fill` is
  * gone).
  */
 export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
   const at = here();
-  return await run(at, database, 'readStoreStamp', ['fill_publication', 'node', 'edge', 'entity', 'operation'], async (executor) => {
+  return await run(at, database, 'readStoreStamp', ['fill_publication', 'fill_run', 'node', 'edge', 'entity', 'operation'], async (executor) => {
     const { rows } = await executor.query<{ stamp: string }>(
       `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
               || ':' || (SELECT coalesce(max(seq)::text, '-') FROM operation)
+              || ':' || (SELECT count(*)::text FROM fill_run WHERE state = 'succeeded')
               || ':' || (SELECT coalesce(string_agg(name || '=' || coalesce(commit_hash, ''), ',' ORDER BY name), '-')
                            FROM (SELECT (n.key->>'name') AS name,
                                         (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash

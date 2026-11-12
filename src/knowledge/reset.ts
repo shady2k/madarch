@@ -73,7 +73,7 @@ export async function planReset(productFolder: string, storeFolder: string, grap
   productFolder = resolve(productFolder); storeFolder = resolve(storeFolder);
   if (storeRoot !== undefined && !storeFolder.startsWith(`${resolve(storeRoot)}${sep}`)) throw failure(storeFolder, `not inside the knowledge root ${resolve(storeRoot)}: nothing was removed`);
   if (present(storeFolder) && storeRoot !== undefined && !realInside(storeRoot, storeFolder)) throw failure(storeFolder, `not inside the knowledge root ${resolve(storeRoot)}: nothing was removed`);
-  const store = ['graph', 'read', 'last-fill.json', 'pages-language.json'].map((name) => join(storeFolder, name)).filter(present);
+  const store = ['graph', 'read', 'last-fill.json', 'pages-language.json', 'pause.json', 'fill-active.json', 'changed-pages.json'].map((name) => join(storeFolder, name)).filter(present);
   for (const path of store) if (!realInside(storeFolder, path)) throw failure(path, 'the store path leaves its folder or cannot be resolved: nothing was removed');
   const plan: ResetPlan = { store, agentPages: [], keptPages: [], unansweredQuestions: [], keptAnswers: [] };
   const files = new Map<string, string>(); const edits = new Map<string, string>(); const removed = new Set<string>();
@@ -113,21 +113,28 @@ export async function planReset(productFolder: string, storeFolder: string, grap
 }
 
 /** Validate all inputs before any write/removal. A newer human answer requires a new preview. */
-export async function applyReset(productFolder: string, plan: ResetPlan, options: { keepQuestions?: boolean; keepStore?: boolean } = {}): Promise<void> {
+export async function applyReset(productFolder: string, plan: ResetPlan, options: { keepQuestions?: boolean; keepStore?: boolean; resetStore?: () => Promise<void> } = {}): Promise<void> {
   const original = prepared.get(plan);
   if (original === undefined || original.product !== resolve(productFolder) || original.preview !== JSON.stringify(plan)) throw failure(productFolder, 'reset plan is not a validated local plan; request a new preview: nothing was removed');
   const fresh = await planReset(productFolder, original.storeFolder, original.graph, original.manifest, original.storeRoot);
   const current = prepared.get(fresh)!;
   if (JSON.stringify(fresh) !== original.preview || original.files.size !== current.files.size) throw failure(productFolder, 'the reset inputs changed since the preview; request a new preview: nothing was removed');
   for (const [relative, source] of original.files) if (current.files.get(relative) !== source) throw failure(join(productFolder, relative), 'the file changed since the preview; request a new preview: nothing was removed');
-  // All validation is complete. A write failure is explicit and happens before deletion.
+  // All validation is complete. The owner resets database contents without unlinking a live cluster.
+  await options.resetStore?.();
+  // The owner call yields: a person may have edited a file or replaced a store path meanwhile.
+  for (const [relative, source] of original.files) {
+    if (fingerprint(productFolder, join(productFolder, relative)) !== source) throw failure(join(productFolder, relative), 'the file changed during reset; nothing was removed from the product');
+  }
+  for (const path of plan.store) if (present(path) && !realInside(original.storeFolder, path)) throw failure(path, 'the store path leaves its folder: nothing was removed from the product');
+  // A write failure is explicit and happens before deletion.
   for (const [relative, source] of original.edits) {
     if (!options.keepQuestions && plan.unansweredQuestions.includes(relative)) continue;
     const path = join(productFolder, relative);
     try { writeFileSync(path, source, 'utf8'); }
     catch (error) { throw failure(path, `resolution metadata could not be updated: ${(error as Error).message}`); }
   }
-  const paths = [...(options.keepStore ? [] : plan.store), ...plan.agentPages.map((relative) => join(productFolder, relative)), ...(options.keepQuestions ? [] : plan.unansweredQuestions.map((relative) => join(productFolder, relative)))];
+  const paths = [...(options.keepStore ? [] : plan.store.filter((path) => options.resetStore === undefined || path !== join(original.storeFolder, 'graph'))), ...plan.agentPages.map((relative) => join(productFolder, relative)), ...(options.keepQuestions ? [] : plan.unansweredQuestions.map((relative) => join(productFolder, relative)))];
   for (const path of paths) {
     try { rmSync(path, { recursive: plan.store.includes(path), force: true }); }
     catch (error) { throw failure(path, `could not be removed: ${(error as Error).message}`); }

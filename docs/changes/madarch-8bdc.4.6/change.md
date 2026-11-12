@@ -13,7 +13,7 @@ workflow that names a missing stage or leaves a stage's input without a producer
 check." Nothing of that data existed: the stage registry held the engine's stages, and a product had no
 place to say which of them a workflow runs.
 
-This change declares the four starter workflows, reads them, and checks them. `madarch new` writes
+This change declares the four starter workflows, reads them, and checks them. `madarch init` writes
 `madarch/workflows.yaml`; the manifest read returns the workflows with the kinds manifest, and the
 wiki's own read of a product reports the workflow findings on its Problems page beside the manifest's
 other findings. A workflow is a named set of the engine's stage ids, and the capabilities give the order:
@@ -59,7 +59,7 @@ implemented workflow's are: every stage it names must exist, and every required 
 must have a producer among them, since decision 0033, item 2 exempts no planned workflow.
 
 The check runs where the catalog's runs: over the starter set in `bun run check` (a temporary product
-written exactly as `madarch new` writes it), and in the wiki's own read of a product's manifest, whose
+written exactly as `madarch init` writes it), and in the wiki's own read of a product's manifest, whose
 findings a reader sees on the Problems page. One check and one reader, the same findings.
 
 ## Out of scope
@@ -98,7 +98,7 @@ changes' additions and stand before the new requirement, which is at the file's 
 - product-wiki/pages: the product's documents are still the wiki's pages; a product without `madarch/workflows.yaml` reads exactly as it did, and the starter set's pages are unchanged.
 - product-wiki/live: a saved workflows file changes the findings at the next read; no page gains or loses a block.
 - product-wiki/serve: serving a product is still one read of its working tree; the workflows file adds no route.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now includes `madarch/workflows.yaml`, committed with the draft.
+- product-repository/draft: `madarch init` still writes the starter set as the product's own files; what it writes now includes `madarch/workflows.yaml`, committed with the draft.
 - fill-stages/registry: a stage is still registered once by its module, and a plan is still derived from the declarations; the workflow check adds one derivation over a set of the registry's stages and changes no stage.
 
 ## Coverage
@@ -131,7 +131,7 @@ None.
   registered only where a run names an agent. It is read, never driven.
 - `src/knowledge/starter-workflows.ts` holds the four workflows as data, and `src/knowledge/seed.ts`
   writes them into `madarch/workflows.yaml` with the manifest's own comment block. The file joins
-  `STARTER_FILES`, so `madarch new` writes and commits it, and a product's starter set holds it.
+  `STARTER_FILES`, so `madarch init` writes and commits it, and a product's starter set holds it.
 - `src/knowledge/kinds.ts` reads the workflows beside the kinds manifest: `KindsManifest.workflows`
   holds the workflows and their findings, and the findings stand with the manifest's own, so the
   Problems page shows them once. A product without the file reads as before.
@@ -217,9 +217,9 @@ Measured in the worker VM (4 vCPU, 8 GB, arm64), 2026-11-05, on the change:
 
 ## Where it is seen
 Kind: command
-Place: `madarch new`'s starter set, `bun run check` in a checkout, and a product's Problems page
+Place: `madarch init`'s starter set, `bun run check` in a checkout, and a product's Problems page
 
-1. Make a product with `madarch new` and open `madarch/workflows.yaml`: four workflows stand under
+1. Make a product with `madarch init` and open `madarch/workflows.yaml`: four workflows stand under
    `workflows:`, first fill names the stages the registry holds, and update by commit, branch/worktree
    and history point are `planned` with `stages: []`.
 2. Run `bun run check`: the workflow check prints `workflows: 4 workflows (1 implemented, 3 planned)` and
@@ -232,7 +232,7 @@ Place: `madarch new`'s starter set, `bun run check` in a checkout, and a product
    the file, the line and the workflow, and exits 1.
 
 ## DONE WHEN
-`madarch new` writes `madarch/workflows.yaml` with the four starter workflows, the manifest read returns
+`madarch init` writes `madarch/workflows.yaml` with the four starter workflows, the manifest read returns
 them, and a workflow's stages are ids of the engine's stage registry; the manifest check, run by the
 product-wiki check and `bun run check` over the starter set, refuses a workflow naming a stage the
 registry does not hold and a stage whose input no earlier stage produces, naming the file, line, workflow

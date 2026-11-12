@@ -15,14 +15,14 @@ archify) stay.
 
 ## Outcomes and acceptance
 
-1. **Start a product from an idea.** `madarch new`, with no name, creates (through
+1. **Start a product from an idea.** `madarch init`, with no name, creates (through
 the skill set's product-repository program it bundles, decision 0019) a
 draft product repository under madarch's home folder
 (`~/madarch/products/`): `AGENTS.md` (the constitution), `CLAUDE.md`
 (`@AGENTS.md`), `workspace.yaml` (the manifest), `docs/`, `model/`,
 `skills/`, `prototypes/` and an ignored `repos/`; a local madarch serves the
 product's wiki and opens it.
-   *Check:* after `madarch new` the draft's wiki opens in the browser; a file
+   *Check:* after `madarch init` the draft's wiki opens in the browser; a file
 the agent saves under `docs/` changes its page without a restart.
 2. **Write the product's intent by the contract, checked and linked.**
 Vision, hypotheses, sources (the record of a brainstorm), user stories, use

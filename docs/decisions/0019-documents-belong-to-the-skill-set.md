@@ -43,14 +43,14 @@ graph, accepting changes and so on".
   after a consultation): its layout, the schema of `workspace.yaml`, creating
   a draft, renaming it into a product and bootstrapping a workspace from the
   manifest are a program the set ships (no agent needed to run it). madarch
-  bundles a pinned release of that program, so `madarch new` stays a front
+  bundles a pinned release of that program, so `madarch init` stays a front
   door for a person without an agent, and it serves and lists any folder with
   a valid `workspace.yaml`, whoever made it. One owner of the structure, more
   than one way in, like a project creator and its runtime.
 
   *(Revised by 0021, 2026-10-12: "the lifecycle commands are madarch's code
   (revising the clause of 0019 that gave them to the set and pinned the
-  vendored program): `madarch new`, `rename`, `repo add`, `bootstrap`,
+  vendored program): `madarch init`, `rename`, `repo add`, `bootstrap`,
   `remote`, `clone` and `list` read and write the contract's own files; the
   vendored folder leaves the repository, and the contract's schema and
   conformance examples take the manifest-shape tests' place" —
@@ -63,7 +63,7 @@ graph, accepting changes and so on".
   the central one reads it after every push (the central-server milestone).
 
 ## Consequences
-- madarch-rtr's stage 1 (the draft-creation code and `madarch new`) moves
+- madarch-rtr's stage 1 (the draft-creation code and `madarch init`) moves
   to the set as that program, and madarch keeps a thin wrapper over a pinned
   release; outcome 5 of idea-to-wiki (rename, remote, first code repository)
   is the set's, `madarch list` stays madarch's.

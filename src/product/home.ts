@@ -4,7 +4,7 @@
  * home of the person the process runs for.
  *
  * One module holds these three readings so no two callers disagree about them:
- * `madarch new` writes its drafts under the products home, and the wizard
+ * `madarch init` writes its drafts under the products home, and the wizard
  * installs an agent's ACP adapter under the madarch home, beside them.
  */
 import { homedir } from 'node:os';

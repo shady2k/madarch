@@ -72,7 +72,7 @@ product-scoped ids, lifecycle, roles) are the first piece of it and are
 quoted here as decided.
 
 - **One graph, product-scoped global ids.** Entity ids are
-  `<product-id>:<local-id>`; the product id is the UUID `madarch new` writes.
+  `<product-id>:<local-id>`; the product id is the UUID `madarch init` writes.
   Duplicates are impossible by construction. A link to another product's
   entity uses the same syntax, carrying the other product's id, so
   federation (0003) needs no second id scheme. v1 resolves local links and

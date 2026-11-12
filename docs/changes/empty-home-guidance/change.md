@@ -12,7 +12,7 @@ short next steps instead of leaving them with only an empty-state message.
 an empty home, so the person can read the guidance there. The fallback is
 read-only and temporary: it supplies only the directory's basename as the
 home's display name, without a product id, manifest, or sample documents.
-Explain what a product repository is. Name only the working steps `madarch new`
+Explain what a product repository is. Name only the working steps `madarch init`
 and `setup-shady2k-skills`; offer the demo by running
 `git clone https://github.com/shady2k/madarch-product` followed by
 `madarch serve --product madarch-product`. Keep the instructions in the

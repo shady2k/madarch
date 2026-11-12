@@ -16,7 +16,7 @@ added a kind could not say which of them shows a card or a history page without 
 This change moves both decisions into the kind's own declaration. A kind may say `card: true` — a ground on one of its
 entities shows the entity's card rather than the code it was read from — and `history` with one of the shapes `repositories`,
 `author`, `path`, `membership`, `commit` and `task`, which is the shape of the story the history block tells of the
-kind's entities. The starter set `madarch new` writes declares both fields for exactly the kinds that had a card and a
+kind's entities. The starter set `madarch init` writes declares both fields for exactly the kinds that had a card and a
 history page before, so the wiki shows the same pages for the starter set.
 
 ## Rationale
@@ -62,7 +62,7 @@ changes' additions and stand before the new requirement, which is at the file's 
 - product-wiki/pages: the product's documents are still the wiki's pages, and the kinds the wiki shows today keep their templates, labels, details and descriptions; the starter set declares the two fields for exactly the kinds that had a card and a history page, so every page it shows is the page it showed.
 - product-wiki/live: a saved manifest still changes the pages at the next read; a `card` or `history` line saved into a kind's declaration takes effect with it.
 - product-wiki/serve: serving a product is still one read of its working tree; the two fields add no route.
-- product-repository/draft: `madarch new` still writes the starter set as the product's own files; what it writes now declares the two fields.
+- product-repository/draft: `madarch init` still writes the starter set as the product's own files; what it writes now declares the two fields.
 
 ## Coverage
 - product-wiki/presentation: test, static

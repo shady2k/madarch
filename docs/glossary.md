@@ -231,7 +231,7 @@ too many of them; a modelling choice, not a kind of element.
 
 **Wiki** (`src/product-wiki/`, `wiki/app/`, `src/wiki/archify.ts`):
 A product's wiki. The served wiki is madarch's own thin app (`wiki/app/`),
-served by a local madarch through the `madarch new` and `madarch serve`
+served by a local madarch through the `madarch init` and `madarch serve`
 commands (`src/product-wiki/`), showing the product's document pages read from
 its working tree and its graph pages read from the fill's record store; the
 archify renderer (`src/wiki/archify.ts`) draws the architecture pages. (Decision
@@ -242,7 +242,7 @@ One product's knowledge kept as Markdown and YAML in a git repository of its
 own, apart from the product's code; before it has a name it is a draft.
 
 **Draft product**:
-A product repository created by `madarch new`: a folder `idea-YYYY-MM-DD`
+A product repository created by `madarch init` outside Git: a folder `idea-YYYY-MM-DD`
 under the products home, with a stable id, an empty `docs/`, and its wiki
 served from the working tree.
 

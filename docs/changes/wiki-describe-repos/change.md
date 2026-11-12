@@ -97,7 +97,7 @@ None.
   `AGENTS-section.md` text — and the guide names the copy: the folder into
   the product's `skills/`, the section appended to the product's
   `AGENTS.md` below the maintained markers, by the engineer or their agent.
-  A draft `madarch new` alone makes carries neither until the copy is made,
+  A draft `madarch init` alone makes carries neither until the copy is made,
   and the tests pin that honest absence.
 - The model is written through the machinery madarch already pins: the
   set's `write-intended-model` procedure (the claims ledger, the evidence

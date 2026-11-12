@@ -1,5 +1,5 @@
 /**
- * Creating a draft product repository, as `madarch new` gives it to a person
+ * Creating a draft product repository, as `madarch init --template everything` gives it to a person
  * with only an idea (docs/changes/draft-product/capabilities/
  * product-repository.md, requirement draft; decision 0021: the lifecycle
  * commands are madarch's own code): a real git repository under the products
@@ -38,7 +38,7 @@ const MAINTAINED_OPEN = '<!-- product:maintained -->';
 const MAINTAINED_CLOSE = '<!-- /product:maintained -->';
 
 /**
- * The constitution `new` writes: the folders and what each is for. It names
+ * The constitution `init` writes: the folders and what each is for. It names
  * no project and no wiki, holds no path, and is written once — the part
  * between the markers is the only part a later version may update, so every
  * section below it, the engineer's own included, is left as it was.
@@ -84,7 +84,7 @@ export const CONSTITUTION = [
   '',
 ].join('\n');
 
-/** The manifest's text as `new` writes it: the three fields that are never renamed. */
+/** The manifest's text as `init` writes it: the three fields that are never renamed. */
 const manifestText = (id: string, name: string): string =>
   [`schemaVersion: ${1}`, `id: ${id}`, `name: ${yamlWord(name)}`, ''].join('\n');
 
@@ -263,7 +263,7 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     writeFileSync(join(folder, MANIFEST_FILE), manifestText(id, name));
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
-    // The template's files are copied into the product repository by the one module that writes them: `madarch new`.
+    // The template's files are copied into the product repository by the one module that writes them: `madarch init --template everything`.
     seedStarterSet(folder, template.id, options.templates);
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);

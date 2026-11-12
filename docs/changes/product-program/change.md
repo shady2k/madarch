@@ -6,12 +6,12 @@ Tasks: madarch-4fk
 Kind: behavior
 
 ## Intent
-madarch-rtr built madarch's own draft creation and `madarch new` first, as
+madarch-rtr built madarch's own draft creation and `madarch init` first, as
 the reference the skill set ported. The set has published its
 product-repository program (a dependency-free Node library and CLI: new,
 read, rename, remote, bootstrap, repo add, where, with its manifest cases and
 its example product folder as fixtures). This change pins that program into
-madarch, makes `madarch new` a thin wrapper over it, removes madarch's own
+madarch, makes `madarch init` a thin wrapper over it, removes madarch's own
 creation code, and keeps madarch's manifest reading, serving and listing on
 the same pinned reader, so a folder the set made, a draft madarch made and a
 folder written by hand are read and served alike (decision 0019: the product
@@ -36,7 +36,7 @@ refusal words differ (listed in the report of the run).
 
 ## Rationale
 Decision 0019 (2026-10-09): "the product repository's lifecycle is the set's
-too ... madarch bundles a pinned release of that program, so `madarch new`
+too ... madarch bundles a pinned release of that program, so `madarch init`
 stays a front door for a person without an agent, and it serves and lists any
 folder with a valid `workspace.yaml`, whoever made it. One owner of the
 structure, more than one way in, like a project creator and its runtime."

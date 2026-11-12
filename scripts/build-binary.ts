@@ -19,9 +19,9 @@
  * --os and --arch name the artifact (`madarch-<os>-<arch>`, `.exe` on
  * Windows); the defaults are this machine's own. The script smoke-runs the
  * binary from outside the checkout, as an installed one runs: it asks its
- * `version`, then runs `new`, reads the address it printed, verifies the
+ * `version`, then runs `init`, reads the address it printed, verifies the
  * served product API (which opens LadybugDB), lists the graph-backed draft,
- * and stops the background server `new` started before it reports done —
+ * and stops the background server `init` started before it reports done —
  * pass or fail, so no madarch process outlives the build.
  *
  * Exit 0 built, 1 when a step of the build fails, 2 when an argument or
@@ -262,12 +262,12 @@ async function smokeServing(outfile: string, home: string): Promise<string | und
   return failure;
 }
 
-/** Runs `new` in the scratch home on the port it was given, and waits for its product's API to answer with the draft's id. */
+/** Runs `init` in the scratch home on the port it was given, and waits for its product's API to answer with the draft's id. */
 async function createsAndServes(outfile: string, products: string, port: number, env: NodeJS.ProcessEnv): Promise<string | undefined> {
   // Every run stands outside the checkout, the way an installed binary does:
   // a server the binary could only start with the repository beside it would
   // be no release.
-  const created = spawnSync(outfile, ['new', '--home', products, '--port', String(port), '--template', 'everything', '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, env, cwd: resideElsewhere(products) });
+  const created = spawnSync(outfile, ['init', '--home', products, '--port', String(port), '--template', 'everything', '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, env, cwd: resideElsewhere(products) });
   const said = `${created.stdout ?? ''}${created.stderr ?? ''}`.trim();
   if (created.status !== 0) {
     return `the built binary could not create a draft, open the graph store and serve it (exit ${String(created.status)}): ${said}${daemonLog(products)}`;

@@ -48,12 +48,12 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     const stamp = body.database !== undefined ? 'history' : contract === undefined ? undefined : graphSchemaStamp(contract);
     const previous = prepared.get(store)?.get(database);
     // Only this owner's last successful preparation stands; a different contract may change its schema.
-    if (previous !== undefined && (stamp === undefined || previous === stamp)) return;
+    if (body.reset !== true && previous !== undefined && (stamp === undefined || previous === stamp)) return;
     prepared.get(store)?.delete(database);
     const owner = await ownerOf(store, body.database);
     const started = performance.now();
     try {
-      await prepareStore(owner, { ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
+      await prepareStore(owner, { ...(body.reset === true ? { reset: true } : {}), ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
     } finally {
       if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${store}`);
     }

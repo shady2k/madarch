@@ -101,3 +101,13 @@ test('keepQuestions and keepStore preserve those paths while resetting agent pag
   expect(existsSync(storePart)).toBe(true);
   expect(existsSync(join(f.product, f.file))).toBe(false);
 });
+
+test('a file changed while the store resets is kept rather than deleted', async () => {
+  const f = await fixture();
+  const plan = await planReset(f.product, f.store, f.graph.reader(), f.manifest);
+  const changed = 'a person changed this while the store reset';
+  await expect(applyReset(f.product, plan, { resetStore: async () => {
+    writeFileSync(join(f.product, f.file), changed);
+  } })).rejects.toThrow(`${join(f.product, f.file)}:1:`);
+  expect(readFileSync(join(f.product, f.file), 'utf8')).toBe(changed);
+});

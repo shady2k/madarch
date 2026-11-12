@@ -23,7 +23,8 @@
  * first time — takes its first read as the baseline: the server starts no run for
  * work that stood before it looked, which is the first fill's own job.
  *
- * **When it may start a run.** Only after the wizard was run in this home: the
+ * **When it may start a run.** Only after a successful fill; before it, heads
+ * advance as baselines and no repository content is read. Only after the wizard was run in this home: the
  * agent it chose is what a run spends, and a server that invented an agent nobody
  * chose would spend the person's money without their decision. A run is also
  * never started over a fill in progress: the product's chain of runs refuses it
@@ -38,6 +39,7 @@
 import { mkdirSync, readFileSync, renameSync, statSync, watch, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { here } from '../model/raise.js';
 import type { FillProduct } from '../fill/orchestrator-host.js';
 import { listProducts } from './list.js';
 import { readChosenAgent } from './fill-wizard.js';
@@ -112,6 +114,8 @@ export interface UpdateWatchOptions {
   readonly home: string;
   /** How one update run is started. */
   readonly start: UpdateRunStarter;
+  /** Whether this product completed a successful fill; updates never perform the first fill. */
+  readonly filled: (product: FillProduct) => Promise<boolean>;
   /** How long a default branch must stand still before its commit's run starts, so a batch of quick commits is one run. */
   readonly debounceMs?: number;
   /** How often a safety net re-reads the refs, for a watcher the system dropped; it starts no git. */
@@ -369,7 +373,7 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const clock = options.clock ?? Date.now;
-  const log = options.log ?? (() => undefined);
+  const log = (line: string): void => options.log?.(`${here()}: ${line}`);
   // The agent the wizard chose stands in the person's own home (`fill-wizard.ts`'s default, `homeFromEnv()`), not in
   // the products home this watcher lists: the home passed here is where the products stand.
   const enabled = options.enabled ?? (async () => (await readChosenAgent()) !== undefined);
@@ -445,6 +449,19 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
     /** The heads this pass handled: what the file keeps, so a commit is asked for once. */
     const handled: Record<string, { branch: string; commit: string }> = {};
     for (const product of listed.products) {
+      let filled: boolean;
+      try {
+        filled = await options.filled({ name: product.name, folder: product.folder });
+      } catch (error) {
+        const reason = `${here()}: ${product.folder}:1: cannot read whether the product completed a fill; its heads are not advanced and no update starts: ${(error as Error).message}`;
+        report.unreadable.push(reason);
+        say(`fill:${product.name}`, reason);
+        for (const [key, pending] of waiting) {
+          if (pending.product === product.name) waiting.delete(key);
+        }
+        continue;
+      }
+      said.delete(`fill:${product.name}`);
       for (const repository of repositoriesOf(product)) {
         const key = seenKey(product.name, repository.repository);
         // The branch watched is the one the product declares, else the one this repository stood on when it was
@@ -465,6 +482,13 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
         }
         // A repository that reads again says why it did not the next time it does not.
         said.delete(`head:${key}`);
+        if (!filled) {
+          handled[key] = { branch: read.head.branch, commit: read.head.commit };
+          waiting.delete(key);
+          say(`not-filled:${key}`, `${here()}: ${read.head.file}:1: the product ${JSON.stringify(product.name)} has no successful fill; only the baseline advances until the person presses Fill`);
+          continue;
+        }
+        said.delete(`not-filled:${key}`);
         const before = seen[key];
         if (before === undefined) {
           // The first read of a repository is its baseline: no run for work that stood before the watcher looked.

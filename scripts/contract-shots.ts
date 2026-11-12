@@ -61,7 +61,7 @@ if (previous !== undefined && fillConfigDigest() !== previous.configDigest) thro
 let base = `http://127.0.0.1:${port}`;
 let stop: () => Promise<void>;
 if (previous === undefined) {
-  const created = spawnSync(binary, ['new', '--home', home, '--port', String(port), '--json', '--no-open'], {cwd: work, env: {...env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test'}, encoding: 'utf8', timeout: 120_000});
+  const created = spawnSync(binary, ['init', '--template', 'everything', '--home', home, '--port', String(port), '--json', '--no-open'], {cwd: work, env: {...env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test'}, encoding: 'utf8', timeout: 120_000});
   if (created.status !== 0) throw new Error(`contract-shots.ts:54 (${import.meta.filename}): binary new exited ${created.status}: ${created.stderr}${created.stdout}`);
   const facts = JSON.parse(created.stdout.trim().split('\n').filter((line) => line.startsWith('{')).pop()!) as {folder: string; url: string};
   product = basename(facts.folder); productFolder = facts.folder; base = new URL(facts.url).origin;
