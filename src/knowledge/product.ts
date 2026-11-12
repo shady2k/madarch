@@ -23,6 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { requestStorePreparation, requestStoreReset } from '../product/store-preparation.js';
 import { createDatabaseOwner, type DatabaseOwner, type OuterTransaction } from '../adapters/database-owner.js';
+import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
 import { byCodePoint } from '../model/order.js';
 import { documentSections } from './anchors.js';
@@ -257,6 +258,7 @@ export class KnowledgeProduct {
   /** The store's own stamp when this process last read it: a publication moves it, whoever ran the fill. */
   private storeStamp: string | undefined;
   private opening: Promise<void> | undefined;
+  private storeOpening: Promise<DatabaseOwner | null> | undefined;
   /** The store's fill-run queue, opened with the store and closed with it (madarch-8bdc.9). */
   private fillQueue: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
   private fill: FillState = { state: 'idle' };
@@ -384,6 +386,30 @@ export class KnowledgeProduct {
   }
 
 
+  /** Connects to the prepared store without reading or publishing the catalogue. */
+  private async openStore(): Promise<DatabaseOwner>;
+  private async openStore(preparedOnly: true): Promise<DatabaseOwner | null>;
+  private async openStore(preparedOnly = false): Promise<DatabaseOwner | null> {
+    if (this.closed) throw new Error('the wiki is shutting down');
+    this.lastUse = Date.now();
+    this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
+    this.storeOpening ??= preparedOnly
+      ? openPreparedDatabaseOwner(storeDatabasePath(this.storeFolder()), ['fill-state', 'orchestrator'])
+      : createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
+    const opening = this.storeOpening;
+    try {
+      const owner = await opening;
+      if (owner === null) {
+        if (this.storeOpening === opening) this.storeOpening = undefined;
+        if (!preparedOnly) return await this.openStore();
+      }
+      return owner;
+    } catch (error) {
+      if (this.storeOpening === opening) this.storeOpening = undefined;
+      throw error;
+    }
+  }
+
   /**
    * Opens the store once, in this process (madarch-8bdc.9): the wiki reads the database the fill writes, directly. A store
    * with no tables at all (an empty folder the home made, or an earlier madarch's) is given them here, as the fill's own
@@ -396,7 +422,6 @@ export class KnowledgeProduct {
     if (publication?.status === 'pending') throw new WikiReadError('The catalogue is being published. Please wait.');
     if (publication?.status === 'failed') throw new WikiReadError(`The catalogue could not be published: ${publication.message}`);
     this.lastUse = Date.now();
-    this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
       // Managed readers use only what the daemon published, not a second read of the checkout.
       const manifests = publication === undefined ? validateProductManifests(this.folder) : undefined;
@@ -405,7 +430,7 @@ export class KnowledgeProduct {
         const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
         await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
       }
-      const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
+      const owner = await this.openStore();
       try {
         await owner.ready;
         if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
@@ -416,6 +441,7 @@ export class KnowledgeProduct {
       } catch (error) {
         // An owner that failed to open is given back: a retry must not leave a connection behind per request.
         await owner.close().catch(() => undefined);
+        this.storeOpening = undefined;
         throw error;
       }
       this.reader = { owner, seq: this.generation };
@@ -571,10 +597,10 @@ export class KnowledgeProduct {
 
   /** Gives back the reader of a product nobody is reading, unless a fill is under way. */
   private async closeIfIdle(): Promise<void> {
-    if (this.closed || this.running !== undefined || this.reader === undefined || Date.now() - this.lastUse < READER_IDLE_MS) return;
-    const held = this.reader;
+    if (this.closed || this.running !== undefined || this.storeOpening === undefined || Date.now() - this.lastUse < READER_IDLE_MS) return;
+    const held = this.storeOpening;
     await this.swapping.catch(() => undefined);
-    if (this.reader !== held) return;
+    if (this.storeOpening !== held) return;
     this.reader = undefined;
     this.opening = undefined;
     // The store's fill-run queue is opened on this reader's owner and asks it for statements on pg-boss's own
@@ -582,7 +608,8 @@ export class KnowledgeProduct {
     const queue = this.fillQueue;
     this.fillQueue = undefined;
     if (queue !== undefined) await queue.stop().catch(() => undefined);
-    await held.owner.close().catch(() => undefined);
+    this.storeOpening = undefined;
+    await held.then((owner) => owner?.close()).catch(() => undefined);
   }
 
   /**
@@ -1611,7 +1638,8 @@ export class KnowledgeProduct {
         const held = this.fillQueue;
         this.fillQueue = undefined;
         if (held !== undefined) await held.stop();
-        await this.reader?.owner.close();
+        await this.storeOpening?.then((owner) => owner?.close());
+        this.storeOpening = undefined;
         this.reader = undefined;
         this.opening = undefined;
         await requestStoreReset(storeDatabasePath(this.storeFolder()), contract);
@@ -2255,18 +2283,30 @@ export class KnowledgeProduct {
 
   private readonly traceReader = new TraceSpanReader();
 
-  /** The newest run's trace as the run page states it, or null when the store holds no trace. */
+  private traceSummaryMemo: { key: string; value: ReturnType<typeof readTraceRunSummary> } | undefined;
 
+  /** The persisted run is authoritative; its trace only supplies metrics. */
   private async runViewOf(runId?: string): Promise<FillRunView | null> {
     if (!existsSync(storeDatabasePath(this.storeFolder()))) return null;
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    const owner = await this.open();
+    const publication = manifestPublicationState(this.folder);
+    const preparing = publication !== undefined && publication.status !== 'published';
+    const owner = preparing ? await this.openStore(true) : await this.openStore();
+    if (owner === null) return null;
     const record = runId === undefined ? await readLatestRun(owner, product.name) : await readRun(owner, runId);
     if (record === null || record.product !== product.name) return null;
     const configuration = await readRunConfiguration(owner, record.runId);
     const chosenEntry = traceFiles(this.storeFolder()).find((one) => one.runId === record.runId);
-    const run = chosenEntry === undefined ? undefined : readTraceRunSummary({ store: this.storeFolder(), runId: record.runId }, this.traceReader);
+    let run: ReturnType<typeof readTraceRunSummary> | undefined;
+    if (chosenEntry !== undefined) {
+      const stat = statSync(chosenEntry.file);
+      const key = `${chosenEntry.file}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+      if (this.traceSummaryMemo?.key !== key) {
+        this.traceSummaryMemo = { key, value: readTraceRunSummary({ store: this.storeFolder(), runId: record.runId }, this.traceReader) };
+      }
+      run = this.traceSummaryMemo.value;
+    }
     return {
       runId: record.runId,
       state: record.state,
@@ -3185,7 +3225,8 @@ export class KnowledgeProduct {
     this.listeners.clear();
     await this.fillQueue?.stop().catch(() => undefined);
     this.fillQueue = undefined;
-    if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
+    await this.storeOpening?.then((owner) => owner?.close()).catch(() => undefined);
+    this.storeOpening = undefined;
     this.reader = undefined;
     this.opening = undefined;
   }

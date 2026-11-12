@@ -15,10 +15,11 @@ Real model calls, new kind readers, changing fill scheduling or result semantics
 - fill-orchestrator/completion: expose the latest actual run with when, selection, outcome and destination link. `/api/run` defaults to the latest persisted product run, and `?run=` reads that exact persisted run. A persisted run without a trace remains available with empty trace statistics; a trace-only ID is not a persisted run and returns 404.
 
 ## Preserved contracts
-None.
+- product-wiki/serve: status remains available with HTTP 200 while catalogue publication is pending (madarch-64o5.9).
 
 ## Coverage
 - fill-orchestrator/completion: static test review
+- product-wiki/serve: static test review
 
 ## Where it is seen
 Kind: request
@@ -35,4 +36,4 @@ Place: /fill after a selective fixture fill
 None.
 
 ## Acceptance evidence
-Red proofs: `/tmp/q32-backend-red.log` (actual selective fixture run missing persisted result/selection), `/tmp/q32-ui-red.log` (idle writer hides actual run). Backend coverage: `test/fill-selection.test.ts`. Frontend coverage: `wiki/app/src/knowledge/knowledge.test.tsx`; run-page compatibility fixtures: `wiki/app/src/knowledge/repository.test.tsx`. Final native checks and independent review are recorded in `/tmp/madarch-64o5.32-report.md`. Mutation: not-made. No owner approval is recorded here.
+Red proofs: `/tmp/q32-backend-red.log` (actual selective fixture run missing persisted result/selection), `/tmp/q32-ui-red.log` (idle writer hides actual run). Backend coverage: `test/fill-selection.test.ts`. Frontend coverage: `wiki/app/src/knowledge/knowledge.test.tsx`; run-page compatibility fixtures: `wiki/app/src/knowledge/repository.test.tsx`. Final native checks and independent review are recorded in `/tmp/madarch-64o5.32-report.md`. Mutation: not-made. No owner approval is recorded here. PR #279 follow-up covers publication-pending status, init/start, clean-install and the unchanged 150 000-span status budget; follow-up logs are `/tmp/q32r-*.log` and independent review is `/tmp/q32r-review.md`.

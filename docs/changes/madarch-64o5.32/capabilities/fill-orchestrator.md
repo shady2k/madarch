@@ -291,6 +291,13 @@ the page shall state that the selection was not recorded rather than call it a
 whole fill. An active run shall not label its last update as its finish time.
 A product with no run shall show the never-started state honestly.
 
+A pending catalogue publication shall not prevent status from returning HTTP
+200 with the publication state and the latest persisted run when one exists.
+Reading run identity and configuration shall not require opening the published
+catalogue. Trace metrics shall enrich only that run. Unchanged trace metrics
+shall be reused without rescanning a large trace on every status poll; a changed
+trace or a newly persisted run shall be reflected without restarting the server.
+
 ### Scenario: succeeded
 - Given: a plan of four units across three stages that all publish
 - When: the run is driven to its end
@@ -320,6 +327,16 @@ A product with no run shall show the never-started state honestly.
 - Given: a product that has never run a fill
 - When: the reader opens Fill
 - Then: the page says filling has not started yet and invents no run or result
+
+### Scenario: status-during-catalogue-publication
+- Given: a product store with a persisted run and a catalogue publication that is pending
+- When: the reader requests status
+- Then: status answers HTTP 200 with publication pending and the persisted run, without requiring the catalogue to be ready
+
+### Scenario: large-store-status-budget
+- Given: a persisted run whose exact trace holds 150 000 scripted spans
+- When: the reader requests status twice
+- Then: the first answer arrives within 5 seconds and the unchanged second answer within 50 milliseconds, with the same run's trace metrics
 
 ## Requirement: recovery — What an attempt that never published left is worked again
 
