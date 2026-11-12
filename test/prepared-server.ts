@@ -12,10 +12,12 @@ import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/p
 
 /** Explicit activation for a fixture product created after its HTTP server started. */
 export async function activateTestProduct(folder: string, home: string, knowledgeRoot = knowledgeRootOf(home)): Promise<void> {
-  const kinds = readKinds(folder);
-  const contract = existsSync(resolve(folder, '.git'))
-    ? await readPinnedGraphContract(folder)
-    : kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT;
+  let contract;
+  if (existsSync(resolve(folder, '.git'))) contract = await readPinnedGraphContract(folder);
+  else {
+    const kinds = readKinds(folder);
+    contract = kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT;
+  }
   await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), contract);
 }
 
