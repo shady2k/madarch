@@ -467,7 +467,10 @@ ${text === '' ? '(empty)' : text}` };
     if (isNotification(value)) {
       if (value.method === 'unit.resultChunk') {
         const chunk = value.params;
-        if (!Value.Check(PluginResultChunk, chunk)) return;
+        if (!Value.Check(PluginResultChunk, chunk)) {
+          this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk must carry a unitId, sequence and base64 data` });
+          return;
+        }
         const held = this.inFlight.get(chunk.unitId);
         if (held === undefined) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk names no active unit` }); return; }
         this.countBytes(held, bytes);
