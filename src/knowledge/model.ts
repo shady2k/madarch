@@ -528,7 +528,7 @@ export interface KindEstimate {
 }
 
 /** The catalogue list omits declaration details, acquired by a single-kind request. */
-export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources' | 'pluginFolders'>[] };
 
 /** The catalogue's own answer (madarch-8bdc.2.5): every declared kind under its area and subgroup, its words, its count and what fills it. */
 export interface CatalogView {

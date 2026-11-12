@@ -18,7 +18,7 @@ import type { CatalogKindView, CatalogSummaryView, CatalogView, WikiStatus } fro
 
 /** The list carries navigation and fill metadata; declaration details are read only when a kind is opened. */
 export function catalogSummary(view: CatalogView): CatalogSummaryView {
-  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, ...kind }) => ({
+  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, pluginFolders, ...kind }) => ({
     ...kind,
     ...(sources === undefined || sources.length === 0 ? {} : { sourcesAvailable: true }),
   })) };
@@ -107,7 +107,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
 } = {}): Promise<CatalogKindView[]> {
   const numbers = await kindNumbers(ctx);
   const catalog = ctx.manifest.catalog;
-  const pluginsOf = (decl: KindDecl | undefined): string[] => [...(ctx.manifest.plugins?.values() ?? [])].filter((plugin) => plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === decl?.name)).map((plugin) => plugin.id).sort(byCodePoint);
+  const pluginsOf = (decl: KindDecl | undefined): string[] => decl === undefined ? [] : [...(ctx.manifest.plugins?.values() ?? [])].filter((plugin) => plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === decl.name)).map((plugin) => plugin.id).sort(byCodePoint);
   const row = (kind: string, subgroup: string, words: { labels?: Readonly<Record<string, { one: string; many: string }>>; descriptions?: Readonly<Record<string, string>> }, page: boolean, decl: KindDecl | undefined, entry: CatalogEntry | undefined): CatalogKindView => {
     const plugins = pluginsOf(decl);
     const pluginFolders = [...new Set(plugins.flatMap((id) => {
