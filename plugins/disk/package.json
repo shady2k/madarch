@@ -1,0 +1,7 @@
+{
+  "name": "madarch-plugin-disk",
+  "private": true,
+  "dependencies": {
+    "linguist-languages": "9.5.0"
+  }
+}
