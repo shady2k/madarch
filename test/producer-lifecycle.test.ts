@@ -34,7 +34,7 @@ test('scripted Document and Problem producers publish, abstain, fail, retract an
   const plugin = join(product, 'plugins', 'lifecycle'); mkdirSync(plugin, { recursive: true });
   const field = (name: string) => ({ name, type: 'text', meaning: name, example: name, required: true });
   const contract = { vertices: [
-    { kind: 'Document', key: ['id'], fields: [field('id'), field('state')] },
+    { kind: 'Document', key: ['id'], fields: [field('id'), field('condition')] },
     { kind: 'Problem', key: ['id'], fields: [field('id'), field('title'), { ...field('detail'), required: false }] },
   ], edges: [] };
   writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'lifecycle', version: '1.0.0', reads: 'whole-graph', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
@@ -48,7 +48,7 @@ kinds:
     source: graph
     fields:
       - { name: id, type: text }
-      - { name: state, type: text }
+      - { name: condition, type: text }
     key: [id]
   Problem:
     template: templates/item-plain.liquid
@@ -68,8 +68,8 @@ plugins:
     writeFileSync(join(plugin, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
 await definePlugin({name:'lifecycle', version:'1.0.0', reads:'whole-graph', graph:true, graphReads:['value'], contract:${JSON.stringify(contract)},
 async extract(unit, context) {
-  if (unit.kind === 'Document') return {vertices:[{kind:'Document',key:{id:'source'},values:{state:${JSON.stringify(mode)}},evidence:${JSON.stringify(author)}}],end:{state:'complete'}};
-  const mode = await context.graph.value('Document', {id:'source'}, 'state');
+  if (unit.kind === 'Document') return {vertices:[{kind:'Document',key:{id:'source'},values:{condition:${JSON.stringify(mode)}},evidence:${JSON.stringify(author)}}],end:{state:'complete'}};
+  const mode = await context.graph.value('Document', {id:'source'}, 'condition');
   if (mode === 'failed') throw new Error('scripted check failure');
   if (mode === 'partial') return {vertices:[{kind:'Problem',key:{id:'uncommitted'},values:{title:'must not publish'}}],end:{state:'partial',cause:'scripted abstention'}};
   return {vertices:mode === 'bad' ? [{kind:'Problem',key:{id:'finding'},values:{title:'Bad document',detail:'grounded'},evidence:${JSON.stringify(author)}}] : [],end:{state:'complete'}};
