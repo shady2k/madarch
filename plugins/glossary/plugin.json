@@ -10,11 +10,11 @@
   "produces": [
     {
       "kind": "doc.term",
-      "fields": "*"
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
     }
-  ],
-  "reads": [
-    "code.file"
   ],
   "concurrency": 1
 }

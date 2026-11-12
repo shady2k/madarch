@@ -330,6 +330,8 @@ export interface KindDecl {
   capability?: string;
   /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
   derivesFrom?: readonly string[];
+  /** Explicit ordinary plugin output for these fields; overlap requires named refinements. */
+  agent?: { readonly plugin: string; readonly fields: '*' | readonly string[]; readonly refines?: readonly string[] };
   line: number;
 }
 
@@ -557,7 +559,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 const KIND_KEYS = new Set([
   'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -1507,6 +1509,25 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
     const capability = decl['capability'];
     if (capability !== undefined && (typeof capability !== 'string' || !/^[a-z][a-z0-9-]*$/.test(capability))) problem(['capability'], '"capability" is the name of the capability that fills the kind');
+    const rawAgent = decl['agent'];
+    let agent: KindDecl['agent'];
+    if (rawAgent !== undefined) {
+      if (!isRecord(rawAgent)) problem(['agent'], '"agent" is { plugin, fields, refines? }');
+      else {
+        for (const field of Object.keys(rawAgent)) if (!['plugin', 'fields', 'refines'].includes(field)) problem(['agent', field], `"${field}" is not a field of "agent": the fields are plugin, fields and refines`);
+        const plugin = rawAgent['plugin'];
+        const agentFields = rawAgent['fields'];
+        const refines = rawAgent['refines'];
+        const names = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
+        const validPlugin = typeof plugin === 'string' && /^[a-z][a-z0-9-]*$/.test(plugin);
+        const validFields = agentFields === '*' || names(agentFields);
+        const validRefines = refines === undefined || names(refines);
+        if (!validPlugin) problem(plugin === undefined ? ['agent'] : ['agent', 'plugin'], '"plugin" names the enabled plugin that fills these fields');
+        if (!validFields) problem(agentFields === undefined ? ['agent'] : ['agent', 'fields'], '"fields" is "*" or a list of field names');
+        if (!validRefines) problem(['agent', 'refines'], '"refines" is a list of plugin names');
+        if (validPlugin && validFields && validRefines) agent = { plugin, fields: agentFields, ...(refines === undefined ? {} : { refines }) };
+      }
+    }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
@@ -1564,6 +1585,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
+      ...(agent === undefined ? {} : { agent }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
       line,

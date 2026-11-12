@@ -10,23 +10,32 @@
   "produces": [
     {
       "kind": "code.database",
-      "fields": "*"
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
     },
     {
       "kind": "code.table",
-      "fields": "*"
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
     },
     {
       "kind": "code.column",
-      "fields": "*"
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
     },
     {
       "kind": "code.index",
-      "fields": "*"
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
     }
-  ],
-  "reads": [
-    "code.file"
   ],
   "concurrency": 1
 }
