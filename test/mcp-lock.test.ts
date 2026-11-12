@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { acquireFolderLock, repositoryStoreFolder, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
+import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 
 const FOLDER = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-'));
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-repo-'));
@@ -37,7 +38,7 @@ describe('the folder lock', () => {
     releaseFolderLock(FOLDER, again);
   });
 
-  test('the lock outlives the database it guards: it is dropped only once the database is closed', async () => {
+  test('the lock outlives the database it guards: it is dropped only once the database is closed', async () => await withStorePreparationOwner(async () => {
     // No pre-filled graph: the store is the one the one fill publishes (a checkout's own), and the
     // server opens it with no temporal view until the static stages' step publishes one. The lock is
     // taken before the fill and dropped after the database closes, whatever the store holds.
@@ -54,5 +55,5 @@ describe('the folder lock', () => {
     expect(existsSync(path.join(folder, 'server.lock'))).toBe(false);
     const taken = acquireFolderLock(folder);
     releaseFolderLock(folder, taken);
-  }, 120_000);
+  }), 120_000);
 });
