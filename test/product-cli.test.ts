@@ -252,7 +252,7 @@ describe('the single start command', () => {
   });
 
   for (const checkout of [false, true]) {
-    test.skipIf(process.platform !== 'linux')(`a terminal asks nothing and creates no manifest in ${checkout ? 'a checkout' : 'an empty folder'}`, async () => {
+    test.skipIf(process.platform !== 'linux')(`a terminal asks only the template in ${checkout ? 'a checkout' : 'an empty folder'}`, async () => {
       const base = scratchFolder('madarch-init-terminal-');
       const work = join(base, 'work'); mkdirSync(work);
       if (checkout) {
@@ -274,14 +274,18 @@ describe('the single start command', () => {
       runningChildren.push(proc);
       let output = '';
       const reading = (async () => { for await (const bytes of proc.stdout) output += new TextDecoder().decode(bytes); })();
+      const deadline = Date.now() + 30_000;
+      while (!output.includes('Choose 1-') && proc.exitCode === null && Date.now() < deadline) await Bun.sleep(25);
+      expect(output).toContain('Which template should the product start from?');
+      proc.stdin.write('\n'); proc.stdin.flush();
       expect(await proc.exited).toBe(0);
       await reading;
-      expect(output).not.toContain('Which template');
+      expect(output.match(/Which template should the product start from\?/g)?.length).toBe(1);
       expect(output).not.toContain('Which agent');
       expect(output).not.toContain('token cap');
       const productFolder = output.match(/ in ([^\r\n]+)/)?.[1];
       expect(productFolder).toBeDefined();
-      for (const file of ['kinds.yaml', 'workflows.yaml']) expect(existsSync(join(productFolder!, 'madarch', file))).toBeFalse();
+      expect(existsSync(join(productFolder!, 'madarch', 'kinds.yaml'))).toBeTrue();
       expect(existsSync(opened)).toBeTrue();
       const url = readFileSync(opened, 'utf8');
       expect((await fetch(url)).ok).toBeTrue();

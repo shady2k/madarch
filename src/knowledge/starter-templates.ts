@@ -1,7 +1,7 @@
 /**
- * The templates `madarch init --template` accepts (decision 0035, item 1: templates with fine-grained inclusion
- * later). Init asks no questions; choosing a template is explicit. This is starter content, not engine behaviour:
- * neither the engine nor the command names a template or a kind
+ * The templates `madarch init` offers (decision 0035, item 1: the choice is offered as templates — everything, only
+ * the tracker, others — with fine-grained inclusion later). This is starter content, not engine behaviour: the menu
+ * lists whatever is declared here, in this order, and neither the engine nor the command names a template or a kind
  * (the architecture rule `starter-data-when-copying` and "the engine holds no product data").
  *
  * A template names the kinds its manifest declares. `madarch` narrows the starter catalogue to those kinds and writes
@@ -58,3 +58,7 @@ export function starterTemplateIds(templates: readonly StarterTemplate[] = START
   return templates.map((template) => template.id);
 }
 
+/** The menu's numbered lines, one per declared template, in their declared order: the data decides what is offered. */
+export function templateMenuLines(templates: readonly StarterTemplate[] = STARTER_TEMPLATES): string[] {
+  return templates.map((template, at) => `  ${at + 1}. ${template.title.en} — ${template.description.en}`);
+}

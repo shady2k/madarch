@@ -17,7 +17,7 @@ import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { STARTER_TEMPLATES, starterTemplateIds, starterTemplateOf } from '../knowledge/starter-templates.js';
+import { STARTER_TEMPLATES, starterTemplateIds, starterTemplateOf, templateMenuLines } from '../knowledge/starter-templates.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
@@ -539,6 +539,30 @@ export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined 
 const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
 
 /** A terminal chooses a starter; scripts without an explicit choice leave the manifest to the wiki. */
+async function templateChoice(parsed: Parsed): Promise<string> {
+  if (parsed.template !== undefined) return parsed.template;
+  if (process.stdin.isTTY && process.stdout.isTTY) return await askTemplate();
+  return 'none';
+}
+
+/** The template menu of a terminal: every declared template, in their declared order, and the first one by default. */
+async function askTemplate(): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log('Which template should the product start from?');
+    for (const line of templateMenuLines()) console.log(line);
+    while (true) {
+      const answer = (await prompt.question(`Choose 1-${STARTER_TEMPLATES.length} (1): `)).trim();
+      if (answer === '') return STARTER_TEMPLATES[0]!.id;
+      const index = Number(answer);
+      if (Number.isInteger(index) && index >= 1 && index <= STARTER_TEMPLATES.length) return STARTER_TEMPLATES[index - 1]!.id;
+      console.error(`choose a number from 1 to ${STARTER_TEMPLATES.length}`);
+    }
+  } finally {
+    prompt.close();
+  }
+}
+
 /** What the product was made from, in the words the newcomer bar uses: the template, its kinds, and where the guide is. */
 function printTemplate(templateId: string, kinds: number): void {
   const template = starterTemplateOf(templateId);
@@ -728,7 +752,7 @@ function productHomeOf(named: string | undefined): string {
     const cwd = resolve(parsed.words[0] ?? process.cwd());
     try { await mkdir(cwd, { recursive: true }); }
     catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
-    const template = parsed.template ?? 'none';
+    const template = await templateChoice(parsed);
     const result = initLife({ cwd, home, template });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);

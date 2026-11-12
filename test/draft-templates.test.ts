@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { starterPageKindNames } from '../src/knowledge/seed.js';
-import { STARTER_TEMPLATES, starterTemplateIds } from '../src/knowledge/starter-templates.js';
+import { STARTER_TEMPLATES, templateMenuLines } from '../src/knowledge/starter-templates.js';
 import { checkStarterTemplate } from '../scripts/template-check.js';
 import { createDraft } from '../src/product/draft.js';
 import { startPreparedServer } from './prepared-server.js';
@@ -41,7 +41,8 @@ afterAll(() => {
 
 describe('the templates madarch init offers', () => {
   test('the declared templates are data: a third one, declared here and nowhere in the engine, is made, checked and listed', () => {
-    // A template this test declares is created, checked and accepted like the starter data; no engine file names it.
+    // The list is data, not code: a template this test declares is created, checked and shown in the menu like the two
+    // the starter data holds, and no engine file names it.
     const fixture = {
       id: 'fixture',
       title: { en: 'Fixture', ru: 'Стенд' },
@@ -59,7 +60,9 @@ describe('the templates madarch init offers', () => {
     const checked = checkStarterTemplate(fixture);
     expect({ ok: checked.ok, problems: checked.problems }).toEqual({ ok: true, problems: [] });
     expect(checked.kinds).toEqual(['task']);
-    expect(starterTemplateIds(templates)).toEqual(['everything', 'none', 'fixture']);
+    const lines = templateMenuLines(templates);
+    expect(lines).toHaveLength(3);
+    expect(lines[2]).toContain('3. Fixture —');
     // The declared data itself stays two: the fixture above is not starter data.
     expect(STARTER_TEMPLATES.map((template) => template.id)).toEqual(['everything', 'none']);
   });

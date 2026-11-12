@@ -82,10 +82,11 @@ The draft lives under `~/madarch/products`, named `idea-YYYY-MM-DD`, then
 it was; the products home can be moved with `MADARCH_HOME`, or with
 `--home <folder>` for one command.
 
-Init asks no questions, in a terminal or outside one. Without `--template`,
-it writes no kind or workflow manifest. Choose `everything` or `none` with
-`--template`, or choose a template later through the CLI or wiki; both use
-the same engine path. `none` starts without kind and workflow manifests:
+In a terminal, init asks only which template to use. The templates are
+`everything` and `none`; `none` starts without
+kind and workflow manifests. There is no repository-selection prompt. When
+input is not a terminal, no template is selected and no kind or workflow
+manifest is written unless you pass `--template` explicitly:
 
     madarch init --template everything --json --no-open
 

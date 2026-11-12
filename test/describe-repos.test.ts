@@ -137,11 +137,6 @@ describe('what a real draft made by madarch init holds', () => {
 });
 
 describe("the engineer's guide describing step", () => {
-  test('init asks nothing and leaves templates optional in every terminal mode', () => {
-    expect(guide).toContain('Init asks no questions, in a terminal or outside one.');
-    expect(guide).toContain('it writes no kind or workflow manifest.');
-    expect(guide).not.toContain('init asks only which template');
-  });
   test('the guide names the step after repo add, its artifacts and the wiki\'s live display', () => {
     const section = guide.indexOf('## Describe each repository you connected');
     expect(section).toBeGreaterThan(-1);
