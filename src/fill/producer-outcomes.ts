@@ -21,8 +21,8 @@ export function producerSucceeded(outcome: ProducerOutcome): boolean {
 
 /** Retain plugin generation snapshots for explicit earlier-version reads, never static bulk drafts. */
 export function retainedProducerOutcomes(writes: readonly { readonly kind: string; readonly value: unknown }[], facts: number): readonly { readonly kind: string; readonly value: unknown }[] {
-  if (!writes.some((write) => write.kind === 'producer-outcome')) return [];
-  return writes.filter((write) => ['producer-outcome', 'vertex', 'edge'].includes(write.kind)).map((write) => {
+  if (!writes.some((write) => ['producer-outcome', 'plugin-partition', 'plugin-aggregate'].includes(write.kind))) return [];
+  return writes.filter((write) => ['producer-outcome', 'vertex', 'edge', 'plugin-partition', 'plugin-aggregate'].includes(write.kind)).map((write) => {
     if (write.kind !== 'producer-outcome') return write;
     const value = write.value as ProducerOutcomeDraft;
     return { kind: write.kind, value: { ...value, outcome: value.outcome === 'completed' && facts === 0 ? 'unchanged' : value.outcome } };
