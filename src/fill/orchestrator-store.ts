@@ -217,9 +217,36 @@ export async function recordUnitReads(database: OrchestratorDatabase, reads: rea
   if (reads.some((read) => read.unitId !== first.unitId || read.generation !== first.generation)) throw new Error('recordUnitReads requires one unit generation');
   return run(here(), database, `recordUnitReads(${first.unitId}/${first.generation})`, ['fill_unit_read'], async (executor) => {
     await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [first.unitId, first.generation]);
-    const recorded: TrackedRead[] = [];
-    for (const read of reads) recorded.push(await insertUnitReadIn(executor, read));
-    return recorded;
+    const payload = reads.map((read, index) => ({
+      ord: index + 1, query_digest: queryDigest(read.query), query: read.query,
+      membership: read.membership ?? readMembership(read.rows), members: read.rows.length, at: read.at,
+    }));
+    const { rows } = await executor.query<{ seq: unknown }>(
+      `WITH input AS MATERIALIZED (
+         SELECT * FROM jsonb_to_recordset($3::jsonb)
+           AS r(ord integer, query_digest text, query text, membership text, members integer, at bigint)
+       ), base AS MATERIALIZED (
+         SELECT COALESCE(MAX(read_seq), 0) AS seq FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
+       ), latest AS (
+         SELECT DISTINCT ON (query_digest) * FROM input ORDER BY query_digest, ord DESC
+       ), saved AS (
+         INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
+         SELECT $1, $2, latest.query_digest, latest.query, latest.membership, latest.members, base.seq + latest.ord, latest.at
+         FROM latest CROSS JOIN base WHERE true
+         ON CONFLICT (unit_id, generation, query_digest) DO UPDATE
+           SET query = EXCLUDED.query, membership = EXCLUDED.membership, members = EXCLUDED.members,
+               read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
+         RETURNING read_seq
+       )
+       SELECT base.seq FROM base CROSS JOIN (SELECT count(*) FROM saved) AS written`,
+      [first.unitId, first.generation, JSON.stringify(payload)],
+    );
+    const base = millis(rows[0]!.seq);
+    // Every call allocates a sequence, even when a later duplicate replaces its stored row.
+    return payload.map((read) => ({
+      unitId: first.unitId, generation: first.generation, queryDigest: read.query_digest, query: read.query,
+      membership: read.membership, members: read.members, seq: base + read.ord, at: read.at,
+    }));
   }, 'write');
 }
 
@@ -1125,12 +1152,30 @@ async function insertProgressIn(executor: SqlExecutor, event: Omit<FillProgressE
 export async function appendProgresses(database: OrchestratorDatabase, events: readonly Omit<FillProgressEvent, 'seq'>[]): Promise<readonly FillProgressEvent[]> {
   if (events.length === 0) return [];
   const first = events[0]!;
+  if (events.length === 1) return [await appendProgress(database, first)];
   if (events.some((event) => event.runId !== first.runId)) throw new Error('appendProgresses requires one run');
   return run(here(), database, `appendProgresses(${first.runId})`, ['fill_event', 'fill_run'], async (executor) => {
     await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [first.runId]);
-    const stored: FillProgressEvent[] = [];
-    for (const event of events) stored.push(await insertProgressIn(executor, event));
-    return stored;
+    const payload = events.map((event, index) => ({
+      ord: index + 1, at: event.at, stage: event.stage, unit_id: event.unitId,
+      generation: event.generation, kind: event.kind, summary: event.summary,
+    }));
+    const { rows } = await executor.query<{ seq: unknown }>(
+      `WITH input AS (
+         SELECT * FROM jsonb_to_recordset($2::jsonb)
+           AS e(ord integer, at bigint, stage text, unit_id text, generation integer, kind text, summary text)
+       ), base AS (
+         SELECT COALESCE(MAX(seq), 0) AS seq FROM fill_event WHERE run_id = $1
+       ), saved AS (
+         INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+         SELECT $1, base.seq + input.ord, input.at, input.stage, input.unit_id, input.generation, input.kind, input.summary
+         FROM input CROSS JOIN base
+         RETURNING seq
+       )
+       SELECT seq FROM saved ORDER BY seq`,
+      [first.runId, JSON.stringify(payload)],
+    );
+    return events.map((event, index) => ({ ...event, seq: millis(rows[index]!.seq) }));
   }, 'write');
 }
 
