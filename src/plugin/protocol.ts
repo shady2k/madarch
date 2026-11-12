@@ -107,6 +107,7 @@ export const PluginUnitEnd = Type.Union(
 export const PluginUnitResult = Type.Object(
   {
     unitId: Type.String({ minLength: 1 }),
+    chunkCount: Type.Optional(Type.Integer({ minimum: 1 })),
     vertices: Type.Optional(Type.Array(PluginVertexResult)),
     edges: Type.Optional(Type.Array(PluginEdgeResult)),
     removals: Type.Optional(Type.Array(PluginRemoval)),
@@ -398,6 +399,16 @@ const GraphUnresolvedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: R
 const GraphRemovedEndsMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.removedEnds'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the edges whose end is removed.' });
 const GraphUnevidencedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unevidenced'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the open opinions of fields whose contract requires evidence and that state none.' });
 
+/** Bounded result fragments are held privately until the final unit answer. */
+export const PluginResultChunk = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  sequence: Type.Integer({ minimum: 0 }),
+  vertices: Type.Optional(Type.Array(PluginVertexResult)),
+  edges: Type.Optional(Type.Array(PluginEdgeResult)),
+  removals: Type.Optional(Type.Array(PluginRemoval)),
+}, { additionalProperties: false });
+const ResultChunkMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('unit.resultChunk'), params: PluginResultChunk }, { additionalProperties: false });
+
 /** One notification either side sends, with its own params. */
 const HeartbeatMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('heartbeat'), params: Type.Optional(PluginHeartbeat) }, { additionalProperties: false, description: 'The plugin is alive while a unit runs.' });
 const ProgressMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('progress'), params: PluginProgress }, { additionalProperties: false, description: 'Where one unit stands.' });
@@ -425,6 +436,7 @@ export const PluginProtocolMessage = Type.Union(
     ControlRequest('resume'),
     ControlRequest('stop'),
     HeartbeatMessage,
+    ResultChunkMessage,
     ProgressMessage,
     ErrorMessage,
     CancelMessage,

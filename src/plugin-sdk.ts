@@ -263,6 +263,31 @@ function send(message: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+/** Fragment only transport; the host still validates and publishes one atomic unit result. */
+function answerUnit(id: RpcId, unitId: string, result: UnitResult): void {
+  const message = { jsonrpc: '2.0', id, result: { unitId, ...result } };
+  const maxBytes = 1_048_576;
+  if (Buffer.byteLength(JSON.stringify(message)) <= maxBytes) { send(message); return; }
+  let sequence = 0;
+  let chunk: { unitId: string; sequence: number; vertices?: (VertexResult | EdgeResult | EntityRef)[]; edges?: (VertexResult | EdgeResult | EntityRef)[]; removals?: (VertexResult | EdgeResult | EntityRef)[] } = { unitId, sequence };
+  const encoded = (): Record<string, unknown> => ({ jsonrpc: '2.0', method: 'unit.resultChunk', params: chunk });
+  const flush = (): void => { send(encoded()); sequence += 1; chunk = { unitId, sequence }; };
+  for (const field of ['vertices', 'edges', 'removals'] as const) {
+    for (const entry of result[field] ?? []) {
+      const entries = (chunk[field] ??= []) as (VertexResult | EdgeResult | EntityRef)[];
+      entries.push(entry);
+      if (Buffer.byteLength(JSON.stringify(encoded())) > maxBytes) {
+        entries.pop();
+        if (Object.values(chunk).some((value) => Array.isArray(value) && value.length > 0)) flush();
+        (chunk[field] ??= []).push(entry);
+        if (Buffer.byteLength(JSON.stringify(encoded())) > maxBytes) throw new Error('one result entry exceeds the protocol message byte limit');
+      }
+    }
+  }
+  if (Object.values(chunk).some((value) => Array.isArray(value) && value.length > 0)) flush();
+  answer(id, { unitId, chunkCount: sequence, end: result.end });
+}
+
 /** Reads standard input one line at a time, calling `onMessage` for each whole message. */
 function readLines(onMessage: (message: Incoming) => void, onEnd: () => void): void {
   let held = '';
@@ -346,8 +371,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
           },
         });
         if (!running.has(id)) return;
-        const answerWith = { unitId: unit.unitId, ...result };
-        answer(id, answerWith);
+        answerUnit(id, unit.unitId, result);
       } catch (error) {
         if (!running.has(id)) return;
         const failed = error as Error & { cause?: string; file?: string; line?: number };

@@ -25,7 +25,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { graphReadsOf, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -286,6 +286,7 @@ export class PluginHost {
   private failure: SessionFailure | undefined;
   private handshake: { startedAt: number; resolve: () => void; reject: (cause: UnitCause) => void } | undefined;
   private readonly inFlight = new Map<string, InFlight>();
+  private readonly resultChunks = new Map<string, { count: number; vertices: import('./protocol.js').PluginVertexResult[]; edges: import('./protocol.js').PluginEdgeResult[]; removals: import('./protocol.js').PluginRemoval[] }>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private paused = false;
   private nextId = 1;
@@ -464,6 +465,23 @@ ${text === '' ? '(empty)' : text}` };
       return;
     }
     if (isNotification(value)) {
+      if (value.method === 'unit.resultChunk') {
+        const chunk = value.params;
+        if (!Value.Check(PluginResultChunk, chunk)) return;
+        const held = this.inFlight.get(chunk.unitId);
+        if (held === undefined) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk names no active unit` }); return; }
+        this.countBytes(held, bytes);
+        if (this.failure !== undefined) return;
+        const accumulated = this.resultChunks.get(chunk.unitId) ?? { count: 0, vertices: [], edges: [], removals: [] };
+        if (chunk.sequence !== accumulated.count) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunks must arrive in sequence` }); return; }
+        accumulated.count += 1;
+        accumulated.vertices.push(...(chunk.vertices ?? []));
+        accumulated.edges.push(...(chunk.edges ?? []));
+        accumulated.removals.push(...(chunk.removals ?? []));
+        this.resultChunks.set(chunk.unitId, accumulated);
+        held.lastSign = Date.now();
+        return;
+      }
       const beat = heartbeatOf(value);
       if (beat !== undefined) {
         this.sign(beat.unitId, bytes);
@@ -777,6 +795,7 @@ ${text === '' ? '(empty)' : text}` };
         answered,
       ]);
       this.inFlight.delete(unit.unitId);
+      this.resultChunks.delete(unit.unitId);
       this.pending.delete(id);
       this.unitByRequest.delete(id);
       const limit = this.outputLimit();
@@ -799,9 +818,18 @@ ${text === '' ? '(empty)' : text}` };
   /** Holds one unit's answer to the declaration, and records a refusal as the unit's cause. */
   private acceptAnswer(unit: PluginUnitRequest, held: InFlight, id: string, result: unknown): UnitOutcome {
     const declared = this.declared!;
-    const answer = result as { unitId?: unknown } | undefined;
+    let answer = result as { unitId?: unknown; chunkCount?: unknown; vertices?: unknown; edges?: unknown; removals?: unknown } | undefined;
     if (answer === null || typeof answer !== 'object' || answer.unitId !== unit.unitId) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: unit ${unit.unitId} was answered with ${answer === undefined ? 'no result' : `a result for ${String((answer as { unitId?: unknown }).unitId)}`}: an answer names the unit it answers` });
+    }
+    const chunks = this.resultChunks.get(unit.unitId);
+    this.resultChunks.delete(unit.unitId);
+    if (chunks !== undefined || answer.chunkCount !== undefined) {
+      if (chunks === undefined || answer.chunkCount !== chunks.count || answer.vertices !== undefined || answer.edges !== undefined || answer.removals !== undefined) {
+        return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: final chunked answer must match its complete chunk count and contain no inline entries` });
+      }
+      const { chunkCount: _count, ...final } = answer;
+      answer = { ...final, vertices: chunks.vertices, edges: chunks.edges, removals: chunks.removals };
     }
     const shape = [...Value.Errors(PluginUnitResult, answer)][0];
     if (shape !== undefined) {
