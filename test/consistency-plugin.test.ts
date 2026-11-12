@@ -18,6 +18,7 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { runFill } from '../src/fill/run.js';
+import { readProducerOutcomes } from '../src/fill/producer-outcomes.js';
 import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
 import { removedEdgeEnds, unresolvedReferences, unevidencedOpinions } from '../src/graph/index.js';
 import { parsePluginLock } from '../src/plugin/lock.js';
@@ -57,7 +58,7 @@ kinds:
     template: templates/item-plain.liquid
     source: graph
     findings: true
-    derives-from: [code.file]
+    derives-from: [code.file, code.repository, code.directory, probe.opinion, probe.keyed]
     labels:
       en: { one: Probe finding, many: Probe findings }
       ru: { one: Находка, many: Находки }
@@ -157,6 +158,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     // The check declares its finding output and uses the ordinary plugin stage.
     expect(run.units.filter((unit) => unit.stageId === 'plugin-turns').length).toBe(1);
     expect(await findings()).toEqual([]);
+    expect(await readProducerOutcomes(owner, { runId: 'consistent' })).toEqual([expect.objectContaining({ kind: 'probe.finding', outcome: 'empty', produced: 0, generation: 1 })]);
   }, 300_000);
 
   test('two unevidenced fields of one entity are two findings, not one key twice', async () => {
@@ -212,6 +214,15 @@ describe('a declared fixture plugin reads consistency records through the host',
     if (!alone.ok) return;
     expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:probe.finding')]);
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion').map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
+    const beforeOutcomes = await readProducerOutcomes(owner, { runId: 'alone' });
+    expect(beforeOutcomes).toEqual(expect.arrayContaining([expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'completed' })]));
+    const snapshot = await owner.transaction('snapshot', async (tx) => await tx.query<{ writes: { kind: string; value: { producer?: string; producerVersion?: string; evidence?: unknown[] } }[] }>(
+      `SELECT d.writes FROM fill_unit_draft d JOIN fill_unit_generation g USING (unit_id, generation)
+       JOIN fill_publication p USING (unit_id, generation) WHERE g.run_id = $1`, ['alone']));
+    const statements = snapshot.rows.flatMap((row) => row.writes).filter((write) => write.kind === 'vertex');
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.every((write) => write.value.producer === 'plugin-consistency' && typeof write.value.producerVersion === 'string')).toBe(true);
+
     // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
@@ -228,9 +239,34 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(fixed.ok).toBe(true);
     if (!fixed.ok) return;
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);
+    const afterOutcomes = await readProducerOutcomes(owner, { runId: 'fixed' });
+    const before = beforeOutcomes.find((one) => one.kind === 'probe.finding')!;
+    const after = afterOutcomes.find((one) => one.kind === 'probe.finding')!;
+    expect(after.runId).toBe('fixed');
+    expect(after.unitId).toBe(before.unitId);
+    expect(after.generation).toBeGreaterThan(before.generation);
+    expect(['completed', 'empty']).toContain(after.outcome);
+
     const unchanged = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns'], runId: 'unchanged', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(unchanged.ok).toBe(true);
     if (unchanged.ok) expect(unchanged.units).toEqual([]);
+    // Give the remaining check input its missing evidence, then run the scripted producer again.
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' },
+        evidence: [{ repository: 'repo', path: 'docs/glossary.md', commit: 'evidenced-input', lineStart: 1, lineEnd: 1 }],
+        producer: 'plugin-consistency', producerVersion: '1.0.0' }], removals: [],
+    }, 1));
+    const clean = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'],
+      targets: { kinds: ['probe.finding'] }, runId: 'zero-problems', home: join(root, 'home'),
+      prepareContract: async (held) => { await prepareStore(preparedOwner, { contract: held }); } });
+    expect(clean.ok).toBe(true);
+    expect(await findings()).toEqual([]);
+    expect(await readProducerOutcomes(owner, { runId: 'zero-problems' })).toEqual([
+      expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'empty', produced: 0 }),
+    ]);
+    const retained = await readProducerOutcomes(owner, { runId: 'alone' });
+    expect(retained).toEqual(beforeOutcomes);
+
   }, 300_000);
   test('a reference leaves the read when its target stands, and the read pages by a cursor', async () => {
     if (owner === undefined) throw new Error('the store was not opened');

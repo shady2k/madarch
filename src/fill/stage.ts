@@ -274,6 +274,8 @@ export interface StageUnitTools {
 
 /** What a stage's `execute` runs in: never a database, never a file path. */
 export interface StageContext {
+  /** The run owning this attempt; omitted only by standalone stage callers. */
+  readonly runId?: string;
   /** The unit being run. */
   unit: StageUnit;
   /**

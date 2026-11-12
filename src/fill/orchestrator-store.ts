@@ -37,6 +37,7 @@ import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 import { requireSchema } from '../adapters/store-readiness.js';
+import { retainedProducerOutcomes } from './producer-outcomes.js';
 
 /** The orchestrator's own tables, named in operation failures. */
 export const ORCHESTRATOR_TABLES = [
@@ -244,13 +245,8 @@ function draftRecord(row: DraftRow): DraftRecord {
   };
 }
 
-/**
- * What a published generation's draft set holds afterwards: nothing. The facts it published are the
- * store's own rows (the fact holding table, by unit and generation), the row keeps the digest a repeated
- * request of that generation is judged by, and its `writes` — a unit's whole fact set as JSON, the
- * largest second copy of what the publication wrote — are dropped (madarch-tzte.21.11).
- */
-const PUBLISHED_DRAFT_WRITES = '[]';
+/** Plugin generations retain their declared values and completion record for explicit earlier reads.
+ * Static bulk drafts still discard their second copy after publication. */
 
 /** The digest of one draft set: what a publication names, so the same draft published twice is one publication. */
 function draftDigest(writes: readonly StageDraftWrite[]): string {
@@ -701,12 +697,10 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     'INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)',
     [options.unitId, options.generation, digest, facts, options.at],
   );
-  // A publication does not keep both copies of what it published (madarch-tzte.21.11): the facts are
-  // the fact holding table's rows for this unit and generation, and the draft set's `writes` was their input.
-  // The row stays — its digest is what a repeated request for this generation is judged by, so a replay
-  // still answers the existing record — and its JSON, a whole unit's fact set written twice, goes: the
-  // walk over the current madarch tree measured those copies at 43 MB of a 379 MB store.
-  await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, PUBLISHED_DRAFT_WRITES]);
+  // Static bulk facts discard their draft copy (madarch-tzte.21.11). Plugin outputs retain an immutable
+  // generation snapshot: earlier-version reads must not substitute today's mutable open opinion.
+  // The digest remains unchanged, so replay still judges the original complete draft set.
+  await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, json(retainedProducerOutcomes(writes, facts))]);
   await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]);
   return {
     outcome: 'published',

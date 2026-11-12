@@ -42,6 +42,7 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
+import { producerSucceeded, readProducerOutcomes, readProducerOutcomesIn } from './producer-outcomes.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
@@ -1127,11 +1128,24 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
       if (scheduling !== undefined) {
         for (const dependency of scheduling.after) {
-          const previous = await executor.query<{ state: string }>(
-            'SELECT g.state FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1',
+          const previous = await executor.query<{ state: string; generation: unknown }>(
+            'SELECT g.state, g.generation FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1',
             [unitIdFor(unit.stageId, dependency)],
           );
-          if (previous.rows[0]?.state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
+          const dependencyId = unitIdFor(unit.stageId, dependency);
+          const state = previous.rows[0]?.state;
+          const results = state === 'published' ? await readProducerOutcomesIn(executor, { unitId: dependencyId, generation: Number(previous.rows[0]!.generation) }) : [];
+          const latest = results.at(-1);
+          if (['failed', 'blocked', 'cancelled'].includes(state ?? '') || (state === 'published' && unit.stageId === 'plugin-turns' && (latest === undefined || !producerSucceeded(latest.outcome)))) {
+            // Planned units cannot block directly: admit without enqueueing, then take the ordinary block step.
+            const admitted = await advanceUnitIn(executor, { unitId: unit.unitId, event: { type: 'admit', at, generation: unit.generation } });
+            if (!admitted.ok) return { admitted: false as const, why: 'refused' as const, refusal: admitted.refusal };
+            const reason = `required producer ${dependencyId} did not complete successfully (${latest?.outcome ?? state})`;
+            const blocked = await advanceUnitIn(executor, { unitId: unit.unitId, event: { type: 'block', at, generation: unit.generation, fence: unit.context.fence, reason } });
+            if (!blocked.ok) return { admitted: false as const, why: 'refused' as const, refusal: blocked.refusal };
+            return { admitted: false as const, why: 'dependency-failed' as const, reason };
+          }
+          if (state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
         }
       }
       const counted = await executor.query<{ unit_id: string; stage_id: string; state: string }>(
@@ -1164,6 +1178,7 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
     });
     if (!outcome.admitted) {
       if (outcome.why === 'refused') refused.push({ unitId: unit.unitId, code: outcome.refusal.code, reason: outcome.refusal.reason });
+      else if (outcome.why === 'dependency-failed') await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: outcome.reason });
       else waitingForSlot.push(unit.unitId);
       continue;
     }
@@ -1613,6 +1628,7 @@ async function attemptUnitPhases(
     // a child's publication could move.
     const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
     context = {
+      runId: unit.runId,
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
@@ -2146,7 +2162,8 @@ export async function runEvidence(orchestrator: FillOrchestrator, runId: string)
   // published has lost nothing, and a stage whose plan found nothing is reported as such separately —
   // the registry's own distinction between "no producer" and "producer found nothing".
   const lost = units.filter((unit) => ['blocked', 'failed', 'cancelled', 'stale'].includes(unit.state));
-  return { runnable, inFlight, waiting, coverageMet: lost.length === 0, pendingPublications };
+  const outcomes = await readProducerOutcomes(orchestrator.database, { runId });
+  return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)), pendingPublications };
 }
 
 /** What one settlement of a run did. */
