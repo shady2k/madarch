@@ -102,12 +102,34 @@ must not remain in the accepted change.
   open 52 ms, write 66 ms, read 3 ms, and database drop 252 ms. The next case
   passed in 972.29 ms. The first snapshot showed zero leaked client sessions,
   compared with eleven before the fixture cleanup.
-- This targeted result is not a passing full shard. The file-path persistence
-  case still hit its five-second bound while opening its own cluster, as it
-  did in the red run. It is not changed by this fixture cleanup. The final
-  source removes the temporary diagnostic hooks and prior phase console
-  output; neither is part of the accepted cleanup mechanism. Final-source
-  checks, mutation evidence, and independent review remain pending.
+- The diagnostic shard after cleanup completed in 565.16 s: 165 passed,
+  21 skipped, 6 failed, and 1 error. It is not a passing full shard. Own-store
+  history timeouts remain, including the file-path persistence case and an
+  idempotent case; two page-budget cold-limit assertions also failed, and an
+  own-history PostgreSQL startup reached its 60-second bound. These failures
+  are reported rather than attributed to or hidden by this fixture cleanup.
+- Static checks passed twice. The final-source `bun run check` exited 0;
+  its architecture report retained 18 baseline SQL violations and introduced
+  none. The final source removes the temporary diagnostic hooks and prior
+  phase console output; neither is part of the cleanup mechanism.
+- Permanent ownership regression: the source-history file captures the run
+  server's initial test-database names and checks that teardown restores that
+  set. It verifies database ownership directly rather than relying on a time
+  limit. With cleanup deliberately removed, the focused run produced 11
+  passed and 1 failed with 29 assertions in 21.47 s: the regression expected
+  no added databases and received eleven test-database names. Cleanup was
+  restored afterward. This is a manual cleanup-removal mutation, not a
+  Stryker run; it was detected by the ownership assertion.
+- Final-source focused green: 13 passed, 26 filtered out, 0 failed, with 33
+  assertions in 20.72 s across the two history files. The ownership assertion
+  passes with cleanup restored. Bun ran `history.test.ts` before
+  `history-sources.test.ts` for this explicit-file invocation: this result
+  proves the focused checks, not the timed shard's file order. The earlier
+  full diagnostic shard provides the same-order timing evidence.
+- Independent bounded static review found no blocking issue in the cleanup's
+  ownership chain. This was source inspection, not an independent runtime
+  rerun. The final delivery static check remains pending; no completed full
+  shard acceptance claim is made here.
 - Feature document gate passes with `--candidate worktree --target origin/main`.
   Kind `no-behavior` does not require owner approval under the current policy;
   acceptance must report its actual check result, not an invented missing
