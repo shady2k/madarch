@@ -95,3 +95,19 @@ test('the relations view names no entity kind and draws every edge through the t
   expect(view!.mermaid).toBeUndefined();
   expect(view!.empty).toBeNull();
 });
+
+for (const lang of ['en', 'ru'] as const) {
+  test(`relation diagrams use ${lang} words in every renderer payload`, async () => {
+    const file = entity('file:a', 'code.file', 'a');
+    const folder = entity('folder:b', 'code.directory', 'b');
+    const graph = {
+      find: async () => [file], evidenceToward: async () => [],
+      allNeighbors: async () => [{ relation: 'code.contains', direction: 'out', total: 1, rows: [{ entity: folder, edges: 1 }] }],
+    };
+    const [view] = await buildViews({ ctx: contextOf(graph), lang, productTitle: 'Shop' }, { type: 'relations', subject: file.key });
+    expect(view!.edges[0]!.label).toBe(lang === 'ru' ? 'содержит' : 'contains');
+    const block = await relationsBlock({ ctx: contextOf(graph), lang, productTitle: 'Shop' }, { source: 'graph', entity: file }, {}, { product: undefined, env: {} }, { file: 'templates/file.liquid', line: 1 });
+    if (block.type !== 'relations') throw new Error('expected relations');
+    expect(block.views[0]!.mermaidSource).toContain(lang === 'ru' ? 'содержит' : 'contains');
+  });
+}

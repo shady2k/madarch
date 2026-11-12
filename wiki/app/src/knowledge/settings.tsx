@@ -317,7 +317,7 @@ function VerdictsSection({ settings, reload }: { settings: ProductSettings; relo
     }
     setWorking(true);
     setError(null);
-    saveGraphVerdictBudgets(perRun, modelCalls).then(() => { setWorking(false); setRound(round + 1); reload(); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
+    saveGraphVerdictBudgets(perRun, modelCalls).then(() => { setRound(round + 1); reload(); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
   };
   const report = view?.report;
   const bad = view?.rows ?? [];

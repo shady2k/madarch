@@ -83,3 +83,10 @@ describe('text measure', () => {
     expect(fit('short', 120)).toBe('short');
   });
 });
+
+test('neighborhood headers use the supplied reader words without changing relation identities', () => {
+  const layout = layoutNeighborhood(HOOD, { depth: 1, off: new Set() }, new Set(), (id) => id === 'code.calls' ? 'вызывает' : 'пишет таблицу');
+  expect(layout.groups.some((group) => group.label.includes('вызывает'))).toBe(true);
+  expect(layout.groups.some((group) => group.relation === 'code.calls')).toBe(true);
+  expect(layout.groups.every((group) => !group.label.includes('code.'))).toBe(true);
+});

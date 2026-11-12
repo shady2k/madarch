@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button.js';
 import { Switch } from '@/components/ui/switch.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
+import { relationLabel } from './relation-labels.js';
 import { getBlock } from './api.js';
 import { historyAddress } from './history-context.js';
 import { historyNoteText } from './history-note.js';
@@ -350,14 +351,7 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
 // ---- related, callers, callees ------------------------------------------------------------------
 
 export function groupLabel(group: RelatedGroup, t: (key: string, options?: Record<string, unknown>) => string): string {
-  const word = group.relation.startsWith('code.') ? group.relation.slice('code.'.length) : group.relation;
-  return t(group.direction === 'out' ? 'knowledge.relationOut' : 'knowledge.relationIn', { relation: word.replace(/-/g, ' ') });
-}
-
-/** A relation as a reader says it: the extractor's namespace is a prefix, not a word of the page. */
-function relationName(relation: string): string {
-  const word = relation.startsWith('code.') ? relation.slice('code.'.length) : relation.startsWith('engine:') ? relation.slice('engine:'.length) : relation;
-  return word.replace(/-/g, ' ');
+  return t(group.direction === 'out' ? 'knowledge.relationOut' : 'knowledge.relationIn', { relation: relationLabel(group.relation, t) });
 }
 
 /** One relation's rows: the table the `related` block and the `relations` block both draw. */
@@ -433,7 +427,7 @@ function Relations({ block }: { block: Extract<Block, { type: 'relations' }> }):
                 {block.linksHere.map((row) => (
                   <ListItem key={row.entity.id} data-entity={row.entity.id}>
                     <EntityName entity={row.entity} />
-                    <Text className="ml-1.5 text-small text-muted">{row.relations.map(relationName).join(', ')}</Text>
+                    <Text className="ml-1.5 text-small text-muted">{row.relations.map((relation) => relationLabel(relation, t)).join(', ')}</Text>
                   </ListItem>
                 ))}
               </PlainList>
