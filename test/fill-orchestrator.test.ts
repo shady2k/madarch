@@ -24,7 +24,7 @@ import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
 import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
+import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, appendProgress, readUnitReads, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { daemonFills } from '../src/product/daemon-fills.js';
@@ -241,6 +241,27 @@ async function plannedWorld(options: Parameters<typeof openWorld>[0], runId = 'r
   if (plan.outcome !== 'planned') throw new Error('the plan was expected to hold');
   return { world: opened, runId, plan };
 }
+
+test('concurrent tracked reads and progress keep their durable sequence allocation', async () => {
+  const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('source', { units: ['one'] })) });
+  const unit = (await readRunUnits(opened.owner, runId))[0]!;
+  const before = await readProgress(opened.owner, runId);
+  const reads = await Promise.all(['a', 'b', 'c'].map(async (query) => await recordUnitRead(opened.owner, {
+    unitId: unit.unitId, generation: unit.generation, query, rows: [query], at: NOW,
+  })));
+  expect(reads.map((read) => read.seq).sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  const repeated = await recordUnitRead(opened.owner, { unitId: unit.unitId, generation: unit.generation, query: 'a', rows: ['changed'], at: NOW + 1 });
+  expect(repeated.seq).toBe(4);
+  const held = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  expect(held).toHaveLength(3);
+  expect(held.find((read) => read.query === 'a')?.membership).toBe(readMembership(['changed']));
+  const events = await Promise.all(['a', 'b', 'c'].map(async (summary) => await appendProgress(opened.owner, {
+    runId, at: NOW, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary,
+  })));
+  const last = before.at(-1)?.seq ?? 0;
+  expect(events.map((event) => event.seq).sort((a, b) => a - b)).toEqual([last + 1, last + 2, last + 3]);
+  expect((await readProgress(opened.owner, runId)).slice(-3).map((event) => event.seq)).toEqual([last + 1, last + 2, last + 3]);
+});
 
 describe('the snapshot a publication reads', () => {
   // madarch-tzte.21.11 rechecks a unit's tracked reads inside the publication's own transaction, and a read

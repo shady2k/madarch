@@ -192,19 +192,17 @@ export async function recordUnitReadIn(
   // The generation's own row is taken first: on a PostgreSQL owner two units' reads can run at once, and
   // two reads of one generation must not take the same sequence number.
   await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
-  const { rows: counted } = await executor.query<{ next: unknown }>(
-    'SELECT COALESCE(MAX(read_seq), 0) + 1 AS next FROM fill_unit_read WHERE unit_id = $1 AND generation = $2',
-    [options.unitId, options.generation],
-  );
-  const seq = millis(counted[0]?.next ?? 1);
-  await executor.query(
+  const { rows: recorded } = await executor.query<{ read_seq: unknown }>(
     `INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     SELECT $1, $2, $3, $4, $5, $6, COALESCE(MAX(read_seq), 0) + 1, $7
+       FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
      ON CONFLICT (unit_id, generation, query_digest) DO UPDATE
        SET query = EXCLUDED.query, membership = EXCLUDED.membership, members = EXCLUDED.members,
-           read_seq = EXCLUDED.read_seq, at = EXCLUDED.at`,
-    [options.unitId, options.generation, digest, options.query, membership, options.rows.length, seq, options.at],
+           read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
+     RETURNING read_seq`,
+    [options.unitId, options.generation, digest, options.query, membership, options.rows.length, options.at],
   );
+  const seq = millis(recorded[0]!.read_seq);
   return { unitId: options.unitId, generation: options.generation, queryDigest: digest, query: options.query, membership, members: options.rows.length, seq, at: options.at };
 }
 
@@ -1091,12 +1089,13 @@ export async function appendProgress(database: OrchestratorDatabase, event: Omit
     // The run's own row is taken first: two events of one run never share a number, though the
     // owner's pool overlaps two transactions.
     await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
-    const { rows } = await executor.query<{ next: unknown }>('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM fill_event WHERE run_id = $1', [event.runId]);
-    const seq = millis(rows[0]?.next ?? 1);
-    await executor.query(
-      'INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [event.runId, seq, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
+    const { rows } = await executor.query<{ seq: unknown }>(
+      `INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+       SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7 FROM fill_event WHERE run_id = $1
+       RETURNING seq`,
+      [event.runId, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
     );
+    const seq = millis(rows[0]!.seq);
     return { ...event, seq };
   }, 'write');
 }
