@@ -261,13 +261,6 @@ export async function pluginPartitionOutcome(owner: DatabaseOwner, refs: readonl
   });
 }
 
-export function valueFromPluginSnapshot(writes: readonly { readonly kind: string; readonly value: unknown }[], kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): unknown {
-  const vertex = writes.filter((write) => write.kind === 'vertex').map((write) => write.value as { kind: string; key: import('../plugin/protocol.js').PluginKeyValues; values?: Record<string, unknown> })
-    .find((vertex) => vertex.kind === kind && canonicalKey(vertex.key) === canonicalKey(key));
-  if (vertex === undefined) return null;
-  return vertex.key[field] ?? vertex.values?.[field] ?? null;
-}
-
 /** Generic declared field transport. Conflicting opinions remain explicit rather than using arrival order. */
 export async function pluginGraphValue(owner: DatabaseOwner, contract: GraphContract, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): Promise<unknown> {
   const vertex = contract.vertex.find((held) => held.name === kind);
