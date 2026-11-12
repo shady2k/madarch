@@ -76,12 +76,15 @@ test('snapshot resolver rejects prior-run or unsuccessful generations before exe
 
 test('verified inherited generation freezes original run identity without cloning publication', async () => {
   const { successfulPluginSnapshot } = await import('../src/graph/plugin-turns.js');
-  let sql = '';
+  const queries: string[] = [];
   const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (query: string) => {
-    sql = query;
+    queries.push(query);
+    if (queries.length > 1) return { rows: [] };
     return { rows: [{ run_id: 'original-run', unit_id: 'plugin-turns/base:Source', generation: 3, writes: [{ kind: 'producer-outcome', value: { outcome: 'unchanged' } }] }] };
   } }) };
   expect(await successfulPluginSnapshot(owner as never, 'new-run', 'base:Source')).toEqual({ runId: 'original-run', unitId: 'plugin-turns/base:Source', generation: 3 });
-  expect(sql).toContain("e.kind = 'unit-inherited'");
-  expect(sql).toContain('e.generation = g.generation');
+  expect(queries).toHaveLength(2);
+  expect(queries[0]).toContain("e.kind = 'unit-inherited'");
+  expect(queries[0]).toContain('e.generation = g.generation');
+  expect(queries[1]).toContain('FROM fill_unit_draft_part');
 });
