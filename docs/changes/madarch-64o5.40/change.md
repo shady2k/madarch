@@ -317,3 +317,17 @@ earlier read is authorized by that transport repair.
 The enumeration assertion added in `ce85d0a2` has not yet been PostgreSQL-validated.
 A focused named-earlier regression is next before another full glossary run.
 No successful after timing, whole-suite green or acceptance is established.
+
+
+## Immutable enumeration PostgreSQL validation
+
+The focused immutable enumeration regression passed: one case / 14 assertions
+in 31.85 seconds, `/tmp/m28-partitions-eighth-snapshot.log`. This validates
+`ce85d0a2` and `bbd55858`, including all nine earlier values after later
+publication, and supersedes the previous unvalidated-assertion status.
+
+Optional-argument runtime repair `fde5dcd7` is committed; the parent's fourth
+pure-access run is in progress, not yet passing evidence. Glossary seven is
+focused on its first case (`/tmp/m28-glossary-seventh-first.log`) with source
+held stable during the run. Its result, successful after timing and acceptance
+remain pending. No child checks or PostgreSQL commands were used for this record.
