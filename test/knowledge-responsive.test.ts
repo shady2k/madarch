@@ -12,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
-import { generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 
 const skip = process.env['MADARCH_SKIP_PERF'] === '1';
 const BOUND_MS = 300;
@@ -28,7 +29,9 @@ beforeAll(async () => {
   const repository = generateTrainingRepository(join(work, 'training'));
   const home = join(work, 'home');
   mkdirSync(home);
-  makeProduct(home, 'shop', repository, 'training');
+  const product = makeProduct(home, 'shop', repository, 'training');
+  useFixturePlugins(product, []);
+  commitProduct(product, 'Declare the repository-fill responsiveness fixture');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');

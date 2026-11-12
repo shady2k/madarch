@@ -21,7 +21,8 @@ import { join, resolve } from 'node:path';
 import { ensureDaemon, stopDaemon } from '../src/product/daemon.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
-import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
+import { useFixturePlugins } from '../test/enabled-plugins-fixture.js';
 import { FINDING_CLASSES, compareToBaseline, formatBaseline, formatReport, parseBaseline, walkWiki } from './wiki-walk.js';
 
 const PRODUCT = 'shop';
@@ -64,6 +65,8 @@ const home = join(work, 'home');
 process.env.MADARCH_OWN_WIKI = 'off';
 mkdirSync(home, { recursive: true });
 const shop = makeProduct(home, PRODUCT, repository);
+useFixturePlugins(shop, []);
+commitProduct(shop, 'Declare the repository-fill walk fixture');
 // The two pages an agent writes, so the walk reads a product a person does, with
 // product-authored bodies and a domain page among the generated ones — when the
 // product's first fill runs the stage that publishes the symbols such a page names.
