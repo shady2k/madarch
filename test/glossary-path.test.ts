@@ -157,7 +157,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     // One journal entry for the plugin's turn, authored by the plugin and its version, naming the term vertices it
     // declared, the opinions it opened and the requests it made (the debug setting is on).
     const storeOwner = await createTestDatabaseOwner({ store: join(productStoreFolder(folder, join(work, 'store')), 'graph'), btreeGist: true });
-    const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number; outcome?: string }[] } }>('SELECT author, change FROM operation ORDER BY seq'));
+    const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number; outcome?: string; cause?: string }[] } }>('SELECT author, change FROM operation ORDER BY seq'));
     await storeOwner.close();
     const plugin = journal.rows.filter((one) => one.author === 'glossary@1.0.0');
     expect(plugin).toHaveLength(1);
