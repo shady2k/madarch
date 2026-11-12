@@ -250,7 +250,7 @@ kinds:
 `);
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
-    await createRecordSchema(owner, EMPTY_CONTRACT);
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
     const validated = validateProductManifests(folder);
     if (!validated.ok || validated.value === undefined) throw new Error(JSON.stringify(validated));
     await publishValidatedManifests(owner, validated.value);
@@ -273,7 +273,7 @@ kinds:
     const unknown = await part.catalog(new Request('http://localhost/api/catalog?kind=absent'));
     expect(unknown.response.status).toBe(404);
     expect((await unknown.response.json()).message).toContain(`${join(folder, 'madarch', 'kinds.yaml')}:1:`);
-    const contents = await owner.run((tx) => tx.query<{ count: string }>('SELECT count(*)::text AS count FROM file_entry'));
+    const contents = await owner.run((tx) => tx.query<{ count: string }>("SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'code.file'"));
     expect(contents.rows[0]!.count).toBe('0');
   } finally { await owner.close(); }
 }, 30_000);

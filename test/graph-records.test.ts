@@ -22,7 +22,7 @@ import { instantOf } from '../plugins/git/main.js';
 import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
-import { ensureVertex, publishOpinion } from '../src/graph/write.js';
+import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
 import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -130,10 +130,14 @@ test('file-only facts need no repository entity or history, and a missing file i
   } });
   try {
     const blob = 'b'.repeat(40);
-    await publishTree(files, {
-      repository: { name: 'files-only', url: 'file:///fixture' }, commit: 'a'.repeat(40),
-      kinds: { vertex: [GIT_KINDS.file], edge: [] }, gitlinks: [],
-      files: [{ path: 'src/one.ts', mode: '100644', blob, bytes: 20, form: 'text', lines: 1, content: 'export const n = 1;\n', language: 'TypeScript', candidates: ['TypeScript'] }],
+    await files.transaction('write', async (tx) => {
+      const journal = journalFor('disk@1');
+      const node = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'files-only', path: 'src/one.ts' } }, 1, journal);
+      await publishOpinion(tx, GIT_CONTRACT, {
+        kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '1',
+        values: { mode: '100644', blob, bytes: 20, form: 'text', lines: 1, content: 'export const n = 1;\n', language: 'TypeScript', candidates: ['TypeScript'] },
+      }, 1, journal);
+      await writeJournal(tx, journal);
     });
     const repositories = await files.run((tx) => tx.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = $1',

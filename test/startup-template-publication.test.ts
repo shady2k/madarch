@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
-import { makeProduct, withoutPluginTurns, commitProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { makeProduct, withRepositoryPluginsOnly, SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { startPreparedServer } from './prepared-server.js';
 import { fillInProcess } from './fill-inline.js';
@@ -20,6 +20,7 @@ import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/g
 import { generatedTableName } from '../src/graph/contract.js';
 import { parseDocument } from 'yaml';
 import { createServer } from 'node:net';
+import { planManifestFill } from '../src/plugin/fill-declarations.js';
 
 let work = '';
 let server: StartedServer | undefined;
@@ -39,9 +40,7 @@ beforeAll(async () => {
   home = join(work, 'products');
   mkdirSync(home);
   product = makeProduct(home, 'sample', repository, 'source');
-  writeFileSync(join(product, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
-  withoutPluginTurns(product);
-  commitProduct(product, 'Run only native file inventory and history');
+  withRepositoryPluginsOnly(product);
   app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture wiki</title>');
@@ -150,7 +149,7 @@ test('startup refuses an invalid template with its full file path and line befor
   }
 }, 120_000);
 
-test('legacy explicit agent bindings for templates never enter catalogue agent outputs', () => {
+test('legacy explicit agent bindings for templates retain manifest-owned schema without scheduling agent work', () => {
   const file = join(product, 'madarch', 'kinds.yaml');
   // The old product-owned form must remain readable, but it must not schedule an agent for deterministic templates.
   const text = readFileSync(file, 'utf8');
@@ -164,9 +163,12 @@ test('legacy explicit agent bindings for templates never enter catalogue agent o
     const read = readKinds(product);
     if (!read.present) throw new Error(`${file}:1: fixture manifest absent`);
     expect(read.manifest.findings).toEqual([]);
-    const agents = [...read.manifest.plugins!.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true);
-    expect(agents.length).toBeGreaterThan(0);
-    for (const agent of agents) expect(agent.outputs).not.toContain('template');
+    expect(read.manifest.kinds.get('template')?.fields?.map((field) => [field.name, field.producers])).toEqual([
+      ['path', ['manifest']], ['template_parts', ['manifest']],
+    ]);
+    const plan = planManifestFill(read.manifest, product);
+    expect(plan.requiresAgent).toBe(false);
+    for (const outputs of plan.outputs.values()) expect(outputs.has('template')).toBe(false);
   } finally { writeFileSync(file, text); }
 });
 
