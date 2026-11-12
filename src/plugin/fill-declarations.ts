@@ -237,7 +237,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     const fields = kind.agent.fields === '*' ? (kind.fields ?? []).map((field) => field.name) : kind.agent.fields;
     for (const field of fields) if (capability!.fields !== '*' && !capability!.fields.includes(field)) refuse(`agent plugin ${kind.agent.plugin} has no declared capability for ${kind.name}.${field}`);
     // An explicit entry claims configured fields; the wildcard gap entry keeps all remaining gaps.
-    target!.manifest = { ...target!.manifest, produces: [...target!.manifest.produces, { kind: kind.name, fields: kind.agent.fields, reads: capability!.reads, ...(kind.agent.refines === undefined ? {} : { refines: [...kind.agent.refines] }) }] };
+    target!.manifest = { ...target!.manifest, produces: [...target!.manifest.produces, { kind: kind.name, fields: kind.agent.fields === '*' ? '*' : [...kind.agent.fields], reads: capability!.reads, ...(kind.agent.refines === undefined ? {} : { refines: [...kind.agent.refines] }) }] };
   }
   const requested = selectedKinds ?? [...new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])))];
   return planFillDeclarations({
