@@ -53,7 +53,7 @@ describe('template declarations', () => {
 
   test('starter template fields belong only to the manifest producer, never the catalogue agent', () => {
     const texts = new Map(STARTER_FILES.map((file) => [file.path, file.content]));
-    const files: ProductFileRead = { has: (path) => texts.has(path), text: (path) => texts.get(path), size: (path) => texts.get(path)?.length ?? null };
+    const files: ProductFileRead & { filesBelow(folder: string): string[] } = { has: (path) => texts.has(path), text: (path) => texts.get(path), size: (path) => texts.get(path)?.length ?? null, filesBelow: (folder) => [...texts.keys()].filter((path) => path.startsWith(`${folder}/`)).sort() };
     const read = readKindsFrom(files, '/neutral-product');
     expect(read.present).toBe(true);
     if (!read.present) throw new Error('starter kinds are missing');
