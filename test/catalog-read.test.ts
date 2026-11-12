@@ -358,7 +358,7 @@ describe('one defect in the manifest is one problem', () => {
     // A kind belongs under `kinds:`, whose section ends where `edges:` begins; the rest of the manifest stays whole.
     const head = base;
     const tail = '';
-    return `${head}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}${tail}`;
+    return `${head}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    purpose: understand\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}${tail}`;
   }
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
@@ -371,8 +371,8 @@ describe('one defect in the manifest is one problem', () => {
     ['an origin mark the catalog does not declare', withPlant('    acquisition:\n    - extractor operations\n', '    acquisition: ["telepathy"]\n'), 'kind "code.service": "acquisition" holds "telepathy"'],
     ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "code.service": "sources" holds "nowhere"'],
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
-    ['a role leading a group nobody declares', withPlant('lead: [strategy, discovery, requirements, rd]', 'lead: [nowhere, discovery, requirements, rd]'), 'role "product": "nowhere" is not a group of "groups"'],
-    ['a role opening a block outside the library', withPlant('open: [stated, implementedby, linkedfrom, related, properties] }\n  analyst', 'open: [nothing] }\n  analyst'), 'role "product": "nothing" is not a block of the library'],
+    ['a role leading a group nobody declares', withPlant('roles:\n', 'roles:\n  probe: { lead: [nowhere] }\n'), 'role "probe": "nowhere" is not a group of "groups"'],
+    ['a role opening a block outside the library', withPlant('roles:\n', 'roles:\n  probe: { open: [nothing], lead: [] }\n'), 'role "probe": "nothing" is not a block of the library'],
   ];
   for (const [what, manifest, names] of cases) {
     test(`${what} is one problem, naming it`, () => {
