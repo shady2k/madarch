@@ -14,6 +14,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readRepositoryTree, type RepositoryAt } from '../plugins/disk/reader.js';
 import { readRepositoryHistory } from '../plugins/git/reader.js';
+import { readPluginManifest } from '../src/plugin/closure.js';
+import { snapshotTools } from '../src/plugin/tools.js';
+import { releaseTools } from '../src/plugin/release-tools.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-git-shapes-'));
 const IDENTITY = {
@@ -23,7 +26,22 @@ const IDENTITY = {
   TZ: 'UTC', LC_ALL: 'C',
 };
 
-afterAll(() => { rmSync(ROOT, { recursive: true, force: true }); });
+const priorGitTool = process.env['MADARCH_TOOL_GIT'];
+beforeAll(() => {
+  const disk = readPluginManifest(join(import.meta.dir, '..', 'plugins', 'disk'));
+  const history = readPluginManifest(join(import.meta.dir, '..', 'plugins', 'git'));
+  expect(history.tools).toEqual(disk.tools);
+  const tools = snapshotTools(disk.tools, releaseTools(), ROOT);
+  const git = tools.find((tool) => tool.name === 'git');
+  if (git === undefined) throw new Error('the repository readers declare no pinned git tool');
+  process.env['MADARCH_TOOL_GIT'] = git.executable;
+});
+
+afterAll(() => {
+  if (priorGitTool === undefined) delete process.env['MADARCH_TOOL_GIT'];
+  else process.env['MADARCH_TOOL_GIT'] = priorGitTool;
+  rmSync(ROOT, { recursive: true, force: true });
+});
 
 /** One git command in a folder; answers its bytes as they are, which is what a non-UTF-8 case needs. */
 function gitBytes(folder: string, args: readonly string[], input?: Buffer): Buffer {
