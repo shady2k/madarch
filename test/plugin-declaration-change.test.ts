@@ -37,6 +37,7 @@ const GLOSSARY = `# Glossary of the notes
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases are skipped with it, never passed. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
