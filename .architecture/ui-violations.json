@@ -211,11 +211,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/pages.tsx",
-    "subject": "DocumentPage#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "HelpLink#1"
   },

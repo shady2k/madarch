@@ -1,3 +1,4 @@
+import { InlineCode } from '@/components/ui/inline-content.js';
 import { Breadcrumb } from '@/components/ui/breadcrumb.js';
 import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
@@ -591,7 +592,7 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
         <Breadcrumb aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_DOCS}>{t('knowledge.documents')}</KLink><Text aria-hidden="true">/</Text><Text>{page.repo ?? t('knowledge.productRepository')}</Text></Breadcrumb>
         <Stack className="mb-2 flex items-center gap-2">
           <Badge>{t('knowledge.documentBadge')}</Badge>
-          <code className="min-w-0 truncate text-small text-muted" title={page.path}>{page.path}</code>
+          <InlineCode className="min-w-0 truncate text-small text-muted" title={page.path}>{page.path}</InlineCode>
           {page.commit !== null && <Badge title={page.commit}>{page.commit.slice(0, 10)}</Badge>}
         </Stack>
       </PageHeader>

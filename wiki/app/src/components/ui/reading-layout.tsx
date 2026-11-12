@@ -1,5 +1,5 @@
 /** Reading-page panels and semantic structure shared by operational pages. */
-import { forwardRef, type HTMLAttributes, type InputHTMLAttributes } from 'react';
+import type { HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils.js';
 
 export function ReadingPanel({ className, ...props }: HTMLAttributes<HTMLElement>) {
@@ -15,6 +15,3 @@ export function DetailTitle(props: HTMLAttributes<HTMLHeadingElement>) { return 
 export function WrappingList({ className, ...props }: HTMLAttributes<HTMLUListElement>) {
   return <ul className={cn('m-0 grid min-w-0 list-none gap-3 p-0 [overflow-wrap:anywhere]', className)} {...props} />;
 }
-export const RadioInput = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>>(function RadioInput({ className, ...props }, ref) {
-  return <input ref={ref} type="radio" className={cn('size-4 shrink-0 accent-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-50', className)} {...props} />;
-});
