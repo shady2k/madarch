@@ -184,14 +184,17 @@ export async function recordUnitReadIn(
   executor: SqlExecutor,
   options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number; readonly membership?: string },
 ): Promise<TrackedRead> {
+  // Lock separately before allocating a sequence, so a waiter reads the preceding commit.
+  await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
+  return insertUnitReadIn(executor, options);
+}
+
+async function insertUnitReadIn(executor: SqlExecutor, options: Parameters<typeof recordUnitReadIn>[1]): Promise<TrackedRead> {
   const digest = queryDigest(options.query);
   // The membership the caller read the answer under, or — where it names none — the digest of the rows as they
   // stand. A span read names its own (`answerMembership`, `graph-reads.ts`): its bytes are its membership, and the
   // commit they were read at is not.
   const membership = options.membership ?? readMembership(options.rows);
-  // The generation's own row is taken first: on a PostgreSQL owner two units' reads can run at once, and
-  // two reads of one generation must not take the same sequence number.
-  await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
   const { rows: recorded } = await executor.query<{ read_seq: unknown }>(
     `INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
      SELECT $1, $2, $3, $4, $5, $6, COALESCE(MAX(read_seq), 0) + 1, $7
@@ -204,6 +207,20 @@ export async function recordUnitReadIn(
   );
   const seq = millis(recorded[0]!.read_seq);
   return { unitId: options.unitId, generation: options.generation, queryDigest: digest, query: options.query, membership, members: options.rows.length, seq, at: options.at };
+}
+
+/** Records concurrent reads of one attempt with one generation lock and commit. */
+export async function recordUnitReads(database: OrchestratorDatabase, reads: readonly Parameters<typeof recordUnitReadIn>[1][]): Promise<readonly TrackedRead[]> {
+  if (reads.length === 0) return [];
+  const first = reads[0]!;
+  if (reads.length === 1) return [await recordUnitRead(database, first)];
+  if (reads.some((read) => read.unitId !== first.unitId || read.generation !== first.generation)) throw new Error('recordUnitReads requires one unit generation');
+  return run(here(), database, `recordUnitReads(${first.unitId}/${first.generation})`, ['fill_unit_read'], async (executor) => {
+    await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [first.unitId, first.generation]);
+    const recorded: TrackedRead[] = [];
+    for (const read of reads) recorded.push(await insertUnitReadIn(executor, read));
+    return recorded;
+  }, 'write');
 }
 
 /** Every tracked read of one unit generation, in the order they were made. */
@@ -1089,14 +1106,31 @@ export async function appendProgress(database: OrchestratorDatabase, event: Omit
     // The run's own row is taken first: two events of one run never share a number, though the
     // owner's pool overlaps two transactions.
     await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
-    const { rows } = await executor.query<{ seq: unknown }>(
-      `INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
-       SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7 FROM fill_event WHERE run_id = $1
-       RETURNING seq`,
-      [event.runId, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
-    );
-    const seq = millis(rows[0]!.seq);
-    return { ...event, seq };
+    return insertProgressIn(executor, event);
+  }, 'write');
+}
+
+async function insertProgressIn(executor: SqlExecutor, event: Omit<FillProgressEvent, 'seq'>): Promise<FillProgressEvent> {
+  const { rows } = await executor.query<{ seq: unknown }>(
+    `INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7 FROM fill_event WHERE run_id = $1
+     RETURNING seq`,
+    [event.runId, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
+  );
+  const seq = millis(rows[0]!.seq);
+  return { ...event, seq };
+}
+
+/** Appends concurrent events of one run with one run lock and commit. */
+export async function appendProgresses(database: OrchestratorDatabase, events: readonly Omit<FillProgressEvent, 'seq'>[]): Promise<readonly FillProgressEvent[]> {
+  if (events.length === 0) return [];
+  const first = events[0]!;
+  if (events.some((event) => event.runId !== first.runId)) throw new Error('appendProgresses requires one run');
+  return run(here(), database, `appendProgresses(${first.runId})`, ['fill_event', 'fill_run'], async (executor) => {
+    await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [first.runId]);
+    const stored: FillProgressEvent[] = [];
+    for (const event of events) stored.push(await insertProgressIn(executor, event));
+    return stored;
   }, 'write');
 }
 

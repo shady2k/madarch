@@ -56,6 +56,7 @@ import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRet
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import {
   appendProgress,
+  appendProgresses,
   publicationDigest,
   publishUnitIn,
   readRunConfiguration,
@@ -68,7 +69,7 @@ import {
   readUnitDraftHead,
   readUnitPlan,
   readUnitReads,
-  recordUnitRead,
+  recordUnitReads,
   recordRunConfiguration,
   recordRunStagePlanned,
   recordUnitDraft,
@@ -1599,16 +1600,83 @@ async function attemptUnitPhases(
   // whatever it ends with.
   // The graph this attempt's stage reads through: every read is recorded as the generation's dependency, and the
   // same reader serves the stage's own reads and its `validate`, so nothing reads the graph unrecorded.
-  const attemptReader: StageGraphReader = {
-    query: async (text: string) => {
-      const rows = await reader.query(text);
-      // The read is recorded as a recheck replays it (0026, "Updates"): a span by its place in the run's pins and
-      // its bytes, every other read by its canonical text and the rows it answered.
-      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
-      await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` });
-      return rows;
-    },
+  type PendingRead = {
+    read: Parameters<typeof recordUnitReads>[1][number];
+    event: Parameters<typeof appendProgresses>[1][number];
+    resolve: () => void;
+    reject: (error: unknown) => void;
   };
+  let pendingReads: PendingRead[] = [];
+  let flushingReads = false;
+  let scheduledReads = false;
+  let activeFlush: Promise<void> | undefined;
+  const flushReads = (): Promise<void> => {
+    if (activeFlush !== undefined) return activeFlush;
+    activeFlush = flushReadBatch().finally(() => { activeFlush = undefined; });
+    return activeFlush;
+  };
+  const flushReadBatch = async (): Promise<void> => {
+    scheduledReads = false;
+    flushingReads = true;
+    try {
+      while (pendingReads.length > 0) {
+        const batch = pendingReads;
+        pendingReads = [];
+        let stored: Awaited<ReturnType<typeof appendProgresses>>;
+        try {
+          await recordUnitReads(orchestrator.database, batch.map((entry) => entry.read));
+          stored = await appendProgresses(orchestrator.database, batch.map((entry) => entry.event));
+        } catch (error) {
+          for (const entry of batch) entry.reject(error);
+          continue;
+        }
+        for (const [index, entry] of batch.entries()) {
+          try {
+            if (orchestrator.sink !== undefined) await orchestrator.sink(stored[index]!);
+            entry.resolve();
+          } catch (error) {
+            entry.reject(error);
+          }
+        }
+      }
+    } finally {
+      flushingReads = false;
+    }
+  };
+  const trackedReader = (): { graph: StageGraphReader; close: () => Promise<void> } => {
+    let closed = false;
+    const active = new Set<Promise<readonly unknown[]>>();
+    const query = async (text: string): Promise<readonly unknown[]> => {
+      if (closed) throw new Error('the attempt graph reader is closed');
+      const rows = await reader.query(text);
+      if (closed) throw new Error('the attempt graph reader is closed');
+      const read = { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() };
+      const event = { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` };
+      await new Promise<void>((resolve, reject) => {
+        pendingReads.push({ read, event, resolve, reject });
+        if (!flushingReads && !scheduledReads) {
+          scheduledReads = true;
+          setImmediate(() => { void flushReads(); });
+        }
+      });
+      return rows;
+    };
+    return {
+      graph: { query: (text: string) => {
+        const pending = query(text);
+        active.add(pending);
+        void pending.then(() => active.delete(pending), () => active.delete(pending));
+        return pending;
+      } },
+      close: async () => {
+        closed = true;
+        await flushReads();
+        await Promise.allSettled([...active]);
+      },
+    };
+  };
+  const executionReader = trackedReader();
+  const attemptReader = executionReader.graph;
   // Everything the attempt opens — its authority, the unit's tools, its progress notes — is opened inside one try:
   // resolving the stage's configuration can refuse (a configuration that moved mid-run, a stage the graph does not
   // hold), and a refusal there must leave neither an authority entry behind it nor a unit's tool session open.
@@ -1652,6 +1720,7 @@ async function attemptUnitPhases(
   } catch (error) {
     raised = error as Error;
   } finally {
+    await executionReader.close();
     tools?.close();
     orchestrator.authority.delete(authorityKey(unit.unitId, unit.generation));
     // What the stage reported is the run's own durable progress, written whether the unit finished or
@@ -1698,12 +1767,17 @@ async function attemptUnitPhases(
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
   let validation: Awaited<ReturnType<typeof stage.validate>>;
+  const validationReader = trackedReader();
   try {
-    validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
-      const held = await stage.validate({ writes }, attemptReader);
+    try {
+      validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
+      const held = await stage.validate({ writes }, validationReader.graph);
       validateSpan.setAttribute('madarch.valid', held.ok);
       return held;
-    });
+      });
+    } finally {
+      await validationReader.close();
+    }
   } catch (error) {
     const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
     return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
