@@ -14,6 +14,7 @@ import { createKnowledgePart } from '../src/server/knowledge.js';
 import type { KnowledgeProduct } from '../src/knowledge/product.js';
 import { gitEnv } from './git-env.js';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
+import { parseDocument } from 'yaml';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
@@ -77,6 +78,11 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
     useExtractedGlossary(folder);
+    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    const kinds = parseDocument(readFileSync(kindsFile, 'utf8'));
+    // Agent capability alone does not select a producer; this fixture explicitly requests its refinement.
+    kinds.setIn(['kinds', 'doc.term', 'agent'], { plugin: 'agent-fill', fields: ['definition'], refines: ['glossary'] });
+    writeFileSync(kindsFile, kinds.toString());
     product = draft.name;
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });
