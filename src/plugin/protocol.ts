@@ -403,9 +403,7 @@ const GraphUnevidencedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: 
 export const PluginResultChunk = Type.Object({
   unitId: Type.String({ minLength: 1 }),
   sequence: Type.Integer({ minimum: 0 }),
-  vertices: Type.Optional(Type.Array(PluginVertexResult)),
-  edges: Type.Optional(Type.Array(PluginEdgeResult)),
-  removals: Type.Optional(Type.Array(PluginRemoval)),
+  data: Type.String({ minLength: 1, pattern: '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$' }),
 }, { additionalProperties: false });
 const ResultChunkMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('unit.resultChunk'), params: PluginResultChunk }, { additionalProperties: false });
 

@@ -265,27 +265,18 @@ function send(message: Record<string, unknown>): void {
 
 /** Fragment only transport; the host still validates and publishes one atomic unit result. */
 function answerUnit(id: RpcId, unitId: string, result: UnitResult): void {
-  const message = { jsonrpc: '2.0', id, result: { unitId, ...result } };
+  const complete = { unitId, ...result };
+  const bytes = Buffer.from(JSON.stringify(complete), 'utf8');
   const maxBytes = 1_048_576;
-  if (Buffer.byteLength(JSON.stringify(message)) <= maxBytes) { send(message); return; }
+  if (Buffer.byteLength(JSON.stringify({ jsonrpc: '2.0', id, result: complete })) <= maxBytes) { answer(id, complete); return; }
+  // Base64 expands bytes by 4/3; this leaves ample room for the bounded envelope.
+  const fragmentBytes = 512 * 1024;
   let sequence = 0;
-  let chunk: { unitId: string; sequence: number; vertices?: (VertexResult | EdgeResult | EntityRef)[]; edges?: (VertexResult | EdgeResult | EntityRef)[]; removals?: (VertexResult | EdgeResult | EntityRef)[] } = { unitId, sequence };
-  const encoded = (): Record<string, unknown> => ({ jsonrpc: '2.0', method: 'unit.resultChunk', params: chunk });
-  const flush = (): void => { send(encoded()); sequence += 1; chunk = { unitId, sequence }; };
-  for (const field of ['vertices', 'edges', 'removals'] as const) {
-    for (const entry of result[field] ?? []) {
-      const entries = (chunk[field] ??= []) as (VertexResult | EdgeResult | EntityRef)[];
-      entries.push(entry);
-      if (Buffer.byteLength(JSON.stringify(encoded())) > maxBytes) {
-        entries.pop();
-        if (Object.values(chunk).some((value) => Array.isArray(value) && value.length > 0)) flush();
-        (chunk[field] ??= []).push(entry);
-        if (Buffer.byteLength(JSON.stringify(encoded())) > maxBytes) throw new Error('one result entry exceeds the protocol message byte limit');
-      }
-    }
+  for (let offset = 0; offset < bytes.length; offset += fragmentBytes) {
+    send({ jsonrpc: '2.0', method: 'unit.resultChunk', params: { unitId, sequence, data: bytes.subarray(offset, offset + fragmentBytes).toString('base64') } });
+    sequence += 1;
   }
-  if (Object.values(chunk).some((value) => Array.isArray(value) && value.length > 0)) flush();
-  answer(id, { unitId, chunkCount: sequence, end: result.end });
+  answer(id, { unitId, chunkCount: sequence });
 }
 
 /** Reads standard input one line at a time, calling `onMessage` for each whole message. */
