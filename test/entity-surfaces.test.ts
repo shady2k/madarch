@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { entityCommand } from '../src/product/entity-cli.js';
 import { mcpCommand } from '../src/mcp/cli.js';
+import { activateTestProduct, retainTestStorePreparationOwner } from './prepared-server.js';
 
 import { authoredFixture, authoredEnv as env } from './authored-fixture.js';
 let root: string;
 let home: string;
 let folder: string;
+let closePreparationOwner: (() => Promise<void>) | undefined;
 const cli = async (...args: string[]) => {
   let out = ''; let error = '';
   const exit = await entityCommand([...args, '--product', folder, '--home', home, '--json'], { env,
@@ -17,11 +19,17 @@ const cli = async (...args: string[]) => {
   return { exit, body: JSON.parse(out), error };
 };
 beforeAll(async () => {
+  closePreparationOwner = await retainTestStorePreparationOwner();
   root = mkdtempSync(join(tmpdir(), 'madarch-entity-surfaces-'));
   home = join(root, 'products');
   folder = await authoredFixture(home, 'notes');
+  await activateTestProduct(folder, home);
 }, 120_000);
-afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
+afterAll(async () => {
+  try { await closePreparationOwner?.(); } finally {
+    if (root) rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('entity CLI creates, reads, updates, lists and deletes with stable uid and typed fields', async () => {
   const created = await cli('create', 'note', '--title', 'A note', '--field', 'count=3', '--words', '  original words  ');
@@ -39,7 +47,7 @@ test('entity CLI creates, reads, updates, lists and deletes with stable uid and 
 }, 60_000);
 
 test('madarch dispatches entity commands from the executable entry', async () => {
-  const child = Bun.spawn([process.execPath, 'scripts/madarch.ts', 'entity', 'list', 'note', '--product', folder, '--home', home, '--json'], { cwd: import.meta.dir + '/..', env, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, 'scripts/madarch.ts', 'entity', 'list', 'note', '--product', folder, '--home', home, '--json'], { cwd: import.meta.dir + '/..', env: { ...env, MADARCH_STORE_OWNER_URL: process.env['MADARCH_STORE_OWNER_URL'], MADARCH_STORE_OWNER_TOKEN: process.env['MADARCH_STORE_OWNER_TOKEN'] }, stdout: 'pipe', stderr: 'pipe' });
   const text = await new Response(child.stdout).text();
   const error = await new Response(child.stderr).text();
   expect(await child.exited).toBe(0);
