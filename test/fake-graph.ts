@@ -4,8 +4,7 @@
  * rendering is judged on the entities and edges a test declares. The fake
  * answers the same methods the real reader does, in the same order.
  */
-import type { GraphReader, GraphEntity, HistoryEvidence, NeighborEdge, NeighborGroup, RelationEdge } from '../src/knowledge/graph-read.js';
-import { spanOf } from '../src/knowledge/graph-read.js';
+import type { GraphReader, GraphEntity, HistoryEvidence, NeighborEdge, NeighborGroup, RelationEdge, SourceSpan } from '../src/knowledge/graph-read.js';
 import { byCodePoint } from '../src/model/order.js';
 
 interface FakeNode {
@@ -54,7 +53,7 @@ class FakeReader {
   constructor(private readonly graph: FakeGraph) {}
 
   private entity(node: FakeNode): GraphEntity {
-    const span = spanOf(node.properties['span']);
+    const span = (node.properties['span'] as SourceSpan | undefined);
     return { key: node.key, kind: node.kind, label: node.label, properties: node.properties, nodeIds: [node.key], scope: node.scope, ...(span === undefined ? {} : { span }) };
   }
 
@@ -134,7 +133,7 @@ class FakeReader {
       seen.add(far);
       const other = this.graph.node(far);
       if (other === undefined) continue;
-      rows.push({ relation, direction, other: this.entity(other), properties: edge.properties, position: null, ...(spanOf(edge.properties['span']) === undefined ? {} : { span: spanOf(edge.properties['span'])! }) });
+      rows.push({ relation, direction, other: this.entity(other), properties: edge.properties, position: null, ...((edge.properties['span'] as SourceSpan | undefined) === undefined ? {} : { span: (edge.properties['span'] as SourceSpan | undefined)! }) });
     }
     rows.sort((a, b) => byCodePoint(a.other.key, b.other.key));
     return { total: rows.length, rows: rows.slice(0, limit) };

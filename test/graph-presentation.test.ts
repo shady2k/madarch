@@ -1,46 +1,57 @@
-/**
- * The one name a record is presented by (decision 0033, item 7): the extract driver names a file
- * `code.file:<path>` and a symbol `code.symbol:<path>#<name>`; the static stages carry the same names in
- * `path` and `globalName`. The reader answers both shapes the same, and a place is read from either
- * shape of provenance.
- */
-import { describe, expect, test } from 'bun:test';
-import { presentedKey, spanFromProvenance } from '../src/knowledge/graph-read.js';
+/** Canonical identity and source presentation come from ordinary declared keys and opinion evidence. */
+import { expect, test } from 'bun:test';
+import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { GraphReader, type GeneratedKindRead } from '../src/knowledge/graph-read.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
-describe('the key a record is presented by', () => {
-  test('a file is named by its path, whichever producer wrote it', () => {
-    expect(presentedKey('code.file', { recordKey: 'code.file:src/a.ts', repository: 'repo', path: 'src/a.ts' })).toBe('code.file:repo/src/a.ts');
-    expect(presentedKey('code.file', { recordKey: 'file:9f2c', repository: 'repo', path: 'src/a.ts' })).toBe('code.file:repo/src/a.ts');
-  });
+const fileTable = generatedTableName('code.file', 'vertex');
+const termTable = generatedTableName('doc.term', 'vertex');
+const contract: GraphContract = {
+  vertex: [
+    { name: 'code.file', table: fileTable, capability: 'disk', key: ['repository', 'path'], fields: [{ name: 'repository', type: 'text' }, { name: 'path', type: 'text' }, { name: 'language', type: 'text' }] },
+    { name: 'doc.term', table: termTable, capability: 'glossary', key: ['name'], fields: [{ name: 'name', type: 'text' }, { name: 'definition', type: 'text' }] },
+  ],
+  edge: [], dictionary: [],
+};
+const generated = new Map<string, GeneratedKindRead>([
+  ['code.file', { kind: 'code.file', table: fileTable, key: ['repository', 'path'], columns: ['language'], types: { repository: 'text', path: 'text', language: 'text' } }],
+  ['doc.term', { kind: 'doc.term', table: termTable, key: ['name'], columns: ['definition'], types: { name: 'text', definition: 'text' } }],
+]);
 
-  test('every other kind is named by its record key, unchanged', () => {
-    expect(presentedKey('code.table', { recordKey: 'code.table:shop/public.items', path: 'db/x.sql' })).toBe('code.table:shop/public.items');
-    expect(presentedKey('code.file', { recordKey: 'file:9f2c' })).toBe('file:9f2c');
-    // A path that is no text, and a global name that is no text, name the record by its own key.
-    expect(presentedKey('code.file', { recordKey: 'file:9f2c', path: 3 })).toBe('file:9f2c');
-  });
-});
-
-describe('the place a record was read at', () => {
-  test('the static stages state it as their fact\'s place, in the provenance', () => {
-    expect(spanFromProvenance({
-      provenance: { place: { file: 'db/migrations/0001.sql', range: { startLine: 2, endLine: 4, startByte: 10, endByte: 40 } }, source: { system: 'x', version: '1' } },
-    })).toEqual({ path: 'db/migrations/0001.sql', lineStart: 2, lineEnd: 4, byteStart: 10, byteEnd: 40 });
-  });
-
-  test('a record that names no place, or a place without a range, names none', () => {
-    expect(spanFromProvenance({})).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { source: {} } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 'a.ts' } } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 'a.ts', range: { startLine: 1 } } } })).toBeUndefined();
-    // A field of the wrong shape is no place either: an array is no provenance and no place, a file that is no text
-    // and a line that is no number are each refused.
-    expect(spanFromProvenance({ provenance: [] })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: [] } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 7, range: { startLine: 1, endLine: 1, startByte: 0, endByte: 1 } } } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 'a.ts', range: { startLine: '1', endLine: 1, startByte: 0, endByte: 1 } } } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 'a.ts', range: { startLine: 1, endLine: null, startByte: 0, endByte: 1 } } } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 'a.ts', range: { startLine: 1, endLine: 1, startByte: 0, endByte: null } } } })).toBeUndefined();
-    expect(spanFromProvenance({ provenance: { place: { file: 'a.ts', range: [] } } })).toBeUndefined();
-  });
+test('ordinary declarations preserve canonical keys across producers and present each opinion source', async () => {
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    await owner.transaction('write', async (tx) => {
+      await publishGraphDrafts(tx, contract, {
+        vertices: ['disk', 'linguist'].map((producer) => ({
+          kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, values: { language: 'TypeScript' }, producer, producerVersion: '1',
+          evidence: [{ type: 'file' as const, repository: 'repo', path: 'src/a.ts', commit_or_digest: 'c0ffee', line_start: 2, line_end: 4 }],
+        })), removals: [],
+      });
+      await publishGraphDrafts(tx, contract, {
+        vertices: [
+          { kind: 'doc.term', key: { name: 'ordinary' }, values: { definition: 'Declared values' }, producer: 'glossary', producerVersion: '1', evidence: [{ type: 'file', repository: 'repo', path: 'docs/terms.md', commit_or_digest: 'c0ffee', line_start: 3, line_end: 5 }] },
+          { kind: 'doc.term', key: { name: 'unplaced' }, values: { definition: 'No source place' }, producer: 'glossary', producerVersion: '1' },
+        ], removals: [],
+      });
+    });
+    const reader = new GraphReader(owner, () => 'now', undefined, undefined, undefined, generated);
+    const files = await reader.find('code.file:repo/src/a.ts');
+    expect(files).toHaveLength(1);
+    expect(files[0]?.key).toBe('code.file:repo/src/a.ts');
+    expect(files[0]?.properties).toMatchObject({ recordKey: 'code.file:repo/src/a.ts', repository: 'repo', path: 'src/a.ts', language: 'TypeScript' });
+    expect(files[0]?.opinions?.map((opinion) => opinion.producer).sort()).toEqual(['disk@1', 'linguist@1']);
+    expect(files[0]?.span).toEqual({ path: 'src/a.ts', lineStart: 2, lineEnd: 4, byteStart: 0, byteEnd: 0 });
+    expect(await reader.find('file:9f2c')).toEqual([]);
+    const [term] = await reader.find('doc.term:ordinary');
+    expect(term?.key).toBe('doc.term:ordinary');
+    expect(term?.label).toBe('ordinary');
+    expect(term?.span).toEqual({ path: 'docs/terms.md', lineStart: 3, lineEnd: 5, byteStart: 0, byteEnd: 0 });
+    expect(term?.opinions?.[0]?.evidence).toEqual([expect.objectContaining({ field: 'definition', repository: 'repo', path: 'docs/terms.md', lineStart: 3, lineEnd: 5, commit: 'c0ffee', saidBy: 'glossary@1' })]);
+    const [unplaced] = await reader.find('doc.term:unplaced');
+    expect(unplaced?.span).toBeUndefined();
+    expect(unplaced?.evidence).toBeUndefined();
+    expect(unplaced?.properties['definition']).toBe('No source place');
+  } finally { await owner.close(); }
 });
