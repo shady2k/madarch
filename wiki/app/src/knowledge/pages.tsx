@@ -687,7 +687,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             if ((event.target as Element).closest('a, button')) return;
             linkHandlers(addressOfKind(kind.kind)).onClick(event);
           }}>
-            <TableCell className="whitespace-nowrap align-top">
+            <TableCell className="align-top wrap-anywhere">
               <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink>
             </TableCell>
             <TableCell className="align-top">{kind.descriptions?.[language] ?? <Text className="text-muted">–</Text>}<KindSources kind={kind} compact /></TableCell>
