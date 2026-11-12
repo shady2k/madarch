@@ -175,31 +175,6 @@
     "subject": "9429b3295d1b0f37561e#1"
   },
   {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/diagrams/files-echart.tsx",
-    "subject": "e2c0c876cfa9cb223700#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/diagrams/pan-zoom.tsx",
-    "subject": "af632b728d03b01031e4#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "b5bf0e1c38ef1ac46623#1"
-  },
-  {
-    "rule": "inline-style",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "c537cae903f2dbca664e#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/diagram.tsx",
-    "subject": "MermaidDiagram#1"
-  },
-  {
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "BrandMark#1"
@@ -271,66 +246,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
-    "subject": "MermaidFence#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/files-echart.tsx",
-    "subject": "EChartsTreemap#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/fullscreen.tsx",
-    "subject": "Fullscreenable#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/neighborhood.tsx",
-    "subject": "NeighborhoodGraphBody#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/pan-zoom.tsx",
-    "subject": "PanZoom#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "Segmented#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "TreemapBody#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "DiagramsView#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "ElementRow#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "Frame#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "ViewBody#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "ZoomBox#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/errors.tsx",
     "subject": "FailureNote#1"
   },
@@ -393,71 +308,6 @@
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/contract-diagnostic.tsx",
     "subject": "ffbaafa6f1041afb53cd#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
-    "subject": "bcf6b2759cdd069417bb#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagram-fence.tsx",
-    "subject": "d47df3570747bffb2fbf#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/fullscreen.tsx",
-    "subject": "0df72aad8bee36c110bd#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "46b2c3c51d9cb10b8095#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "5f36157905ad75df79f7#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/treemap.tsx",
-    "subject": "6d0bc08fc563ad8165ba#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "1df40683c0379ccc7433#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "35ed95479d7a523be6a6#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "3907d164167b45e7a227#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "4b07fcdd11d8c70d5eae#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "69ed6de9cd88e62ecd7a#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "6fa9a40363f4f23c7d2a#1"
-  },
-  {
-    "rule": "raw-ui-element",
-    "file": "wiki/app/src/knowledge/diagrams/views.tsx",
-    "subject": "a17a35e72211b90daa8b#1"
   },
   {
     "rule": "raw-ui-element",
