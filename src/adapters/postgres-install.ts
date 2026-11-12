@@ -24,6 +24,7 @@ import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, readF
 import { dirname, join } from 'node:path';
 import {
   POSTGRES_VERSION,
+  postgresProgram,
   platformKey,
   pinnedPlatforms,
   postgresArchiveName,
@@ -117,7 +118,7 @@ function installedBuild(folder: string, build: PostgresBuild): boolean {
   } catch {
     return false;
   }
-  return REQUIRED_PROGRAMS.every((program) => existsSync(join(folder, 'bin', program)));
+  return REQUIRED_PROGRAMS.every((program) => existsSync(join(folder, 'bin', postgresProgram(program, build.platform))));
 }
 
 /** The sha256 of a file as the file states it, or null when it is not there. */
@@ -131,7 +132,7 @@ async function digestOf(file: string): Promise<string | null> {
 /** Runs one of the system's own programs, refusing by name with what it said. */
 function runProgram(program: string, args: readonly string[]): void {
   const answer = spawnSync(program, [...args], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
-  const said = (answer.stderr ?? '').trim().slice(0, 2_000);
+  const said = (answer.stderr ?? '').trim();
   if (answer.error !== undefined || answer.status !== 0) {
     throw new Error(`${WHERE}:1: ${program} ${args.join(' ')} failed: ${answer.error?.message ?? `exited ${String(answer.status)}`}${said === '' ? '' : `: ${said}`}`);
   }
@@ -362,10 +363,10 @@ async function installUnderLock(options: {
   mkdirSync(scratch, { recursive: true });
   try {
     runProgram('tar', ['-xzf', archive, '-C', scratch, '--strip-components=1']);
-    const missing = REQUIRED_PROGRAMS.filter((program) => !existsSync(join(scratch, 'bin', program)));
+    const missing = REQUIRED_PROGRAMS.filter((program) => !existsSync(join(scratch, 'bin', postgresProgram(program, build.platform))));
     if (missing.length > 0) throw new Error(`${WHERE}:1: the archive ${archive} was unpacked into ${scratch} but holds no bin/${missing.join(' or bin/')}: nothing was installed. Check that ${postgresArchiveName(build)} is the release's own archive`);
     for (const program of [...REQUIRED_PROGRAMS, 'psql', 'pg_dump', 'createdb', 'dropdb']) {
-      const file = join(scratch, 'bin', program);
+      const file = join(scratch, 'bin', postgresProgram(program, build.platform));
       if (existsSync(file)) chmodSync(file, 0o755);
     }
     writeFileSync(join(scratch, 'install.json'), `${JSON.stringify(markerFor(build), null, 2)}\n`);

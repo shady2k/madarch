@@ -1,5 +1,8 @@
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { Breadcrumb } from '@/components/ui/breadcrumb.js';
+import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, BulletList, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, TextLink, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, Preformatted, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
@@ -21,8 +24,9 @@ import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
+import { Progress } from '@/components/ui/progress.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement } from './api.js';
+import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement } from './api.js';
 import { linkHandlers, syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
@@ -37,10 +41,9 @@ import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
-import { Textarea } from '@/components/ui/textarea.js';
 import { DiagramsView } from './diagrams/views.js';
 import { KindUsage } from './usage.js';
-import type { CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { CatalogKindView, CatalogView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -50,19 +53,19 @@ function message(failure: unknown): string {
 function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null {
   if (trail.length === 0) return null;
   return (
-    <nav aria-label="trail" className="mb-2 flex flex-nowrap items-center gap-x-2 overflow-hidden text-small text-muted" data-testid="trail">
+    <Breadcrumb aria-label="trail" className="mb-2 flex flex-nowrap items-center gap-x-2 overflow-hidden text-small text-muted" data-testid="trail">
       {trail.map((entity, index) => {
         const last = index === trail.length - 1;
         return (
-          <span key={entity.id} className={`flex min-w-0 items-center gap-2 ${last ? 'shrink-0' : ''}`}>
-            {index > 0 && <span aria-hidden="true">/</span>}
+          <Text key={entity.id} className={`flex min-w-0 items-center gap-2 ${last ? 'shrink-0' : ''}`}>
+            {index > 0 && <Text aria-hidden="true">/</Text>}
             {last
-              ? <span className="min-w-0 truncate font-medium text-ink" aria-current="page" data-testid="trail-current">{entity.label}</span>
+              ? <Text className="min-w-0 truncate font-medium text-ink" aria-current="page" data-testid="trail-current">{entity.label}</Text>
               : <ClippedLabel><EntityName entity={entity} /></ClippedLabel>}
-          </span>
+          </Text>
         );
       })}
-    </nav>
+    </Breadcrumb>
   );
 }
 
@@ -142,7 +145,7 @@ function KindMap({ kind, version }: { kind: string; version: number }): ReactEle
   const read = useRead<{ renderer: DiagramRenderer; views: DiagramView[] }>(`map\0${kind}\0${lang}`, version, (signal) => getViews(new URLSearchParams({ type: 'domain-map', subject: kind }).toString(), lang, signal));
   const view = read.data?.views[0];
   if (read.data === null || view === undefined || view.empty !== null) return null;
-  return <div className="mb-6" data-testid="kind-map"><DiagramsView block={{ type: 'diagrams', title: t('knowledge.views.kindMap'), renderer: read.data.renderer, views: [view] }} /></div>;
+  return <Stack className="mb-6" data-testid="kind-map"><DiagramsView block={{ type: 'diagrams', title: t('knowledge.views.kindMap'), renderer: read.data.renderer, views: [view] }} /></Stack>;
 }
 
 /** A kind's entities: filtered by text, a hundred at a time. */
@@ -318,19 +321,17 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
           <CardDescription>{fill.repository !== undefined ? t('knowledge.fillReading', { repository: fill.repository, what: fillPhaseWords(fill, t) }) : t('knowledge.fillOpening')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t('knowledge.fillRunningTitle')}>
-            <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(share * 100)}%` }} />
-          </div>
+          <Progress value={Math.round(share * 100)} aria-label={t('knowledge.fillRunningTitle')} />
           {progress !== undefined && planned > 0 && (
-            <p className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-counts">{t('knowledge.repository.progressCounts', { published, planned })}</p>
+            <Paragraph className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-counts">{t('knowledge.repository.progressCounts', { published, planned })}</Paragraph>
           )}
           {progress !== undefined && planned === 0 && (
-            <p className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-spans">{t('knowledge.repository.fillSpans', { spans: progress.spans })}</p>
+            <Paragraph className="mb-0 mt-3 text-small text-muted" data-testid="fill-progress-spans">{t('knowledge.repository.fillSpans', { spans: progress.spans })}</Paragraph>
           )}
           {progress?.last !== null && progress?.last !== undefined && (progress.last.startsWith('fill.unit') || progress.last.startsWith('scheduler pass')) && (
-            <p className="mb-0 mt-1 break-all text-small text-muted" data-testid="fill-progress-last">{t('knowledge.repository.fillLast', { last: progress.last })}</p>
+            <Paragraph className="mb-0 mt-1 break-all text-small text-muted" data-testid="fill-progress-last">{t('knowledge.repository.fillLast', { last: progress.last })}</Paragraph>
           )}
-          <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.fillLive')}</p>
+          <Paragraph className="mb-0 mt-3 text-small text-muted">{t('knowledge.fillLive')}</Paragraph>
         </CardContent>
       </Card>
     );
@@ -342,12 +343,12 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
         <AlertDescription>
           <FailureNote scope="fill" code={fill.code} message={fill.message} />
           {fill.error !== undefined && fill.error.file !== undefined && (
-            <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-where">{t('knowledge.repository.errorAt', { file: fill.error.file, line: fill.error.line ?? 0, path: fill.error.path ?? '' })}</p>
+            <Paragraph className="mb-0 mt-2 break-all text-small" data-testid="fill-error-where">{t('knowledge.repository.errorAt', { file: fill.error.file, line: fill.error.line ?? 0, path: fill.error.path ?? '' })}</Paragraph>
           )}
           {fill.error !== undefined && fill.error.file === undefined && fill.error.path !== undefined && (
-            <p className="mb-0 mt-2 break-all text-small" data-testid="fill-error-path">{t('knowledge.repository.errorPath', { path: fill.error.path })}</p>
+            <Paragraph className="mb-0 mt-2 break-all text-small" data-testid="fill-error-path">{t('knowledge.repository.errorPath', { path: fill.error.path })}</Paragraph>
           )}
-          <p className="mt-2"><KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillRetry')}</KLink></p>
+          <Paragraph className="mt-2"><KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillRetry')}</KLink></Paragraph>
         </AlertDescription>
       </Alert>
     );
@@ -395,7 +396,7 @@ function FillPart({ status }: { status: WikiStatus }): ReactElement | null {
         {connected ? (
           <KLink href={WIKI_FILL} testId="fill-start">{t('knowledge.fillStart')}</KLink>
         ) : (
-          <pre className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></pre>
+          <Preformatted className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></Preformatted>
         )}
       </CardContent>
     </Card>
@@ -506,7 +507,7 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
     return (
       <Alert variant="problem" data-testid="documents-error">
         <AlertTitle>{t('knowledge.documentsMissing')}</AlertTitle>
-        <AlertDescription><p>{error}</p></AlertDescription>
+        <AlertDescription><Paragraph>{error}</Paragraph></AlertDescription>
       </Alert>
     );
   }
@@ -517,31 +518,31 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
     groups.set(key, [...(groups.get(key) ?? []), document]);
   }
   return (
-    <section data-testid="documents-page">
-      <header className="mb-6">
-        <h1>{t('knowledge.documents')}</h1>
-        <p className="text-secondary" data-testid="documents-intro">{t('knowledge.documentsIntro')}</p>
-        <div className="flex items-center gap-3">
+    <PageSection data-testid="documents-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('knowledge.documents')}</PageTitle>
+        <Paragraph className="text-secondary" data-testid="documents-intro">{t('knowledge.documentsIntro')}</Paragraph>
+        <Stack className="flex items-center gap-3">
           <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filterSources')} aria-label={t('knowledge.filterSources')} data-testid="documents-filter" />
-          <span className="text-small text-muted" data-testid="documents-total">{t('knowledge.total', { count: shown.length })}</span>
-        </div>
-      </header>
-      {shown.length === 0 && <p className="text-muted" data-testid="documents-empty">{t('knowledge.noDocuments')}</p>}
+          <Text className="text-small text-muted" data-testid="documents-total">{t('knowledge.total', { count: shown.length })}</Text>
+        </Stack>
+      </PageHeader>
+      {shown.length === 0 && <Paragraph className="text-muted" data-testid="documents-empty">{t('knowledge.noDocuments')}</Paragraph>}
       {[...groups.entries()].map(([repo, documents]) => (
-        <section key={repo} className="mb-8" data-testid="documents-group" data-repo={repo}>
-          <h2 className="first-letter:uppercase">{repo === '' ? t('knowledge.productRepository') : repo}</h2>
-          <ul className="m-0 list-none p-0">
+        <PageSection key={repo} className="mb-8" data-testid="documents-group" data-repo={repo}>
+          <SectionTitle className="first-letter:uppercase">{repo === '' ? t('knowledge.productRepository') : repo}</SectionTitle>
+          <PlainList className="m-0 list-none p-0">
             {documents.map((document) => (
-              <li key={document.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="document-row">
+              <ListItem key={document.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="document-row">
                 <KLink href={addressOfDocument(document.repo, document.path)}>{document.title}</KLink>
-                <span className="block break-all text-small text-muted" data-testid="document-path">{document.path}</span>
-              </li>
+                <Text className="block break-all text-small text-muted" data-testid="document-path">{document.path}</Text>
+              </ListItem>
             ))}
-          </ul>
-          {listing.truncated.filter((cut) => (cut.repo ?? '') === repo).map((cut) => <p key={repo} className="mt-2 text-small text-muted" data-testid="documents-cut">{t('knowledge.showing', { shown: cut.shown, total: cut.total })}</p>)}
-        </section>
+          </PlainList>
+          {listing.truncated.filter((cut) => (cut.repo ?? '') === repo).map((cut) => <Paragraph key={repo} className="mt-2 text-small text-muted" data-testid="documents-cut">{t('knowledge.showing', { shown: cut.shown, total: cut.total })}</Paragraph>)}
+        </PageSection>
       ))}
-    </section>
+    </PageSection>
   );
 }
 
@@ -572,7 +573,7 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
     return (
       <Alert variant="problem" data-testid="document-error">
         <AlertTitle>{t('knowledge.noSuchDocument')}</AlertTitle>
-        <AlertDescription><p>{error}</p></AlertDescription>
+        <AlertDescription><Paragraph>{error}</Paragraph></AlertDescription>
       </Alert>
     );
   }
@@ -585,20 +586,20 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
     statements: {},
   };
   return (
-    <article data-testid="document-page" data-path={page.path} data-repo={page.repo ?? ''} data-planned={String((page.planned ?? []).length)}>
-      <header className="mb-6">
-        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_DOCS}>{t('knowledge.documents')}</KLink><span aria-hidden="true">/</span><span>{page.repo ?? t('knowledge.productRepository')}</span></nav>
-        <div className="mb-2 flex items-center gap-2">
+    <PageArticle data-testid="document-page" data-path={page.path} data-repo={page.repo ?? ''} data-planned={String((page.planned ?? []).length)}>
+      <PageHeader className="mb-6">
+        <Breadcrumb aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={WIKI_DOCS}>{t('knowledge.documents')}</KLink><Text aria-hidden="true">/</Text><Text>{page.repo ?? t('knowledge.productRepository')}</Text></Breadcrumb>
+        <Stack className="mb-2 flex items-center gap-2">
           <Badge>{t('knowledge.documentBadge')}</Badge>
-          <code className="min-w-0 truncate text-small text-muted" title={page.path}>{page.path}</code>
+          <InlineCode className="min-w-0 truncate text-small text-muted" title={page.path}>{page.path}</InlineCode>
           {page.commit !== null && <Badge title={page.commit}>{page.commit.slice(0, 10)}</Badge>}
-        </div>
-      </header>
-      {page.plannedNote !== undefined && <Alert data-testid="document-planned-note"><AlertDescription><p>{page.plannedNote}</p></AlertDescription></Alert>}
+        </Stack>
+      </PageHeader>
+      {page.plannedNote !== undefined && <Alert data-testid="document-planned-note"><AlertDescription><Paragraph>{page.plannedNote}</Paragraph></AlertDescription></Alert>}
       <PlannedContext.Provider value={planned}>
         <KMarkdown text={page.markdown} resolutions={page.resolutions} inDocument={{ repo: page.repo, path: page.path, anchors: page.anchors }} />
       </PlannedContext.Provider>
-    </article>
+    </PageArticle>
   );
 }
 
@@ -686,13 +687,13 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
             if ((event.target as Element).closest('a, button')) return;
             linkHandlers(addressOfKind(kind.kind)).onClick(event);
           }}>
-            <TableCell className="whitespace-nowrap align-top">
+            <TableCell className="align-top wrap-anywhere">
               <KLink href={addressOfKind(kind.kind)}>{nameOf(kind)}</KLink>
             </TableCell>
-            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? <span className="text-muted">–</span>}<KindSources kind={kind} compact /></TableCell>
+            <TableCell className="align-top">{kind.descriptions?.[language] ?? <Text className="text-muted">–</Text>}<KindSources kind={kind} compact /></TableCell>
             <TableCell className="align-top" data-testid="catalogue-count">
               {kind.count > 0 ? <KLink href={addressOfKind(kind.kind)}>{kind.count}</KLink> : kind.count}
-              {kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}
+              {kind.statements !== undefined && <Text className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</Text>}
             </TableCell>
             <TableCell className="align-top" data-testid="catalogue-stage" data-stage={fillWithOf(kind)}>{producerWords(kind)}</TableCell>
             <TableCell className="align-top" data-testid="catalogue-states">
@@ -704,15 +705,15 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
     </Table>
   );
   return (
-    <section data-testid="catalogue-page">
-      <header className="mb-6">
-        <h1>{t('knowledge.catalogue')}</h1>
-        <p className="mb-1" data-testid="catalogue-intro">{t('knowledge.catalogueIntro')}</p>
-        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</p>
-      </header>
+    <PageSection data-testid="catalogue-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('knowledge.catalogue')}</PageTitle>
+        <Paragraph className="mb-1" data-testid="catalogue-intro">{t('knowledge.catalogueIntro')}</Paragraph>
+        <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</Paragraph>
+      </PageHeader>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
       <Stack layout="catalogue">
-      <div className="min-w-0">
+      <Stack className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
           <TabsTrigger value="table">{t('knowledge.catalogueViews.table')}</TabsTrigger>
@@ -720,26 +721,26 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </TabsList>
         <TabsContent value="table">
       {sections.map((section) => (
-        <section key={section.key} id={sectionId(section.key)} className="mb-8 scroll-mt-4" data-testid="catalogue-group" data-group={section.key}>
-          <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</span></h2>
+        <PageSection key={section.key} id={sectionId(section.key)} className="mb-8 scroll-mt-4" data-testid="catalogue-group" data-group={section.key}>
+          <SectionTitle className="flex flex-wrap items-baseline gap-x-3 gap-y-1">{section.name}<Text className="text-small font-normal text-muted" data-testid="catalogue-group-total">{totals(sectionKinds(section))}</Text></SectionTitle>
           {section.kinds.length > 0 && table(section.kinds)}
           {section.subgroups.map((subgroup) => (
-            <section key={subgroup.key} id={sectionId(subgroup.key)} className="mb-5 scroll-mt-4" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
-              <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{totals(subgroup.kinds)}</span></h3>
-              {subgroup.kinds.length > 0 ? table(subgroup.kinds) : <p className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</p>}
-            </section>
+            <PageSection key={subgroup.key} id={sectionId(subgroup.key)} className="mb-5 scroll-mt-4" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
+              <SmallTitle className="mb-2 mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-body">{subgroup.name}<Text className="text-small font-normal text-muted">{totals(subgroup.kinds)}</Text></SmallTitle>
+              {subgroup.kinds.length > 0 ? table(subgroup.kinds) : <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-empty-subgroup">{t('knowledge.catalogueEmptyGroup')}</Paragraph>}
+            </PageSection>
           ))}
-        </section>
+        </PageSection>
       ))}
         </TabsContent>
         <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
       </Tabs>
-      </div>
+      </Stack>
       <ContentsSidebar data-testid="catalogue-contents">
         <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
       </ContentsSidebar>
       </Stack>
-    </section>
+    </PageSection>
   );
 }
 /** A ground that is a thing of the system: its name and kind, what the kind is, what the code says of it, what it is connected to, and its page. */
@@ -751,32 +752,32 @@ function EntityCard({ excerpt }: { excerpt: Extract<Excerpt, { type: 'entity' }>
   const { entity } = excerpt;
   const description = kinds.find((kind) => kind.kind === entity.kind)?.descriptions?.[language];
   return (
-    <div data-testid="excerpt" data-excerpt="entity" className="flex flex-col gap-3">
-      <p className="m-0 text-small text-muted" data-testid="card-kind">{kindName(entity.kind, 'one')}{description !== undefined && <> · {description}</>}</p>
+    <Stack data-testid="excerpt" data-excerpt="entity" className="flex flex-col gap-3">
+      <Paragraph className="m-0 text-small text-muted" data-testid="card-kind">{kindName(entity.kind, 'one')}{description !== undefined && <> · {description}</>}</Paragraph>
       {excerpt.facts.length > 0 && (
-        <div>
-          <p className="mb-1 mt-0 text-small text-muted">{t('knowledge.cardFacts')}</p>
-          <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small" data-testid="card-facts">
-            {excerpt.facts.map((fact) => (<Fragment key={fact.name}><dt className="font-mono text-secondary">{fact.name}</dt><dd className="m-0 break-words">{fact.value}</dd></Fragment>))}
-          </dl>
-        </div>
+        <Stack>
+          <Paragraph className="mb-1 mt-0 text-small text-muted">{t('knowledge.cardFacts')}</Paragraph>
+          <DefinitionList columns data-testid="card-facts">
+            {excerpt.facts.map((fact) => (<Fragment key={fact.name}><DefinitionTerm className="font-mono text-secondary">{fact.name}</DefinitionTerm><DefinitionValue className="m-0 break-words">{fact.value}</DefinitionValue></Fragment>))}
+          </DefinitionList>
+        </Stack>
       )}
       {excerpt.related.length > 0 && (
-        <div data-testid="card-related">
-          <p className="mb-1 mt-0 text-small text-muted">{t('knowledge.cardRelated')}</p>
-          <ul className="m-0 flex list-none flex-col gap-1 p-0 text-small">
+        <Stack data-testid="card-related">
+          <Paragraph className="mb-1 mt-0 text-small text-muted">{t('knowledge.cardRelated')}</Paragraph>
+          <PlainList className="m-0 flex list-none flex-col gap-1 p-0 text-small">
             {excerpt.related.map((group) => (
-              <li key={`${group.relation}:${group.direction}`} data-relation={group.relation}>
-                <span className="text-muted">{groupLabel(group, t)}: </span>
+              <ListItem key={`${group.relation}:${group.direction}`} data-relation={group.relation}>
+                <Text className="text-muted">{groupLabel(group, t)}: </Text>
                 {group.rows.map((row, index) => <Fragment key={row.entity.id}>{index > 0 && ', '}<EntityName entity={row.entity} /></Fragment>)}
-                {group.total > group.rows.length && <span className="text-muted"> +{group.total - group.rows.length}</span>}
-              </li>
+                {group.total > group.rows.length && <Text className="text-muted"> +{group.total - group.rows.length}</Text>}
+              </ListItem>
             ))}
-          </ul>
-        </div>
+          </PlainList>
+        </Stack>
       )}
-      {entity.href !== null && <p className="m-0 text-small" data-testid="card-page"><KLink href={entity.href}>{t('knowledge.cardOpen', { kind: kindName(entity.kind, 'one').toLowerCase() })}</KLink></p>}
-    </div>
+      {entity.href !== null && <Paragraph className="m-0 text-small" data-testid="card-page"><KLink href={entity.href}>{t('knowledge.cardOpen', { kind: kindName(entity.kind, 'one').toLowerCase() })}</KLink></Paragraph>}
+    </Stack>
   );
 }
 
@@ -785,24 +786,24 @@ function ExcerptView({ excerpt }: { excerpt: Excerpt }): ReactElement {
   if (excerpt.type === 'text') {
     const place = excerpt.place;
     return (
-      <div data-testid="excerpt" data-excerpt="text">
-        <blockquote className="!my-0"><KMarkdown text={excerpt.markdown} resolutions={{}} /></blockquote>
-        <p className="mb-0 mt-2 text-small text-muted"><KLink href={place.href}>{place.path}:{place.lineStart}{place.lineEnd > place.lineStart ? `–${place.lineEnd}` : ''}</KLink></p>
-      </div>
+      <Stack data-testid="excerpt" data-excerpt="text">
+        <Blockquote className="!my-0"><KMarkdown text={excerpt.markdown} resolutions={{}} /></Blockquote>
+        <Paragraph className="mb-0 mt-2 text-small text-muted"><KLink href={place.href}>{place.path}:{place.lineStart}{place.lineEnd > place.lineStart ? `–${place.lineEnd}` : ''}</KLink></Paragraph>
+      </Stack>
     );
   }
   if (excerpt.type === 'entity') return <EntityCard excerpt={excerpt} />;
   return (
-    <div data-testid="excerpt" data-excerpt="code">
-      <div className="source-view overflow-hidden rounded-[var(--radius-card)] border border-line">
+    <Stack data-testid="excerpt" data-excerpt="code">
+      <CodeFrame>
         <CodeLines text={excerpt.text} language={excerpt.language} firstLine={excerpt.firstLine} marked={excerpt.marked} />
-      </div>
-      <p className="mb-0 mt-2 flex flex-wrap items-center gap-x-3 text-small text-muted">
+      </CodeFrame>
+      <Paragraph className="mb-0 mt-2 flex flex-wrap items-center gap-x-3 text-small text-muted">
         <CodePlace location={excerpt.location} />
-        {excerpt.marked.start > 0 && <span>{t('knowledge.citedLines', { start: excerpt.marked.start, end: excerpt.marked.end })}</span>}
-        {excerpt.truncated && <span>{t('knowledge.cutShown')}</span>}
-      </p>
-    </div>
+        {excerpt.marked.start > 0 && <Text>{t('knowledge.citedLines', { start: excerpt.marked.start, end: excerpt.marked.end })}</Text>}
+        {excerpt.truncated && <Text>{t('knowledge.cutShown')}</Text>}
+      </Paragraph>
+    </Stack>
   );
 }
 
@@ -813,9 +814,9 @@ function GroundCard({ ground, index }: { ground: GroundView; index: number }): R
   return (
     <Card data-testid="ground" data-state={resolution.state} data-ground={ground.url}>
       <CardHeader className="flex-row items-center gap-3 pb-3">
-        <span className="text-small text-muted" aria-hidden="true">{index + 1}</span>
+        <Text className="text-small text-muted" aria-hidden="true">{index + 1}</Text>
         {resolution.state === 'broken' ? (
-          <CardTitle className="min-w-0 flex-1 text-small"><span className="ref-broken" data-testid="ref-broken" title={brokenWords(resolution, t)}>{ground.url.replace(/^madarch:/, '')}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span></CardTitle>
+          <CardTitle className="min-w-0 flex-1 text-small"><Text className="ref-broken" data-testid="ref-broken" title={brokenWords(resolution, t)}>{ground.url.replace(/^madarch:/, '')}<Text className="ref-broken-mark">{t('knowledge.broken')}</Text></Text></CardTitle>
         ) : (
           <>
             <CardTitle className="min-w-0 flex-1 text-small">{resolution.href === null ? resolution.label : <KLink href={resolution.href}>{resolution.label}</KLink>}</CardTitle>
@@ -824,46 +825,15 @@ function GroundCard({ ground, index }: { ground: GroundView; index: number }): R
         )}
       </CardHeader>
       <CardContent>
-        {resolution.state === 'broken' && <p className="m-0 text-small" role="note">{brokenWords(resolution, t)}</p>}
+        {resolution.state === 'broken' && <Paragraph className="m-0 text-small" role="note">{brokenWords(resolution, t)}</Paragraph>}
         {resolution.state === 'ok' && ground.excerpt !== null && <ExcerptView excerpt={ground.excerpt} />}
-        {resolution.state === 'ok' && ground.excerpt === null && <p className="m-0 text-small text-muted">{t('knowledge.statementNoExcerpt')}</p>}
+        {resolution.state === 'ok' && ground.excerpt === null && <Paragraph className="m-0 text-small text-muted">{t('knowledge.statementNoExcerpt')}</Paragraph>}
       </CardContent>
     </Card>
   );
 }
 
 /** Where a person says the statement is wrong and why: a correction file in the product repository, committed under the person's git name. */
-function CorrectionBox({ page, name }: { page: string; name: string | null }): ReactElement {
-  const { t } = useTranslation();
-  const [reason, setReason] = useState('');
-  const [sending, setSending] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-  const [done, setDone] = useState<CorrectionResult | null>(null);
-  const send = (): void => {
-    if (name === null) return;
-    setSending(true);
-    setRefused(null);
-    correctStatement(`${page}#${name}`, reason).then(
-      (result) => { setSending(false); setDone(result); setReason(''); },
-      (failure: unknown) => { setSending(false); setRefused(message(failure)); },
-    );
-  };
-  return (
-    <section data-testid="statement-correction">
-      <h2>{t('knowledge.statementCorrection')}</h2>
-      <p className="text-small text-muted">{name === null ? t('knowledge.statementCorrectionUnnamed') : t('knowledge.statementCorrectionNote')}</p>
-      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={name === null || sending} placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3" data-testid="correction-text" />
-      <div><Button variant="default" size="default" disabled={name === null || sending || reason.trim() === ''} onClick={send} data-testid="correction-send">{t('knowledge.statementCorrectionSend')}</Button></div>
-      {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="correction-refused">{refused}</p>}
-      {done !== null && (
-        <p className="mb-0 mt-3 text-small" role="status" data-testid="correction-done">
-          {t('knowledge.statementCorrectionDone', { file: done.file })} {done.committed ? '' : (done.note ?? '')} <KLink href={WIKI_PROBLEMS}>{t('loop.problemsTitle')}</KLink>
-        </p>
-      )}
-    </section>
-  );
-}
-
 /** One sentence of an agent's page with its paragraph, each ground with its excerpt, and the place for a correction. */
 export function StatementPage({ id, sentence, turn = 0, version }: { id: string; sentence: string; turn?: number; version: number }): ReactElement {
   const { t } = useTranslation();
@@ -874,37 +844,37 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
     return (
       <Alert variant="problem" data-testid="statement-error">
         <AlertTitle>{t('knowledge.statementMissing')}</AlertTitle>
-        <AlertDescription><p>{error}</p></AlertDescription>
+        <AlertDescription><Paragraph>{error}</Paragraph></AlertDescription>
       </Alert>
     );
   }
   return (
-    <article data-testid="statement-page">
-      <header className="mb-6">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+    <PageArticle data-testid="statement-page">
+      <PageHeader className="mb-6">
+        <Stack className="mb-2 flex flex-wrap items-center gap-2">
           <Badge>{t('knowledge.statementTitle')}</Badge>
-          <span className="text-small text-muted">{t('knowledge.statementOnPage')}: <EntityName entity={statement.page} /></span>
-        </div>
-        <p className="statement-sentence m-0" data-testid="statement-sentence">{statement.sentence}</p>
-        {statement.planned != null && <p className="m-0 mt-2" data-testid="statement-planned"><PlannedBadge mark={statement.planned} ground={statement.planned.how === 'impact'} /></p>}
-        {statement.plannedNote !== undefined && <p className="m-0 mt-1 text-small" role="alert" data-testid="statement-planned-note">{statement.plannedNote}</p>}
-      </header>
-      <section className="mb-8" data-testid="statement-paragraph">
-        <h2>{t('knowledge.statementParagraph')}</h2>
-        <blockquote className="!my-0"><KMarkdown text={statement.paragraph} resolutions={statement.resolutions} /></blockquote>
-        <p className="mb-0 mt-2 text-small text-muted">{t('knowledge.statementWhere', { file: statement.file, line: statement.line })}</p>
-      </section>
-      <section className="mb-8" data-testid="statement-grounds">
-        <h2>{t('knowledge.statementGrounds')}</h2>
+          <Text className="text-small text-muted">{t('knowledge.statementOnPage')}: <EntityName entity={statement.page} /></Text>
+        </Stack>
+        <Paragraph className="statement-sentence m-0" data-testid="statement-sentence">{statement.sentence}</Paragraph>
+        {statement.planned != null && <Paragraph className="m-0 mt-2" data-testid="statement-planned"><PlannedBadge mark={statement.planned} ground={statement.planned.how === 'impact'} /></Paragraph>}
+        {statement.plannedNote !== undefined && <Paragraph className="m-0 mt-1 text-small" role="alert" data-testid="statement-planned-note">{statement.plannedNote}</Paragraph>}
+      </PageHeader>
+      <PageSection className="mb-8" data-testid="statement-paragraph">
+        <SectionTitle>{t('knowledge.statementParagraph')}</SectionTitle>
+        <Blockquote className="!my-0"><KMarkdown text={statement.paragraph} resolutions={statement.resolutions} /></Blockquote>
+        <Paragraph className="mb-0 mt-2 text-small text-muted">{t('knowledge.statementWhere', { file: statement.file, line: statement.line })}</Paragraph>
+      </PageSection>
+      <PageSection className="mb-8" data-testid="statement-grounds">
+        <SectionTitle>{t('knowledge.statementGrounds')}</SectionTitle>
         {statement.grounds.length === 0 ? (
-          <Alert variant="problem" data-testid="statement-no-grounds"><AlertDescription><p>{t('knowledge.statementNoGrounds')}</p></AlertDescription></Alert>
+          <Alert variant="problem" data-testid="statement-no-grounds"><AlertDescription><Paragraph>{t('knowledge.statementNoGrounds')}</Paragraph></AlertDescription></Alert>
         ) : (
-          <div className="flex flex-col gap-4">{statement.grounds.map((ground, index) => <GroundCard key={ground.url} ground={ground} index={index} />)}</div>
+          <Stack className="flex flex-col gap-4">{statement.grounds.map((ground, index) => <GroundCard key={ground.url} ground={ground} index={index} />)}</Stack>
         )}
-      </section>
+      </PageSection>
       {statement.relying.length > 0 && (
-        <section className="mb-8" data-testid="statement-relying">
-          <h2>{t('knowledge.statementRelying')}</h2>
+        <PageSection className="mb-8" data-testid="statement-relying">
+          <SectionTitle>{t('knowledge.statementRelying')}</SectionTitle>
           <Table>
             <TableHeader><TableRow><TableHead>{t('knowledge.statementOnPage')}</TableHead><TableHead>{t('knowledge.statementTitle')}</TableHead><TableHead>{t('knowledge.statementSharedGround')}</TableHead></TableRow></TableHeader>
             <TableBody>
@@ -917,9 +887,8 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
               ))}
             </TableBody>
           </Table>
-        </section>
+        </PageSection>
       )}
-      <CorrectionBox page={statement.page.id} name={statement.name} />
-    </article>
+    </PageArticle>
   );
 }

@@ -1,3 +1,5 @@
+import { DrawingSurface } from '@/components/ui/drawing.js';
+import { Paragraph } from '@/components/ui/typography.js';
 /**
  * The two diagram renderers of the Architecture section (feature E,
  * madarch-iuc.15): a Mermaid flowchart drawn in the browser from the
@@ -89,11 +91,11 @@ export function MermaidDiagram({ source, title, bind, place }: { source: string;
   }, [svg, bind]);
   if (failed !== null) {
     return (
-      <p className="diagram-error" data-testid="mermaid-error">
+      <Paragraph className="diagram-error" data-testid="mermaid-error">
         {place === undefined
           ? t('diagram.mermaidFailed', { title: title ?? '', message: failed })
           : t('diagram.mermaidFailedAt', { place, message: failed })}
-      </p>
+      </Paragraph>
     );
   }
   // The drawn svg is the renderer's own output, shown as markup; the
@@ -102,14 +104,14 @@ export function MermaidDiagram({ source, title, bind, place }: { source: string;
   // and a background, so an empty one is a frame a reader reads as a diagram
   // nobody could draw (madarch-tzte.23.7).
   return (
-    <div
+    <DrawingSurface
       className="diagram-mermaid"
       data-testid="mermaid-diagram"
       ref={holder}
       { ...(svg === null ? {} : { dangerouslySetInnerHTML: { __html: svg } }) }
     >
-      {svg === null ? <p className="diagram-loading" data-testid="mermaid-loading">{t('diagram.mermaidLoading')}</p> : null}
-    </div>
+      {svg === null ? <Paragraph className="diagram-loading" data-testid="mermaid-loading">{t('diagram.mermaidLoading')}</Paragraph> : null}
+    </DrawingSurface>
   );
 }
 

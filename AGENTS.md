@@ -36,10 +36,10 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   The wiki app's own checks run inside `wiki/app`:
   `bun install --frozen-lockfile && bun run check && bun test && bun run build`.
   `madarch demo` clones or updates the Madarch product repository and serves
-  its wiki; `bun run wiki:shots` renders the side-by-side
-  mockup/ours pairs of the mockup-fidelity acceptance (`--mockup <the mockup's
-  dist folder>` to pair; without it ours only) into a scratch folder outside
-  the repository and prints it.
+  its wiki; `bun run wiki:shots --url <served-product-base> --out <outside-folder>`
+  walks an already served wiki at desktop and phone widths and writes an HTML
+  error index. See `docs/guides/wiki-walk.md`. The specialized
+  `bun scripts/wiki-shots.ts --mockup <dist>` still runs mockup-fidelity acceptance.
   Mutation testing is StrykerJS 9
   run from a scratch folder outside the repository with `typescript@5` beside it
   (TypeScript 7 has no JS API); see `.shady2k/integration.md`. With bun's command

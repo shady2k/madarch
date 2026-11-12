@@ -64,7 +64,7 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
   const app = join(root, 'app'); mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
   const port = await freePort();
   const child = Bun.spawn([process.execPath, join(import.meta.dir, '..', 'scripts', 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
-    env: { ...process.env, MADARCH_HOME: root, MADARCH_APP_DIST: app, MADARCH_OWN_WIKI: 'off' }, stdout: 'pipe', stderr: 'pipe',
+    env: { ...process.env, MADARCH_HOME: root, MADARCH_APP_DIST: app, MADARCH_OWN_WIKI: 'off', MADARCH_STARTUP_TIMING: '1' }, stdout: 'pipe', stderr: 'pipe',
   });
   let diagnostics = '';
   const errors = (async () => {
@@ -84,7 +84,16 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     throw new Error(`daemon catalogue did not reach the expected publication: ${diagnostics}`);
   }
   try {
+    await until(async () => (await fetch(`${base}/product`)).ok);
+    // The public listener precedes store preparation and publication, not validation.
+    await until(async () => diagnostics.includes('startup listener '));
+    expect(diagnostics).toContain('startup manifest.validate ');
+    expect(diagnostics).not.toContain('startup catalogue.publish ');
+    const publishing = await fetch(`${base}/catalog`);
+    expect(publishing.status).toBe(503);
+    expect(await publishing.json()).toMatchObject({ publication: 'pending' });
     await until(async () => (await fetch(`${base}/catalog`)).ok);
+    expect(diagnostics.indexOf('startup listener ')).toBeLessThan(diagnostics.indexOf('startup catalogue.publish '));
     const initial = await (await fetch(`${base}/status`)).json();
     expect(initial).toMatchObject({ manifest: 'not-filled', filled: false });
     // Prime the reader cache before the valid edit; the manifest journal must invalidate it.
@@ -96,7 +105,7 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     writeFileSync(kinds, 'kinds: [\n');
     await until(async () => diagnostics.includes(`${kinds}:`));
     expect((await (await fetch(`${base}/catalog`)).json()).kinds.map((one: { kind: string }) => one.kind)).toEqual(['term']);
-    expect(diagnostics).toContain(`${kinds}:`);
+    expect(diagnostics).toMatch(new RegExp(kinds.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\d+:'));
   } finally {
     if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
     await output; await errors;

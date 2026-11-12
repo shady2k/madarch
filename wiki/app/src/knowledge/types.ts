@@ -316,7 +316,7 @@ export type RepositoryFactsView = {
   defaultBranch: string | null;
   asIsCommit: string | null;
   counts: RepositoryCounts;
-  gaps: { what: string; reason: string }[];
+  historyShallow: boolean | null;
   steps: { tree: boolean; history: boolean };
 };
 
@@ -535,7 +535,7 @@ export type RepositoryBlockData = {
   asIsCommit: string | null;
   asIsHref: string | null;
   counts: RepositoryCounts;
-  gaps: { what: string; reason: string }[];
+  historyShallow: boolean | null;
   steps: { tree: boolean; history: boolean };
 };
 
@@ -635,38 +635,6 @@ export type StatementModel = {
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
 
 export type Author = { name: string; email: string; verified: string };
-
-type QuestionType = 'contradiction' | 'ambiguous-term' | 'undocumented' | 'gap';
-export type QuestionState = 'open' | 'answered' | 'closed';
-
-export type QuestionRow = {
-  slug: string;
-  id: string;
-  title: string;
-  type: QuestionType;
-  state: QuestionState;
-  askedIn: string | null;
-  askedAt: string | null;
-  about: string[];
-  answeredBy: Author | null;
-  answeredAt: string | null;
-  closedBy: string[];
-};
-
-export type QuestionListing = { rows: QuestionRow[]; open: number; answered: number; closed: number; problems: string[] };
-
-export type QuestionDetail = QuestionRow & {
-  file: string;
-  question: string;
-  why: string;
-  sides: { claim: string; grounds: string[] }[];
-  answer: { text: string; by: Author; at: string } | null;
-  resolutions: Record<string, Resolution>;
-  resolvedAt: string | null;
-};
-
-export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
-export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
 
 type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest' | string;
 export type ProblemSection = 'code' | 'documents' | 'wiki';
@@ -878,79 +846,6 @@ export type JournalRecord = {
 };
 
 export type PageJournal = { run: string | null; runs: string[]; records: JournalRecord[]; problems: string[] };
-// ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
-
-/** What a task changes: a document section, a line range, a symbol, a statement, or a whole path. */
-export type TaskScope =
-  | { type: 'section'; path: string; anchor: string }
-  | { type: 'lines'; path: string; start: number; end: number }
-  | { type: 'symbol'; key: string }
-  | { type: 'statement'; key: string }
-  | { type: 'file'; path: string };
-
-/** A task as the wiki lists it, with what its change reaches through the graph counted. */
-export type TaskRow = {
-  id: string;
-  slug: string;
-  title: string;
-  status: 'open' | 'closed';
-  file: string;
-  question: string;
-  answer: string;
-  at: string;
-  by: Author;
-  grounds: string[];
-  scope: { scope: TaskScope; words: string; place: PlaceView }[];
-  closedBy: { repository: string; commit: string; at: string; subject: string } | { person: true; at: string | null } | null;
-  impact: { pages: number; statements: number } | null;
-  problem?: string;
-  /** The problem this task was opened from (madarch-m38l.19). */
-  problemId?: string;
-};
-
-export type TaskListing = { tasks: TaskRow[]; open: number; closed: number; problems: string[]; notes: string[] };
-
-/** What a change reaches, computed through the graph. */
-export type TaskImpact = {
-  grounds: string[];
-  /** The grounds the graph answers nothing for: the index may not have been published for them yet. */
-  unindexed: string[];
-  pages: { id: string; title: string; file: string; kind: string; because: 'statement' | 'link' }[];
-  writable: string[];
-  entities: string[];
-  statements: { page: string; pageTitle: string; pageKind: string; file: string; line: number; statement: string; text: string; ground: string; grounds: string[]; how: 'grounds' | 'mentions' }[];
-  counts: { pages: number; statements: number };
-};
-
-export type TaskDetail = Omit<TaskRow, 'impact'> & {
-  impact: TaskImpact | null;
-  writable: string[];
-  marks: { sections: number; statements: number; entities: number };
-};
-
-/** A place a task changes as a reader says it: a section's heading and its document's title, each a link (madarch-m38l.14). */
-export type PlaceView = {
-  kind: 'section' | 'file' | 'lines' | 'symbol' | 'statement';
-  label: string;
-  where: string | null;
-  href: string | null;
-  path: string | null;
-  words: string;
-};
-
-/** The task an answer proposes: the scope its grounds name, and what it reaches. */
-export type TaskProposal = {
-  choice: 'code' | 'docs';
-  title: string;
-  grounds: string[];
-  scope: TaskScope[];
-  places?: PlaceView[];
-  impact: TaskImpact;
-  question: { slug: string; title: string; file: string };
-  answer: { text: string; by: string; at: string };
-};
-
-export type CreatedTask = { task: { slug: string; id: string; file: string; title: string; status: 'open' | 'closed' }; state: 'created'; committed: boolean; note?: string; commit?: string };
 export type ContractReason =
   | {code: 'definitionMissing'}
   | {code: 'contractReadBudget'; params: {maxFiles: number; maxBytes: number}}

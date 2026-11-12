@@ -33,6 +33,9 @@ Complete proposed capability: `capabilities/product-wiki.md`.
 
 ## Coverage
 - product-wiki/manifest-catalogue-before-fill: static, test, mutation, review
+- product-wiki/catalog: test
+- product-wiki/workflows: test
+- product-wiki/pages: test
 
 ## Where it is seen
 Kind: command

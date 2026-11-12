@@ -40,10 +40,12 @@ afterAll(async () => {
 });
 
 let rendered: Root | undefined;
+const roots = new Set<Root>();
 function into(element: ReturnType<typeof createElement>): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   rendered = createRoot(container);
+  roots.add(rendered);
   rendered.render(element);
   return container;
 }
@@ -57,7 +59,8 @@ async function until(holds: () => boolean | undefined, what: string): Promise<vo
 }
 
 afterEach(() => {
-  rendered?.unmount();
+  for (const root of roots) root.unmount();
+  roots.clear();
   rendered = undefined;
   document.body.innerHTML = '';
   delete (globalThis as { fetch?: unknown }).fetch;
@@ -636,13 +639,15 @@ describe('after the run', () => {
           stubFetch([]);
           const read = status({
             kinds: [{ kind: 'domain', source: 'markdown', count: pages, single: false, origins: [] }],
-            repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, gaps: [], steps: { tree: true, history: true } },
+            repository: { id: 'code.repository:training', name: 'training', url: 'file:///training', defaultBranch: 'main', asIsCommit: 'a'.repeat(40), counts: { files: 114, commits: 72, folders: 55 }, historyShallow: false, steps: { tree: true, history: true } },
           });
           const bar = into(createElement(FillMenu, { status: read, refresh: () => undefined }));
           await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
           const chip = bar.querySelector('[data-testid=fill-chip]')!;
           const label = language === 'en' ? 'Sync' : 'Синхронизировать';
           expect(chip.textContent).toBe(label);
+          expect(chip.className).not.toContain('size-9');
+          expect(chip.className).toContain('h-auto');
           expect(chip.getAttribute('aria-label')).toBe(label);
           const dot = chip.querySelector('[data-testid=fill-dot]')!;
           expect(dot.getAttribute('data-state')).toBe('up-to-date');

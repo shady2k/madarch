@@ -65,10 +65,12 @@ afterAll(async () => {
 });
 
 let rendered: Root | undefined;
+const roots = new Set<Root>();
 function into(element: ReturnType<typeof createElement>): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   rendered = createRoot(container);
+  roots.add(rendered);
   rendered.render(element);
   return container;
 }
@@ -80,7 +82,8 @@ async function until(holds: () => boolean | undefined, what: string): Promise<vo
   throw new Error(`never came to ${what}; the tree holds: ${document.body.innerHTML.slice(0, 1500)}`);
 }
 afterEach(() => {
-  rendered?.unmount();
+  for (const root of roots) root.unmount();
+  roots.clear();
   rendered = undefined;
   document.body.innerHTML = '';
   delete (globalThis as { fetch?: unknown }).fetch;

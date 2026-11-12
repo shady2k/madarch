@@ -50,7 +50,13 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     // Only this owner's last successful preparation stands; a different contract may change its schema.
     if (previous !== undefined && (stamp === undefined || previous === stamp)) return;
     prepared.get(store)?.delete(database);
-    await prepareStore(await ownerOf(store, body.database), { ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
+    const owner = await ownerOf(store, body.database);
+    const started = performance.now();
+    try {
+      await prepareStore(owner, { ...(body.database === undefined ? {} : { historyOnly: true }), ...(contract === undefined ? {} : { contract }) });
+    } finally {
+      if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${store}`);
+    }
     const databases = prepared.get(store) ?? new Map<string, string>();
     databases.set(database, stamp ?? 'prepared');
     prepared.set(store, databases);

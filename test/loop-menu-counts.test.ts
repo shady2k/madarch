@@ -10,6 +10,12 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, commitProduct, makeProduct, withoutPluginTurns } from './knowledge-fixture.js';
 import { fillInProcess } from './fill-inline.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { publishGraphDrafts } from '../src/graph/write.js';
+import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
+import { activateTestProduct } from './prepared-server.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, args: string[], extra: Record<string, string> = {}): string =>
@@ -67,6 +73,14 @@ beforeAll(async () => {
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
   withoutPluginTurns(folder);
+  const kindsFile = join(folder, 'madarch/kinds.yaml');
+  const kinds = readFileSync(kindsFile, 'utf8');
+  const rule = kinds.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
+  expect(rule).toContain('enabled: true');
+  const debt = '  code.debt:\n';
+  expect(kinds).toContain(debt);
+  writeFileSync(kindsFile, kinds.replace(rule, rule.replace('enabled: true', 'enabled: false')).replace(debt, `${debt}    key: [path]\n    fields:\n      - { name: path, type: text, binding: { agent: "The source file path" } }\n      - { name: marker, type: text, binding: { agent: "The debt marker" } }\n      - { name: text, type: text, binding: { agent: "The comment text" } }\n`));
+  commitProduct(folder, 'Declare a debt opinion and disable its TODO rule');
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
   const app = join(work, 'app');
@@ -76,6 +90,13 @@ beforeAll(async () => {
   const warmed = await fetch(`${server.url}/products/${SHOP}/api/status`);
   expect(warmed.status).toBe(200);
   await fill();
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+  try {
+    const contract = await readPinnedGraphContract(folder);
+    await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'code.debt', key: { path: 'src/a.ts' }, values: { marker: 'TODO', text: 'Complete the menu probe' }, producer: 'agent', producerVersion: '1' }], removals: [],
+    }, 1, { author: 'agent:fixture' }));
+  } finally { await owner.close(); }
 }, 180_000);
 
 /** One pass of the files producer in this process: a page reads the graph, and a write reaches it at the next pass. */
@@ -99,13 +120,20 @@ describe('the problems entry of the menu', () => {
     // the starter manifest expects), so the count is read rather than assumed.
     expect(before.body.loop.problemsOpen).toBe(problemsBefore.body.open);
 
-    // A group whose parent is not declared: the Problems page reads it as a finding.
-    const manifest = readFileSync(join(folder, 'madarch/kinds.yaml'), 'utf8');
-    expect(manifest).toContain('groups:\n');
-    writeFileSync(join(folder, 'madarch/kinds.yaml'), manifest.replace('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, parent: nowhere }\n'));
-    // The edit is the product repository's commit, and the fill stores it: a reader of a page reads the graph.
-    commitProduct(folder, 'Declare a group whose parent is not declared');
-    await fill();
+    // A valid manifest enables the TODO rule for the one structured debt opinion already in the graph.
+    const file = join(folder, 'madarch/kinds.yaml');
+    const manifest = readFileSync(file, 'utf8');
+    const rule = manifest.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
+    expect(rule).toContain('enabled: false');
+    writeFileSync(file, manifest.replace(rule, rule.replace('enabled: false', 'enabled: true')));
+    commitProduct(folder, 'Enable the TODO finding');
+    const validated = validateProductManifests(folder);
+    if (!validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+    if (validated.value === undefined) throw new Error(`${file}:1: the fixture manifest is absent`);
+    await activateTestProduct(folder, home, join(work, 'store'));
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+    try { await publishValidatedManifests(owner, validated.value); }
+    finally { await owner.close(); }
 
     const problems = await get('/api/problems');
     expect(problems.status).toBe(200);

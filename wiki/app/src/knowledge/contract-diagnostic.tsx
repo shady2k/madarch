@@ -1,3 +1,5 @@
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
+import { Preformatted } from '@/components/ui/typography.js';
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -52,7 +54,7 @@ export function contractReasonText(t: TFunction, reason: ContractReason | undefi
 
 function ContractTechnicalDetails({text}: {text: string | undefined}): ReactElement | null {
   const {t} = useTranslation();
-  return text === undefined || text === '' ? null : <details data-testid="contract-technical-details"><summary>{t('knowledge.contractTechnicalDetails')}</summary><pre className="whitespace-pre-wrap break-words">{text}</pre></details>;
+  return text === undefined || text === '' ? null : <Disclosure data-testid="contract-technical-details"><DisclosureSummary>{t('knowledge.contractTechnicalDetails')}</DisclosureSummary><Preformatted className="whitespace-pre-wrap break-words">{text}</Preformatted></Disclosure>;
 }
 
 export function ContractDiagnosticView({diagnostic}: {diagnostic: ContractDiagnostic}): ReactElement {

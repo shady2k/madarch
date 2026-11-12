@@ -323,9 +323,20 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     const first = await publishHistory(owner, publication(true));
     expect(first.inserted).toBeGreaterThan(0);
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
+    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:shallow', kind: 'code.repository', label: 'shallow', properties: { name: 'shallow' }, nodeIds: [], scope: '' } };
+    const wireBlock = async () => {
+      const reader = new GraphReader(owner!, () => new Date().toISOString());
+      const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/kinds.yaml', 1);
+      if (block.type !== 'repository') throw new Error(`expected repository, got ${block.type}`);
+      return JSON.parse(JSON.stringify(block)).data;
+    };
+    expect((await wireBlock()).historyShallow).toBe(true);
+    expect(await wireBlock()).not.toHaveProperty('gaps');
     // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
     await publishHistory(owner, publication(false));
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
+    expect((await wireBlock()).historyShallow).toBe(false);
+    expect(await wireBlock()).not.toHaveProperty('gaps');
     const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git-history' AND (n.key->>'name') = 'shallow'`,
     ));

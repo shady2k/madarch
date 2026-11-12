@@ -1,4 +1,7 @@
-import { Stack } from '@/components/ui/typography.js';
+import { KLink } from './blocks.js';
+import { ShellSidebar, ShellMain, ShellFixed, ShellRow, ShellScroll, ShellDocument, ShellToolbar, ShellActions, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellTabs, ShellTab, ShellTabTrigger, ShellTabClose, ShellMenuButton, ShellError, ShellStatusButton, ShellStatusWrap, ShellStatusLabel, ShellStatusWords, ShellStatusCount, ShellStatusBody, ShellStatusLine, ShellStatusMessage, ShellStatusDot, ShellBrandMark, ShellProductMenu, ShellProductLink, ShellLanguageButton, ShellFillContent, ShellFillChoice, ShellHomeLink, ShellAnswersLink, ShellAnswersWords, ShellAnswersCount, ShellNavigationLoading, ShellToolbarLoading, ShellNavigationSheet } from '@/components/ui/shell.js';
+import { NavigationLink, NavigationLabel, NavigationCount, NavigationPending, NavigationScroll, NavigationSection, NavigationHeading, NavigationGroup, NavigationGroupTrigger, NavigationSubheading, NavigationFooter, ProductButton, BrandLink } from '@/components/ui/navigation.js';
+import { Stack, Text } from '@/components/ui/typography.js';
 import { AuthoredPage } from './authored.js';
 /**
  * The knowledge wiki (decision 0029): the product chosen at the top left, the
@@ -9,51 +12,38 @@ import { AuthoredPage } from './authored.js';
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
 import { activateTab, closeTab, linkHandlers, useTabs } from './tabs.js';
-import { Button } from '@/components/ui/button.js';
 import { Badge } from '@/components/ui/badge.js';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
+import { Sheet, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu.js';
 import { getProducts } from './api.js';
-import { Card, CardContent } from '@/components/ui/card.js';
+import { Card } from '@/components/ui/card.js';
 import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
-import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, NewHome, SourcePage, StatementPage, Overview } from './pages.js';
 import { FillPage } from './fill-page.js';
 import { RunPage } from './repository.js';
 import { unitName } from './writer.js';
-import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue } from './glossary.js';
+import { GlossaryProvider, GlossaryPage } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
-import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage } from './loop.js';
+import { ProblemsPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { fillWords } from './fill-words.js';
 import { FailureNote } from './errors.js';
-import { Skeleton } from '@/components/ui/skeleton.js';
 import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { SettingsPage } from './settings.js';
 import { KitPage } from './kit-page.js';
 import { SearchBox } from './search.js';
-
-/** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
-function BrandMark(): ReactElement {
-  return (
-    <svg aria-hidden="true" className="size-[40px] shrink-0 text-ink" viewBox="0 0 50 32">
-      <text x="0" y="25" fill="currentColor" fontFamily="Inter, sans-serif" fontSize="31" fontWeight="750" letterSpacing="-4">m<tspan fill="var(--text)">·</tspan></text>
-    </svg>
-  );
-}
 
 /**
  * Where the fill's card sits: the product's own page and the pages of its entities. The catalogue, a statement, a source,
@@ -83,33 +73,18 @@ export function ProductSelector({ name, products, current }: { name: string; pro
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          data-testid="product-selector"
-          aria-label={t('knowledge.chooseProduct')}
-          className="nav-product-block mb-3 flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-card)] border border-line bg-[var(--surface-card)] px-[9px] py-2 text-left shadow-[var(--shadow-low)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-        >
-          <span aria-hidden="true" className="product-initial grid size-[40px] shrink-0 place-items-center rounded-[var(--radius-control)] bg-white font-serif text-[22px] font-medium text-[#252525] shadow-[var(--shadow-low)]">
-            {name.charAt(0).toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1">
-            <b className="block truncate text-[13px] leading-5 text-ink">{name}</b>
-            <small className="block text-[11px] leading-4 text-muted">{t('product.space')}</small>
-          </span>
-          <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-        </button>
+        <ProductButton name={name} description={t('product.space')} data-testid="product-selector" aria-label={t('knowledge.chooseProduct')} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+      <ShellProductMenu align="start">
         <DropdownMenuLabel>{t('knowledge.products')}</DropdownMenuLabel>
         {productChoices(products, current).map((product) => {
           const here = product.here;
           return (
             <DropdownMenuItem key={product.folder} asChild>
-              <a
+              <ShellProductLink
                 href={product.href}
                 data-testid="product-choice"
                 aria-current={here ? 'true' : undefined}
-                className="flex items-center gap-2 no-underline"
                 onClick={(event) => {
                   if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
                   if (here) {
@@ -118,14 +93,14 @@ export function ProductSelector({ name, products, current }: { name: string; pro
                   }
                 }}
               >
-                <span className="min-w-0 flex-1 truncate">{product.name}</span>
-                {here && <CheckIcon aria-hidden="true" className="size-4 shrink-0" />}
-              </a>
+                <NavigationLabel>{product.name}</NavigationLabel>
+                {here && <CheckIcon aria-hidden="true" size={16} />}
+              </ShellProductLink>
             </DropdownMenuItem>
           );
         })}
         {products.length === 0 && <DropdownMenuItem disabled>{name}</DropdownMenuItem>}
-      </DropdownMenuContent>
+      </ShellProductMenu>
     </DropdownMenu>
   );
 }
@@ -212,114 +187,100 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   const groups = leadGroups(navGroups(status, pendingOf), role, roles);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
-  const link = (active: boolean): string =>
-    'nav-link my-px flex items-center gap-2.5 rounded-[var(--radius-row)] px-[10px] py-[9px] text-small no-underline transition-colors duration-150 motion-reduce:transition-none ' +
-    (active ? 'nav-current bg-[var(--surface-active)] font-[550] text-ink' : 'text-secondary hover:bg-[var(--surface-hover)] hover:text-ink');
   const waitingLink = (id: string, href: string, Icon: typeof HomeIcon, label: string, count: number, active: boolean): ReactElement => (
-    <a
+    <NavigationLink
       href={appPath(href)}
-      className={link(active) + (count === 0 ? ' text-muted opacity-60' : '')}
+      active={active} empty={count === 0}
       aria-current={active ? 'page' : undefined}
       data-empty={count === 0 ? 'true' : 'false'}
       data-testid={id}
       {...pick(href)}
     >
-      <Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-      <span className="min-w-0 flex-1">{label}</span>
+      <Icon aria-hidden="true" size={16} />
+      <NavigationLabel>{label}</NavigationLabel>
       {/* A count drawn from files is shown only once it is above zero: nothing is read until the fill runs. */}
-      {count > 0 && <span className="text-small text-muted" data-testid={`${id}-count`}>{count}</span>}
-    </a>
+      {count > 0 && <NavigationCount data-testid={`${id}-count`}>{count}</NavigationCount>}
+    </NavigationLink>
   );
   const directOf = (entry: NavGroup): KindSummary[] => {
     const inSubgroup = new Set(entry.subgroups.flatMap((subgroup) => subgroup.kinds.map((kind) => kind.kind)));
     return entry.kinds.filter((kind) => !inSubgroup.has(kind.kind));
   };
-  const kindLink = (kind: KindSummary, padding = '!pl-[30px]'): ReactElement => {
+  const kindLink = (kind: KindSummary, depth: 1 | 2 = 1): ReactElement => {
     const active = ownRouteOf(kind, route);
     const address = ownAddressOf(kind);
     return (
-      <a key={kind.kind} href={appPath(address)} className={link(active) + ` !py-[7px] ${padding}`} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(address)}>
-        <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
-        <span className="text-small text-muted" data-testid="nav-count">
+      <NavigationLink key={kind.kind} href={appPath(address)} active={active} depth={depth} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(address)}>
+        <NavigationLabel>{kindName(kind.kind, 'many')}</NavigationLabel>
+        <NavigationCount data-testid="nav-count">
           {kind.count}
-          {pendingOf(kind.kind) > 0 && <span className="ml-1" title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</span>}
-        </span>
-      </a>
+          {pendingOf(kind.kind) > 0 && <NavigationPending title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</NavigationPending>}
+        </NavigationCount>
+      </NavigationLink>
     );
   };
   return (
     <>
-      <a href={appPath(WIKI_HOME)} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" {...pick(WIKI_HOME)}>
-        <BrandMark />
-        <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
-        <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
-      </a>
+      <BrandLink href={appPath(WIKI_HOME)} data-testid="nav-brand" concept={t('brand.concept')} {...pick(WIKI_HOME)}><ShellBrandMark /></BrandLink>
       <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} own={status.own === true} />
-      <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4 pr-2 [scrollbar-gutter:stable]" data-testid="nav-scroll">
-        <a href={appPath(WIKI_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(WIKI_HOME)}>
-          <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.home')}</span>
-        </a>
-        <a href={appPath(WIKI_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
-          <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('navigation.catalogue')}</span>
-        </a>
-        <a href={appPath(WIKI_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
-          <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.glossary.title')}</span>
-        </a>
-        <div data-testid="nav-waiting" className="mb-2 mt-2">
-          <h2 className="mb-1 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.waiting')}</h2>
+      <NavigationScroll aria-label={t('navigation.pages')} data-testid="nav-scroll">
+        <NavigationLink href={appPath(WIKI_HOME)} active={route.name === 'home'} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(WIKI_HOME)}>
+          <HomeIcon aria-hidden="true" size={16} />
+          <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink href={appPath(WIKI_CATALOGUE)} active={route.name === 'catalogue'} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(WIKI_CATALOGUE)}>
+          <LayoutGridIcon aria-hidden="true" size={16} />
+          <NavigationLabel>{t('navigation.catalogue')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink href={appPath(WIKI_GLOSSARY)} active={route.name === 'glossary'} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(WIKI_GLOSSARY)}>
+          <BookOpenIcon aria-hidden="true" size={16} />
+          <NavigationLabel>{t('knowledge.glossary.title')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationSection data-testid="nav-waiting">
+          <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
-        </div>
-        {groups.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
+        </NavigationSection>
+        {groups.length > 0 && <NavigationHeading>{t('knowledge.kinds')}</NavigationHeading>}
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';
           const holdsActive = route.name === 'kind' && entry.kinds.some((kind) => kind.kind === route.kind);
           const open = opened[key] ?? (holdsActive || entry.open);
           return (
-            <div key={key} data-nav-group={entry.group ?? ''} className="mb-0.5">
-              <button
-                type="button"
-                className="nav-group flex w-full cursor-pointer items-center gap-1.5 rounded-[var(--radius-row)] px-[6px] py-[7px] text-left text-small font-[550] text-ink hover:bg-[var(--surface-hover)]"
-                aria-expanded={open}
-                onClick={() => setOpened({ ...opened, [key]: !open })}
-                data-testid="nav-group"
-              >
-                <ChevronRightIcon aria-hidden="true" className={'size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none ' + (open ? 'rotate-90' : '')} />
-                <span className="min-w-0 flex-1 truncate">{entry.labels === null ? t('knowledge.groupOther') : entry.short?.[language] ?? entry.labels[language] ?? entry.labels['en'] ?? entry.group}</span>
-                <span className="text-small font-normal text-muted" data-testid="nav-group-count">{entry.total}</span>
-              </button>
+            <NavigationGroup key={key} data-nav-group={entry.group ?? ''}>
+              <NavigationGroupTrigger open={open} onClick={() => setOpened({ ...opened, [key]: !open })} data-testid="nav-group">
+                <NavigationLabel>{entry.labels === null ? t('knowledge.groupOther') : entry.short?.[language] ?? entry.labels[language] ?? entry.labels['en'] ?? entry.group}</NavigationLabel>
+                <NavigationCount data-testid="nav-group-count">{entry.total}</NavigationCount>
+              </NavigationGroupTrigger>
               {open && (
                 <>
                   {directOf(entry).map((kind) => kindLink(kind))}
                   {entry.subgroups.map((subgroup) => (
-                    <div key={subgroup.group} data-nav-subgroup={subgroup.group} data-testid="nav-subgroup" className="mb-0.5">
-                      <div className="flex items-center gap-2 py-[5px] pl-[30px] pr-[10px] text-[11px] uppercase tracking-[0.06em] text-muted">
-                        <span className="min-w-0 flex-1 truncate">{subgroup.short?.[language] ?? subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</span>
-                        <span className="font-normal" data-testid="nav-subgroup-count">{subgroup.total}</span>
-                      </div>
-                      {subgroup.kinds.map((kind) => kindLink(kind, '!pl-[42px]'))}
-                    </div>
+                    <NavigationGroup key={subgroup.group} data-nav-subgroup={subgroup.group} data-testid="nav-subgroup">
+                      <NavigationSubheading>
+                        <NavigationLabel>{subgroup.short?.[language] ?? subgroup.labels[language] ?? subgroup.labels['en'] ?? subgroup.group}</NavigationLabel>
+                        <NavigationCount data-testid="nav-subgroup-count">{subgroup.total}</NavigationCount>
+                      </NavigationSubheading>
+                      {subgroup.kinds.map((kind) => kindLink(kind, 2))}
+                    </NavigationGroup>
                   ))}
                 </>
               )}
-            </div>
+            </NavigationGroup>
           );
         })}
-      </nav>
-      <div className="border-t border-line py-2" data-testid="nav-foot">
-        <a href={appPath(WIKI_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(WIKI_DOCS)}>
-          <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
-        </a>
+      </NavigationScroll>
+      <NavigationFooter data-testid="nav-foot">
+        <NavigationLink href={appPath(WIKI_DOCS)} active={route.name === 'docs' || route.name === 'doc'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(WIKI_DOCS)}>
+          <FolderGit2Icon aria-hidden="true" size={16} />
+          <NavigationLabel>{t('knowledge.documents')}</NavigationLabel>
+        </NavigationLink>
         {status.own !== true && (
-          <a href={appPath(WIKI_SETTINGS)} className={link(route.name === 'settings')} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(WIKI_SETTINGS)}>
-            <SettingsIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-            <span className="min-w-0 flex-1">{t('settings.nav')}</span>
-          </a>
+          <NavigationLink href={appPath(WIKI_SETTINGS)} active={route.name === 'settings'} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(WIKI_SETTINGS)}>
+            <SettingsIcon aria-hidden="true" size={16} />
+            <NavigationLabel>{t('settings.nav')}</NavigationLabel>
+          </NavigationLink>
         )}
-      </div>
+      </NavigationFooter>
     </>
   );
 }
@@ -328,27 +289,24 @@ function LanguageMenu(): ReactElement {
   const { t, i18n } = useTranslation();
   const language: WikiLanguage = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <Button variant="ghost" size="icon" className="shell-language size-9" aria-label={t('navigation.language')} title={t('tooltips.language')}>
-          <GlobeIcon aria-hidden="true" className="size-[21px]" />
-        </Button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu">
-          <DropdownMenuPrimitive.Label className="language-menu-label">{t('navigation.language')}</DropdownMenuPrimitive.Label>
-          <DropdownMenuPrimitive.Separator className="language-menu-separator" />
-          <DropdownMenuPrimitive.RadioGroup value={language} onValueChange={(value: string) => { if (value === 'en' || value === 'ru') void setWikiLanguage(value); }}>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <ShellLanguageButton aria-label={t('navigation.language')} title={t('tooltips.language')}>
+          <GlobeIcon aria-hidden="true" size={21} />
+        </ShellLanguageButton>
+      </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={7}>
+          <DropdownMenuLabel>{t('navigation.language')}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup value={language} onValueChange={(value: string) => { if (value === 'en' || value === 'ru') void setWikiLanguage(value); }}>
             {(['ru', 'en'] as const).map((code) => (
-              <DropdownMenuPrimitive.RadioItem key={code} className="language-menu-item" value={code}>
-                <span className="language-menu-check"><DropdownMenuPrimitive.ItemIndicator><CheckIcon aria-hidden="true" className="size-4" /></DropdownMenuPrimitive.ItemIndicator></span>
+              <DropdownMenuRadioItem key={code} value={code}>
                 {t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}
-              </DropdownMenuPrimitive.RadioItem>
+              </DropdownMenuRadioItem>
             ))}
-          </DropdownMenuPrimitive.RadioGroup>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -438,10 +396,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const compact = authoring && writer.units.length > 0;
   const held = (paused || stopped) && writer.units.length > 0;
   return (
-    <div
-      // No box of its own: the badge stays the toolbar's flex item it always was, so the one row keeps its width at a
-      // phone's width, and the panel is placed against the window rather than against this wrapper.
-      className="relative"
+    <ShellStatusWrap
       ref={wrap}
       onKeyDown={(event) => {
         // Escape gives the badge back its focus, wherever in the panel it was pressed.
@@ -456,10 +411,10 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         setOpen(false);
       }}
     >
-      <Button
+      <ShellStatusButton
         ref={chip}
         type="button"
-        className={`fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink${compact ? ' fill-chip-writing' : ''}`}
+        compact={compact}
         data-testid="fill-chip"
         aria-label={label}
         aria-haspopup="dialog"
@@ -478,76 +433,76 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
           <FillDot status={status} />
           {paused && <PauseIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3.5" data-testid="fill-chip-pause" />}
           {stopped && <SquareIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3" data-testid="fill-chip-stop" />}
-          <span className="fill-chip-label">
+          <ShellStatusLabel>
             {compact
-              ? <><span className="fill-chip-words">{t('knowledge.fillWriting')} · </span><span className="fill-chip-count">{count}</span></>
+              ? <><ShellStatusWords>{t('knowledge.fillWriting')} · </ShellStatusWords><ShellStatusCount>{count}</ShellStatusCount></>
               : held
-                ? <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{count}</span></>
+                ? <><ShellStatusWords>{label}</ShellStatusWords><ShellStatusCount narrow>{count}</ShellStatusCount></>
                 : narrow === null
                   ? label
-                  : <><span className="fill-chip-words">{label}</span><span className="fill-chip-count fill-chip-count-narrow">{narrow}</span></>}
-          </span>
+                  : <><ShellStatusWords>{label}</ShellStatusWords><ShellStatusCount narrow>{narrow}</ShellStatusCount></>}
+          </ShellStatusLabel>
         </Badge>
-      </Button>
+      </ShellStatusButton>
       {open && (
         <Card id="fill-menu-panel" role="dialog" aria-label={t('knowledge.fillMenuTitle')} data-testid="fill-menu" floating>
-          <CardContent className="grid gap-2 p-3">
-            <KLink href={WIKI_FILL} testId="fill-menu-choose" className="rounded px-2 py-2 text-small text-ink hover:bg-chrome">{t('knowledge.fillChoose')}</KLink>
+          <ShellFillContent>
+            <ShellFillChoice href={appPath(WIKI_FILL)} {...linkHandlers(WIKI_FILL)} data-testid="fill-menu-choose" >{t('knowledge.fillChoose')}</ShellFillChoice>
             {(authoring || filling) && (
               // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
               // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
               // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
-              <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
-                <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-                {authoring && <p className="m-0 mt-1 break-words" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>}
-                <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+              <ShellStatusBody data-testid="fill-menu-live">
+                <ShellStatusLine data-testid="fill-menu-total">{label}</ShellStatusLine>
+                {authoring && <ShellStatusLine data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</ShellStatusLine>}
+                <ShellStatusLine><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></ShellStatusLine>
                 <RunControls status={status} refresh={refresh} where="menu" />
-              </div>
+              </ShellStatusBody>
             )}
             {paused && (
               // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
               // up again or end it (madarch-m38l.17).
-              <div className="px-2 pb-2 text-small" data-testid="fill-menu-paused">
-                <p className="m-0 break-words text-ink" data-testid="fill-menu-total">{label}</p>
-                <p className="m-0 mt-1"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+              <ShellStatusBody data-testid="fill-menu-paused">
+                <ShellStatusLine data-testid="fill-menu-total">{label}</ShellStatusLine>
+                <ShellStatusLine><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></ShellStatusLine>
                 <RunControls status={status} refresh={refresh} where="menu" />
-              </div>
+              </ShellStatusBody>
             )}
-            {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
-            {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
-            {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
-            {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
-          </CardContent>
+            {!authoring && writer.units.length > 0 && <ShellStatusLine inset data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></ShellStatusLine>}
+            {writer.asked !== undefined && writer.asked > 0 && <ShellStatusLine inset data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</ShellStatusLine>}
+            {writer.message !== undefined && <ShellStatusMessage data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></ShellStatusMessage>}
+            {fill.message !== undefined && fill.state === 'failed' && <ShellStatusMessage><FailureNote scope="fill" code={fill.code} message={fill.message} /></ShellStatusMessage>}
+          </ShellFillContent>
         </Card>
       )}
-    </div>
+    </ShellStatusWrap>
   );
 }
 
 export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
-    <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
-      <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
-        <KLink href={WIKI_HOME} className="text-muted no-underline hover:text-ink">{status.product.name}</KLink>
-        {where !== null && <><span aria-hidden="true" className="px-2 text-muted">/</span><span className="text-ink">{where}</span></>}
-      </span>
-      <span className="flex shrink-0 items-center gap-1">
+    <ShellToolbar>
+      <ShellBreadcrumb>
+        <ShellHomeLink href={appPath(WIKI_HOME)} {...linkHandlers(WIKI_HOME)} >{status.product.name}</ShellHomeLink>
+        {where !== null && <><ShellBreadcrumbSeparator /><Text>{where}</Text></>}
+      </ShellBreadcrumb>
+      <ShellActions>
         <SearchBox />
         {status.loop !== undefined && status.loop.questionsAnswered > 0 && (
-          <KLink href={WIKI_QUESTIONS} className="answers-waiting no-underline" data-testid="answers-waiting" title={t('loop.answersWaitingHint')}>
-            <Badge variant="outline"><span className="answers-waiting-words">{t('loop.answersWaiting', { count: status.loop.questionsAnswered })}</span><span className="answers-waiting-count">{status.loop.questionsAnswered}</span></Badge>
-          </KLink>
+          <ShellAnswersLink href={appPath(WIKI_QUESTIONS)} {...linkHandlers(WIKI_QUESTIONS)}  data-testid="answers-waiting" title={t('loop.answersWaitingHint')}>
+            <Badge variant="outline"><ShellAnswersWords>{t('loop.answersWaiting', { count: status.loop.questionsAnswered })}</ShellAnswersWords><ShellAnswersCount>{status.loop.questionsAnswered}</ShellAnswersCount></Badge>
+          </ShellAnswersLink>
         )}
         {menu}
         {status.own !== true && <FillMenu status={status} refresh={refresh} />}
         <RoleMenu />
         <HelpLink products={products} current={current} />
         <LanguageMenu />
-      </span>
-    </header>
+      </ShellActions>
+    </ShellToolbar>
   );
 }
 
@@ -599,19 +554,7 @@ export function FillDot({ status }: { status: WikiStatus }): ReactElement {
     if (status.fill.rebuilt === 'extractors-changed') words += ` · ${t('knowledge.fillRebuiltExtractors')}`;
   }
   return (
-    <span
-      className="fill-dot mr-1.5 inline-block size-2 shrink-0 rounded-full align-middle"
-      data-testid="fill-dot"
-      data-state={state}
-      title={words}
-      aria-label={words}
-      role="img"
-    >
-      {state === 'up-to-date' && <span aria-hidden="true" className="block size-full rounded-full bg-current" />}
-      {state === 'stale' && <span aria-hidden="true" className="block size-full rounded-full border border-current" />}
-      {state === 'running' && <span aria-hidden="true" className="block size-full animate-pulse rounded-full bg-current motion-reduce:animate-none" />}
-      {state === 'failed' && <span aria-hidden="true" className="block size-full rounded-full border border-current" />}
-    </span>
+    <ShellStatusDot state={state} data-testid="fill-dot" data-state={state} title={words} aria-label={words} role="img" />
   );
 }
 
@@ -626,44 +569,39 @@ export function TabBar(): ReactElement {
   const { t } = useTranslation();
   const { tabs, active } = useTabs();
   return (
-    <div role="tablist" aria-label={t('knowledge.tabs')} className="tab-bar flex min-h-[38px] items-end gap-1 overflow-x-auto border-b border-line bg-chrome px-3 pt-1.5 wide:px-[27px]" data-testid="tab-bar">
+    <ShellTabs aria-label={t('knowledge.tabs')} data-testid="tab-bar">
       {tabs.map((tab) => {
         const here = tab.key === active;
         const title = tab.title ?? t('knowledge.loading');
         return (
-          <div
+          <ShellTab
+            active={here}
             key={tab.key}
             data-testid="tab"
             data-active={here ? 'true' : 'false'}
-            className={'tab group flex min-w-28 items-center rounded-t-md border border-b-0 ' + (here ? 'border-line bg-page text-ink' : 'border-transparent text-secondary hover:bg-chrome')}
           >
-            <button
-              type="button"
-              role="tab"
+            <ShellTabTrigger
               aria-selected={here}
               title={title}
-              className="min-w-0 flex-1 cursor-pointer truncate bg-transparent px-3 py-1.5 text-left text-small text-inherit focus-visible:ring-2 focus-visible:ring-ink"
               onClick={() => activateTab(tab.key)}
               onAuxClick={(event) => { if (event.button === 1) { event.preventDefault(); closeTab(tab.key); } }}
             >
               {title}
-            </button>
+            </ShellTabTrigger>
             {tabs.length > 1 && (
-              <button
-                type="button"
+              <ShellTabClose
                 aria-label={t('knowledge.closeTab', { title })}
                 title={t('knowledge.closeTabShort')}
                 data-testid="tab-close"
-                className="mr-1 grid size-5 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-row)] bg-transparent text-muted hover:bg-[var(--surface-active)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink"
                 onClick={() => closeTab(tab.key)}
               >
-                <XIcon aria-hidden="true" className="size-3.5" />
-              </button>
+                <XIcon aria-hidden="true" size={14} />
+              </ShellTabClose>
             )}
-          </div>
+          </ShellTab>
         );
       })}
-    </div>
+    </ShellTabs>
   );
 }
 
@@ -675,10 +613,8 @@ export function KnowledgeApp(): ReactElement {
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const content = useRef<HTMLDivElement>(null);
-  const { status, error, version, refresh } = useWikiStatus();
+  const { status, error, publication, version, refresh } = useWikiStatus();
   const settings = useSettings();
-  const { glossary } = useGlossary(version);
-  const glossaryValue = useGlossaryValue(glossary);
   useEffect(() => {
     const controller = new AbortController();
     void loadSettings(controller.signal);
@@ -698,21 +634,19 @@ export function KnowledgeApp(): ReactElement {
     if (route.name !== 'source' && route.name !== 'doc') content.current?.scrollTo?.(0, 0);
   }, [route]);
 
-  if (error !== null && status === null) {
-    return <div className="grid min-h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]"><p role="alert" data-testid="wiki-error">{error}</p></div>;
+  if (error !== null && (status === null || publication !== undefined)) {
+    return <ShellError><p role={publication === 'pending' ? 'status' : 'alert'} data-testid="wiki-error" data-publication={publication}>{error}</p></ShellError>;
   }
   if (status === null) {
     return (
       <Stack layout="shell" data-testid="wiki-loading">
-        <aside className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col gap-3 border-r border-line bg-chrome px-[14px] py-[18px] wide:px-[18px] md:flex" aria-hidden="true">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-9 w-full" />
-          {[70, 55, 62, 48].map((width, index) => <Skeleton key={index} className="h-5" style={{ width: `${width}%` }} />)}
-        </aside>
-        <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="shell-toolbar min-h-[58px] border-b border-line" />
-          <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
-        </div>
+        <ShellSidebar loading aria-hidden="true">
+          <ShellNavigationLoading />
+        </ShellSidebar>
+        <ShellMain>
+          <ShellToolbarLoading />
+          <ShellScroll data-testid="shell-content" ref={content}><ShellDocument><main><PageSkeleton testId="page-loading" /></main></ShellDocument></ShellScroll>
+        </ShellMain>
       </Stack>
     );
   }
@@ -722,13 +656,13 @@ export function KnowledgeApp(): ReactElement {
   const menu = (
     <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
       <SheetTrigger asChild>
-        <Button className="shell-menu md:!hidden" aria-label={t('navigation.aria')} aria-expanded={menuOpen}>
-          <MenuIcon aria-hidden="true" className="size-6 md:size-[22px]" />
-        </Button>
+        <ShellMenuButton aria-label={t('navigation.aria')} aria-expanded={menuOpen}>
+          <MenuIcon aria-hidden="true" size={24} />
+        </ShellMenuButton>
       </SheetTrigger>
-      <SheetContent side="left" title={t('navigation.aria')} closeLabel={t('navigation.close')} data-testid="phone-nav" className="app-nav w-[min(280px,_82vw)] px-[14px] py-3">
+      <ShellNavigationSheet side="left" title={t('navigation.aria')} closeLabel={t('navigation.close')} data-testid="phone-nav">
         {nav(() => setMenuOpen(false))}
-      </SheetContent>
+      </ShellNavigationSheet>
     </Sheet>
   );
   const contentPage = !['catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
@@ -746,14 +680,10 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'entity') view = <EntityPage key={`${route.id}\0${route.after ?? ''}`} id={route.id} after={route.after} version={version} />;
   else if (route.name === 'authored') view = status.kinds.some((kind) => kind.kind === route.kind && kind.origins.includes('person')) ? <AuthoredPage key={`${route.kind}:${route.uid}`} kind={route.kind} uid={route.uid} version={version} /> : <p>{t('knowledge.noSuchPage')}</p>;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
-  else if (route.name === 'questions') view = <QuestionsPage version={version} />;
-  else if (route.name === 'question') view = <QuestionPage key={route.slug} slug={route.slug} version={version} refresh={refresh} />;
   else if (route.name === 'problems') view = <ProblemsPage version={version} refresh={refresh} />;
   else if (route.name === 'settings') view = <SettingsPage version={version} status={status} refresh={refresh} />;
   else if (route.name === 'journal') view = <JournalPage key={`${route.id}\0${route.run ?? ''}`} id={route.id} run={route.run} version={version} />;
   else if (route.name === 'fill') view = <FillPage status={status} refresh={refresh} />;
-  else if (route.name === 'tasks') view = <TasksPage version={version} />;
-  else if (route.name === 'task') view = <TaskPage key={route.id} id={route.id} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage version={version} />;
@@ -765,36 +695,34 @@ export function KnowledgeApp(): ReactElement {
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <KindLabels.Provider value={status.kinds}>
       <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
-      <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
       <Stack layout="shell" data-testid="knowledge-app">
         {/* Navigation and page content have separate scroll areas within the viewport. */}
-        <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 border-r border-line bg-chrome md:flex" aria-label={t('navigation.aria')}>
+        <ShellSidebar id="app-nav" aria-label={t('navigation.aria')}>
           <Stack layout="navigation">{nav()}</Stack>
-        </aside>
-        <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
+        </ShellSidebar>
+        <ShellMain>
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
-          <div className="shell-fixed z-30 shrink-0" data-testid="shell-fixed">
+          <ShellFixed data-testid="shell-fixed">
             <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
             <TabBar />
-          </div>
-          <div className="shell-row flex min-h-0 flex-1 overflow-hidden">
-            <div className="shell-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-testid="shell-content" ref={content}>
-              <div className="shell-document w-full">
+          </ShellFixed>
+          <ShellRow>
+            <ShellScroll data-testid="shell-content" ref={content}>
+              <ShellDocument>
                 <main data-testid="knowledge-main">
                   {contentPage && status.manifest === 'not-filled' ? <NewHome status={status} refresh={refresh} /> : contentPage && status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
                       {status.own !== true && showsProgress(route, status) && <FillCard status={status} refresh={refresh} />}
-                      <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>
+                      <PendingPages.Provider value={pending}><GlossaryProvider key={frontAddress} version={version}>{view}</GlossaryProvider></PendingPages.Provider>
                     </>
                   )}
                 </main>
-              </div>
-            </div>
-          </div>
-        </div>
+              </ShellDocument>
+            </ShellScroll>
+          </ShellRow>
+        </ShellMain>
       </Stack>
-      </GlossaryContext.Provider>
       </RoleContext.Provider>
       </KindLabels.Provider>
     </TooltipProvider>

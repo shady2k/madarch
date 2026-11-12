@@ -1,3 +1,6 @@
+import { Figure, FigureCaption } from '@/components/ui/figure.js';
+import { DrawingGroup, DrawingPath, DrawingRect, DrawingText } from '@/components/ui/drawing.js';
+import { Paragraph, Stack, Text } from '@/components/ui/typography.js';
 /**
  * The neighbourhood of an entity (`:::graph`): the entity in the middle, what
  * comes in on the left and what goes out on the right, grouped by relation.
@@ -74,7 +77,7 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
     return (
       <section data-block="diagram" aria-label={block.title}>
         <h2>{block.title}</h2>
-        <p className="text-small text-muted" data-testid="diagram-empty">{t('knowledge.noLinks')}</p>
+        <Paragraph className="text-small text-muted" data-testid="diagram-empty">{t('knowledge.noLinks')}</Paragraph>
       </section>
     );
   }
@@ -84,7 +87,7 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
   return (
     <section data-block="diagram" data-diagram="neighborhood" aria-label={block.title}>
       <h2>{block.title}</h2>
-      <figure className="m-0">
+      <Figure className="m-0">
         <PanZoom
           width={layout.width}
           height={layout.height}
@@ -94,13 +97,13 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
           testId="neighborhood"
           toolbar={(
             <>
-              <div className="dg-group" role="group" aria-label={t('knowledge.diagram.depth')}>
-                <span className="dg-caption">{t('knowledge.diagram.depth')}</span>
+              <Stack className="dg-group" role="group" aria-label={t('knowledge.diagram.depth')}>
+                <Text className="dg-caption">{t('knowledge.diagram.depth')}</Text>
                 {[1, 2, 3].filter((value) => value <= Math.max(2, maxDepth)).map((value) => (
                   <Toggle key={value} pressed={depth === value} onPressedChange={() => setDepth(value)} className="dg-chip" aria-label={t('knowledge.diagram.depthN', { count: value })} data-testid={`depth-${value}`}>{value}</Toggle>
                 ))}
-              </div>
-              <div className="dg-group" role="group" aria-label={t('knowledge.diagram.relations')}>
+              </Stack>
+              <Stack className="dg-group" role="group" aria-label={t('knowledge.diagram.relations')}>
                 {toggles.map((entry) => {
                   const slot = slotOf(entry.relation, entry.direction);
                   return (
@@ -112,68 +115,68 @@ function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
                       title={entry.direction === 'in' ? t('knowledge.diagram.comesIn', { relation: relationWord(entry.relation) }) : t('knowledge.diagram.goesOut', { relation: relationWord(entry.relation) })}
                       data-testid={`relation-${slot}`}
                     >
-                      {entry.direction === 'in' ? '← ' : ''}{relationWord(entry.relation)}{entry.direction === 'out' ? ' →' : ''} <span className="dg-count">{entry.count}</span>
+                      {entry.direction === 'in' ? '← ' : ''}{relationWord(entry.relation)}{entry.direction === 'out' ? ' →' : ''} <Text className="dg-count">{entry.count}</Text>
                     </Toggle>
                   );
                 })}
-              </div>
+              </Stack>
             </>
           )}
         >
-          <g className="dg-edges">
-            {layout.edges.map((edge) => <path key={`${edge.from}|${edge.to}|${edge.relation}`} className="dg-edge" d={edge.d} data-relation={edge.relation} />)}
-          </g>
-          <g className="dg-heads">
+          <DrawingGroup className="dg-edges">
+            {layout.edges.map((edge) => <DrawingPath key={`${edge.from}|${edge.to}|${edge.relation}`} className="dg-edge" d={edge.d} data-relation={edge.relation} />)}
+          </DrawingGroup>
+          <DrawingGroup className="dg-heads">
             {layout.groups.map((group) => (
-              <text key={`${group.column}|${group.x}|${group.y}|${group.relation}`} className="dg-head" x={group.x + 2} y={group.y + 12}>{fit(group.label, NODE_W - 4, 11)}</text>
+              <DrawingText key={`${group.column}|${group.x}|${group.y}|${group.relation}`} className="dg-head" x={group.x + 2} y={group.y + 12}>{fit(group.label, NODE_W - 4, 11)}</DrawingText>
             ))}
-          </g>
-          <g className="dg-nodes">
+          </DrawingGroup>
+          <DrawingGroup className="dg-nodes">
             {layout.nodes.map((placed) => {
               const { node } = placed;
               if (placed.more !== undefined) {
                 const chip = placed.more;
                 return (
-                  <g key={node.id} className="dg-more" transform={`translate(${placed.x} ${placed.y})`} role="button" tabIndex={0} aria-label={footprint(placed)} data-testid="more-chip"
+                  <DrawingGroup key={node.id} className="dg-more" transform={`translate(${placed.x} ${placed.y})`} role="button" tabIndex={0} aria-label={footprint(placed)} data-testid="more-chip"
                     onClick={() => void open(chip.node, chip.relation, chip.direction, wanted(chip))}
                     onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void open(chip.node, chip.relation, chip.direction, wanted(chip)); } }}>
-                    <rect width={NODE_W} height={NODE_H} rx="8" />
-                    <text x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle">{fit(footprint(placed), NODE_W - 16)}</text>
-                  </g>
+                    <DrawingRect width={NODE_W} height={NODE_H} rx="8" />
+                    <DrawingText x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle">{fit(footprint(placed), NODE_W - 16)}</DrawingText>
+                  </DrawingGroup>
                 );
               }
               const center = node.id === hood.center;
               const outer = placed.column <= 0;
               const body = (
                 <>
-                  <rect className={center ? 'dg-node dg-center' : node.href === null ? 'dg-node dg-plain' : 'dg-node'} width={NODE_W} height={NODE_H} rx="8" />
-                  <text className="dg-label" x="10" y="15">{fit(node.label, NODE_W - 20)}</text>
-                  <text className="dg-kind" x="10" y="28">{fit(kindName(node.kind, 'one'), NODE_W - 20, 11)}</text>
+                  <DrawingRect className={center ? 'dg-node dg-center' : node.href === null ? 'dg-node dg-plain' : 'dg-node'} width={NODE_W} height={NODE_H} rx="8" />
+                  <DrawingText className="dg-label" x="10" y="15">{fit(node.label, NODE_W - 20)}</DrawingText>
+                  <DrawingText className="dg-kind" x="10" y="28">{fit(kindName(node.kind, 'one'), NODE_W - 20, 11)}</DrawingText>
                   <title>{`${node.label} (${kindName(node.kind, 'one')})${node.href === null ? ` — ${t('knowledge.diagram.noPage')}` : ''}`}</title>
                 </>
               );
               return (
-                <g key={node.id} transform={`translate(${placed.x} ${placed.y})`} data-node={node.id} data-testid="hood-node">
-                  {node.href === null ? <g>{body}</g> : <a {...link(node.href)}>{body}</a>}
+                <DrawingGroup key={node.id} transform={`translate(${placed.x} ${placed.y})`} data-node={node.id} data-testid="hood-node">
+                  {node.href === null ? <DrawingGroup>{body}</DrawingGroup> : <a {...link(node.href)}>{body}</a>}
                   {!center && (
-                    <g className="dg-expand" role="button" tabIndex={0} aria-label={t('knowledge.diagram.expand', { name: node.label })} data-testid="expand-node"
+                    <DrawingGroup className="dg-expand" role="button" tabIndex={0} aria-label={t('knowledge.diagram.expand', { name: node.label })} data-testid="expand-node"
                       transform={`translate(${outer ? -1 : NODE_W + 1} ${NODE_H / 2})`}
                       onClick={() => void open(node.id, undefined, undefined, 8)}
                       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void open(node.id, undefined, undefined, 8); } }}>
                       <circle r="9" />
                       <PlusIcon x={-6} y={-6} width={12} height={12} aria-hidden="true" />
                       <title>{t('knowledge.diagram.expand', { name: node.label })}</title>
-                    </g>
+                    </DrawingGroup>
                   )}
-                </g>
+                </DrawingGroup>
               );
             })}
-          </g>
+          </DrawingGroup>
         </PanZoom>
-        <figcaption className="dg-note" aria-live="polite">
-          {busy !== null ? t('knowledge.diagram.opening') : failure !== null ? <span className="ref-broken" data-testid="diagram-failure">{failure}</span> : block.total > block.shown ? t('knowledge.showing', { shown: block.shown, total: block.total }) : t('knowledge.diagram.hint')}
-        </figcaption>
-      </figure>
+        <FigureCaption className="dg-note" aria-live="polite">
+          {busy !== null ? t('knowledge.diagram.opening') : failure !== null ? <Text className="ref-broken" data-testid="diagram-failure">{failure}</Text> : block.total > block.shown ? t('knowledge.showing', { shown: block.shown, total: block.total }) : t('knowledge.diagram.hint')}
+        </FigureCaption>
+      </Figure>
     </section>
   );
 }

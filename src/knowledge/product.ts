@@ -93,6 +93,7 @@ import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
+import { manifestPublicationState } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
 
 /**
@@ -389,17 +390,23 @@ export class KnowledgeProduct {
    */
   private async open(): Promise<DatabaseOwner> {
     if (this.closed) throw new Error('the wiki is shutting down');
+    const publication = manifestPublicationState(this.folder);
+    if (publication?.status === 'pending') throw new WikiReadError('The catalogue is being published. Please wait.');
+    if (publication?.status === 'failed') throw new WikiReadError(`The catalogue could not be published: ${publication.message}`);
     this.lastUse = Date.now();
     this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
-      const manifests = validateProductManifests(this.folder);
-      if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
-      const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
-      await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
+      // Managed readers use only what the daemon published, not a second read of the checkout.
+      const manifests = publication === undefined ? validateProductManifests(this.folder) : undefined;
+      if (manifests !== undefined) {
+        if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+        const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
+        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
+      }
       const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
       try {
         await owner.ready;
-        if (manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
+        if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
         await this.ensureStoreTables(owner);
         await this.loadPins(owner);
         // The publication the pins were read at: the first answer does not read them again (followStoreFill).

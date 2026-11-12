@@ -60,7 +60,7 @@ const file = (over: Partial<FileBlockData> = {}): FileBlockData => ({
 const repository = (over: Partial<RepositoryBlockData> = {}): RepositoryBlockData => ({
   nodeId: '1', id: 'code.repository:code', name: 'code', url: 'file:///work/code', defaultBranch: 'main',
   asIsCommit: 'b'.repeat(40), asIsHref: '/e/code.commit%3A' + 'b'.repeat(40),
-  counts: { files: 4, commits: 2, folders: 3 }, gaps: [], steps: { tree: true, history: true }, ...over,
+  counts: { files: 4, commits: 2, folders: 3 }, historyShallow: false, steps: { tree: true, history: true }, ...over,
 });
 
 const folder = (over: Partial<FolderBlockData> = {}): FolderBlockData => ({
@@ -106,10 +106,10 @@ describe('the repository block', () => {
     expect(container.querySelector('[data-testid=as-is-link]')!.getAttribute('href')).toBe('/e/code.commit%3A' + 'b'.repeat(40));
   });
 
-  test('a gap the fill recorded is stated, with what it is and why', async () => {
-    const container = into(createElement(RepositoryFactsBlock, { data: repository({ gaps: [{ what: 'code at abc', reason: 'shallow-history' }] }) }));
-    await until(() => container.querySelector('[data-testid=repository-gaps]') !== null, 'the gaps');
-    expect(container.querySelector('[data-testid=repository-gap]')!.textContent).toBe('code at abc — shallow-history');
+  test('the history producer states a shallow clone, not a fabricated gap list', async () => {
+    const container = into(createElement(RepositoryFactsBlock, { data: repository({ historyShallow: true }) }));
+    await until(() => container.querySelector('[data-testid=repository-shallow]') !== null, 'the shallow note');
+    expect(container.textContent).toContain('The clone was shallow, so the history walk is not the whole history.');
   });
 
   test('the last run and the repositories it could not read are stated', async () => {

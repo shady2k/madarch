@@ -1,3 +1,11 @@
+import { Stack, Text, PageSection, PageHeader, PageTitle, SectionTitle, SmallTitle, Paragraph, PlainList, ListItem, FieldLabel, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { Card } from '@/components/ui/card.js';
+import { Input } from '@/components/ui/input.js';
+import { Select } from '@/components/ui/select.js';
+import { RadioInput } from '@/components/ui/radio-input.js';
+import { ConfirmationPanel } from '@/components/ui/confirmation-panel.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 /**
  * The product settings page (madarch-m38l.11), reached from the bottom of the sidebar: the agent that writes the pages,
  * the model and the reasoning level that agent reports over ACP (madarch holds no list of models), the language of the
@@ -24,11 +32,11 @@ const message = (failure: unknown): string => (failure instanceof Error ? failur
 
 function Section({ id, title, intro, children, danger = false }: { id: string; title: string; intro?: string; children: ReactNode; danger?: boolean }): ReactElement {
   return (
-    <section className={`mb-6 rounded-[var(--radius-card)] border p-4 ${danger ? 'border-dashed border-ink' : 'border-line'}`} data-testid={`settings-${id}`}>
-      <h2 className="!mt-0 flex items-center gap-2">{danger && <AlertTriangleIcon aria-hidden="true" className="size-5" />}{title}</h2>
-      {intro !== undefined && <p className="text-secondary">{intro}</p>}
+    <Card className={`mb-6 p-4 ${danger ? 'border-dashed border-ink' : ''}`} data-testid={`settings-${id}`}>
+      <SectionTitle className="!mt-0 flex items-center gap-2">{danger && <AlertTriangleIcon aria-hidden="true" className="size-5" />}{title}</SectionTitle>
+      {intro !== undefined && <Paragraph className="text-secondary">{intro}</Paragraph>}
       {children}
-    </section>
+    </Card>
   );
 }
 
@@ -51,26 +59,26 @@ function AgentSection({ settings, reload }: { settings: ProductSettings; reload:
   };
   return (
     <Section id="agent" title={t('settings.agent.title')} intro={t('settings.agent.intro')}>
-      <ul className="m-0 grid list-none gap-2 p-0">
+      <PlainList className="m-0 grid list-none gap-2 p-0">
         {(agents ?? []).map((agent) => (
-          <li key={agent.id} className="flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-line p-3" data-testid={`settings-agent-${agent.id}`} data-chosen={chosen === agent.id ? 'true' : 'false'}>
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium text-ink">{agent.label}</span>
-              <span className="block text-small text-muted">
+          <ListItem key={agent.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-line p-3" data-testid={`settings-agent-${agent.id}`} data-chosen={chosen === agent.id ? 'true' : 'false'}>
+            <Text className="min-w-0 flex-1">
+              <Text className="block font-medium text-ink">{agent.label}</Text>
+              <Text className="block text-small text-muted">
                 {agentOfferNote(t, agent)}
                 {agent.login === 'signed-in' ? ` ${t('knowledge.writer.signedIn')}` : agent.login === 'not-signed-in' ? ` ${t('knowledge.writer.notSignedIn', { agent: agent.label })}` : ''}
-              </span>
-            </span>
+              </Text>
+            </Text>
             {chosen === agent.id
               ? <Badge variant="solid" data-testid="settings-agent-chosen">{t('settings.agent.chosen')}</Badge>
               : <Button variant="default" size="default" disabled={working !== null || settings.busy} onClick={() => choose(agent.id)} data-testid={`settings-agent-choose-${agent.id}`}>{agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}</Button>}
-          </li>
+          </ListItem>
         ))}
-        {agents === null && error === null && <li className="text-muted">{t('knowledge.loading')}</li>}
-      </ul>
-      {chosen !== null && <p className="mb-0 mt-3"><Button variant="default" size="default" disabled={working !== null || settings.busy} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></p>}
-      {settings.busy && <p className="mb-0 mt-3 text-small text-muted">{t('settings.busy')}</p>}
-      {error !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="settings-agent-error">{error}</p>}
+        {agents === null && error === null && <ListItem className="text-muted">{t('knowledge.loading')}</ListItem>}
+      </PlainList>
+      {chosen !== null && <Paragraph className="mb-0 mt-3"><Button variant="default" size="default" disabled={working !== null || settings.busy} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
+      {settings.busy && <Paragraph className="mb-0 mt-3 text-small text-muted">{t('settings.busy')}</Paragraph>}
+      {error !== null && <Paragraph className="mb-0 mt-3 text-small" role="alert" data-testid="settings-agent-error">{error}</Paragraph>}
     </Section>
   );
 }
@@ -79,21 +87,19 @@ function ChoiceSelect({ id, label, choice, value, onChange, disabled }: { id: st
   const { t } = useTranslation();
   const picked = choice.values.find((entry) => entry.value === (value ?? choice.current));
   return (
-    <div className="mb-4 last:mb-0">
-      <label htmlFor={id} className="mb-1 block text-small font-medium text-ink">{label}</label>
-      <select
+    <Stack className="mb-4 last:mb-0">
+      <FieldLabel htmlFor={id} className="mb-1 block text-small font-medium text-ink">{label}</FieldLabel>
+      <Select
         id={id}
         data-testid={id}
-        className="w-full max-w-[28rem] rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink"
+        className="w-full max-w-112"
         value={value ?? ''}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
-      >
-        <option value="">{choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current })}</option>
-        {choice.values.map((entry) => <option key={entry.value} value={entry.value}>{entry.name}</option>)}
-      </select>
-      {picked?.description !== undefined && <p className="mb-0 mt-1 text-small text-muted">{picked.description}</p>}
-    </div>
+        options={[{ value: '', label: choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current }) }, ...choice.values.map((entry) => ({ value: entry.value, label: entry.name }))]}
+      />
+      {picked?.description !== undefined && <Paragraph className="mb-0 mt-1 text-small text-muted">{picked.description}</Paragraph>}
+    </Stack>
   );
 }
 
@@ -120,18 +126,18 @@ function ModelSection({ settings, reload }: { settings: ProductSettings; reload:
   };
   return (
     <Section id="model" title={t('settings.model.title')} intro={t('settings.model.intro')}>
-      {chosen === null && <p className="m-0 text-muted" data-testid="settings-model-none">{t('settings.model.noAgent')}</p>}
-      {chosen !== null && answer === null && error === null && <p className="m-0 text-muted" data-testid="settings-model-asking">{t('settings.model.asking', { agent: chosen.label })}</p>}
-      {answer !== null && answer.choices.model === null && answer.choices.reasoning === null && <p className="m-0 text-muted" data-testid="settings-model-reports-none">{t('settings.model.reportsNone', { agent: chosen?.label ?? '' })}</p>}
+      {chosen === null && <Paragraph className="m-0 text-muted" data-testid="settings-model-none">{t('settings.model.noAgent')}</Paragraph>}
+      {chosen !== null && answer === null && error === null && <Paragraph className="m-0 text-muted" data-testid="settings-model-asking">{t('settings.model.asking', { agent: chosen.label })}</Paragraph>}
+      {answer !== null && answer.choices.model === null && answer.choices.reasoning === null && <Paragraph className="m-0 text-muted" data-testid="settings-model-reports-none">{t('settings.model.reportsNone', { agent: chosen?.label ?? '' })}</Paragraph>}
       {answer !== null && answer.choices.model !== null && <ChoiceSelect id="settings-model-select" label={t('settings.model.model')} choice={answer.choices.model} value={chosen?.model} disabled={saving || settings.busy} onChange={(value) => save({ model: value })} />}
       {answer !== null && answer.choices.reasoning !== null && <ChoiceSelect id="settings-reasoning-select" label={t('settings.model.reasoning')} choice={answer.choices.reasoning} value={chosen?.reasoning} disabled={saving || settings.busy} onChange={(value) => save({ reasoning: value })} />}
       {error !== null && (
         <Alert variant="problem" className="mt-3" data-testid="settings-model-error">
           <AlertTitle>{t('settings.model.failed')}</AlertTitle>
-          <AlertDescription><p>{error}</p><p className="mt-2"><Button variant="default" size="default" onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></p></AlertDescription>
+          <AlertDescription><Paragraph>{error}</Paragraph><Paragraph className="mt-2"><Button variant="default" size="default" onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph></AlertDescription>
         </Alert>
       )}
-      {answer !== null && <p className="mb-0 mt-3 text-small text-muted">{t('settings.model.note')}</p>}
+      {answer !== null && <Paragraph className="mb-0 mt-3 text-small text-muted">{t('settings.model.note')}</Paragraph>}
     </Section>
   );
 }
@@ -196,7 +202,7 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
   };
   return (
     <Section id="roles" title={t('settings.roles.title')} intro={t('settings.roles.intro')}>
-      <ul className="m-0 grid list-none gap-3 p-0">
+      <PlainList className="m-0 grid list-none gap-3 p-0">
         {settings.roles.roles.map((role) => {
           const roleLabel = t(`settings.roles.${role.role}`);
           const pairLabel = role.pair === null
@@ -207,58 +213,56 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
           const reasoningChoice = assignedChoices?.choices.reasoning ?? null;
           const assignedAgent = role.pair?.agent ?? '';
           return (
-            <li key={role.role} className="rounded-[var(--radius-card)] border border-line p-3" data-testid={`settings-role-${role.role}`} data-source={role.source}>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="font-medium text-ink">{roleLabel}</span>
-                <span className="text-small text-secondary" data-testid={`settings-role-pair-${role.role}`}>{pairLabel}</span>
-              </div>
+            <ListItem key={role.role} className="rounded-lg border border-line p-3" data-testid={`settings-role-${role.role}`} data-source={role.source}>
+              <Stack className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <Text className="font-medium text-ink">{roleLabel}</Text>
+                <Text className="text-small text-secondary" data-testid={`settings-role-pair-${role.role}`}>{pairLabel}</Text>
+              </Stack>
               {role.source === 'fallback' && role.fallbackFrom !== undefined && (
-                <p className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-fallback-${role.role}`}>
+                <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-fallback-${role.role}`}>
                   {t('settings.roles.fallback', { role: t(`settings.roles.${role.fallbackFrom}`) })}
-                </p>
+                </Paragraph>
               )}
               {role.source === 'none' && role.pair === null && (
-                <p className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-none-${role.role}`}>{t('settings.roles.noDefault')}</p>
+                <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-none-${role.role}`}>{t('settings.roles.noDefault')}</Paragraph>
               )}
               {(modelChoice !== null || reasoningChoice !== null) && (
-                <div className="mt-3" data-testid={`settings-role-choices-${role.role}`}>
+                <Stack className="mt-3" data-testid={`settings-role-choices-${role.role}`}>
                   {modelChoice !== null && (
                     <ChoiceSelect id={`settings-role-model-${role.role}`} label={t('settings.model.model')} choice={modelChoice} value={role.pair?.model} disabled={working !== null || settings.busy} onChange={(value) => save(role.role, assignedAgent, { model: value })} />
                   )}
                   {reasoningChoice !== null && (
                     <ChoiceSelect id={`settings-role-reasoning-${role.role}`} label={t('settings.model.reasoning')} choice={reasoningChoice} value={role.pair?.reasoning} disabled={working !== null || settings.busy} onChange={(value) => save(role.role, assignedAgent, { reasoning: value })} />
                   )}
-                </div>
+                </Stack>
               )}
               {role.role !== 'writing' && (
-                <div className="mt-2">
-                  <label htmlFor={`settings-role-select-${role.role}`} className="mb-1 block text-small font-medium text-ink">{t('settings.roles.assign', { role: roleLabel })}</label>
-                  <select
+                <Stack className="mt-2">
+                  <FieldLabel htmlFor={`settings-role-select-${role.role}`} className="mb-1 block text-small font-medium text-ink">{t('settings.roles.assign', { role: roleLabel })}</FieldLabel>
+                  <Select
                     id={`settings-role-select-${role.role}`}
                     data-testid={`settings-role-select-${role.role}`}
-                    className="w-full max-w-[28rem] rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink"
+                    className="w-full max-w-112"
                     value={role.source === 'assigned' && role.pair !== null ? role.pair.agent : ''}
                     disabled={working !== null || settings.busy}
                     onChange={(event) => assign(role.role, event.target.value === '' ? null : event.target.value)}
-                  >
-                    <option value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</option>
-                    {options.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-                  </select>
-                </div>
+                    options={[{ value: '', label: settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') }) }, ...options.map((agent) => ({ value: agent.id, label: agent.name }))]}
+                  />
+                </Stack>
               )}
-            </li>
+            </ListItem>
           );
         })}
-      </ul>
-      {agents === null && error === null && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.loading')}</p>}
-      {settings.busy && <p className="mb-0 mt-3 text-small text-muted">{t('settings.busy')}</p>}
+      </PlainList>
+      {agents === null && error === null && <Paragraph className="mb-0 mt-3 text-small text-muted">{t('knowledge.loading')}</Paragraph>}
+      {settings.busy && <Paragraph className="mb-0 mt-3 text-small text-muted">{t('settings.busy')}</Paragraph>}
       {error !== null && (
         <Alert variant="problem" className="mt-3" data-testid="settings-roles-error">
           <AlertTitle>{t('settings.roles.failed')}</AlertTitle>
-          <AlertDescription><p>{error}</p><p className="mt-2"><Button variant="default" size="default" onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></p></AlertDescription>
+          <AlertDescription><Paragraph>{error}</Paragraph><Paragraph className="mt-2"><Button variant="default" size="default" onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph></AlertDescription>
         </Alert>
       )}
-      <p className="mb-0 mt-3 text-small text-muted">{t('settings.roles.note')}</p>
+      <Paragraph className="mb-0 mt-3 text-small text-muted">{t('settings.roles.note')}</Paragraph>
     </Section>
   );
 }
@@ -319,67 +323,67 @@ function VerdictsSection({ settings, reload }: { settings: ProductSettings; relo
   const bad = view?.rows ?? [];
   return (
     <Section id="verdicts" title={t('settings.verdicts.title')} intro={t('settings.verdicts.intro')}>
-      {view === null && error === null && <p className="m-0 text-muted" data-testid="settings-verdicts-loading">{t('knowledge.loading')}</p>}
-      {report === undefined && view !== null && <p className="m-0 text-muted" data-testid="settings-verdicts-empty">{t('settings.verdicts.empty')}</p>}
+      {view === null && error === null && <Paragraph className="m-0 text-muted" data-testid="settings-verdicts-loading">{t('knowledge.loading')}</Paragraph>}
+      {report === undefined && view !== null && <Paragraph className="m-0 text-muted" data-testid="settings-verdicts-empty">{t('settings.verdicts.empty')}</Paragraph>}
       {report !== undefined && (
         <>
-          <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-small">
-            <dt className="text-secondary">{t('settings.verdicts.items')}</dt><dd className="m-0" data-testid="settings-verdicts-total">{report.totals.items}</dd>
-            <dt className="text-secondary">{t('settings.verdicts.valid')}</dt><dd className="m-0" data-testid="settings-verdicts-valid">{report.totals.valid}</dd>
-            <dt className="text-secondary">{t('settings.verdicts.invalid')}</dt><dd className="m-0" data-testid="settings-verdicts-invalid">{report.totals.invalid}</dd>
-            <dt className="text-secondary">{t('settings.verdicts.unreviewed')}</dt><dd className="m-0" data-testid="settings-verdicts-unreviewed">{report.totals.unreviewed}</dd>
-          </dl>
-          <p className="mb-0 mt-2 text-small text-muted" data-testid="settings-verdicts-meta">
+          <DefinitionList columns className="gap-x-6">
+            <DefinitionTerm className="text-secondary">{t('settings.verdicts.items')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="settings-verdicts-total">{report.totals.items}</DefinitionValue>
+            <DefinitionTerm className="text-secondary">{t('settings.verdicts.valid')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="settings-verdicts-valid">{report.totals.valid}</DefinitionValue>
+            <DefinitionTerm className="text-secondary">{t('settings.verdicts.invalid')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="settings-verdicts-invalid">{report.totals.invalid}</DefinitionValue>
+            <DefinitionTerm className="text-secondary">{t('settings.verdicts.unreviewed')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="settings-verdicts-unreviewed">{report.totals.unreviewed}</DefinitionValue>
+          </DefinitionList>
+          <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-verdicts-meta">
             {t('settings.verdicts.meta', { at: report.generatedAt, version: report.validatorVersion, file: view?.file ?? '' })}
-          </p>
-          {report.totals.unreviewed > 0 && <p className="mb-0 mt-2 text-small text-secondary" data-testid="settings-verdicts-note">{t('settings.verdicts.unreviewedNote')}</p>}
+          </Paragraph>
+          {report.totals.unreviewed > 0 && <Paragraph className="mb-0 mt-2 text-small text-secondary" data-testid="settings-verdicts-note">{t('settings.verdicts.unreviewedNote')}</Paragraph>}
           {report.reasons.length > 0 && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-small" data-testid="settings-verdicts-reasons">
-                <thead><tr><th className="text-start">{t('settings.verdicts.reason')}</th><th className="text-end">{t('settings.verdicts.count')}</th></tr></thead>
-                <tbody>{report.reasons.map((one) => <tr key={one.reason}><td>{one.reason}</td><td className="text-end">{one.count}</td></tr>)}</tbody>
-              </table>
-            </div>
+            <Stack className="mt-4 overflow-x-auto">
+              <Table className="w-full text-small" data-testid="settings-verdicts-reasons">
+                <TableHeader><TableRow><TableHead align="left">{t('settings.verdicts.reason')}</TableHead><TableHead align="right">{t('settings.verdicts.count')}</TableHead></TableRow></TableHeader>
+                <TableBody>{report.reasons.map((one) => <TableRow key={one.reason}><TableCell>{one.reason}</TableCell><TableCell align="right">{one.count}</TableCell></TableRow>)}</TableBody>
+              </Table>
+            </Stack>
           )}
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-small" data-testid="settings-verdicts-kinds">
-              <thead><tr><th className="text-start">{t('settings.verdicts.kind')}</th><th className="text-end">{t('settings.verdicts.valid')}</th><th className="text-end">{t('settings.verdicts.invalid')}</th><th className="text-end">{t('settings.verdicts.unreviewed')}</th></tr></thead>
-              <tbody>
+          <Stack className="mt-4 overflow-x-auto">
+            <Table className="w-full text-small" data-testid="settings-verdicts-kinds">
+              <TableHeader><TableRow><TableHead align="left">{t('settings.verdicts.kind')}</TableHead><TableHead align="right">{t('settings.verdicts.valid')}</TableHead><TableHead align="right">{t('settings.verdicts.invalid')}</TableHead><TableHead align="right">{t('settings.verdicts.unreviewed')}</TableHead></TableRow></TableHeader>
+              <TableBody>
                 {report.byKind.map((kind) => (
-                  <tr key={`${kind.role}:${kind.kind}`} data-testid={`settings-verdicts-kind-${kind.role}-${kind.kind}`}>
-                    <td><code>{kind.role}:{kind.kind}</code></td><td className="text-end">{kind.valid}</td><td className="text-end">{kind.invalid}</td><td className="text-end">{kind.unreviewed}</td>
-                  </tr>
+                  <TableRow key={`${kind.role}:${kind.kind}`} data-testid={`settings-verdicts-kind-${kind.role}-${kind.kind}`}>
+                    <TableCell><InlineCode>{kind.role}:{kind.kind}</InlineCode></TableCell><TableCell align="right">{kind.valid}</TableCell><TableCell align="right">{kind.invalid}</TableCell><TableCell align="right">{kind.unreviewed}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Stack>
           {bad.length > 0 && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-small" data-testid="settings-verdicts-rows">
-                <thead><tr><th className="text-start">{t('settings.verdicts.item')}</th><th className="text-start">{t('settings.verdicts.verdict')}</th><th className="text-start">{t('settings.verdicts.reason')}</th></tr></thead>
-                <tbody>
-                  {bad.map((row) => <tr key={`${row.role}:${row.id}`} data-testid={`settings-verdict-row-${row.id}`}><td><code>{row.role}:{row.kind}</code> {row.label}</td><td>{row.verdict}</td><td>{row.reason}</td></tr>)}
-                </tbody>
-              </table>
-            </div>
+            <Stack className="mt-4 overflow-x-auto">
+              <Table className="w-full text-small" data-testid="settings-verdicts-rows">
+                <TableHeader><TableRow><TableHead align="left">{t('settings.verdicts.item')}</TableHead><TableHead align="left">{t('settings.verdicts.verdict')}</TableHead><TableHead align="left">{t('settings.verdicts.reason')}</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {bad.map((row) => <TableRow key={`${row.role}:${row.id}`} data-testid={`settings-verdict-row-${row.id}`}><TableCell><InlineCode>{row.role}:{row.kind}</InlineCode> {row.label}</TableCell><TableCell>{row.verdict}</TableCell><TableCell>{row.reason}</TableCell></TableRow>)}
+                </TableBody>
+              </Table>
+            </Stack>
           )}
           {view !== null && view.limit > 0 && view.total > view.limit && (
-            <div className="mt-3 flex flex-wrap items-center gap-3" data-testid="settings-verdicts-pages">
-              <span className="text-small text-muted" data-testid="settings-verdicts-range">{t('settings.verdicts.range', { from: String(view.offset + 1), to: String(Math.min(view.offset + view.limit, view.total)), total: String(view.total) })}</span>
+            <Stack className="mt-3 flex flex-wrap items-center gap-3" data-testid="settings-verdicts-pages">
+              <Text className="text-small text-muted" data-testid="settings-verdicts-range">{t('settings.verdicts.range', { from: String(view.offset + 1), to: String(Math.min(view.offset + view.limit, view.total)), total: String(view.total) })}</Text>
               <Button variant="default" size="default" disabled={working || settings.busy || view.offset === 0} onClick={() => load(false, undefined, Math.max(0, view.offset - view.limit))} data-testid="settings-verdicts-prev">{t('settings.verdicts.previous')}</Button>
               <Button variant="default" size="default" disabled={working || settings.busy || view.offset + view.limit >= view.total} onClick={() => load(false, undefined, view.offset + view.limit)} data-testid="settings-verdicts-next">{t('settings.verdicts.next')}</Button>
-            </div>
+            </Stack>
           )}
         </>
       )}
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <label className="text-small text-secondary">{t('settings.verdicts.itemsPerRun')}<input type="number" min={0} step={1} value={items} disabled={working || settings.busy} onInput={(event) => setItems((event.target as HTMLInputElement).value)} className="mt-1 block w-32 rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink" data-testid="settings-verdict-items-per-run" /></label>
-        <label className="text-small text-secondary">{t('settings.verdicts.modelCallsPerRun')}<input type="number" min={0} step={1} value={calls} disabled={working || settings.busy} onInput={(event) => setCalls((event.target as HTMLInputElement).value)} className="mt-1 block w-32 rounded-[var(--radius-control)] border border-line bg-page px-2.5 py-2 text-body text-ink" data-testid="settings-verdict-model-calls" /></label>
+      <Stack className="mt-4 flex flex-wrap items-end gap-3">
+        <FieldLabel className="text-small text-secondary">{t('settings.verdicts.itemsPerRun')}<Input type="number" min={0} step={1} value={items} disabled={working || settings.busy} onInput={(event) => setItems((event.target as HTMLInputElement).value)} className="mt-1 w-32" data-testid="settings-verdict-items-per-run" /></FieldLabel>
+        <FieldLabel className="text-small text-secondary">{t('settings.verdicts.modelCallsPerRun')}<Input type="number" min={0} step={1} value={calls} disabled={working || settings.busy} onInput={(event) => setCalls((event.target as HTMLInputElement).value)} className="mt-1 w-32" data-testid="settings-verdict-model-calls" /></FieldLabel>
         <Button variant="default" size="default" disabled={working || settings.busy} onClick={save} data-testid="settings-verdicts-save">{t('settings.verdicts.save')}</Button>
         <Button variant="default" size="default" disabled={working || settings.busy} onClick={() => load(true)} data-testid="settings-verdicts-run">{working ? t('settings.verdicts.running') : t('settings.verdicts.run')}</Button>
-      </div>
-      <p className="mb-0 mt-2 text-small text-muted">{t('settings.verdicts.note')}</p>
-      {error !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="settings-verdicts-error">{error}</p>}
+      </Stack>
+      <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.verdicts.note')}</Paragraph>
+      {error !== null && <Paragraph className="mb-0 mt-2 text-small" role="alert" data-testid="settings-verdicts-error">{error}</Paragraph>}
     </Section>
   );
 }
@@ -393,16 +397,16 @@ function LanguageSection({ settings, reload }: { settings: ProductSettings; relo
   };
   return (
     <Section id="language" title={t('settings.language.title')} intro={t('settings.language.intro')}>
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language.title')}>
+      <Stack className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language.title')}>
         {(['ru', 'en'] as const).map((code) => (
-          <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-3 py-1.5 has-[:checked]:border-ink" data-testid={`settings-language-${code}`}>
-            <input type="radio" name="settings-language" checked={settings.language === code} disabled={settings.busy} onChange={() => set(code)} />
-            <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
-          </label>
+          <FieldLabel key={code} className="flex cursor-pointer items-center gap-2 rounded-lg border border-line px-3 py-1.5" data-testid={`settings-language-${code}`}>
+            <RadioInput name="settings-language" checked={settings.language === code} disabled={settings.busy} onChange={() => set(code)} />
+            <Text>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</Text>
+          </FieldLabel>
         ))}
-      </div>
-      <p className="mb-0 mt-2 text-small text-muted">{t('settings.language.note')}</p>
-      {error !== null && <p className="mb-0 mt-2 text-small" role="alert">{error}</p>}
+      </Stack>
+      <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.language.note')}</Paragraph>
+      {error !== null && <Paragraph className="mb-0 mt-2 text-small" role="alert">{error}</Paragraph>}
     </Section>
   );
 }
@@ -425,23 +429,23 @@ function BoundsSection({ settings, reload }: { settings: ProductSettings; reload
   };
   return (
     <Section id="bounds" title={t('settings.bounds.title')} intro={t('settings.bounds.intro')}>
-      <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-small">
-        <dt className="text-secondary">{t('settings.bounds.turns')}</dt><dd className="m-0" data-testid="bound-turns">{bounds.turns}</dd>
-        <dt className="text-secondary">{t('settings.bounds.minutes')}</dt><dd className="m-0" data-testid="bound-minutes">{bounds.minutes}</dd>
-        <dt className="text-secondary">{t('settings.bounds.calls')}</dt><dd className="m-0">{bounds.toolCalls}</dd>
-        <dt className="text-secondary">{t('settings.bounds.attempts')}</dt><dd className="m-0">{bounds.writeAttempts}</dd>
-        <dt className="text-secondary">{t('settings.bounds.domains')}</dt><dd className="m-0">{bounds.maxDomains}</dd>
-        <dt className="text-secondary">{t('settings.bounds.editorial')}</dt><dd className="m-0" data-testid="bound-editorial">{bounds.editorialRequestsPerPage}</dd>
-      </dl>
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="grid gap-1 text-small" htmlFor="settings-editorial-bound">
-          <span className="text-secondary">{t('settings.bounds.editorial')}</span>
-          <input id="settings-editorial-bound" data-testid="bound-editorial-input" className="w-24 rounded-[var(--radius-card)] border border-line px-2 py-1" type="number" min={0} max={12} step={1} value={editorial} disabled={saving || settings.busy} onChange={(event) => setEditorial(event.target.value)} />
-        </label>
+      <DefinitionList columns className="gap-x-6">
+        <DefinitionTerm className="text-secondary">{t('settings.bounds.turns')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="bound-turns">{bounds.turns}</DefinitionValue>
+        <DefinitionTerm className="text-secondary">{t('settings.bounds.minutes')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="bound-minutes">{bounds.minutes}</DefinitionValue>
+        <DefinitionTerm className="text-secondary">{t('settings.bounds.calls')}</DefinitionTerm><DefinitionValue className="m-0">{bounds.toolCalls}</DefinitionValue>
+        <DefinitionTerm className="text-secondary">{t('settings.bounds.attempts')}</DefinitionTerm><DefinitionValue className="m-0">{bounds.writeAttempts}</DefinitionValue>
+        <DefinitionTerm className="text-secondary">{t('settings.bounds.domains')}</DefinitionTerm><DefinitionValue className="m-0">{bounds.maxDomains}</DefinitionValue>
+        <DefinitionTerm className="text-secondary">{t('settings.bounds.editorial')}</DefinitionTerm><DefinitionValue className="m-0" data-testid="bound-editorial">{bounds.editorialRequestsPerPage}</DefinitionValue>
+      </DefinitionList>
+      <Stack className="mt-3 flex flex-wrap items-end gap-2">
+        <FieldLabel className="grid gap-1 text-small" htmlFor="settings-editorial-bound">
+          <Text className="text-secondary">{t('settings.bounds.editorial')}</Text>
+          <Input id="settings-editorial-bound" data-testid="bound-editorial-input" className="w-24" type="number" min={0} max={12} step={1} value={editorial} disabled={saving || settings.busy} onChange={(event) => setEditorial(event.target.value)} />
+        </FieldLabel>
         <Button variant="default" size="default" data-testid="bound-editorial-save" disabled={saving || settings.busy} onClick={save}>{t('settings.bounds.save')}</Button>
-      </div>
-      <p className="mb-0 mt-2 text-small text-muted">{t('settings.bounds.editorialNote')}</p>
-      {error !== null && <p className="mb-0 mt-2 text-small" role="alert">{error}</p>}
+      </Stack>
+      <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.bounds.editorialNote')}</Paragraph>
+      {error !== null && <Paragraph className="mb-0 mt-2 text-small" role="alert">{error}</Paragraph>}
     </Section>
   );
 }
@@ -450,11 +454,11 @@ function PlacesSection({ settings }: { settings: ProductSettings }): ReactElemen
   const { t } = useTranslation();
   return (
     <Section id="places" title={t('settings.places.title')} intro={t('settings.places.intro')}>
-      <dl className="m-0 grid grid-cols-1 gap-x-6 gap-y-1 text-small sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <dt className="text-secondary">{t('settings.places.folder')}</dt><dd className="m-0 break-all"><code data-testid="places-folder">{settings.folder}</code></dd>
-        <dt className="text-secondary">{t('settings.places.store')}</dt><dd className="m-0 break-all"><code data-testid="places-store">{settings.store}</code></dd>
-      </dl>
-      <p className="mb-0 mt-3 text-small text-muted" data-testid="places-push">{t('settings.places.noPush')}</p>
+      <DefinitionList className="m-0 grid grid-cols-1 gap-x-6 gap-y-1 text-small sm:grid-cols-2">
+        <DefinitionTerm className="text-secondary">{t('settings.places.folder')}</DefinitionTerm><DefinitionValue className="m-0 break-all"><InlineCode data-testid="places-folder">{settings.folder}</InlineCode></DefinitionValue>
+        <DefinitionTerm className="text-secondary">{t('settings.places.store')}</DefinitionTerm><DefinitionValue className="m-0 break-all"><InlineCode data-testid="places-store">{settings.store}</InlineCode></DefinitionValue>
+      </DefinitionList>
+      <Paragraph className="mb-0 mt-3 text-small text-muted" data-testid="places-push">{t('settings.places.noPush')}</Paragraph>
     </Section>
   );
 }
@@ -485,26 +489,26 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
   const kept = kind === 'fresh' ? plan.fresh.keptPages : plan.rewrite.keptPages;
   const title = kind === 'fresh' ? t('settings.danger.fresh.title') : t('settings.danger.rewrite.title');
   return (
-    <div role="group" aria-label={title} className="mt-3 grid min-w-0 gap-2 rounded-[var(--radius-card)] border border-dashed border-ink bg-[var(--surface-soft)] p-4 text-small text-secondary [overflow-wrap:anywhere]" data-testid="danger-dialog" data-kind={kind}>
-      <p className="m-0 font-medium text-ink">{t('settings.danger.local', { folder: settings.folder })}</p>
-      <p className="m-0">{t('settings.danger.willDo')}</p>
-      <ul className="m-0 list-disc ps-5">
-        <li data-testid="danger-pages">{pages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: pages.length, list: pages.join(', ') })}</li>
-        {kind === 'fresh' && <li>{t('settings.danger.fresh.graph', { store: settings.store })}</li>}
-        {kind === 'fresh' && <li data-testid="danger-questions">{t('knowledge.reset.questions', { count: plan.fresh.unansweredQuestions.length })}</li>}
-        {kind === 'fresh' && <li data-testid="danger-answers">{t('knowledge.reset.answers', { count: plan.fresh.keptAnswers.length })}</li>}
-        <li>{kind === 'fresh' ? t('settings.danger.fresh.fill') : t('settings.danger.rewrite.fill')}</li>
-      </ul>
-      {pages.length > 0 && <p className="m-0" data-testid="danger-agent-edits">{t('settings.danger.agentEdits')}</p>}
-      {kept.length > 0 && <p className="m-0">{t('knowledge.reset.keptPages', { list: kept.join(', ') })}</p>}
-      <p className="m-0">{t('settings.danger.keeps')}</p>
-      <p className="m-0">{t('settings.danger.nothingSent')}</p>
-      {error !== null && <p className="m-0" role="alert" data-testid="danger-error">{error}</p>}
-      <div className="flex flex-wrap justify-end gap-2">
+    <ConfirmationPanel aria-label={title} data-testid="danger-dialog" data-kind={kind}>
+      <Paragraph className="m-0 font-medium text-ink">{t('settings.danger.local', { folder: settings.folder })}</Paragraph>
+      <Paragraph className="m-0">{t('settings.danger.willDo')}</Paragraph>
+      <PlainList className="m-0 list-disc ps-5">
+        <ListItem data-testid="danger-pages">{pages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: pages.length, list: pages.join(', ') })}</ListItem>
+        {kind === 'fresh' && <ListItem>{t('settings.danger.fresh.graph', { store: settings.store })}</ListItem>}
+        {kind === 'fresh' && <ListItem data-testid="danger-questions">{t('knowledge.reset.questions', { count: plan.fresh.unansweredQuestions.length })}</ListItem>}
+        {kind === 'fresh' && <ListItem data-testid="danger-answers">{t('knowledge.reset.answers', { count: plan.fresh.keptAnswers.length })}</ListItem>}
+        <ListItem>{kind === 'fresh' ? t('settings.danger.fresh.fill') : t('settings.danger.rewrite.fill')}</ListItem>
+      </PlainList>
+      {pages.length > 0 && <Paragraph className="m-0" data-testid="danger-agent-edits">{t('settings.danger.agentEdits')}</Paragraph>}
+      {kept.length > 0 && <Paragraph className="m-0">{t('knowledge.reset.keptPages', { list: kept.join(', ') })}</Paragraph>}
+      <Paragraph className="m-0">{t('settings.danger.keeps')}</Paragraph>
+      <Paragraph className="m-0">{t('settings.danger.nothingSent')}</Paragraph>
+      {error !== null && <Paragraph className="m-0" role="alert" data-testid="danger-error">{error}</Paragraph>}
+      <Stack className="flex flex-wrap justify-end gap-2">
         <Button variant="default" size="default" onClick={onClose} data-testid="danger-cancel">{t('knowledge.reset.cancel')}</Button>
         <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" onClick={confirm} disabled={working} data-testid="danger-confirm">{kind === 'fresh' ? t('settings.danger.fresh.confirm') : t('settings.danger.rewrite.confirm')}</Button>
-      </div>
-    </div>
+      </Stack>
+    </ConfirmationPanel>
   );
 }
 
@@ -516,25 +520,25 @@ function DangerSection({ settings, refresh }: { settings: ProductSettings; refre
   const finish = (leave: boolean): void => { if (leave) navigateTo(appPath(WIKI_HOME)); refresh(); };
   return (
     <Section id="danger" title={t('settings.danger.title')} intro={t('settings.danger.intro')} danger>
-      <div className="grid gap-4">
-        <div data-testid="danger-rewrite">
-          <h3 className="!mt-0">{t('settings.danger.rewrite.title')}</h3>
-          <p className="mt-0 text-secondary">{t('settings.danger.rewrite.what')}</p>
-          <p className="text-small text-muted">{t('settings.danger.local', { folder: settings.folder })}</p>
+      <Stack className="grid gap-4">
+        <Stack data-testid="danger-rewrite">
+          <SmallTitle className="!mt-0">{t('settings.danger.rewrite.title')}</SmallTitle>
+          <Paragraph className="mt-0 text-secondary">{t('settings.danger.rewrite.what')}</Paragraph>
+          <Paragraph className="text-small text-muted">{t('settings.danger.local', { folder: settings.folder })}</Paragraph>
           <Button variant="default" size="default" disabled={blocked || noAgent || kind === 'rewrite'} onClick={() => setKind('rewrite')} data-testid="danger-rewrite-open">{t('settings.danger.rewrite.title')}</Button>
-          {noAgent && <p className="mb-0 mt-2 text-small text-muted">{t('settings.danger.rewrite.needsAgent')}</p>}
+          {noAgent && <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.danger.rewrite.needsAgent')}</Paragraph>}
           {kind === 'rewrite' && <DangerPanel kind="rewrite" settings={settings} onClose={() => setKind(null)} done={finish} />}
-        </div>
-        <div data-testid="danger-fresh">
-          <h3 className="!mt-0">{t('settings.danger.fresh.title')}</h3>
-          <p className="mt-0 text-secondary">{t('settings.danger.fresh.what')}</p>
-          <p className="text-small text-muted">{t('settings.danger.local', { folder: settings.folder })}</p>
+        </Stack>
+        <Stack data-testid="danger-fresh">
+          <SmallTitle className="!mt-0">{t('settings.danger.fresh.title')}</SmallTitle>
+          <Paragraph className="mt-0 text-secondary">{t('settings.danger.fresh.what')}</Paragraph>
+          <Paragraph className="text-small text-muted">{t('settings.danger.local', { folder: settings.folder })}</Paragraph>
           <Button variant="default" size="default" disabled={blocked || kind === 'fresh'} onClick={() => setKind('fresh')} data-testid="danger-fresh-open">{t('settings.danger.fresh.title')}</Button>
           {kind === 'fresh' && <DangerPanel kind="fresh" settings={settings} onClose={() => setKind(null)} done={finish} />}
-        </div>
-        {settings.busy && <p className="m-0 text-small text-muted">{t('settings.busy')}</p>}
-        {settings.dangerError !== undefined && <p className="m-0 text-small" role="alert" data-testid="danger-unavailable">{settings.dangerError}</p>}
-      </div>
+        </Stack>
+        {settings.busy && <Paragraph className="m-0 text-small text-muted">{t('settings.busy')}</Paragraph>}
+        {settings.dangerError !== undefined && <Paragraph className="m-0 text-small" role="alert" data-testid="danger-unavailable">{settings.dangerError}</Paragraph>}
+      </Stack>
     </Section>
   );
 }
@@ -545,14 +549,14 @@ export function SettingsPage({ version, status, refresh }: { version: number; st
   const { data, error } = useRead('product-settings', version, (signal) => getProductSettings(signal));
   useTabTitle(t('settings.title'));
   if (data === null && error === null) return <PageSkeleton testId="settings-loading" rows />;
-  if (data === null) return <Alert variant="problem" data-testid="settings-error"><AlertTitle>{t('settings.missing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  if (data === null) return <Alert variant="problem" data-testid="settings-error"><AlertTitle>{t('settings.missing')}</AlertTitle><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   const again = refresh;
   return (
-    <section data-testid="settings-page">
-      <header className="mb-6">
-        <h1>{t('settings.title')}</h1>
-        <p className="text-secondary">{t('settings.intro', { product: status.product.name })}</p>
-      </header>
+    <PageSection data-testid="settings-page">
+      <PageHeader className="mb-6">
+        <PageTitle>{t('settings.title')}</PageTitle>
+        <Paragraph className="text-secondary">{t('settings.intro', { product: status.product.name })}</Paragraph>
+      </PageHeader>
       <AgentSection settings={data} reload={again} />
       <ModelSection settings={data} reload={again} />
       <RolesSection settings={data} reload={again} />
@@ -561,6 +565,6 @@ export function SettingsPage({ version, status, refresh }: { version: number; st
       <BoundsSection settings={data} reload={again} />
       <PlacesSection settings={data} />
       <DangerSection settings={data} refresh={again} />
-    </section>
+    </PageSection>
   );
 }

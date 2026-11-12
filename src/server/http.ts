@@ -53,6 +53,7 @@ import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../mcp/t
 import { productsHome } from '../product/home.js';
 import { KnowledgeHost, type AgentFactory, type KnowledgeProductOptions } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
+import { manifestPublicationReady } from '../product/manifest-publication-state.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -341,7 +342,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     appFolder,
     unitTool: options.orchestrator?.unitTool,
     knowledge: product === undefined ? undefined : knowledgeOf(product.folder),
-    opened: product === undefined ? undefined : (request) => { if (opensPage(request)) knowledgeHost.of(product.folder).warm(); },
+    opened: product === undefined ? undefined : (request) => { if (opensPage(request) && manifestPublicationReady(product.folder)) knowledgeHost.of(product.folder).warm(); },
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -445,7 +446,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     if (name === undefined) {
       return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch</title></head><body><p>No product is served yet: run <code>madarch init</code> in a code repository, or <code>madarch new</code> for an empty product.</p></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
     }
-    if (opensPage(request)) knowledgeHost.of(productEntries.get(name)!.product.folder).warm();
+    if (opensPage(request) && manifestPublicationReady(productEntries.get(name)!.product.folder)) knowledgeHost.of(productEntries.get(name)!.product.folder).warm();
     return new Response(null, { status: 302, headers: { location: `/products/${encodeURIComponent(name)}/`, 'cache-control': 'no-store' } });
   };
   /** One built app file at the home's own /assets and /fonts: the stylesheet of a product's wiki names its fonts by absolute path; anything else is a named 404, never an app shell. */
@@ -481,7 +482,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     refreshProducts();
     const entry = productEntries.get(name);
     if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
-    if (opensPage(request)) knowledgeHost.of(entry.product.folder).warm();
+    if (opensPage(request) && manifestPublicationReady(entry.product.folder)) knowledgeHost.of(entry.product.folder).warm();
     const rest = match[2] === undefined ? '/' : `/${match[2]}`;
     const forwarded = new Request(new URL(rest + url.search, url), request);
     const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);

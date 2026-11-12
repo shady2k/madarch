@@ -13,6 +13,10 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import { Table, TableColumn, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
+import { PageSection, SectionTitle, Paragraph, Text } from '@/components/ui/typography.js';
+import { Select } from '@/components/ui/select.js';
+import { FilterBar, FilterField, PaginationBar, PaginationSummary } from '@/components/ui/filter-bar.js';
+import { TableColumns } from '@/components/ui/table-columns.js';
 import { Input } from '@/components/ui/input.js';
 import { Button } from '@/components/ui/button.js';
 import { KLink } from './blocks.js';
@@ -182,47 +186,43 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
 
   const measured = t(`knowledge.files.colour_${measure}`);
   return (
-    <section data-block="files-table" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      <div className="dg-files-filters" data-testid="files-filters">
-        <label className="dg-filter">
-          <span>{t('knowledge.files.filterPath')}</span>
+    <PageSection data-block="files-table" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
+      <FilterBar data-testid="files-filters">
+        <FilterField>
+          <Text>{t('knowledge.files.filterPath')}</Text>
           <Input value={query} onChange={(event) => { setQuery(event.target.value); reset(); }} placeholder={t('knowledge.files.filterPathHint')} data-testid="files-filter-path" />
-        </label>
-        <label className="dg-filter">
-          <span>{t('knowledge.files.colLanguage')}</span>
-          <select className="dg-select" value={languageFilter} onChange={(event) => { setLanguageFilter(event.target.value); reset(); }} data-testid="files-filter-language">
-            <option value="">{t('knowledge.files.anyLanguage')}</option>
-            {languages.map((name) => <option key={name} value={name}>{name}</option>)}
-            {files.some((file) => drawnLanguage(file) === null) && <option value="__other">{t('knowledge.files.other')}</option>}
-          </select>
-        </label>
-        <label className="dg-filter">
-          <span>{t('knowledge.files.filterMeasure')}</span>
-          <select className="dg-select" value={measure} onChange={(event) => { setMeasure(event.target.value as Exclude<FilesMapColour, 'language'>); reset(); }} data-testid="files-filter-measure">
-            {MEASURES.map((one) => <option key={one} value={one}>{t(`knowledge.files.colour_${one}`)}</option>)}
-          </select>
-        </label>
+        </FilterField>
+        <FilterField>
+          <Text>{t('knowledge.files.colLanguage')}</Text>
+          <Select value={languageFilter} onChange={(event) => { setLanguageFilter(event.target.value); reset(); }} data-testid="files-filter-language" options={[
+            { value: '', label: t('knowledge.files.anyLanguage') },
+            ...languages.map((name) => ({ value: name, label: name })),
+            ...(files.some((file) => drawnLanguage(file) === null) ? [{ value: '__other', label: t('knowledge.files.other') }] : []),
+          ]} />
+        </FilterField>
+        <FilterField>
+          <Text>{t('knowledge.files.filterMeasure')}</Text>
+          <Select value={measure} onChange={(event) => { setMeasure(event.target.value as Exclude<FilesMapColour, 'language'>); reset(); }} data-testid="files-filter-measure" options={MEASURES.map((one) => ({ value: one, label: t(`knowledge.files.colour_${one}`) }))} />
+        </FilterField>
         {measure === 'heat' && (
-          <label className="dg-filter">
-            <span>{t('knowledge.files.windowLabel')}</span>
-            <select className="dg-select" value={window} onChange={(event) => { setWindow(event.target.value as FilesMapWindow); reset(); }} data-testid="files-filter-window">
-              {WINDOWS.map((one) => <option key={one} value={one}>{t(`knowledge.files.window.${one}`)}</option>)}
-            </select>
-          </label>
+          <FilterField>
+            <Text>{t('knowledge.files.windowLabel')}</Text>
+            <Select value={window} onChange={(event) => { setWindow(event.target.value as FilesMapWindow); reset(); }} data-testid="files-filter-window" options={WINDOWS.map((one) => ({ value: one, label: t(`knowledge.files.window.${one}`) }))} />
+          </FilterField>
         )}
-        <label className="dg-filter">
-          <span>{t('knowledge.files.filterFrom', { measure: measured, max: maxOfMeasure })}</span>
+        <FilterField>
+          <Text>{t('knowledge.files.filterFrom', { measure: measured, max: maxOfMeasure })}</Text>
           <Input type="text" inputMode="numeric" value={from} onChange={(event) => { setFrom(event.target.value); reset(); }} data-testid="files-filter-from" />
-        </label>
-        <label className="dg-filter">
-          <span>{t('knowledge.files.filterTo')}</span>
+        </FilterField>
+        <FilterField>
+          <Text>{t('knowledge.files.filterTo')}</Text>
           <Input type="text" inputMode="numeric" value={to} onChange={(event) => { setTo(event.target.value); reset(); }} data-testid="files-filter-to" />
-        </label>
-      </div>
+        </FilterField>
+      </FilterBar>
       {/* Fixed columns leave the path the remaining width; the kit table contains overflow on narrow screens. */}
       <Table data-testid="files-table" layout="fixed" density="compact" className="min-w-2xl">
-        <colgroup>
+        <TableColumns>
           <TableColumn />
           <TableColumn width="lg" />
           <TableColumn width="sm" />
@@ -230,7 +230,7 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
           <TableColumn width="xs" />
           <TableColumn width="xl" />
           <TableColumn width="md" />
-        </colgroup>
+        </TableColumns>
         <TableHeader>
           <TableRow>
             {header('path', t('knowledge.files.colPath'))}
@@ -262,18 +262,17 @@ export function FilesTableView({ block }: { block: FilesBlock }): ReactElement {
           })}
         </TableBody>
       </Table>
-      {page.length === 0 && <p className="text-small text-muted" data-testid="files-none">{t('knowledge.files.none')}</p>}
-      <div className="dg-files-pager" data-testid="files-pager">
-        <span data-testid="files-range">{t('knowledge.files.range', { from: total === 0 ? 0 : start + 1, to: start + page.length, total, all: files.length })}</span>
-        <span className="dg-spacer" />
+      {page.length === 0 && <Paragraph className="text-small text-muted" data-testid="files-none">{t('knowledge.files.none')}</Paragraph>}
+      <PaginationBar data-testid="files-pager">
+        <PaginationSummary data-testid="files-range">{t('knowledge.files.range', { from: total === 0 ? 0 : start + 1, to: start + page.length, total, all: files.length })}</PaginationSummary>
         <Button type="button" size="sm" variant="default" disabled={before.length === 0} onClick={() => jump(before[before.length - 1] ?? null, true)} data-testid="files-prev">
           <ChevronLeftIcon aria-hidden="true" className="size-4" />{t('knowledge.files.previous')}
         </Button>
         <Button type="button" size="sm" variant="default" disabled={!more} onClick={() => jump(page[page.length - 1]?.file.id ?? null, false)} data-testid="files-next">
           {t('knowledge.files.next')}<ChevronRightIcon aria-hidden="true" className="size-4" />
         </Button>
-      </div>
-      {block.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="files-note">{note}</p>)}
-    </section>
+      </PaginationBar>
+      {block.notes.map((note) => <Paragraph key={note} className="text-small text-muted" data-testid="files-note">{note}</Paragraph>)}
+    </PageSection>
   );
 }
