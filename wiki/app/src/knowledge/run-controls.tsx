@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card.js';
+import { Paragraph, Stack } from '@/components/ui/typography.js';
 /**
  * A person's «Пауза» and «Остановить» on a run that writes pages (madarch-m38l.17). A pause ends the run at the page it is
  * writing: that page is finished, the page after it is never taken up, and «Продолжить» starts the run that takes it up.
@@ -54,24 +56,24 @@ export function RunControls({ status, refresh, where }: { status: WikiStatus; re
   // «Продолжить» is the fill's own press: a run that takes up the page the paused one left, in the language the product keeps.
   const resume = (): void => act(() => startFill(status.writer.agent?.id ?? status.chosenAgent?.id ?? null));
   return (
-    <div className={where === 'menu' ? 'mt-2' : 'mt-3'} data-testid="run-controls-block">
-      <div className="flex flex-nowrap items-center gap-2" data-testid="run-controls" data-state={paused ? 'paused' : 'live'}>
+    <Stack className={where === 'menu' ? 'mt-2' : 'mt-3'} data-testid="run-controls-block">
+      <Stack className="flex flex-nowrap items-center gap-2" data-testid="run-controls" data-state={paused ? 'paused' : 'live'}>
         {paused
           ? <Button variant="default" size="default" disabled={busy} onClick={resume} data-testid="run-resume">{t('knowledge.fillPage.resume')}</Button>
           : <Button variant="default" size="default" disabled={busy} onClick={() => act(() => pauseRun())} data-testid="run-pause">{t('knowledge.fillPage.pause')}</Button>}
         <Button variant="ghost" size="default" disabled={busy} onClick={() => { setAsking(true); setRefused(null); }} data-testid="run-stop">{t('knowledge.fillPage.stop')}</Button>
-      </div>
+      </Stack>
       {asking && (
         // In place, not in a portal: the dialog stands inside the popover or the card the person pressed in.
-        <div ref={dialog} role="dialog" aria-modal="false" aria-label={t('knowledge.fillPage.stopTitle')} className="mt-2 rounded-[var(--radius-card)] border border-line p-3" data-testid="stop-dialog">
-          <p className="mb-0 mt-0 text-small text-ink" data-testid="stop-dialog-words">{t('knowledge.fillPage.stopWords', { count: written })}</p>
-          <div className="mt-2 flex flex-nowrap items-center gap-2">
+        <Card ref={dialog} role="dialog" aria-modal="false" aria-label={t('knowledge.fillPage.stopTitle')} className="mt-2 p-3" data-testid="stop-dialog">
+          <Paragraph className="mb-0 mt-0 text-small text-ink" data-testid="stop-dialog-words">{t('knowledge.fillPage.stopWords', { count: written })}</Paragraph>
+          <Stack className="mt-2 flex flex-nowrap items-center gap-2">
             <Button variant="default" size="default" disabled={busy} onClick={() => act(() => stopRun())} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
             <Button variant="ghost" size="default" disabled={busy} onClick={() => setAsking(false)} data-testid="stop-cancel">{t('knowledge.fillPage.stopCancel')}</Button>
-          </div>
-        </div>
+          </Stack>
+        </Card>
       )}
-      {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="run-refused">{refused}</p>}
-    </div>
+      {refused !== null && <Paragraph className="mb-0 mt-2 text-small" role="alert" data-testid="run-refused">{refused}</Paragraph>}
+    </Stack>
   );
 }

@@ -1,4 +1,5 @@
-import { Stack, Text, PageSection, SectionTitle, Paragraph } from '@/components/ui/typography.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { PageSection, Paragraph, SectionTitle, Stack, Text } from '@/components/ui/typography.js';
 
 /**
  * What the model calls cost (madarch-stm0.4, decision 0035, item 22): a kind's page says what the agent spent on it —
@@ -71,10 +72,10 @@ export function KindUsage({ kind, version }: { kind: string; version: number }):
           <TableBody>
             {usage.runs.flatMap((run) => run.rows.map((row) => (
               <TableRow key={`${row.run}\0${row.unit}\0${row.kind}\0${row.field}\0${row.model ?? ''}`} data-testid="kind-usage-row" data-run={row.run} data-model={row.model ?? ''}>
-                <TableCell className="whitespace-nowrap"><code title={row.run}>{runLabel(row.run)}</code></TableCell>
-                <TableCell><code>{row.plugin}</code></TableCell>
-                <TableCell>{row.field === '' ? <Text className="text-muted">{t('knowledge.usage.wholeKind')}</Text> : <code>{row.field}</code>}</TableCell>
-                <TableCell>{row.model === null ? <Text className="text-muted">{t('knowledge.usage.noModel')}</Text> : <code>{row.model}</code>}</TableCell>
+                <TableCell className="whitespace-nowrap"><InlineCode title={row.run}>{runLabel(row.run)}</InlineCode></TableCell>
+                <TableCell><InlineCode>{row.plugin}</InlineCode></TableCell>
+                <TableCell>{row.field === '' ? <Text className="text-muted">{t('knowledge.usage.wholeKind')}</Text> : <InlineCode>{row.field}</InlineCode>}</TableCell>
+                <TableCell>{row.model === null ? <Text className="text-muted">{t('knowledge.usage.noModel')}</Text> : <InlineCode>{row.model}</InlineCode>}</TableCell>
                 <TableCell className="text-end whitespace-nowrap">
                   {row.reported === false
                     ? <Text className="text-muted">{t('knowledge.usage.noTokens')}</Text>
@@ -133,9 +134,9 @@ export function RunAgentUsage({ usage }: { usage: AgentUsageReport }): ReactElem
           <TableBody>
             {usage.lines.map((line) => (
               <TableRow key={`${line.kind}\0${line.field}\0${line.model}`} data-testid="run-usage-row">
-                <TableCell><code>{line.plugin}</code> <Text className="text-small text-muted">{line.kind}</Text></TableCell>
-                <TableCell>{line.field === '' ? <Text className="text-muted">{t('knowledge.usage.wholeKind')}</Text> : <code>{line.field}</code>}</TableCell>
-                <TableCell>{line.model === '' ? <Text className="text-muted">{t('knowledge.usage.noModel')}</Text> : <code>{line.model}</code>}</TableCell>
+                <TableCell><InlineCode>{line.plugin}</InlineCode> <Text className="text-small text-muted">{line.kind}</Text></TableCell>
+                <TableCell>{line.field === '' ? <Text className="text-muted">{t('knowledge.usage.wholeKind')}</Text> : <InlineCode>{line.field}</InlineCode>}</TableCell>
+                <TableCell>{line.model === '' ? <Text className="text-muted">{t('knowledge.usage.noModel')}</Text> : <InlineCode>{line.model}</InlineCode>}</TableCell>
                 <TableCell className="text-end whitespace-nowrap">{t('knowledge.usage.tokens', { input: tokensText(line.inputTokens, language), output: tokensText(line.outputTokens, language), total: tokensText(line.totalTokens, language) })}</TableCell>
                 <TableCell className="text-end whitespace-nowrap">{line.cost.length === 0 ? <Text className="text-muted">–</Text> : amountsText(line.cost, language)}</TableCell>
                 <TableCell>{line.stopped === null ? <Text className="text-small text-muted">{t('knowledge.usage.turns', { turns: line.turns })}</Text> : <Badge data-testid="run-usage-stop" variant="solid">{t('knowledge.usage.stop', { bound: line.stopped.bound })}</Badge>}</TableCell>

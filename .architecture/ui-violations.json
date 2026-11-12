@@ -131,11 +131,6 @@
   },
   {
     "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/errors.tsx",
-    "subject": "e549f6ba566f076cfa7b#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "0252e7aa3ae5931c46a6#1"
   },
@@ -163,11 +158,6 @@
     "rule": "arbitrary-tailwind",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "ee95508f8cc33e3d9492#1"
-  },
-  {
-    "rule": "arbitrary-tailwind",
-    "file": "wiki/app/src/knowledge/run-controls.tsx",
-    "subject": "791838bbf7eed101dff3#1"
   },
   {
     "rule": "inline-style",
@@ -221,11 +211,6 @@
   },
   {
     "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/errors.tsx",
-    "subject": "FailureNote#1"
-  },
-  {
-    "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/pages.tsx",
     "subject": "DocumentPage#1"
   },
@@ -243,16 +228,6 @@
     "rule": "local-styled-component",
     "file": "wiki/app/src/knowledge/role-ui.tsx",
     "subject": "RoleMenu#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/run-controls.tsx",
-    "subject": "RunControls#1"
-  },
-  {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/skeleton.tsx",
-    "subject": "PageSkeleton#1"
   },
   {
     "rule": "raw-ui-element",
