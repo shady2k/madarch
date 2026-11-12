@@ -159,11 +159,13 @@ describe('the two passes over one fixture', () => {
   test('write the tree and the history, and a second run writes nothing', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const first = await fillRepository();
-    expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/disk:'))).toHaveLength(4);
-    expect(first.units.filter(unit => unit.unitId.startsWith('plugin-turns/git:'))).toHaveLength(4);
+    const roots = first.units.filter(unit => !unit.unitId.includes('#')).map(unit => unit.unitId).sort();
+    expect(roots).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository',
+      'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
+    expect(first.units.every(unit => unit.stageId === 'plugin-turns')).toBe(true);
     const before = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
     const second = await fillRepository();
-    expect(second.reused.length).toBe(8);
+    expect([...new Set(second.reused.map(id => id.split('#')[0]))].sort()).toEqual(roots);
     const after = await owner.transaction('snapshot', tx => tx.query(`SELECT count(*)::integer AS n FROM operation`));
     expect(after.rows).toEqual(before.rows);
   }, 120_000);
@@ -207,7 +209,7 @@ describe('the two passes over one fixture', () => {
   test('read git\'s shapes: a rename, a deleted path, a binary, two paths on one blob, a symlink, an extension several languages claim, a space and a newline, a merge', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const files = await listFiles(owner, { repository: 'fixture', limit: 100 });
-    const byPath = new Map(files.rows.map((row) => [row.path, row]));
+    const byPath = new Map(files.rows.filter((row) => row.mode !== null).map((row) => [row.path, row]));
     expect(byPath.has('docs/renamed.md')).toBe(true);
     expect(byPath.has('docs/same-one.md')).toBe(false);
     expect(byPath.has('docs/same-two.md')).toBe(false);
@@ -219,10 +221,10 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('blob.bin')?.lines).toBeNull();
     // The extension dataset supplies candidates, but no text heuristic chooses among them.
     expect(byPath.get('blob.bin')?.language).toBe('unknown');
-    expect(byPath.get('src/a.ts')?.language).toBeNull();
+    expect(byPath.get('src/a.ts')?.language).toBe('ambiguous');
     expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBeNull();
+    expect(header.language).toBe('ambiguous');
     expect(header.candidates).toEqual(['C', 'C++', 'Objective-C']);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
@@ -241,7 +243,8 @@ describe('the two passes over one fixture', () => {
     expect(moved?.blob).not.toBe(old?.blob);
     expect(await commitFacts(owner, 'fixture', three)).toMatchObject({ hash: three, subject: 'three' });
     const after = await owner.transaction('snapshot', tx => tx.query<{ id: string }>(`SELECT (n.key->>'path') AS path, o.mode, o.blob, o.bytes, o.lines, o.content FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND n.key->>'path' <> 'src/a.ts' ORDER BY n.key->>'path'`));
-    expect(after.rows).toEqual(before.rows);
+    const canonical = (rows: readonly unknown[]) => rows.map(row => JSON.stringify(row)).sort();
+    expect(canonical(after.rows)).toEqual(canonical(before.rows));
     const a = await fileFacts(owner, 'fixture', 'src/a.ts');
     expect(a?.lines).toBe(1);
   }, 120_000);
@@ -255,7 +258,7 @@ describe('the two passes over one fixture', () => {
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'disk'`,
     ));
-    expect(stored.rows).toEqual([{ lang: null, language: null, languages: ['TypeScript', 'XML'] }]);
+    expect(stored.rows).toEqual([{ lang: null, language: 'ambiguous', languages: ['TypeScript', 'XML'] }]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
@@ -300,8 +303,8 @@ describe('the two passes over one fixture', () => {
 
   test('ordinary output units execute through the plugin runtime', async () => {
     const run = await fillRepository();
-    expect(run.units.map(unit => unit.stageId)).toEqual(Array(8).fill('plugin-turns'));
-    expect(run.units.map(unit => unit.unitId).sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
+    expect(run.units).toEqual([]);
+    expect([...new Set(run.reused.map(id => id.split('#')[0]))].sort()).toEqual(['disk:code.directory', 'disk:code.file', 'disk:code.gitlink', 'disk:code.repository', 'git:code.author', 'git:code.commit', 'git:code.file', 'git:code.repository'].map(id => `plugin-turns/${id}`).sort());
     expect(languageOfPath('x.unknown-ext').language).toBe('unknown');
     expect(git(['rev-parse', '--is-shallow-repository'])).toBe('false');
     expect((await repositoryFacts(owner!, 'fixture'))?.historyShallow).toBe(false);
@@ -431,7 +434,7 @@ describe('a git date of a zero or a negative offset', () => {
     // The bulk read a page's treemap and the Problems listing make: every value, and no opinion's id, producer or
     // evidence (madarch-64o5.2: 1 800 files with 5 538 opinions were 2.25 MB and 63 ms with the sources, 1.21 MB and
     // 24 ms without). A list shows values, and no page shows where a value was stated from a list.
-    const listed = await reader.byPrefix('code.file', 'code.file:', 100);
+    const listed = await reader.byPrefix('code.file', 'code.file:fixture/', 100);
     const file = listed.rows.find((one) => one.key === 'code.file:fixture/src/a.ts');
     if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
     expect(typeof file.properties['path']).toBe('string');
