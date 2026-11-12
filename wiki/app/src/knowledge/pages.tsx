@@ -26,7 +26,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input.js';
 import { Progress } from '@/components/ui/progress.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement } from './api.js';
+import { getViews, getCatalog, getDocument, getDocuments, getEntities, getPage, getSource, getStatement } from './api.js';
 import { linkHandlers, syncFrontTabAddress, useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
@@ -41,10 +41,9 @@ import { fillPhaseWords, fillShare } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
-import { Textarea } from '@/components/ui/textarea.js';
 import { DiagramsView } from './diagrams/views.js';
 import { KindUsage } from './usage.js';
-import type { CatalogKindView, CatalogView, CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { CatalogKindView, CatalogView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, GroupSummary, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -835,37 +834,6 @@ function GroundCard({ ground, index }: { ground: GroundView; index: number }): R
 }
 
 /** Where a person says the statement is wrong and why: a correction file in the product repository, committed under the person's git name. */
-function CorrectionBox({ page, name }: { page: string; name: string | null }): ReactElement {
-  const { t } = useTranslation();
-  const [reason, setReason] = useState('');
-  const [sending, setSending] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
-  const [done, setDone] = useState<CorrectionResult | null>(null);
-  const send = (): void => {
-    if (name === null) return;
-    setSending(true);
-    setRefused(null);
-    correctStatement(`${page}#${name}`, reason).then(
-      (result) => { setSending(false); setDone(result); setReason(''); },
-      (failure: unknown) => { setSending(false); setRefused(message(failure)); },
-    );
-  };
-  return (
-    <PageSection data-testid="statement-correction">
-      <SectionTitle>{t('knowledge.statementCorrection')}</SectionTitle>
-      <Paragraph className="text-small text-muted">{name === null ? t('knowledge.statementCorrectionUnnamed') : t('knowledge.statementCorrectionNote')}</Paragraph>
-      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={name === null || sending} placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3" data-testid="correction-text" />
-      <Stack><Button variant="default" size="default" disabled={name === null || sending || reason.trim() === ''} onClick={send} data-testid="correction-send">{t('knowledge.statementCorrectionSend')}</Button></Stack>
-      {refused !== null && <Paragraph className="mb-0 mt-3 text-small" role="alert" data-testid="correction-refused">{refused}</Paragraph>}
-      {done !== null && (
-        <Paragraph className="mb-0 mt-3 text-small" role="status" data-testid="correction-done">
-          {t('knowledge.statementCorrectionDone', { file: done.file })} {done.committed ? '' : (done.note ?? '')} <KLink href={WIKI_PROBLEMS}>{t('loop.problemsTitle')}</KLink>
-        </Paragraph>
-      )}
-    </PageSection>
-  );
-}
-
 /** One sentence of an agent's page with its paragraph, each ground with its excerpt, and the place for a correction. */
 export function StatementPage({ id, sentence, turn = 0, version }: { id: string; sentence: string; turn?: number; version: number }): ReactElement {
   const { t } = useTranslation();
@@ -921,7 +889,6 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
           </Table>
         </PageSection>
       )}
-      <CorrectionBox page={statement.page.id} name={statement.name} />
     </PageArticle>
   );
 }

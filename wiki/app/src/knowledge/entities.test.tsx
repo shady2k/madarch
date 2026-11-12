@@ -561,7 +561,7 @@ describe('the catalogue', () => {
     try {
       const container = into(createElement(CataloguePage, { version: 0 }));
       await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
-      expect(container.querySelector('h1')!.textContent).toBe('Каталог видов');
+      expect(container.querySelector('h1')!.textContent).toBe('Каталог сущностей');
       expect(container.querySelector('[data-kind="code.file"]')!.textContent).toContain('Файл репозитория кода.');
       expect(container.querySelector('[data-kind="code.file"] [data-testid=catalogue-stage]')!.textContent).toBe('извлечение из кода');
       expect(container.querySelector('[data-group=history] h2')!.textContent).toContain('История');
@@ -719,39 +719,6 @@ describe('the statement view', () => {
     expect(row.querySelectorAll('a')[1]!.getAttribute('href')).toContain('/statement?id=product%3Ashop');
   });
 
-  test('a person says why the statement is wrong: the reason is posted against the statement\'s name, and the answer says where it was saved', async () => {
-    const posts: string[] = [];
-    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      if (url.includes('/api/correction')) {
-        posts.push(String(init?.body));
-        return new Response(JSON.stringify({ correction: 'c', id: 'correction:c', file: 'docs/corrections/c.md', committed: true, by: { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:00:00.000Z' }), { status: 201 });
-      }
-      return url.includes('/api/statement') ? new Response(JSON.stringify(statement)) : new Response('{}', { status: 404 });
-    };
-    const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
-    await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
-    const place = container.querySelector('[data-testid=statement-correction]')!;
-    const send = place.querySelector('[data-testid=correction-send]') as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
-    const text = place.querySelector('textarea') as HTMLTextAreaElement;
-    const key = Object.keys(text).find((name) => name.startsWith('__reactProps$'))!;
-    (text as unknown as Record<string, { onChange: (event: { target: { value: string } }) => void }>)[key]!.onChange({ target: { value: 'A declined payment also cancels the order.' } });
-    await until(() => !(place.querySelector('[data-testid=correction-send]') as HTMLButtonElement).disabled, 'the enabled button');
-    (place.querySelector('[data-testid=correction-send]') as HTMLButtonElement).click();
-    await until(() => place.querySelector('[data-testid=correction-done]') !== null, 'the saved note');
-    expect(posts).toEqual(['{"statement":"domain:payment#checkout-asks-payments-authorize","reason":"A declined payment also cancels the order."}']);
-    expect(place.querySelector('[data-testid=correction-done]')!.textContent).toContain('docs/corrections/c.md');
-  });
-
-  test('a sentence with no name on its page cannot be corrected yet, and says why', async () => {
-    answer({ ...statement, name: null });
-    const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
-    await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
-    const place = container.querySelector('[data-testid=statement-correction]')!;
-    expect((place.querySelector('textarea') as HTMLTextAreaElement).disabled).toBe(true);
-    expect(place.textContent).toContain('has no name on its page yet');
-  });
-
   test('a sentence with no ground says the wiki does not show it as a fact, and a sentence the page lost is refused in the server\'s words', async () => {
     answer({ ...statement, grounded: false, grounds: [] });
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
@@ -900,16 +867,12 @@ describe('every route names its tab', () => {
     { address: '/run', selector: '[data-testid=run-error]', expected: 'The run' },
     { address: '/docs', selector: '[data-testid=documents-error]', expected: 'Sources' },
     { address: '/doc?path=docs%2Fx.md', selector: '[data-testid=document-error]', expected: 'There is no such page' },
-    { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Kind catalogue' },
+    { address: '/catalogue', selector: '[data-testid=catalogue-error]', expected: 'Entity catalogue' },
     { address: '/glossary', selector: '[data-testid=glossary-page]', expected: 'Glossary' },
-    { address: '/questions', selector: '[data-testid=questions-error]', expected: 'Questions' },
-    { address: '/questions/missing', selector: '[data-testid=question-error]', expected: 'There is no such question' },
     { address: '/problems', selector: '[data-testid=problems-error]', expected: 'Problems' },
     { address: '/settings', selector: '[data-testid=settings-error]', expected: 'Product settings' },
     { address: '/journal?id=product%3Ashop', selector: '[data-testid=journal-error]', expected: 'How the agent wrote this page' },
     { address: '/fill', selector: '[data-testid=fill-page]', expected: 'Fill' },
-    { address: '/tasks', selector: '[data-testid=tasks-error]', expected: 'Tasks' },
-    { address: '/task?id=t1', selector: '[data-testid=task-page-error]', expected: 'The tasks could not be read' },
     { address: '/statement?id=product%3Ashop&sentence=The%20shop%20takes%20orders', selector: '[data-testid=statement-error]', expected: 'The shop takes orders' },
   ];
 

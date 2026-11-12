@@ -37,7 +37,7 @@ import { FilesTableView } from './files-table.js';
 import { useKindName } from './kind-names.js';
 import { ContractDiagnosticView } from './contract-diagnostic.js';
 import { mermaidFence, MermaidFence } from './diagram-fence.js';
-import { addressOfDocument, addressOfStatement, addressOfTask, isWikiAddress, WIKI_PROBLEMS } from './routes.js';
+import { addressOfDocument, addressOfEntity, addressOfStatement, isWikiAddress, WIKI_PROBLEMS } from './routes.js';
 import { FileFactsBlock, FilePageView, FolderBlock, RepositoryFactsBlock } from './repository.js';
 import { COUNTED_FIGURES } from '../../../../src/knowledge/history-figures.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
@@ -127,7 +127,7 @@ export function PlannedBadge({ mark, ground = false }: { mark: PlannedMarkView; 
   const { t } = useTranslation();
   return (
     <Text className="planned-badge" data-testid="planned-badge" data-how={mark.how} data-task={mark.task.id} title={t('loop.plannedTitle', { title: mark.task.title })}>
-      <KLink href={addressOfTask(mark.task.id)} className="planned-badge-link">{ground ? t('loop.basisWillChange') : t('loop.plannedChange')}</KLink>
+      <KLink href={addressOfEntity(mark.task.id)} className="planned-badge-link">{ground ? t('loop.basisWillChange') : t('loop.plannedChange')}</KLink>
     </Text>
   );
 }
