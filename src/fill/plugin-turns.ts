@@ -14,6 +14,7 @@ import type { AgentUsageRecord } from '../adapters/agent-usage.js';
 import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { DEFAULT_ORCHESTRATOR_LIMITS } from './orchestrator.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
@@ -488,12 +489,28 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   }
 }
 
+interface KeyPartition { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }
+type PartitionScope = KeyPartition | { readonly partitions: readonly KeyPartition[] };
+
+function partitionChildren(id: string, runId: string | undefined, partitions: readonly KeyPartition[]): { id: string; scope: string }[] {
+  const fanout = DEFAULT_ORCHESTRATOR_LIMITS.maxSplitChildren;
+  const width = Math.ceil(partitions.length / fanout);
+  const children: { id: string; scope: string }[] = [];
+  for (let offset = 0; offset < partitions.length; offset += width) {
+    const group = partitions.slice(offset, offset + width).map(({ keys }) => ({ keys: [...keys].sort((left, right) => byCodePoint(canonicalKey(left), canonicalKey(right))) }));
+    const scope: PartitionScope = group.length === 1 ? group[0]! : { partitions: group };
+    const hash = createHash('sha256').update(JSON.stringify({ runId, scope })).digest('hex');
+    children.push({ id: `${id}#${hash}`, scope: JSON.stringify(scope) });
+  }
+  return children;
+}
+
 /** The fill stage of the plugin turns: the units are the manifest's, the work is each plugin's own. */
 export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds ?? pluginKindsOf(wiring.manifest).map((kind) => kind.name), wiring.agent !== undefined);
   return {
     id: PLUGIN_TURN_STAGE_ID,
-    version: 9,
+    version: 10,
     unitScheduling(id) {
       const unit = unitOf(wiring, id);
       const plan = declarationPlan;
@@ -518,8 +535,9 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
         return { outcome: 'draft' };
       }
-      if (unit.id.includes('#')) {
-        const scope = JSON.parse(unit.scope) as { keys: import('../plugin/protocol.js').PluginKeyValues[] };
+      const childScope = unit.id.includes('#') ? JSON.parse(unit.scope) as PartitionScope : undefined;
+      if (childScope !== undefined && 'keys' in childScope) {
+        const scope = childScope;
         const writes: import('./stage.js').StageDraftWrite[] = [];
         await runPluginTurn(wiring, unit.id, { write: (write) => { writes.push(write); }, writes: () => ({ writes }) }, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { keys: scope.keys });
         const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
@@ -532,10 +550,15 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         const partitions = context.sealedChildren.map((child) => ({ runId: context.runId!, unitId: child.unitId, generation: child.generation }));
         const outcome = await pluginPartitionOutcome(wiring.owner, partitions);
         if (!outcome.complete) throw new Error(`partitioned output ${unit.id} did not complete; earlier graph opinions remain unchanged`);
-        context.draft.write({ kind: 'plugin-aggregate', evidence: selected.kind.name, value: { partitions } });
-        context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced } });
+        if (childScope !== undefined) {
+          context.draft.write({ kind: 'plugin-partition', evidence: selected.kind.name, value: { partitions } });
+        } else {
+          context.draft.write({ kind: 'plugin-aggregate', evidence: selected.kind.name, value: { partitions } });
+          context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: outcome.produced === 0 ? 'empty' : 'completed', produced: outcome.produced } });
+        }
         return { outcome: 'draft' };
       }
+      if (childScope !== undefined && 'partitions' in childScope) return { outcome: 'split', children: partitionChildren(unit.id, context.runId, childScope.partitions) };
       let planned: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
       await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId, { plan: (partitions) => { planned = partitions; } });
       const declaredKey = wiring.contract.vertex.find((vertex) => vertex.name === selected.kind.name)?.key ?? [];
@@ -561,11 +584,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         context.draft.write({ kind: 'producer-outcome', evidence: selected.kind.name, value: { plugin: selected.plugin.id, kind: selected.kind.name, producerVersion: selected.lock.version, outcome: 'empty', produced: 0 } });
         return { outcome: 'draft' };
       }
-      return { outcome: 'split', children: partitions.map(({ keys }) => {
-        const ordered = [...keys].sort((left, right) => byCodePoint(canonicalKey(left), canonicalKey(right)));
-        const hash = createHash('sha256').update(JSON.stringify({ runId: context.runId, keys: ordered.map(canonicalKey) })).digest('hex');
-        return { id: `${unit.id}#${hash}`, scope: JSON.stringify({ keys: ordered }) };
-      }) };
+      return { outcome: 'split', children: partitionChildren(unit.id, context.runId, partitions) };
     },
     validate: () => ({ ok: true }),
   };
