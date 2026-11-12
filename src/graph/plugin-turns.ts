@@ -10,6 +10,7 @@ import { GIT_KINDS, GIT_WIKI } from '../fill/stages/git-contract.js';
 import type { GraphContract, VertexContract } from './contract.js';
 import { generatedTableName } from './contract.js';
 import { journalFor, writeJournal, type JournalRead } from './write.js';
+import { canonicalKey } from '../plugin/results.js';
 
 /** One file vertex of the graph: the repository it stands in and its path from that repository's root. */
 export interface GraphFileRow {
@@ -133,5 +134,71 @@ export async function writeRequestEntry(owner: DatabaseOwner, author: string, re
     const journal = journalFor(author);
     for (const record of records) journal.read(record);
     await writeJournal(tx, journal);
+  });
+}
+
+/** An immutable successful producer generation, retained with its publication. */
+export interface PluginSnapshot {
+  readonly runId: string;
+  readonly unitId: string;
+  readonly generation: number;
+}
+
+export async function successfulPluginSnapshot(owner: DatabaseOwner, runId: string, scope: string): Promise<PluginSnapshot> {
+  return await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ unit_id: string; generation: number; writes: unknown }>(
+      `SELECT g.unit_id, g.generation, d.writes FROM fill_unit_generation g
+       JOIN fill_unit u ON u.unit_id = g.unit_id
+       JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+       JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
+       WHERE g.run_id = $1 AND u.stage_id = 'plugin-turns' AND u.scope_key = $2 AND g.generation = u.generation AND g.state = 'published'
+       ORDER BY g.generation DESC LIMIT 1`, [runId, scope]);
+    const row = found.rows[0];
+    if (row === undefined) throw new Error(`no successful current-run snapshot for ${scope}`);
+    const writes = snapshotWrites(row.writes);
+    const outcome = writes.find((write) => write.kind === 'producer-outcome')?.value as { outcome?: string } | undefined;
+    if (!['completed', 'unchanged', 'empty'].includes(outcome?.outcome ?? '')) throw new Error(`producer ${scope} did not complete successfully in run ${runId}`);
+    return { runId, unitId: row.unit_id, generation: Number(row.generation) };
+  });
+}
+
+function snapshotWrites(writes: unknown): { kind: string; value: unknown }[] {
+  return (typeof writes === 'string' ? JSON.parse(writes) : writes) as { kind: string; value: unknown }[] ?? [];
+}
+
+/** Read only the captured generation, never a mutable open opinion or latest replacement. */
+export async function pluginSnapshotValue(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): Promise<unknown> {
+  return await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ writes: unknown }>(
+      `SELECT d.writes FROM fill_unit_draft d
+       JOIN fill_unit_generation g ON g.unit_id = d.unit_id AND g.generation = d.generation
+       JOIN fill_publication p ON p.unit_id = d.unit_id AND p.generation = d.generation
+       WHERE g.run_id = $1 AND d.unit_id = $2 AND d.generation = $3`,
+      [snapshot.runId, snapshot.unitId, snapshot.generation]);
+    if (found.rows[0] === undefined) throw new Error(`immutable producer snapshot ${snapshot.unitId}/${snapshot.generation} is unavailable`);
+    return valueFromPluginSnapshot(snapshotWrites(found.rows[0].writes), kind, key, field);
+  });
+}
+
+export function valueFromPluginSnapshot(writes: readonly { readonly kind: string; readonly value: unknown }[], kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): unknown {
+  const vertex = writes.filter((write) => write.kind === 'vertex').map((write) => write.value as { kind: string; key: import('../plugin/protocol.js').PluginKeyValues; values?: Record<string, unknown> })
+    .find((vertex) => vertex.kind === kind && canonicalKey(vertex.key) === canonicalKey(key));
+  if (vertex === undefined) return null;
+  return vertex.key[field] ?? vertex.values?.[field] ?? null;
+}
+
+/** Generic declared field transport. Conflicting opinions remain explicit rather than using arrival order. */
+export async function pluginGraphValue(owner: DatabaseOwner, contract: GraphContract, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): Promise<unknown> {
+  const vertex = contract.vertex.find((held) => held.name === kind);
+  if (vertex === undefined || !vertex.fields.some((held) => held.name === field)) throw new Error(`undeclared catalogue field ${kind}.${field}`);
+  if (vertex.key.includes(field)) return key[field] ?? null;
+  const column = `"${field.replaceAll('"', '""')}"`;
+  return await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<{ value: unknown }>(
+      `SELECT o.${column} AS value FROM ${vertex.table} o JOIN node n ON n.id = o.node_id
+       WHERE n.key = $1::jsonb AND NOT n.removed AND o.state = 'open' AND o.context_id = 1 AND o.lang IS NULL
+         AND o.${column} IS NOT NULL ORDER BY o.said_by COLLATE "C"`, [JSON.stringify(key)]);
+    const values = [...new Map(found.rows.map((row) => [JSON.stringify(row.value), row.value])).values()];
+    return values.length <= 1 ? values[0] ?? null : values;
   });
 }
