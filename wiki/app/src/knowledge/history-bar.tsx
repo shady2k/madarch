@@ -1,3 +1,7 @@
+import { Card, CardContent } from '@/components/ui/card.js';
+import { Select } from '@/components/ui/select.js';
+import { Stack, Text, Paragraph, PlainList, ListItem, FieldLabel, TextLink } from '@/components/ui/typography.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { appPath } from '../app-base.js';
@@ -21,25 +25,25 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
     if (at !== null) { url.searchParams.set('at', at); url.searchParams.set('repo', repository); }
     return `${url.pathname}${url.search}${url.hash}`;
   };
-  const link = (href: string, text: string): ReactElement => <a href={appPath(href)} {...linkHandlers(href)}>{text}</a>;
+  const link = (href: string, text: string): ReactElement => <TextLink href={appPath(href)} {...linkHandlers(href)}>{text}</TextLink>;
   const points = history?.points ?? navigation?.find((one) => one.repo === repo)?.points ?? [];
   const landmarks = history?.landmarks ?? navigation?.find((one) => one.repo === repo)?.landmarks;
-  return <aside className="mb-4 rounded-[var(--radius-card)] border border-line p-3" data-testid="history-context" data-coverage={history?.coverage ?? 'current'}>
+  return <Card className="mb-4" data-testid="history-context" data-coverage={history?.coverage ?? 'current'}><CardContent>
     {history !== undefined && <Alert variant={history.coverage === 'covered' && !absent ? 'default' : 'problem'}>
       <AlertTitle>{t('knowledge.historyDateTitle', { date: history.at, repo: history.repo })}</AlertTitle>
-      <AlertDescription><p>{t(`knowledge.historyCoverage.${absent ? 'absent' : history.coverage}`)}</p>{history.commit !== null && <p className="break-all font-mono text-small">{history.commit} · {history.effectiveAt}</p>}{link(address(null), t('knowledge.historyCurrent'))}</AlertDescription>
+      <AlertDescription><Paragraph>{t(`knowledge.historyCoverage.${absent ? 'absent' : history.coverage}`)}</Paragraph>{history.commit !== null && <Paragraph className="break-all font-mono text-small">{history.commit} · {history.effectiveAt}</Paragraph>}{link(address(null), t('knowledge.historyCurrent'))}</AlertDescription>
     </Alert>}
-    <div className="mt-2 flex flex-wrap items-end gap-2">
-      {history === undefined && <label className="text-small">{t('knowledge.historyRepository')}<select className="ml-2 max-w-full border border-line bg-surface p-1" value={repo} onChange={(event) => setRepo(event.target.value)}>{navigation?.map((one) => <option key={one.repo} value={one.repo}>{one.repo}</option>)}</select></label>}
-      <label className="text-small">{t('knowledge.historyChooseDate')}<Input type="text" placeholder={t('knowledge.historyDateFormat')} value={date} onChange={(event) => setDate(event.target.value)} aria-invalid={date !== '' && !validDate} data-testid="history-date" /></label>
+    <Stack className="mt-2 flex flex-wrap items-end gap-2">
+      {history === undefined && <FieldLabel className="text-small">{t('knowledge.historyRepository')}<Select className="ml-2 max-w-full" value={repo} onChange={(event) => setRepo(event.target.value)} options={navigation?.map((one) => ({ value: one.repo, label: one.repo })) ?? []} /></FieldLabel>}
+      <FieldLabel className="text-small">{t('knowledge.historyChooseDate')}<Input type="text" placeholder={t('knowledge.historyDateFormat')} value={date} onChange={(event) => setDate(event.target.value)} aria-invalid={date !== '' && !validDate} data-testid="history-date" /></FieldLabel>
       {validDate && link(address(date), t('knowledge.historyOpenDate'))}
-    </div>
-    {landmarks !== undefined && <div className="mt-2 text-small" data-testid="history-landmarks">
-      <p>{t('knowledge.historyLandmarkCovered', { count: landmarks.covered })}{t('knowledge.historyLandmarkOffered', { count: landmarks.offered })}{t('knowledge.historyLandmarkLimit', { limit: landmarks.limit })}</p>
-      {landmarks.first !== null && <p>{t('knowledge.historyLandmarkBounds', { first: landmarks.first, last: landmarks.last })}</p>}
-      {landmarks.overflow && <p>{t('knowledge.historyLandmarkOmitted', { count: landmarks.omitted })}</p>}
-      {landmarks.diagnostics.length > 0 && <details><summary>{t('knowledge.historyLandmarkUnsupported', { count: landmarks.diagnostics.length })}</summary><ul>{landmarks.diagnostics.map((one) => <li key={one.ref} className="break-all">{one.ref} · {one.object} · {one.reason}</li>)}</ul></details>}
-    </div>}
-    {points.length > 0 && <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-small">{points.map((point) => <li key={point.name}>{link(address(point.name), point.name)}{!point.covered && <span> · {t('knowledge.historyPointUnread')}</span>}</li>)}</ul>}
-  </aside>;
+    </Stack>
+    {landmarks !== undefined && <Stack className="mt-2 text-small" data-testid="history-landmarks">
+      <Paragraph>{t('knowledge.historyLandmarkCovered', { count: landmarks.covered })}{t('knowledge.historyLandmarkOffered', { count: landmarks.offered })}{t('knowledge.historyLandmarkLimit', { limit: landmarks.limit })}</Paragraph>
+      {landmarks.first !== null && <Paragraph>{t('knowledge.historyLandmarkBounds', { first: landmarks.first, last: landmarks.last })}</Paragraph>}
+      {landmarks.overflow && <Paragraph>{t('knowledge.historyLandmarkOmitted', { count: landmarks.omitted })}</Paragraph>}
+      {landmarks.diagnostics.length > 0 && <Disclosure><DisclosureSummary>{t('knowledge.historyLandmarkUnsupported', { count: landmarks.diagnostics.length })}</DisclosureSummary><PlainList>{landmarks.diagnostics.map((one) => <ListItem key={one.ref} className="break-all">{one.ref} · {one.object} · {one.reason}</ListItem>)}</PlainList></Disclosure>}
+    </Stack>}
+    {points.length > 0 && <PlainList className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-small">{points.map((point) => <ListItem key={point.name}>{link(address(point.name), point.name)}{!point.covered && <Text> · {t('knowledge.historyPointUnread')}</Text>}</ListItem>)}</PlainList>}
+  </CardContent></Card>;
 }

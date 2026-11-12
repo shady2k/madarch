@@ -1,3 +1,4 @@
+import { Stack } from '@/components/ui/typography.js';
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
@@ -8,7 +9,7 @@ export default function ContractProto({block}: {block: Extract<Block, {type: 'de
   const model = block.protobuf!;
   const anchor = (name: string): string => `proto-${encodeURIComponent(name)}`;
   const message = (name: string): ReactElement => <a href={`#${anchor(name)}`}>{name}</a>;
-  return <div className="contract-proto" data-testid="contract-proto" data-ready="true">
+  return <Stack className="contract-proto" data-testid="contract-proto" data-ready="true">
     {model.services.map((service) => <section key={service.name}>
       <h3>{t('knowledge.contractService')} <code>{service.name}</code></h3>
       {service.methods.map((method) => <section key={method.name}>
@@ -25,5 +26,5 @@ export default function ContractProto({block}: {block: Extract<Block, {type: 'de
       </TableBody></Table>
       {held.fields.length === 0 && held.values === undefined && <p>{t('knowledge.contractNoFields')}</p>}
     </section>)}
-  </div>;
+  </Stack>;
 }

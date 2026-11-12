@@ -159,3 +159,25 @@ test('conflict names the field, current value and author; Reload fetches latest 
   await until(() => patches.length === 2);
   expect(patches[1]).toEqual({ values: { body: 'Alice revised body' }, match: '"11"' });
 });
+
+for (const kind of ['question', 'correction', 'task']) {
+  test(`${kind} uses the ordinary authored list, empty state and persistent entity detail`, async () => {
+    const calls: string[] = [];
+    const record = { ...entity, id: `${kind}:u1` };
+    globalThis.fetch = (async (url: unknown) => {
+      calls.push(String(url));
+      return respond({ kind, fields, entity: record, entities: [] });
+    }) as unknown as typeof fetch;
+    const kinds: KindSummary[] = [{ kind, source: 'graph', count: 0, single: false, origins: ['person'] }];
+    const wrap = (page: ReturnType<typeof createElement>) => createElement(KindLabels.Provider, { value: kinds }, page);
+    mount(wrap(createElement(KindPage, { kind, version: 0 })));
+    await until(() => document.querySelector('[data-testid="authored-kind-page"] p')?.textContent === 'Nothing of this kind is in the graph yet.');
+    expect(document.querySelector('h1')!.textContent).toBe(`${kind[0]!.toUpperCase()}${kind.slice(1)}s`);
+    expect([...document.querySelectorAll('button')].some((button) => button.textContent === 'New')).toBe(true);
+    root!.render(wrap(createElement(EntityPage, { id: record.id, version: 0 })));
+    await until(() => document.querySelector('[data-testid="authored-page"] h1') !== null);
+    expect(document.querySelector('[data-testid="authored-page"] h1')!.textContent).toBe('A note');
+    expect(calls.every((url) => url.includes('/api/authored?') || url.includes('/api/kind-fields?'))).toBe(true);
+    expect(calls.some((url) => url.includes(`kind=${kind}&uid=u1`))).toBe(true);
+  });
+}

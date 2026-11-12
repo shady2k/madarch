@@ -1,3 +1,7 @@
+import { Stack, PageSection, PageHeader, PageTitle, Paragraph, InlineGroup, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
+import { ReadingContent } from '@/components/ui/reading-content.js';
+import { InlineCode, Strong } from '@/components/ui/inline-content.js';
 /**
  * The glossary of a product in the wiki (decision 0031): the page that lists its
  * terms with their definitions, synonyms, code names and where each is stated, a
@@ -6,7 +10,7 @@
  * synonyms) whole and in the same case; nothing is guessed. A name that two
  * terms both claim is linked to neither.
  */
-import { createContext, useContext, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
@@ -112,17 +116,18 @@ export function remarkTerms(index_: TermIndex, except?: string): () => (tree: MN
 }
 
 /** The product's glossary, read once per version of the wiki, for the links of the text and for the page. */
-export function useGlossary(version: number): { glossary: Glossary | null; error: string | null } {
+export function useGlossary(version: number, enabled = true): { glossary: Glossary | null; error: string | null } {
   const [glossary, setGlossary] = useState<Glossary | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     getGlossary(controller.signal).then(
       (answer) => { setGlossary(answer); setError(null); },
       (failure: unknown) => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure)); },
     );
     return () => controller.abort();
-  }, [version]);
+  }, [version, enabled]);
   return { glossary, error };
 }
 
@@ -130,16 +135,32 @@ export function useGlossaryValue(glossary: Glossary | null): { index: TermIndex;
   return useMemo(() => ({ index: glossary === null ? NO_TERMS : termIndex(glossary.terms), terms: glossary?.terms ?? [] }), [glossary]);
 }
 
-export const useTerms = (): { index: TermIndex; terms: readonly GlossaryTerm[] } => useContext(GlossaryContext);
+const noRequest = (): void => undefined;
+const RequestTerms = createContext<() => void>(noRequest);
+
+/** Fetch names only when rendered Markdown actually uses term linking. */
+export function GlossaryProvider({ version, children }: { version: number; children: ReactNode }): ReactElement {
+  const [needed, setNeeded] = useState(false);
+  const request = useCallback(() => setNeeded(true), []);
+  const { glossary } = useGlossary(version, needed);
+  const value = useGlossaryValue(glossary);
+  return <RequestTerms.Provider value={request}><GlossaryContext.Provider value={value}>{children}</GlossaryContext.Provider></RequestTerms.Provider>;
+}
+
+export function useTerms(): { index: TermIndex; terms: readonly GlossaryTerm[] } {
+  const request = useContext(RequestTerms);
+  useEffect(() => { request(); }, [request]);
+  return useContext(GlossaryContext);
+}
 
 function Names({ term }: { term: GlossaryTerm }): ReactElement | null {
   const { t } = useTranslation();
   if (term.synonyms.length === 0 && term.code.length === 0) return null;
   return (
-    <dl className="mb-2 mt-0 grid gap-x-3 gap-y-1 text-small" data-testid="term-names">
-      {term.synonyms.length > 0 && <div className="flex flex-wrap items-baseline gap-2"><dt className="text-muted">{t('knowledge.glossary.alsoCalled')}</dt><dd className="m-0">{term.synonyms.join(', ')}</dd></div>}
-      {term.code.length > 0 && <div className="flex flex-wrap items-baseline gap-2"><dt className="text-muted">{t('knowledge.glossary.inCode')}</dt><dd className="m-0">{term.code.map((name) => <code key={name} className="mr-1.5">{name}</code>)}</dd></div>}
-    </dl>
+    <DefinitionList className="mb-2 mt-0 grid gap-x-3 gap-y-1 text-small" data-testid="term-names">
+      {term.synonyms.length > 0 && <Stack className="flex flex-wrap items-baseline gap-2"><DefinitionTerm className="text-muted">{t('knowledge.glossary.alsoCalled')}</DefinitionTerm><DefinitionValue className="m-0">{term.synonyms.join(', ')}</DefinitionValue></Stack>}
+      {term.code.length > 0 && <Stack className="flex flex-wrap items-baseline gap-2"><DefinitionTerm className="text-muted">{t('knowledge.glossary.inCode')}</DefinitionTerm><DefinitionValue className="m-0">{term.code.map((name) => <InlineCode key={name} className="mr-1.5">{name}</InlineCode>)}</DefinitionValue></Stack>}
+    </DefinitionList>
   );
 }
 
@@ -150,7 +171,7 @@ function Ambiguity({ term, pageId, resolutions }: { term: Pick<GlossaryTerm, 'am
   return (
     <Alert variant="problem" className="mb-2" data-testid="term-ambiguous">
       <AlertDescription>
-        <p><b>{t('knowledge.glossary.ambiguous')}</b> {term.ambiguous === '-' ? t('knowledge.glossary.ambiguousNoNote') : ''}</p>
+        <Paragraph><Strong>{t('knowledge.glossary.ambiguous')}</Strong> {term.ambiguous === '-' ? t('knowledge.glossary.ambiguousNoNote') : ''}</Paragraph>
         {term.ambiguous !== '-' && <KMarkdown text={term.ambiguous} resolutions={resolutions} {...(pageId === undefined ? {} : { exceptTerm: pageId })} />}
       </AlertDescription>
     </Alert>
@@ -182,17 +203,17 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
   const { t } = useTranslation();
   const term = { ...block, id: pageId };
   return (
-    <section data-block="term">
+    <PageSection data-block="term">
       <KMarkdown text={upperFirst(block.definition)} resolutions={resolutions} exceptTerm={pageId} />
       <Names term={term as unknown as GlossaryTerm} />
       <Ambiguity term={term} pageId={pageId} resolutions={resolutions} />
       <TermLocations term={block} resolutions={resolutions} />
-      {'localized' in block && block.localized !== undefined && <details className="mt-5 border-t border-line pt-4" data-testid="localized-source">
-        <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
+      {'localized' in block && block.localized !== undefined && <Disclosure className="mt-5 border-t border-line pt-4" data-testid="localized-source">
+        <DisclosureSummary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</DisclosureSummary>
         <KMarkdown text={block.localized.original} resolutions={resolutions} />
-        <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</p>
-      </details>}
-    </section>
+        <Paragraph className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</Paragraph>
+      </Disclosure>}
+    </PageSection>
   );
 }
 
@@ -209,25 +230,26 @@ export function filterTerms(terms: readonly GlossaryTerm[], query: string): Glos
 export function GlossaryPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
   const { glossary, error } = useGlossary(version);
+  const value = useGlossaryValue(glossary);
   const [query, setQuery] = useState('');
   useTabTitle(t('knowledge.glossary.title'));
   if (glossary === null && error === null) return <PageSkeleton testId="glossary-loading" rows />;
-  if (glossary === null) return <Alert variant="problem" data-testid="glossary-error"><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  if (glossary === null) return <Alert variant="problem" data-testid="glossary-error"><AlertDescription><Paragraph>{error}</Paragraph></AlertDescription></Alert>;
   const shown = filterTerms(glossary.terms, query);
   // The names column is a column only when a term on the page has another name: an always-empty column is noise.
   const hasNames = shown.some((term) => term.synonyms.length > 0 || term.code.length > 0);
   return (
-    <section data-testid="glossary-page">
-      <header className="mb-4">
-        <div className="mb-2 flex items-center gap-2">
-          <h1 className="mb-0">{t('knowledge.glossary.title')}</h1>
+    <RequestTerms.Provider value={noRequest}><GlossaryContext.Provider value={value}><PageSection data-testid="glossary-page">
+      <PageHeader className="mb-4">
+        <InlineGroup>
+          <PageTitle className="mb-0">{t('knowledge.glossary.title')}</PageTitle>
           <Badge data-testid="glossary-count">{glossary.terms.length}</Badge>
-        </div>
+        </InlineGroup>
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} data-testid="glossary-filter" />
-      </header>
-      {glossary.terms.length === 0 && <p className="text-muted" data-testid="glossary-empty">{t('knowledge.glossary.empty')}</p>}
+      </PageHeader>
+      {glossary.terms.length === 0 && <Paragraph className="text-muted" data-testid="glossary-empty">{t('knowledge.glossary.empty')}</Paragraph>}
       {shown.length > 0 && (
-        <Table data-testid="glossary-table" className="text-[13px] [&_td]:px-3 [&_td]:py-1.5 [&_th]:h-8 [&_th]:px-3">
+        <Table data-testid="glossary-table" className="text-small">
           <TableHeader>
             <TableRow>
               <TableHead>{t('knowledge.glossary.colTerm')}</TableHead>
@@ -239,31 +261,31 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
           <TableBody>
             {shown.map((term) => (
               <TableRow key={term.id} id={term.id} className="align-top" data-testid="glossary-term" data-term={term.title} data-ambiguous={term.ambiguous === null ? 'false' : 'true'}>
-                <TableCell className="min-w-[9rem] align-top">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <KLink href={term.href} className="font-[550] text-ink">{term.title}</KLink>
+                <TableCell className="min-w-36 align-top">
+                  <Stack className="flex flex-wrap items-center gap-2">
+                    <KLink href={term.href} className="font-medium text-ink">{term.title}</KLink>
                     {term.ambiguous !== null && <Badge data-testid="term-ambiguous-badge">{t('knowledge.glossary.ambiguousBadge')}</Badge>}
-                  </div>
+                  </Stack>
                 </TableCell>
-                <TableCell className="min-w-[22rem] align-top">
-                  <div className="text-small leading-snug [&_.reading]:text-small [&_.reading_p]:my-0 [&_.reading_ul]:my-1 [&_.reading_ol]:my-1">
+                <TableCell className="min-w-88 align-top">
+                  <ReadingContent compact>
                     <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
-                  </div>
+                  </ReadingContent>
                   <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
                   <TermLocations term={term} resolutions={glossary.resolutions} />
                   {term.source !== undefined && (
-                    <details className="mt-1 border-t border-line pt-1" data-testid="localized-source">
-                      <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
-                      <div className="[&_.reading_p]:my-0"><KMarkdown text={term.source.original} resolutions={glossary.resolutions} /></div>
-                    </details>
+                    <Disclosure className="mt-1 border-t border-line pt-1" data-testid="localized-source">
+                      <DisclosureSummary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</DisclosureSummary>
+                      <ReadingContent><KMarkdown text={term.source.original} resolutions={glossary.resolutions} /></ReadingContent>
+                    </Disclosure>
                   )}
                 </TableCell>
-                {hasNames && <TableCell className="min-w-[8rem] align-top"><Names term={term} /></TableCell>}
-                <TableCell className="min-w-[11rem] align-top">
-                  <p className="m-0 text-small text-muted" data-testid="term-ground">
+                {hasNames && <TableCell className="min-w-32 align-top"><Names term={term} /></TableCell>}
+                <TableCell className="min-w-44 align-top">
+                  <Paragraph className="m-0 text-small text-muted" data-testid="term-ground">
                     {t('knowledge.glossary.statedAt')}{' '}
                     <KLink href={addressOfDocument(term.repo, term.path, term.anchor)} className="font-mono">{term.repo === null || term.single ? term.path : `${term.repo}/${term.path}`}:{term.line}</KLink>
-                  </p>
+                  </Paragraph>
                 </TableCell>
               </TableRow>
             ))}
@@ -273,10 +295,10 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
       {glossary.findingCount > 0 && (
         <Alert variant="problem" className="mb-8" data-testid="glossary-findings">
           <AlertTitle>{t('knowledge.findingsCount', { count: glossary.findingCount })}</AlertTitle>
-          <AlertDescription><p className="mb-0"><KLink href={WIKI_PROBLEMS}>{t('knowledge.findingsWhere')}</KLink></p></AlertDescription>
+          <AlertDescription><Paragraph className="mb-0"><KLink href={WIKI_PROBLEMS}>{t('knowledge.findingsWhere')}</KLink></Paragraph></AlertDescription>
         </Alert>
       )}
-      {glossary.terms.length > 0 && shown.length === 0 && <p className="text-muted">{t('knowledge.nothingOfKind')}</p>}
-    </section>
+      {glossary.terms.length > 0 && shown.length === 0 && <Paragraph className="text-muted">{t('knowledge.nothingOfKind')}</Paragraph>}
+    </PageSection></GlossaryContext.Provider></RequestTerms.Provider>
   );
 }

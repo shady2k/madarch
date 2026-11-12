@@ -1,3 +1,8 @@
+import { Stack, Text, PageSection, PageHeader, PageTitle, Paragraph, PlainList, ListItem } from '@/components/ui/typography.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { OrderedList } from '@/components/ui/ordered-list.js';
+import { Progress } from '@/components/ui/progress.js';
 /**
  * «Заполнение» (madarch-m38l.23): the fill as a page of its own, like the page of a
  * CI run. It says who writes, since when and how long it has taken, how much of the
@@ -45,28 +50,28 @@ function UnitRow({ unit, current, kinds, language }: { unit: WriterUnit; current
   const name = unitName(unit, kinds, language);
   const written = unit.state === 'written' && unit.page !== undefined;
   return (
-    <li className="border-b border-line py-2 last:border-b-0" data-testid="fill-unit" data-unit={unit.unit} data-state={unit.state} aria-current={current ? 'step' : undefined}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {written ? <KLink href={addressOfEntity(unit.page!)} className="text-ink hover:underline" testId="fill-unit-page">{name}</KLink> : <span className="text-ink" data-testid="fill-unit-name">{name}</span>}
+    <ListItem className="border-b border-line py-2 last:border-b-0" data-testid="fill-unit" data-unit={unit.unit} data-state={unit.state} aria-current={current ? 'step' : undefined}>
+      <Stack className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {written ? <KLink href={addressOfEntity(unit.page!)} className="text-ink hover:underline" testId="fill-unit-page">{name}</KLink> : <Text className="text-ink" data-testid="fill-unit-name">{name}</Text>}
         <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{unit.state === 'written' && unit.writeAttempts === 0 ? t('knowledge.writer.unitKept') : t(UNIT_STATE_KEY[unit.state])}</Badge>
         {/* The journal of the page, where one holds it: the runs that wrote it, and only then. A page written by a run
             whose journal this machine does not hold — an older run, a journal since removed — has no link to a page that
             would tell a reader nothing. */}
         {written && unit.journal === true && <KLink href={addressOfJournal(unit.page!)} className="text-small text-muted hover:text-ink" testId="fill-unit-journal">{t('journal.title')}</KLink>}
-      </div>
+      </Stack>
       {unit.refusals !== undefined && unit.refusals.length > 0 && (
-        <ul className="mb-0 mt-1 text-small" data-testid="fill-unit-refusals">
+        <PlainList className="mb-0 mt-1 text-small" data-testid="fill-unit-refusals">
           {unit.refusals.map((refusal, index) => (
-            <li key={index}>{t('knowledge.writer.refusal', { line: refusal.line, rule: refusal.rule, message: refusal.message })}</li>
+            <ListItem key={index}>{t('knowledge.writer.refusal', { line: refusal.line, rule: refusal.rule, message: refusal.message })}</ListItem>
           ))}
-        </ul>
+        </PlainList>
       )}
-      <details className="mt-1 text-small text-muted" data-testid="fill-unit-engineer">
-        <summary className="cursor-pointer">{t('knowledge.findingsDetails')}</summary>
-        <p className="mb-0 mt-1"><code>{unit.path}</code></p>
-        {unit.calls !== undefined && <p className="mb-0">{t('knowledge.writer.unitCalls', { calls: unit.calls, attempts: unit.writeAttempts ?? 0 })}</p>}
-      </details>
-    </li>
+      <Disclosure className="mt-1 text-small text-muted" data-testid="fill-unit-engineer">
+        <DisclosureSummary className="cursor-pointer">{t('knowledge.findingsDetails')}</DisclosureSummary>
+        <Paragraph className="mb-0 mt-1"><InlineCode>{unit.path}</InlineCode></Paragraph>
+        {unit.calls !== undefined && <Paragraph className="mb-0">{t('knowledge.writer.unitCalls', { calls: unit.calls, attempts: unit.writeAttempts ?? 0 })}</Paragraph>}
+      </Disclosure>
+    </ListItem>
   );
 }
 
@@ -91,34 +96,31 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
   // How much is left is counted against what the run means to write in total, not against what it has taken up:
   // «Записано 12 из 18». Until the writer counts the pages, the count stands alone.
   const total = writer.total;
-  const share = total === undefined || total === 0 ? 0 : Math.min(1, written / total);
   return (
-    <section data-testid="fill-page" data-state={writer.state === 'idle' ? fill.state : writer.state}>
-      <header className="mb-6">
-        <h1 data-testid="fill-title">{t('knowledge.fillPage.title')}</h1>
-        {facts.length > 0 && <p className="mb-0 text-small text-muted" data-testid="fill-facts">{facts.join(' · ')}</p>}
-      </header>
+    <PageSection data-testid="fill-page" data-state={writer.state === 'idle' ? fill.state : writer.state}>
+      <PageHeader className="mb-6">
+        <PageTitle data-testid="fill-title">{t('knowledge.fillPage.title')}</PageTitle>
+        {facts.length > 0 && <Paragraph className="mb-0 text-small text-muted" data-testid="fill-facts">{facts.join(' · ')}</Paragraph>}
+      </PageHeader>
       <FillSetup refresh={refresh} disabled={fill.state === 'running' || writer.state === 'running' || runIsPaused(status)} />
       {/* The run a person holds or ended (madarch-m38l.17): where it stands, that its pages stay, and the two controls. */}
       {runIsPaused(status) && (
         <Card className="mb-8" data-testid="fill-run" data-state="paused">
           <CardContent className="pt-6">
-            <p className="mb-0 mt-0 text-small text-ink" data-testid="fill-run-words">{total === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total })}</p>
+            <Paragraph className="mb-0 mt-0 text-small text-ink" data-testid="fill-run-words">{total === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total })}</Paragraph>
             <RunControls status={status} refresh={refresh} where="page" />
           </CardContent>
         </Card>
       )}
       {runIsStopped(status) && (
-        <p className="mb-6 mt-0 text-small text-ink" data-testid="fill-run-words" data-state="stopped">{total === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total })}</p>
+        <Paragraph className="mb-6 mt-0 text-small text-ink" data-testid="fill-run-words" data-state="stopped">{total === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total })}</Paragraph>
       )}
       {fill.state === 'running' && (
         <Card className="mb-8" data-testid="fill-code" data-state="running">
           <CardHeader><CardTitle>{t('knowledge.fillRunningTitle')}</CardTitle></CardHeader>
           <CardContent>
-            <p className="mb-3 mt-0 text-small text-muted" data-testid="fill-code-words">{fill.repository !== undefined ? t('knowledge.fillReading', { repository: fill.repository, what: fillWords(fill, t) }) : t('knowledge.fillOpening')}</p>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fillShare(fill) * 100)} aria-label={t('knowledge.fillRunningTitle')}>
-              <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(fillShare(fill) * 100)}%` }} />
-            </div>
+            <Paragraph className="mb-3 mt-0 text-small text-muted" data-testid="fill-code-words">{fill.repository !== undefined ? t('knowledge.fillReading', { repository: fill.repository, what: fillWords(fill, t) }) : t('knowledge.fillOpening')}</Paragraph>
+            <Progress value={Math.round(fillShare(fill) * 100)} aria-label={t('knowledge.fillRunningTitle')} />
             {/* The graph is being read before any page is counted: the run is live, so its two presses stand here. Where
                 the progress card shows them under the pages' figures, it alone shows them (madarch-m38l.17). */}
             {total === undefined && units.length === 0 && <RunControls status={status} refresh={refresh} where="page" />}
@@ -132,14 +134,12 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
           </CardHeader>
           <CardContent>
             {total !== undefined && (
-              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={Math.min(written, total)} aria-label={t('knowledge.fillPage.written', { done: written, total })}>
-                <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(share * 100)}%` }} />
-              </div>
+              <Progress value={Math.min(written, total)} max={total} aria-label={t('knowledge.fillPage.written', { done: written, total })} />
             )}
-            <ol className="m-0 mt-4 list-none p-0" data-testid="fill-units">
+            <OrderedList className="m-0 mt-4 list-none p-0" data-testid="fill-units">
               {units.map((unit) => <UnitRow key={unit.unit} unit={unit} current={unit.unit === current} kinds={status.kinds} language={language} />)}
-            </ol>
-            {writer.state === 'running' && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.live')}</p>}
+            </OrderedList>
+            {writer.state === 'running' && <Paragraph className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.live')}</Paragraph>}
             {/* While the run is under way, the two presses stand under the figures they act on. */}
             <RunControls status={status} refresh={refresh} where="page" />
           </CardContent>
@@ -148,20 +148,20 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
       {/* The plan names the paths the run will touch: the engineer's, behind the same summary the unit rows use.
           The reader's figure is the progress above, counted against the same total, so «План» repeats nothing. */}
       {writer.plan !== undefined && (
-        <details className="mb-8 text-small text-muted" data-testid="fill-plan">
-          <summary className="cursor-pointer">{t('knowledge.findingsDetails')}</summary>
-          <div className="mt-2"><PlanList plan={writer.plan} /></div>
-        </details>
+        <Disclosure className="mb-8 text-small text-muted" data-testid="fill-plan">
+          <DisclosureSummary className="cursor-pointer">{t('knowledge.findingsDetails')}</DisclosureSummary>
+          <Stack className="mt-2"><PlanList plan={writer.plan} /></Stack>
+        </Disclosure>
       )}
       {writer.state === 'failed' && (
         <Alert variant="problem" data-testid="fill-failed">
           <AlertTitle>{writer.agent === null ? t('knowledge.fillFailedTitle') : t('knowledge.writer.failedTitle', { agent: writer.agent.label })}</AlertTitle>
           <AlertDescription>
-            {writer.message !== undefined && <div data-testid="fill-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>}
+            {writer.message !== undefined && <Stack data-testid="fill-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></Stack>}
           </AlertDescription>
         </Alert>
       )}
-      {writer.state === 'idle' && fill.state !== 'running' && <p className="text-muted" data-testid="fill-idle">{t('knowledge.fillPage.idle')}</p>}
-    </section>
+      {writer.state === 'idle' && fill.state !== 'running' && <Paragraph className="text-muted" data-testid="fill-idle">{t('knowledge.fillPage.idle')}</Paragraph>}
+    </PageSection>
   );
 }

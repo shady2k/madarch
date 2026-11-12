@@ -1,3 +1,4 @@
+import { DrawingSurface } from '@/components/ui/drawing.js';
 /**
  * The repository map drawn by Apache ECharts (madarch-j9ao.1): the folders and
  * files of the folder the reader stands in, coloured by the measure they chose.
@@ -269,5 +270,5 @@ export function EChartsTreemap(props: EChartsTreemapProps): ReactElement {
     const size = { width: element?.clientWidth ?? 800, height: props.height };
     chart.current?.setOption(mapOption(props, size), true);
   }, [props.cells, props.colouring, props.dark, props.height]);
-  return <div ref={holder} className="dg-chart" style={{ width: '100%', height: `${String(props.height)}px` }} data-testid="files-map-chart" role="img" aria-label={props.label} />;
+  return <DrawingSurface ref={holder} className="dg-chart" width="100%" height={props.height} data-testid="files-map-chart" role="img" aria-label={props.label} />;
 }

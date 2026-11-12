@@ -13,14 +13,10 @@ export type WikiRoute =
   | { name: 'doc'; repo: string | null; path: string }
   | { name: 'catalogue' }
   | { name: 'glossary' }
-  | { name: 'questions' }
-  | { name: 'question'; slug: string }
   | { name: 'problems' }
   | { name: 'settings' }
   | { name: 'journal'; id: string; run: string | null }
   | { name: 'fill' }
-  | { name: 'tasks' }
-  | { name: 'task'; id: string }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const WIKI_KIT = '/kit';
@@ -28,7 +24,7 @@ export const WIKI_HOME = '/';
 export const WIKI_DOCS = '/docs';
 export const WIKI_CATALOGUE = '/catalogue';
 export const WIKI_GLOSSARY = '/glossary';
-export const WIKI_QUESTIONS = '/questions';
+export const WIKI_QUESTIONS = '/kind/question';
 export const WIKI_PROBLEMS = '/problems';
 export const WIKI_SETTINGS = '/settings';
 /** Where the journal of the agent's work on a page stands (madarch-m38l.13). */
@@ -37,13 +33,9 @@ export function addressOfJournal(id: string, run?: string): string {
 }
 /** Where the fill stands, page by page, while it writes and after it ends (madarch-m38l.23). */
 export const WIKI_FILL = '/fill';
-export const WIKI_TASKS = '/tasks';
 /** The newest run's trace, step by step: its wall clock, its memory and its slowest names (madarch-8bdc.2.5, item 4). */
 export const WIKI_RUN = '/run';
 
-/** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
-export const addressOfTask = (id: string): string => `/task?${new URLSearchParams({ id }).toString()}`;
-export const addressOfQuestion = (slug: string): string => `/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
   return `/statement?${new URLSearchParams({ id, sentence, ...(turn > 0 ? { n: String(turn) } : {}) }).toString()}`;
@@ -100,22 +92,10 @@ export const API = {
   document: '/api/document',
   glossary: '/api/glossary',
   settings: '/api/settings',
-  questions: '/api/questions',
-  question: '/api/question',
-  answer: '/api/answer',
-  correction: '/api/correction',
   problems: '/api/problems',
   problemDismiss: '/api/problem-dismiss',
-  problemTask: '/api/problem-task',
   journal: '/api/journal',
   refreshPlan: '/api/refresh-plan',
-  tasks: '/api/tasks',
-  task: '/api/task',
-  taskPropose: '/api/task-propose',
-  taskImpact: '/api/task-impact',
-  taskCreate: '/api/task-create',
-  taskClose: '/api/task-close',
-  taskRun: '/api/task-run',
   reset: '/api/reset',
   productSettings: '/api/product-settings',
   agentChoices: '/api/agent-choices',
@@ -136,14 +116,6 @@ export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
     const uid = query.get('uid');
     return kind && uid ? { name: 'authored', kind, uid } : { name: 'home' };
   }
-  if (path === '/questions' || path === '/questions/') return { name: 'questions' };
-  if (path.startsWith('/questions/')) {
-    try {
-      return { name: 'question', slug: decodeURIComponent(path.slice('/questions/'.length)) };
-    } catch {
-      return { name: 'questions' };
-    }
-  }
   if (path === '/problems' || path === '/problems/') return { name: 'problems' };
   if (path === '/settings' || path === '/settings/') return { name: 'settings' };
   if (path === '/fill' || path === '/fill/') return { name: 'fill' };
@@ -152,18 +124,9 @@ export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
     const id = query.get('id');
     return id === null || id === '' ? { name: 'home' } : { name: 'journal', id, run: query.get('run') };
   }
-  if (path === '/tasks' || path === '/tasks/') return { name: 'tasks' };
-  if (path === '/task') {
-    const query = new URLSearchParams(search);
-    const id = query.get('id');
-    return id === null || id === '' ? { name: 'tasks' } : { name: 'task', id };
-  }
   if (path.startsWith('/e/')) {
     try {
       const id = decodeURIComponent(path.slice('/e/'.length));
-      // A question or a correction has its place in the loop's pages, not a generic entity page.
-      if (id.startsWith('question:')) return { name: 'question', slug: id.slice('question:'.length) };
-      if (id.startsWith('correction:')) return { name: 'problems' };
       const query = new URLSearchParams(search);
       const after = query.get('after');
       return { name: 'entity', id, after: after === null || after === '' ? null : after };

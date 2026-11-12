@@ -1,6 +1,8 @@
+import { OrderedList } from '@/components/ui/ordered-list.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { DefinitionList, DefinitionTerm, DefinitionValue, ListItem, PageArticle, PageHeader, PageSection, PageTitle, Paragraph, PlainList, SectionTitle, Stack, Text } from '@/components/ui/typography.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
 import { Button } from '@/components/ui/button.js';
-import { Stack, Text, PageSection, PageArticle, PageHeader, Paragraph, PlainList, ListItem, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 /**
  * The repository's entity-page blocks (madarch-hsqs stage A): a repository's facts, a folder's files and folders,
  * and one file's facts. They are blocks of the graph's own entity pages now — the separate repository, folder, file
@@ -71,7 +73,7 @@ export function instantText(date: string, offsetMin: number | null): string {
 export function FolderFileTable({ files }: { files: readonly FolderFileData[] }): React.ReactElement {
   const { t } = useTranslation();
   return (
-    <div className="table-wrap">
+    <Stack className="table-wrap">
     <Table className="w-full border-collapse text-small" data-testid="file-rows">
       <TableHeader>
         <TableRow className="border-b border-line text-left text-muted">
@@ -95,7 +97,7 @@ export function FolderFileTable({ files }: { files: readonly FolderFileData[] })
         ))}
       </TableBody>
     </Table>
-    </div>
+    </Stack>
   );
 }
 
@@ -104,9 +106,9 @@ function AsIsLine({ repository, commit, href }: { repository: string; commit: st
   const { t } = useTranslation();
   if (commit === null) return null;
   return (
-    <p className="mb-4 mt-0 text-small text-muted" data-testid="as-is-commit">
-      {t('knowledge.repository.asIs', { repository })} {href === null ? <code>{commit.slice(0, 12)}</code> : <KLink href={href} testId="as-is-link"><code>{commit.slice(0, 12)}</code></KLink>}
-    </p>
+    <Paragraph className="mb-4 mt-0 text-small text-muted" data-testid="as-is-commit">
+      {t('knowledge.repository.asIs', { repository })} {href === null ? <InlineCode>{commit.slice(0, 12)}</InlineCode> : <KLink href={href} testId="as-is-link"><InlineCode>{commit.slice(0, 12)}</InlineCode></KLink>}
+    </Paragraph>
   );
 }
 
@@ -116,44 +118,40 @@ export function RepositoryFactsBlock({ data, run, unread }: { data: RepositoryBl
   const language = i18n.resolvedLanguage ?? 'en';
   const finished = run === undefined ? undefined : new Date(run.finishedAt).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' });
   return (
-    <section data-testid="repository-block" data-repository={data.name}>
-      <p className="mb-1 break-all text-small text-muted" data-testid="repository-url">{data.url}</p>
-      <p className="mb-1 text-small text-muted" data-testid="repository-facts">
+    <PageSection data-testid="repository-block" data-repository={data.name}>
+      <Paragraph className="mb-1 break-all text-small text-muted" data-testid="repository-url">{data.url}</Paragraph>
+      <Paragraph className="mb-1 text-small text-muted" data-testid="repository-facts">
         {t('knowledge.repository.branch', { branch: data.defaultBranch ?? 'HEAD' })} ·{' '}
         {t('knowledge.repository.counts', { files: data.counts.files, commits: data.counts.commits, folders: data.counts.folders })}
-      </p>
-      <p className="mb-0 text-small text-muted" data-testid="repository-filled">
+      </Paragraph>
+      <Paragraph className="mb-0 text-small text-muted" data-testid="repository-filled">
         {data.steps.tree ? t('knowledge.repository.treeRan') : t('knowledge.repository.treeNotRun')}
         {' · '}
         {data.steps.history ? t('knowledge.repository.historyRan') : t('knowledge.repository.historyNotRun')}
         {finished === undefined ? '' : ` · ${t('knowledge.repository.filledAt', { when: finished, wall: msText(run!.wallMs) })}`}
-      </p>
-      <p className="mt-2 mb-0 text-small"><KLink href={WIKI_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></p>
+      </Paragraph>
+      <Paragraph className="mt-2 mb-0 text-small"><KLink href={WIKI_RUN} testId="repository-run-link">{t('knowledge.repository.runPage')}</KLink></Paragraph>
       <AsIsLine repository={data.name} commit={data.asIsCommit} href={data.asIsHref} />
       {(unread ?? []).length > 0 && (
         <Alert className="mb-6" data-testid="repository-unread">
           <AlertTitle>{t('knowledge.repository.unreadTitle')}</AlertTitle>
           <AlertDescription>
-            <ul className="mb-0 mt-1">
+            <PlainList className="mb-0 mt-1">
               {(unread ?? []).map((one) => (
-                <li key={`${one.repository}\u0000${one.path}`} data-testid="repository-unread-row"><code className="break-all">{one.repository}</code> (<code className="break-all">{one.path}</code>) — {one.reason}</li>
+                <ListItem key={`${one.repository}\u0000${one.path}`} data-testid="repository-unread-row"><InlineCode className="break-all">{one.repository}</InlineCode> (<InlineCode className="break-all">{one.path}</InlineCode>) — {one.reason}</ListItem>
               ))}
-            </ul>
+            </PlainList>
           </AlertDescription>
         </Alert>
       )}
-      {data.gaps.length > 0 && (
-        <Alert className="mb-6" data-testid="repository-gaps">
-          <AlertTitle>{t('knowledge.repository.gapsTitle')}</AlertTitle>
-          <AlertDescription>
-            <ul className="mb-0 mt-1">
-              {data.gaps.map((gap) => <li key={`${gap.what}\u0000${gap.reason}`} data-testid="repository-gap"><code className="break-all">{gap.what}</code> — {gap.reason}</li>)}
-            </ul>
-          </AlertDescription>
+      {data.historyShallow === true && (
+        <Alert className="mb-6" data-testid="repository-shallow">
+          <AlertTitle>{t('knowledge.repository.shallowTitle')}</AlertTitle>
+          <AlertDescription>{t('knowledge.repository.shallowHistory')}</AlertDescription>
         </Alert>
       )}
-      {!data.steps.tree && <p className="text-muted" data-testid="repository-empty">{t('knowledge.repository.notRun')}</p>}
-    </section>
+      {!data.steps.tree && <Paragraph className="text-muted" data-testid="repository-empty">{t('knowledge.repository.notRun')}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -161,29 +159,29 @@ export function RepositoryFactsBlock({ data, run, unread }: { data: RepositoryBl
 export function FolderBlock({ data }: { data: FolderBlockData }): React.ReactElement {
   const { t } = useTranslation();
   return (
-    <section data-testid="folder-block" data-path={data.folder}>
-      {data.parent !== null && <p className="mb-4 mt-0 text-small"><KLink href={data.parent.href} testId="folder-parent">{t('knowledge.repository.up')}</KLink></p>}
+    <PageSection data-testid="folder-block" data-path={data.folder}>
+      {data.parent !== null && <Paragraph className="mb-4 mt-0 text-small"><KLink href={data.parent.href} testId="folder-parent">{t('knowledge.repository.up')}</KLink></Paragraph>}
       {data.folders.length > 0 && (
         <>
-          <h2 className="mb-2 mt-0">{t('knowledge.repository.folders')}</h2>
-          <ul className="m-0 mb-6 list-none p-0" data-testid="folder-children">
+          <SectionTitle className="mb-2 mt-0">{t('knowledge.repository.folders')}</SectionTitle>
+          <PlainList className="m-0 mb-6 list-none p-0" data-testid="folder-children">
             {data.folders.map((child) => (
-              <li key={child.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="folder-row">
-                <KLink href={child.href} testId="folder-link"><code>{child.path.slice(child.path.lastIndexOf('/') + 1)}/</code></KLink>
-              </li>
+              <ListItem key={child.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="folder-row">
+                <KLink href={child.href} testId="folder-link"><InlineCode>{child.path.slice(child.path.lastIndexOf('/') + 1)}/</InlineCode></KLink>
+              </ListItem>
             ))}
-          </ul>
+          </PlainList>
         </>
       )}
-      {data.files.length === 0 && data.folders.length === 0 && <p className="text-muted" data-testid="folder-empty">{t('knowledge.repository.emptyFolder')}</p>}
+      {data.files.length === 0 && data.folders.length === 0 && <Paragraph className="text-muted" data-testid="folder-empty">{t('knowledge.repository.emptyFolder')}</Paragraph>}
       {data.files.length > 0 && (
         <>
-          <h2 className="mb-2 mt-0">{t('knowledge.repository.files')}</h2>
+          <SectionTitle className="mb-2 mt-0">{t('knowledge.repository.files')}</SectionTitle>
           <FolderFileTable files={data.files} />
         </>
       )}
-      {data.nextHref !== null && <p className="mt-2 text-small"><KLink href={data.nextHref} testId="folder-more">{t('knowledge.repository.more')}</KLink></p>}
-    </section>
+      {data.nextHref !== null && <Paragraph className="mt-2 text-small"><KLink href={data.nextHref} testId="folder-more">{t('knowledge.repository.more')}</KLink></Paragraph>}
+    </PageSection>
   );
 }
 
@@ -204,8 +202,8 @@ export function FilePageView({ block, resolutions }: { block: FilePageBlock; res
   useEffect(() => { keep('madarch-file-view', view); }, [view]);
   useEffect(() => { keep('madarch-file-wrap', String(wrap)); }, [wrap]);
   const data = block.data;
-  const created = data.created === null ? '—' : <><KLink href={data.created.href}><code>{data.created.commit.slice(0, 7)}</code></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</>;
-  const modified = data.modified === null ? '—' : <><KLink href={data.modified.href}><code>{data.modified.commit.slice(0, 7)}</code></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</>;
+  const created = data.created === null ? '—' : <><KLink href={data.created.href}><InlineCode>{data.created.commit.slice(0, 7)}</InlineCode></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</>;
+  const modified = data.modified === null ? '—' : <><KLink href={data.modified.href}><InlineCode>{data.modified.commit.slice(0, 7)}</InlineCode></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</>;
   const tabs: { face: FileFace; label: string }[] = [
     { face: 'overview', label: t('knowledge.filePage.overview') },
     { face: 'history', label: t('knowledge.filePage.history') },
@@ -296,20 +294,20 @@ export function FilePageView({ block, resolutions }: { block: FilePageBlock; res
 export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactElement {
   const { t } = useTranslation();
   const facts: [string, React.ReactNode][] = [
-    [t('knowledge.repository.mode'), <code key="mode">{data.mode}</code>],
-    [t('knowledge.repository.blob'), <code key="blob" className="break-all">{data.blob}</code>],
-    [t('knowledge.repository.bytes'), <span key="bytes">{data.bytes} ({bytesText(data.bytes ?? 0)})</span>],
-    [t('knowledge.repository.lines'), <span key="lines">{data.lines === null ? '—' : String(data.lines)}</span>],
-    [t('knowledge.repository.form'), <span key="form">{data.form === 'binary' ? t('knowledge.repository.binary') : t('knowledge.repository.text')}</span>],
-    [t('knowledge.repository.language'), <span key="language" data-testid="file-languages">{data.language}{data.candidates.length > 1 || data.candidates[0] !== data.language ? ` (${data.candidates.join(', ')})` : ''}</span>],
-    [t('knowledge.repository.created'), data.created === null ? <span key="created">—</span> : <span key="created"><KLink href={data.created.href}><code>{data.created.commit.slice(0, 12)}</code></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</span>],
-    [t('knowledge.repository.modified'), data.modified === null ? <span key="modified">—</span> : <span key="modified"><KLink href={data.modified.href}><code>{data.modified.commit.slice(0, 12)}</code></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</span>],
-    [t('knowledge.repository.commitCount'), <span key="count">{data.commitCount}</span>],
-    [t('knowledge.repository.authors'), <span key="authors" data-testid="file-authors">{data.authors.length === 0 ? '—' : data.authors.join(', ')}</span>],
+    [t('knowledge.repository.mode'), <InlineCode key="mode">{data.mode}</InlineCode>],
+    [t('knowledge.repository.blob'), <InlineCode key="blob" className="break-all">{data.blob}</InlineCode>],
+    [t('knowledge.repository.bytes'), <Text key="bytes">{data.bytes} ({bytesText(data.bytes ?? 0)})</Text>],
+    [t('knowledge.repository.lines'), <Text key="lines">{data.lines === null ? '—' : String(data.lines)}</Text>],
+    [t('knowledge.repository.form'), <Text key="form">{data.form === 'binary' ? t('knowledge.repository.binary') : t('knowledge.repository.text')}</Text>],
+    [t('knowledge.repository.language'), <Text key="language" data-testid="file-languages">{data.language}{data.candidates.length > 1 || data.candidates[0] !== data.language ? ` (${data.candidates.join(', ')})` : ''}</Text>],
+    [t('knowledge.repository.created'), data.created === null ? <Text key="created">—</Text> : <Text key="created"><KLink href={data.created.href}><InlineCode>{data.created.commit.slice(0, 12)}</InlineCode></KLink> <time dateTime={data.created.date}>{instantText(data.created.date, data.created.offsetMin)}</time> · {data.created.author || t('knowledge.repository.unknownAuthor')}</Text>],
+    [t('knowledge.repository.modified'), data.modified === null ? <Text key="modified">—</Text> : <Text key="modified"><KLink href={data.modified.href}><InlineCode>{data.modified.commit.slice(0, 12)}</InlineCode></KLink> <time dateTime={data.modified.date}>{instantText(data.modified.date, data.modified.offsetMin)}</time> · {data.modified.author || t('knowledge.repository.unknownAuthor')}</Text>],
+    [t('knowledge.repository.commitCount'), <Text key="count">{data.commitCount}</Text>],
+    [t('knowledge.repository.authors'), <Text key="authors" data-testid="file-authors">{data.authors.length === 0 ? '—' : data.authors.join(', ')}</Text>],
   ];
   return (
-    <section data-testid="file-block" data-path={data.path}>
-      <div className="table-wrap mb-8">
+    <PageSection data-testid="file-block" data-path={data.path}>
+      <Stack className="table-wrap mb-8">
       <Table className="w-full border-collapse text-small" data-testid="file-facts">
         <TableBody>
           {facts.map(([name, value]) => (
@@ -320,8 +318,8 @@ export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactEl
           ))}
         </TableBody>
       </Table>
-      </div>
-    </section>
+      </Stack>
+    </PageSection>
   );
 }
 
@@ -336,27 +334,27 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
     return (
       <Alert variant="problem" data-testid="run-error">
         <AlertTitle>{t('knowledge.repository.noPage', { what: named ?? t('knowledge.run.title') })}</AlertTitle>
-        <AlertDescription><p className="mb-0">{error ?? ''}</p></AlertDescription>
+        <AlertDescription><Paragraph className="mb-0">{error ?? ''}</Paragraph></AlertDescription>
       </Alert>
     );
   }
   const run = data.run;
   return (
-    <section data-testid="run-page" data-run={run.runId}>
-      <header className="mb-6">
-        <h1 className="break-all">{t('knowledge.run.title')}</h1>
-        <p className="mb-1 break-all text-small text-muted" data-testid="run-id"><code>{run.runId}</code></p>
-        <p className="mb-0 text-small text-muted" data-testid="run-totals">
+    <PageSection data-testid="run-page" data-run={run.runId}>
+      <PageHeader className="mb-6">
+        <PageTitle className="break-all">{t('knowledge.run.title')}</PageTitle>
+        <Paragraph className="mb-1 break-all text-small text-muted" data-testid="run-id"><InlineCode>{run.runId}</InlineCode></Paragraph>
+        <Paragraph className="mb-0 text-small text-muted" data-testid="run-totals">
           {t('knowledge.run.totals', {
             wall: msText(run.wallMs),
             spans: run.spans,
             from: new Date(run.startedAt).toLocaleString(language, { timeStyle: 'medium' }),
             to: new Date(run.finishedAt).toLocaleString(language, { timeStyle: 'medium' }),
           })}
-        </p>
-      </header>
-      <h2 className="mb-2 mt-0">{t('knowledge.run.steps')}</h2>
-      <div className="table-wrap mb-8">
+        </Paragraph>
+      </PageHeader>
+      <SectionTitle className="mb-2 mt-0">{t('knowledge.run.steps')}</SectionTitle>
+      <Stack className="table-wrap mb-8">
       <Table className="w-full border-collapse text-small" data-testid="run-steps">
         <TableHeader>
           <TableRow className="border-b border-line text-left text-muted">
@@ -369,31 +367,31 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
         <TableBody>
           {run.steps.map((step) => (
             <TableRow key={step.step} className="border-b border-line align-top last:border-b-0" data-testid="run-step" data-step={step.step}>
-              <TableCell className="py-1 pr-3"><code>{step.step}</code></TableCell>
+              <TableCell className="py-1 pr-3"><InlineCode>{step.step}</InlineCode></TableCell>
               <TableCell className="py-1 text-right whitespace-nowrap">{msText(step.wallMs)}</TableCell>
               <TableCell className="py-1 text-right whitespace-nowrap">{mbText(step.peakRssBytes)}</TableCell>
               <TableCell className="py-1">
-                <ol className="m-0 list-none p-0" data-testid="run-step-names">
-                  {step.slowest.map((name) => <li key={name.name}><code>{name.name}</code> <span className="text-muted">{msText(name.selfMs)} ×{name.count}</span></li>)}
-                </ol>
+                <OrderedList className="m-0 list-none p-0" data-testid="run-step-names">
+                  {step.slowest.map((name) => <ListItem key={name.name}><InlineCode>{name.name}</InlineCode> <Text className="text-muted">{msText(name.selfMs)} ×{name.count}</Text></ListItem>)}
+                </OrderedList>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-      </div>
+      </Stack>
       <RunAgentUsage usage={run.agentUsage} />
-      <h2 className="mb-2 mt-0">{t('knowledge.run.names')}</h2>
-      <ol className="m-0 list-none p-0 text-small" data-testid="run-names">
+      <SectionTitle className="mb-2 mt-0">{t('knowledge.run.names')}</SectionTitle>
+      <OrderedList className="m-0 list-none p-0 text-small" data-testid="run-names">
         {run.slowest.map((name) => (
-          <li key={name.name} className="border-b border-line py-1 last:border-b-0">
-            <code>{name.name}</code> <span className="text-muted">{msText(name.selfMs)} ×{name.count}</span>
+          <ListItem key={name.name} className="border-b border-line py-1 last:border-b-0">
+            <InlineCode>{name.name}</InlineCode> <Text className="text-muted">{msText(name.selfMs)} ×{name.count}</Text>
             <Progress className="mt-1 h-1" value={run.wallMs === 0 ? 0 : Math.min(100, Math.round((name.selfMs / run.wallMs) * 100))} aria-label={name.name} />
-          </li>
+          </ListItem>
         ))}
-      </ol>
-      <p className="mt-4 text-small text-muted" data-testid="run-note">{t('knowledge.run.note')}</p>
-      <p className="mb-0 mt-1 text-small text-muted" data-testid="run-memory-note">{t('knowledge.run.memoryNote')}</p>
-    </section>
+      </OrderedList>
+      <Paragraph className="mt-4 text-small text-muted" data-testid="run-note">{t('knowledge.run.note')}</Paragraph>
+      <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="run-memory-note">{t('knowledge.run.memoryNote')}</Paragraph>
+    </PageSection>
   );
 }

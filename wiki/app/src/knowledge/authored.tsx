@@ -1,3 +1,5 @@
+import { FilterBar, FilterField } from '@/components/ui/filter-bar.js';
+import { Card, CardContent } from '@/components/ui/card.js';
 import { Stack, Text, PageSection, PageArticle, PageHeader, PageTitle, SectionTitle, Paragraph, PlainList, ListItem, DefinitionList, DefinitionTerm, DefinitionValue, FieldLabel, Form } from '@/components/ui/typography.js';
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -82,7 +84,7 @@ export function AuthoredKindPage({ kind, version }: { kind: string; version: num
   useTabTitle(kindName(kind, 'many'));
   return <PageSection data-testid="authored-kind-page"><PageHeader className="mb-6"><PageTitle>{kindName(kind, 'many')}</PageTitle><Button size="default" variant="default" onClick={() => setCreating(true)}>{t('authored.new')}</Button></PageHeader>
     {creating && <AuthoredForm key={kind} kind={kind} cancel={() => setCreating(false)} saved={() => { setCreating(false); setRevision(revision + 1); }} />}
-    <Input type="search" aria-label={t('knowledge.filter')} placeholder={t('knowledge.filter')} value={query} onChange={(event) => setQuery(event.target.value)} className="mb-4 w-96 max-w-full" />
+    <FilterBar><FilterField><Input type="search" aria-label={t('knowledge.filter')} placeholder={t('knowledge.filter')} value={query} onChange={(event) => setQuery(event.target.value)} /></FilterField></FilterBar>
     {read.error !== null && <Paragraph role="alert">{read.error}</Paragraph>}
     {read.data === null && read.error === null && <Paragraph>{t('authored.loading')}</Paragraph>}
     {read.data !== null && (read.data.entities ?? []).length === 0 && <Paragraph>{t('knowledge.nothingOfKind')}</Paragraph>}
@@ -108,7 +110,7 @@ export function AuthoredPage({ kind, uid, version }: { kind: string; uid: string
     {entity === undefined && read.error === null && <Paragraph>{t('authored.loading')}</Paragraph>}
     {entity !== undefined && <><PageTitle>{titleOf(entity)}</PageTitle>
       {!editing && <Stack className="flex gap-2 my-4"><Button size="default" variant="default" onClick={() => setEditing(true)}>{t('authored.edit')}</Button><Button size="default" onClick={() => setConfirming(true)}>{t('authored.delete')}</Button></Stack>}
-      {confirming && <Stack role="alertdialog" aria-label={t('authored.delete')} className="border border-line rounded p-4 my-4"><Paragraph>{t('authored.confirmDelete', { title: titleOf(entity) })}</Paragraph><Button size="default" variant="default" disabled={busy} onClick={() => void remove()}>{t('authored.confirm')}</Button><Button size="default" disabled={busy} onClick={() => setConfirming(false)}>{t('authored.cancel')}</Button></Stack>}
+      {confirming && <Card role="alertdialog" aria-label={t('authored.delete')} className="my-4"><CardContent><Paragraph>{t('authored.confirmDelete', { title: titleOf(entity) })}</Paragraph><Button size="default" variant="default" disabled={busy} onClick={() => void remove()}>{t('authored.confirm')}</Button><Button size="default" disabled={busy} onClick={() => setConfirming(false)}>{t('authored.cancel')}</Button></CardContent></Card>}
       {editing ? <AuthoredForm key={uid} kind={kind} entity={entity} cancel={() => setEditing(false)} saved={() => { setEditing(false); setRevision(revision + 1); }} /> : <DefinitionList className="space-y-4">{read.data?.fields.map((field) => <Stack key={field.name}><DefinitionTerm className="text-small text-muted">{field.name}</DefinitionTerm><DefinitionValue className="whitespace-pre-wrap break-words">{entity.values[field.name] == null ? '—' : field.type === 'json' || field.reference !== undefined ? JSON.stringify(entity.values[field.name], null, 2) : String(entity.values[field.name])}</DefinitionValue></Stack>)}</DefinitionList>}
     </>}
   </PageArticle>;

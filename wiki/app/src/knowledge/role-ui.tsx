@@ -1,3 +1,10 @@
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter } from '@/components/ui/dialog.js';
+import { ChoiceCard, DialogBody, ChoiceDescription } from '@/components/ui/choice-card.js';
+import { RadioGroup } from '@/components/ui/radio-group.js';
+import { RadioInput } from '@/components/ui/radio-input.js';
+import { Paragraph, Text } from '@/components/ui/typography.js';
+import { ShellIconLink, ShellRoleButton, ShellRoleLabel } from '@/components/ui/shell.js';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu.js';
 /**
  * The role in the wiki's chrome (decision 0031): the card that asks once on the
  * first open (skippable, "everything" by default), the switch in the top bar,
@@ -5,8 +12,7 @@
  */
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { CheckIcon, CircleHelpIcon, UserRoundIcon } from 'lucide-react';
+import { CircleHelpIcon, UserRoundIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button.js';
 import { WIKI_HOME } from './routes.js';
 import { chooseRole, rolesOf, useSettings } from './roles.js';
@@ -27,34 +33,28 @@ export function RoleCard(): ReactElement | null {
     chooseRole(role).then(() => setWorking(false), (failure: unknown) => { setWorking(false); setError(failure instanceof Error ? failure.message : String(failure)); });
   };
   return (
-    <div className="fixed inset-0 wiki-modal-layer grid place-items-center bg-ink/40 p-4" role="presentation" onKeyDown={(event) => { if (event.key === 'Escape' && !working) keep('everything'); }}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="role-card-title"
-        data-testid="role-card"
-        className="flex max-h-[calc(100dvh-2rem)] w-[min(34rem,_100%)] flex-col overflow-hidden rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] text-ink shadow-[var(--shadow-high)]"
-      >
-        <h2 id="role-card-title" className="m-0 shrink-0 px-5 pb-2 pt-5 text-h3 font-semibold text-ink">{t('knowledge.roles.cardTitle')}</h2>
-        <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 pb-3 text-small text-secondary" data-testid="role-card-body">
-          <p className="m-0">{t('knowledge.roles.cardLead')}</p>
-          <div role="radiogroup" aria-labelledby="role-card-title" className="grid gap-1.5">
+    <Dialog open onOpenChange={(open) => { if (!open && !working) keep('everything'); }}>
+      <DialogContent aria-labelledby="role-card-title" aria-describedby="role-card-lead" data-testid="role-card" showCloseButton={false} onEscapeKeyDown={(event) => { if (working) event.preventDefault(); }}>
+        <DialogHeader><DialogTitle id="role-card-title">{t('knowledge.roles.cardTitle')}</DialogTitle></DialogHeader>
+        <DialogBody data-testid="role-card-body">
+          <DialogDescription id="role-card-lead">{t('knowledge.roles.cardLead')}</DialogDescription>
+          <RadioGroup aria-labelledby="role-card-title">
             {roles.map((role) => (
-              <label key={role} className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-card)] border border-line px-3 py-2 has-[:checked]:border-ink" data-testid="role-option" data-role={role}>
-                <input type="radio" name="role" className="mt-1" checked={picked === role} onChange={() => setPicked(role)} autoFocus={role === 'everything'} />
-                <span><b className="text-ink">{t(`knowledge.roles.names.${role}`)}</b><br />{t(`knowledge.roles.about.${role}`)}</span>
-              </label>
+              <ChoiceCard key={role} data-testid="role-option" data-role={role}>
+                <RadioInput name="role" value={role} checked={picked === role} onChange={() => setPicked(role)} autoFocus={role === 'everything'} />
+                <ChoiceDescription><Text>{t(`knowledge.roles.names.${role}`)}</Text><br />{t(`knowledge.roles.about.${role}`)}</ChoiceDescription>
+              </ChoiceCard>
             ))}
-          </div>
-          <p className="m-0 text-muted">{t('knowledge.roles.cardNote')}</p>
-          {error !== null && <p className="m-0 text-small" role="alert" data-testid="role-error">{error}</p>}
-        </div>
-        <div className="flex shrink-0 justify-end gap-2 border-t border-line bg-[var(--surface-menu)] px-5 py-3" data-testid="role-card-footer">
+          </RadioGroup>
+          <Paragraph>{t('knowledge.roles.cardNote')}</Paragraph>
+          {error !== null && <Paragraph role="alert" data-testid="role-error">{error}</Paragraph>}
+        </DialogBody>
+        <DialogFooter data-testid="role-card-footer">
           <Button variant="default" size="default" disabled={working} onClick={() => keep('everything')} data-testid="role-skip">{t('knowledge.roles.skip')}</Button>
-          <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" disabled={working} onClick={() => keep(picked)} data-testid="role-continue">{t('knowledge.roles.continue')}</Button>
-        </div>
-      </div>
-    </div>
+          <Button variant="default" size="default" disabled={working} onClick={() => keep(picked)} data-testid="role-continue">{t('knowledge.roles.continue')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -64,28 +64,25 @@ export function RoleMenu(): ReactElement {
   const settings = useSettings();
   const roles = rolesOf(settings.roles);
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <Button variant="ghost" size="icon" className="size-auto gap-1.5 px-2" aria-label={t('knowledge.roles.menu')} title={t('knowledge.roles.menuTitle')} data-testid="role-menu">
-          <UserRoundIcon aria-hidden="true" className="size-[19px]" />
-          <span className="hidden text-small sm:inline" data-testid="role-current">{t(`knowledge.roles.names.${settings.role}`)}</span>
-        </Button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu">
-          <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.roles.menu')}</DropdownMenuPrimitive.Label>
-          <DropdownMenuPrimitive.Separator className="language-menu-separator" />
-          <DropdownMenuPrimitive.RadioGroup value={settings.role} onValueChange={(role: string) => { chooseRole(role).catch(() => undefined); }}>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <ShellRoleButton aria-label={t('knowledge.roles.menu')} title={t('knowledge.roles.menuTitle')} data-testid="role-menu">
+          <UserRoundIcon aria-hidden="true" size={19} />
+          <ShellRoleLabel data-testid="role-current">{t(`knowledge.roles.names.${settings.role}`)}</ShellRoleLabel>
+        </ShellRoleButton>
+      </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={7}>
+          <DropdownMenuLabel>{t('knowledge.roles.menu')}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup value={settings.role} onValueChange={(role: string) => { chooseRole(role).catch(() => undefined); }}>
             {roles.map((role) => (
-              <DropdownMenuPrimitive.RadioItem key={role} className="language-menu-item" value={role} data-testid="role-choice">
-                <span className="language-menu-check"><DropdownMenuPrimitive.ItemIndicator><CheckIcon aria-hidden="true" className="size-4" /></DropdownMenuPrimitive.ItemIndicator></span>
+              <DropdownMenuRadioItem key={role} value={role} data-testid="role-choice">
                 {t(`knowledge.roles.names.${role}`)}
-              </DropdownMenuPrimitive.RadioItem>
+              </DropdownMenuRadioItem>
             ))}
-          </DropdownMenuPrimitive.RadioGroup>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -96,8 +93,8 @@ export function HelpLink({ products, current }: { products: readonly ProductChoi
   if (own === undefined || own.folder === current) return null;
   const href = `/products/${encodeURIComponent(own.folder)}${WIKI_HOME}`;
   return (
-    <a href={href} aria-label={t('knowledge.help.label')} title={t('knowledge.help.title')} data-testid="help-link" className="inline-flex size-9 items-center justify-center rounded-[var(--radius-control)] text-secondary no-underline hover:bg-[var(--surface-hover)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink">
-      <CircleHelpIcon aria-hidden="true" className="size-[21px]" />
-    </a>
+    <ShellIconLink href={href} aria-label={t('knowledge.help.label')} title={t('knowledge.help.title')} data-testid="help-link">
+      <CircleHelpIcon aria-hidden="true" size={21} />
+    </ShellIconLink>
   );
 }

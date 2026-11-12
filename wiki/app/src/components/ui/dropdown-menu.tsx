@@ -41,3 +41,9 @@ export const DropdownMenuItem = forwardRef<HTMLDivElement, ComponentProps<typeof
     />
   );
 });
+
+export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+export const DropdownMenuRadioItem = forwardRef<HTMLDivElement, ComponentProps<typeof DropdownMenuPrimitive.RadioItem>>(function DropdownMenuRadioItem({ className, children, ...props }, ref) {
+  return <DropdownMenuPrimitive.RadioItem ref={ref} className={cn('relative flex cursor-default select-none items-center gap-2 rounded-[var(--radius-row)] px-2 py-1.5 text-small outline-none data-[highlighted]:bg-[var(--surface-hover)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50', className)} {...props}><span className="grid size-4 place-items-center"><DropdownMenuPrimitive.ItemIndicator>✓</DropdownMenuPrimitive.ItemIndicator></span>{children}</DropdownMenuPrimitive.RadioItem>;
+});
+export const DropdownMenuSeparator = forwardRef<HTMLDivElement, ComponentProps<typeof DropdownMenuPrimitive.Separator>>(function DropdownMenuSeparator({ className, ...props }, ref) { return <DropdownMenuPrimitive.Separator ref={ref} className={cn('my-1 h-px bg-line', className)} {...props} />; });

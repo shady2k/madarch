@@ -30,6 +30,8 @@ export function InlineGroup({ className, ...props }: HTMLAttributes<HTMLDivEleme
 export const CodeFrame = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CodeFrame({ className, ...props }, ref) {
   return <div ref={ref} className={cn('source-view overflow-hidden rounded-[var(--radius-card)] border border-line', className)} {...props} />;
 });
+export function Preformatted(props: HTMLAttributes<HTMLPreElement>) { return <pre {...props} />; }
+
 export function FileTitle(props: HTMLAttributes<HTMLHeadingElement>) {
   return <h1 className="break-all font-mono text-h2" {...props} />;
 }

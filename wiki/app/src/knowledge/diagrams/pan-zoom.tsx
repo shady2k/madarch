@@ -1,3 +1,5 @@
+import { DrawingSurface, Drawing } from '@/components/ui/drawing.js';
+import { Stack, Text } from '@/components/ui/typography.js';
 /**
  * The frame of a diagram that can be moved and scaled: drag to pan (a touch
  * drag along the page's width pans, one along its height scrolls the page),
@@ -120,18 +122,18 @@ export function PanZoom({ width, height, focus, floor = 0.85, label, children, t
   };
 
   return (
-    <div className="dg-frame" data-testid={testId ?? 'pan-zoom'}>
-      <div className="dg-toolbar" role="toolbar" aria-label={label}>
+    <Stack className="dg-frame" data-testid={testId ?? 'pan-zoom'}>
+      <Stack className="dg-toolbar" role="toolbar" aria-label={label}>
         {toolbar}
-        <span className="dg-spacer" />
+        <Text className="dg-spacer" />
         <Button type="button" variant="ghost" size="icon" aria-label={t('knowledge.diagram.zoomOut')} onClick={() => zoom(1 / 1.25, box.w / 2, frameHeight / 2)}><MinusIcon aria-hidden="true" /></Button>
         <Button type="button" variant="ghost" size="icon" aria-label={t('knowledge.diagram.zoomIn')} onClick={() => zoom(1.25, box.w / 2, frameHeight / 2)}><PlusIcon aria-hidden="true" /></Button>
         <Button type="button" variant="ghost" size="icon" aria-label={t('knowledge.diagram.fit')} title={t('knowledge.diagram.fit')} onClick={() => setView(fit(box.w))}><ScanIcon aria-hidden="true" /></Button>
-      </div>
-      <div
+      </Stack>
+      <DrawingSurface
         ref={frame}
         className="dg-viewport"
-        style={{ height: frameHeight }}
+        height={frameHeight}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -143,10 +145,10 @@ export function PanZoom({ width, height, focus, floor = 0.85, label, children, t
           zoom(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX - (rect?.left ?? 0), event.clientY - (rect?.top ?? 0));
         }}
       >
-        <svg className="dg-svg" width="100%" height="100%" role="group" aria-label={label} data-scale={view?.scale.toFixed(3) ?? ''}>
+        <Drawing className="dg-svg" width="100%" height="100%" role="group" aria-label={label} data-scale={view?.scale.toFixed(3) ?? ''}>
           <g transform={view === null ? undefined : `translate(${view.x} ${view.y}) scale(${view.scale})`} data-testid="pan-zoom-content">{children}</g>
-        </svg>
-      </div>
-    </div>
+        </Drawing>
+      </DrawingSurface>
+    </Stack>
   );
 }
